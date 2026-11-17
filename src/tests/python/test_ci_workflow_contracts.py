@@ -2241,7 +2241,8 @@ def test_e40_moves_from_parallel_stages_to_explicit_serial_full_test_stage() -> 
     assert "BTRC_UI2_HOSTED_E40" not in nightly and "CI=true" not in nightly
     assert "BTRC_UI2_HOSTED_E40" not in serial and "CI=true" not in serial
     linux = makefile.split("\ntest-e40-linux:", 1)[1].split("\n\n", 1)[0]
-    assert "$(if $(filter selfhost,$(E40_FRONTEND)),btrcc)" in linux
+    assert "$(E40_BTRCC_BUILD)" in linux
+    assert "E40_BTRCC_BUILD = $(if $(filter selfhost,$(E40_FRONTEND)),$(TEST_BTRCC_BUILD))" in makefile
     assert "python3 -m tools.ui.e40" in linux
     assert "test_native_ui_*.py src/tests/python/test_native_ui2_*.py" in makefile
 
@@ -2304,7 +2305,7 @@ def test_e40_hosted_admission_is_confined_to_its_dedicated_workflow_step() -> No
     assert steps["macos-e40-diagnostic"]["name"] == "Observe exactly two existing native tracking cases"
     recipe = _makefile_recipe((REPO / "Makefile").read_text(), "test-e40-macos")
     assert "BTRC_UI2_HOSTED_E40" not in recipe and "CI=true" not in recipe
-    assert "$(if $(filter selfhost,$(E40_FRONTEND)),btrcc)" in recipe
+    assert "$(E40_BTRCC_BUILD)" in recipe
     assert "env $(E40_BTRCC) python3 -m tools.ui.e40 --provider macos" in recipe
 
 
@@ -2590,11 +2591,13 @@ def test_unit_make_recipe_reuses_the_compiler_and_preserves_gui_coverage(tmp_pat
         "gpu-required",
         "-o",
         "btrcc",
+        "-o",
+        "test-btrcc",
         "NIX=",
         f"PYTEST={shlex.quote(sys.executable)} {shlex.quote(str(capture))}",
         "PYTEST_ARGS=",
         "SKIP_GATE=true",
-        f"BTRCC_NATIVE={compiler}",
+        f"TEST_BTRCC={compiler}",
         "GUI_SESSION=x11",
         "test-shard-unit",
         "print-gui-selectors",
@@ -2620,7 +2623,7 @@ def test_unit_make_recipe_reuses_the_compiler_and_preserves_gui_coverage(tmp_pat
     # The extra audio configuration assertion remains in unit as well as GUI.
     assert "src/tests/python/test_build_safety.py::test_devcontainer_installs_the_null_alsa_pcm" in dedicated
     recipe = _makefile_recipe((REPO / "Makefile").read_text(), "test-shard-unit")
-    assert "btrcc" in recipe.splitlines()[0].split("##")[0].split()
+    assert "$(TEST_BTRCC_BUILD)" in recipe.splitlines()[0].split("##")[0].split()
 
 
 def test_only_planned_platform_unit_jobs_receive_gui_delegation():

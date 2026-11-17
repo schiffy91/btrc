@@ -107,15 +107,60 @@ def test_fast_tier_runs_without_the_selfhost_compiler_or_a_display():
     assert " -n 8" in _make_dry_run("test-fast", "NIX=", "FAST_WORKERS=8")
 
 
+# Linux gates take the suite's compiler from its one cache. macOS shards keep the product
+# build, whose entry point composes the SDK digest provider the hosted jobs qualify.
+SUITE_COMPILER = REPO_ROOT / ("bin/btrcc" if platform.system() == "Darwin" else "build/btrcc-test/btrcc")
+SUITE_COMPILER_BUILD = "Built bin/btrcc" if platform.system() == "Darwin" else "src.tests.selfhost_cache ensure"
+
+
 def test_unit_shard_builds_and_shares_the_selfhost_compiler():
     output = _make_dry_run("test-shard-unit", "NIX=", "--always-make")
     commands = output.splitlines()
-    compiler = next(index for index, line in enumerate(commands) if "Built bin/btrcc" in line)
+    compiler = next(index for index, line in enumerate(commands) if SUITE_COMPILER_BUILD in line)
     tests = next(index for index, line in enumerate(commands) if "-m pytest src/tests/" in line)
 
     assert compiler < tests
-    assert f'BTRC_TEST_BTRCC="{REPO_ROOT / "bin/btrcc"}"' in commands[tests]
+    assert f'BTRC_TEST_BTRCC="{SUITE_COMPILER}"' in commands[tests]
     assert "--ignore=src/tests/btrc --ignore=src/tests/runner.py" in output
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "test-shard-unit",
+        "test-shard-btrc",
+        "test-shard-corpus-btrc",
+        "test-shard-gui",
+        "test-native-gui",
+        "test-c11-one",
+        "test-c11",
+        "test-e40-linux E40_FRONTEND=selfhost",
+    ],
+)
+def test_every_gate_takes_its_selfhost_compiler_from_one_build(target):
+    """On Linux that build is the suite's cache: no test target builds a second compiler into bin/."""
+
+    output = _make_dry_run(*target.split(), "NIX=", "--always-make").replace("\\\n", " ")
+    lines = output.splitlines()
+    build = next(index for index, line in enumerate(lines) if SUITE_COMPILER_BUILD in line)
+    if platform.system() != "Darwin":
+        assert "Built bin/btrcc" not in output and "tools.compiler_build" not in output
+    if target == "test-c11":
+        return  # Its cells are sub-makes; test-c11-one is the cell.
+    consumer = next(index for index, line in enumerate(lines) if "BTRC_TEST_BTRCC=" in line)
+    assert build < consumer
+    assert f'BTRC_TEST_BTRCC="{SUITE_COMPILER}"' in lines[consumer]
+
+
+def test_the_main_gate_resolves_the_same_cache_through_its_fixture():
+    # `make test` hands pytest no compiler: the fixture builds or reuses the cache entry `test-btrcc` names.
+    output = _make_dry_run("test", "NIX=")
+    assert "BTRC_TEST_BTRCC" not in output and "Built bin/btrcc" not in output
+    conftest = (REPO_ROOT / "src/tests/conftest.py").read_text()
+    assert "SelfhostCompilerCache.configured().compiler_binary()" in conftest
+    assert "src.compiler.python.main" not in conftest
+    ensure = _make_dry_run("test-btrcc", "NIX=")
+    assert "python3 -m src.tests.selfhost_cache ensure" in ensure
 
 
 @pytest.mark.parametrize("inherited_delegation", ["0", "1"])

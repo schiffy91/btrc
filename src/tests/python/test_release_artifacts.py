@@ -74,8 +74,8 @@ def test_production_test_targets_require_gpu_and_cover_both_compilers() -> None:
     c11_recipe = makefile.split("test-c11:", 1)[1].split("test-generate-goldens:", 1)[0]
 
     assert "gpu-required" in test_rule
-    assert "gpu-required" in c11_rule and "btrcc" in c11_rule
-    assert 'SHARD_BTRCC := env BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))"' in makefile
+    assert "gpu-required" in c11_rule and "$(TEST_BTRCC_BUILD)" in c11_rule
+    assert 'SHARD_BTRCC := env BTRC_TEST_BTRCC="$(abspath $(TEST_BTRCC))"' in makefile
     assert "test-c11-one C11_CC=$$cc C11_OPT=$$opt" in c11_recipe and "$(SHARD_BTRCC)" in c11_recipe
     assert "--compilers=python,btrc" in c11_recipe
     test_command = next(

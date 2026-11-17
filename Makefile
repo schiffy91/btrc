@@ -1,6 +1,6 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-release-c-linux btrcc-release-c-macos btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required \
-        test test-fast test-nightly test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
+        test test-fast test-nightly test-btrcc test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         skip-gate qualification-report \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -291,6 +291,25 @@ gpu-required: gpu ## Require the compiler's WebGPU compute runtime
 		}; \
 		$(HOST_AR) t "$$archive" | grep -q "btrc_gpu_async\\.o$$"'
 
+# ─── The suite's self-hosted compiler ───────────────────────────────────────
+# One content-addressed cache serves every gate (src/tests/selfhost_cache.py):
+# `make test` takes its compiler from it through the fixture, and the shard,
+# strict-C11 and E40 targets through `test-btrcc`, which builds or reuses the
+# tree's compiler there and points build/btrcc-test at it. So `make test`,
+# `make test-c11` and every shard of one tree share one build; `bin/btrcc`
+# (`make btrcc`) is the product build, which the benchmarks and releases use.
+# BTRC_TEST_COMPILER_CACHE names the cache when checkouts share one; the
+# default is this checkout's build/test-btrcc. TEST_BTRCC=<path> hands the
+# shards a compiler built elsewhere (with `-o test-btrcc` to skip the build).
+#
+# On macOS the shards keep the product build: it is generated from
+# cli/MacOSMain.btrc, which composes the SDK digest provider the hosted jobs
+# qualify, where the cache holds the portable entry point `make test` uses.
+TEST_BTRCC_BUILD := $(if $(filter Darwin,$(shell uname -s)),btrcc,test-btrcc)
+TEST_BTRCC := $(if $(filter Darwin,$(shell uname -s)),$(BTRCC_NATIVE),build/btrcc-test/btrcc)
+test-btrcc: generated-check ## Build or reuse the suite's self-hosted compiler in its cache -> build/btrcc-test
+	$(NIX) python3 -m src.tests.selfhost_cache ensure
+
 # ─── Test ────────────────────────────────────────────────────────────────────
 
 test: generated-check test-boundaries gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
@@ -343,16 +362,17 @@ E40_FRONTEND ?= python
 E40_VARIANT ?= plain
 E40_SESSION ?= x11
 E40_CELL := $(E40_SESSION)-$(E40_FRONTEND)-$(E40_VARIANT)
-E40_BTRCC := $(if $(filter selfhost,$(E40_FRONTEND)),BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))")
+E40_BTRCC = $(if $(filter selfhost,$(E40_FRONTEND)),BTRC_TEST_BTRCC="$(abspath $(TEST_BTRCC))")
+E40_BTRCC_BUILD = $(if $(filter selfhost,$(E40_FRONTEND)),$(TEST_BTRCC_BUILD))
 
-test-e40-linux: generated-check gpu-required $(if $(filter selfhost,$(E40_FRONTEND)),btrcc) ## Qualify one serial Linux E40 cell with exact collection and evidence checks
+test-e40-linux: generated-check gpu-required $(E40_BTRCC_BUILD) ## Qualify one serial Linux E40 cell with exact collection and evidence checks
 	$(NIX) env $(E40_BTRCC) BTRC_VIRTUAL_DISPLAY=$(E40_SESSION) tools/virtual-display.sh \
 		python3 -m tools.ui.e40 --frontend $(E40_FRONTEND) --variant $(E40_VARIANT) --session $(E40_SESSION)
 	$(NIX) $(SKIP_GATE) build/skip-report-e40-$(E40_CELL).json
 
 # The hosted workflow supplies both admission variables. A local invocation
 # never acquires visibility merely by choosing this target.
-test-e40-macos: generated-check gpu-required $(if $(filter selfhost,$(E40_FRONTEND)),btrcc) ## Qualify one hosted AppKit E40 cell (E40_FRONTEND=reference|selfhost)
+test-e40-macos: generated-check gpu-required $(E40_BTRCC_BUILD) ## Qualify one hosted AppKit E40 cell (E40_FRONTEND=reference|selfhost)
 	$(NIX) env $(E40_BTRCC) python3 -m tools.ui.e40 --provider macos --frontend $(E40_FRONTEND) --variant $(E40_VARIANT)
 	$(NIX) $(SKIP_GATE) build/skip-report-e40-macos-$(E40_FRONTEND)-$(E40_VARIANT).json
 
@@ -384,7 +404,7 @@ bootstrap: generated-check ## Prove the self-hosted compiler reproduces itself b
 
 C11_COMPILERS := gcc clang
 C11_LEVELS := O0 O1 O2 O3
-test-c11: generated-check gpu-required btrcc ## Strict C11: both compilers with gcc + clang at -O0 through -O3
+test-c11: generated-check gpu-required $(TEST_BTRCC_BUILD) ## Strict C11: both compilers with gcc + clang at -O0 through -O3
 	@for cc in $(C11_COMPILERS); do \
 		for opt in $(C11_LEVELS); do \
 			$(MAKE) --no-print-directory test-c11-one C11_CC=$$cc C11_OPT=$$opt || exit 1; \
@@ -394,16 +414,16 @@ test-c11: generated-check gpu-required btrcc ## Strict C11: both compilers with 
 
 # ─── CI shards ──────────────────────────────────────────────────────────────
 # One parallel CI job each; together they cover exactly what `test` and
-# `test-c11` cover. The self-host compiler is built once per shard (bin/btrcc)
-# and handed to every test through BTRC_TEST_BTRCC instead of being rebuilt
-# by each pytest session.
+# `test-c11` cover. Each takes the suite's self-host compiler ($(TEST_BTRCC))
+# and hands it to every test through BTRC_TEST_BTRCC, so a shard that sets
+# BTRC_CC for the programs under test does not build a second compiler with it.
 # `env` because the shard recipes run this through $(NIX): `nix develop
 # --command` execs its arguments without a shell, so a bare VAR=value would
 # be taken as the program to run. With NIX= (CI in the devcontainer) env is
 # a harmless no-op.
-SHARD_BTRCC := env BTRC_TEST_BTRCC="$(abspath $(BTRCC_NATIVE))"
+SHARD_BTRCC := env BTRC_TEST_BTRCC="$(abspath $(TEST_BTRCC))"
 
-test-shard-unit: generated-check gpu-required btrcc ## CI shard: everything but the self-host and corpus suites
+test-shard-unit: generated-check gpu-required $(TEST_BTRCC_BUILD) ## CI shard: everything but the self-host and corpus suites
 	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/ \
 		--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json $(UNIT_GUI_ARGS) $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-unit.json
@@ -423,14 +443,14 @@ NATIVE_GUI_TESTS := $(addprefix src/tests/python/,test_native_gui_runtime.py tes
 UNIT_GUI_DELEGATED ?= 0
 UNIT_GUI_ARGS = $(if $(filter 1,$(UNIT_GUI_DELEGATED)),$(addprefix --ignore=,$(NATIVE_GUI_TESTS)))
 
-test-native-gui: generated-check btrcc ## Focused gate: the native GUI, tray and provider suites only
+test-native-gui: generated-check $(TEST_BTRCC_BUILD) ## Focused gate: the native GUI, tray and provider suites only
 	$(NIX) $(SHARD_BTRCC) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-native-gui.json
 
 # Hosted macOS splits the same complete selection across isolated runners.
 # The standalone test-native-gui target above still executes every selected test.
 MACOS_GUI_DIR = build/macos-gui/macos-$(GUI_PARTITION)
-test-shard-gui-macos: generated-check btrcc ## CI shard: one exact partition of the hosted macOS GUI selection
+test-shard-gui-macos: generated-check $(TEST_BTRCC_BUILD) ## CI shard: one exact partition of the hosted macOS GUI selection
 	$(NIX) $(SHARD_BTRCC) python3 -m tools.ui.gui_shards run --session macos --index $(GUI_PARTITION) --count $(GUI_PARTITIONS) \
 		--output $(MACOS_GUI_DIR) --skip-report build/skip-report-native-gui-macos-$(GUI_PARTITION).json \
 		--selectors $(NATIVE_GUI_TESTS) -- $(PYTEST_ARGS) -n $(PYTEST_WORKERS) -m "not e40_qualification"
@@ -460,7 +480,7 @@ GUI_SHARD_X11_ONLY := src/tests/python/test_native_ui_sdl_clipboard_requestor.py
 GUI_SHARD_TESTS := $(if $(filter wayland,$(GUI_SESSION)),$(filter-out $(GUI_SHARD_X11_ONLY),$(NATIVE_GUI_TESTS)),$(NATIVE_GUI_TESTS)) \
 	src/tests/python/test_build_safety.py::test_devcontainer_installs_the_null_alsa_pcm
 
-test-shard-gui: generated-check gpu-required btrcc ## CI shard: native GUI and Linux audio under one headless session (GUI_SESSION=x11|wayland)
+test-shard-gui: generated-check gpu-required $(TEST_BTRCC_BUILD) ## CI shard: native GUI and Linux audio under one headless session (GUI_SESSION=x11|wayland)
 	$(NIX) $(SHARD_BTRCC) BTRC_TEST_RUNNER=linux-devcontainer ALSA_CONFIG_PATH="$(abspath nix/asound.conf)" tools/ui/headless-session.sh --$(GUI_SESSION) -- \
 		python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py --output $(GUI_SHARD_DIR) -- \
 		python3 -m tools.ui.gui_shards run --session $(GUI_SESSION) --index $(GUI_PARTITION) --count $(GUI_PARTITIONS) \
@@ -468,7 +488,7 @@ test-shard-gui: generated-check gpu-required btrcc ## CI shard: native GUI and L
 		--selectors $(GUI_SHARD_TESTS) -- $(PYTEST_ARGS) -n $(GUI_PYTEST_WORKERS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-gui-$(GUI_CELL).json
 
-test-shard-btrc: generated-check gpu-required btrcc ## CI shard: self-host contract tests
+test-shard-btrc: generated-check gpu-required $(TEST_BTRCC_BUILD) ## CI shard: self-host contract tests
 	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/btrc/ \
 		--ignore=src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report-btrc.json $(PYTEST_ARGS)
 	$(NIX) $(SKIP_GATE) build/skip-report-btrc.json
@@ -477,7 +497,7 @@ test-shard-corpus-python: generated-check gpu-required ## CI shard: language cor
 	$(NIX) $(PYTEST) src/tests/runner.py --compilers=python --skip-report=build/skip-report-corpus-python.json $(PYTEST_ARGS)
 	$(NIX) $(SKIP_GATE) build/skip-report-corpus-python.json
 
-test-shard-corpus-btrc: generated-check gpu-required btrcc ## CI shard: language corpus through the self-hosted compiler
+test-shard-corpus-btrc: generated-check gpu-required $(TEST_BTRCC_BUILD) ## CI shard: language corpus through the self-hosted compiler
 	$(NIX) $(SHARD_BTRCC) $(PYTEST) src/tests/runner.py --compilers=btrc \
 		--skip-report=build/skip-report-corpus-btrc.json $(PYTEST_ARGS)
 	$(NIX) $(SKIP_GATE) build/skip-report-corpus-btrc.json
@@ -486,7 +506,7 @@ test-shard-bootstrap: generated-check test-boundaries gpu-required bootstrap ## 
 
 C11_CC ?= gcc
 C11_OPT ?= O2
-test-c11-one: generated-check gpu-required btrcc ## One strict-C11 configuration: C11_CC=gcc|clang C11_OPT=O0..O3
+test-c11-one: generated-check gpu-required $(TEST_BTRCC_BUILD) ## One strict-C11 configuration: C11_CC=gcc|clang C11_OPT=O0..O3
 	$(NIX) bash -c '\
 		echo "=== $(C11_CC) -std=c11 -$(C11_OPT) ===" && \
 		$(SHARD_BTRCC) BTRC_CC=$(C11_CC) \
@@ -634,7 +654,7 @@ devcontainer: ## Generate .devcontainer/ and build image (DEVCONTAINER_OUTPUT=de
 clean: ## Remove all build artifacts
 	rm -rf bin/ dist/ .btrc-cache/ .devcontainer/
 	rm -rf .pytest_cache/ .ruff_cache/ htmlcov/ .coverage .coverage.* coverage.json coverage.xml
-	rm -rf build/generated/ build/devex/vscode/ build/stdlib/ build/out/ build/lib/ build/bdist.*/ build/btrcc/ build/test-btrcc/ build/temp.*/
+	rm -rf build/generated/ build/devex/vscode/ build/stdlib/ build/out/ build/lib/ build/bdist.*/ build/btrcc/ build/test-btrcc/ build/btrcc-test build/temp.*/
 	rm -rf btrc.egg-info/ src/btrc.egg-info/
 	find src examples tools -type d \( -name __pycache__ -o -name .pytest_cache \) -prune -exec rm -rf {} +
 	find src examples tools -type d -name '*.dSYM' -prune -exec rm -rf {} +
