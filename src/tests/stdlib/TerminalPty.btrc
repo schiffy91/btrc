@@ -55,11 +55,14 @@ int main() {
 	testSignalAction.sa_handler = countPasswordInterrupt;
 	assert(sigemptyset(&testSignalAction.sa_mask) == 0);
 	assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
+	pid_t promptOwner = getpid();
 	pid_t interruptChild = fork();
 	assert(interruptChild >= (pid_t)0);
 	if (interruptChild == (pid_t)0) {
 		poll(NULL, (nfds_t)0, 100);
-		kill(getppid(), SIGTERM);
+		/* Were this program gone, the parent would be the session's process reaper. */
+		pid_t promptParent = getppid();
+		if (promptParent == promptOwner) { kill(promptOwner, SIGTERM); }
 		_exit(0);
 	}
 	assert(Terminal.promptPassword("interrupt secret: ").isEmpty());

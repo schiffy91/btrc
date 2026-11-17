@@ -338,7 +338,10 @@ def test_a_program_cannot_forge_its_outcome_on_stderr(tmp_path, built):
 
 
 def test_a_supervisor_killed_from_outside_is_an_infrastructure_error(tmp_path, built):
-    killer = script(tmp_path, "killer", 'kill -9 "$PPID"; sleep 5\n')
+    # The program's parent is the supervisor; were that gone, it would be the session's process reaper.
+    killer = script(
+        tmp_path, "killer", 'case "$(ps -o comm= -p "$PPID")" in *supervisor) kill -9 "$PPID" ;; esac; sleep 5\n'
+    )
     executor, _ = executor_for(tmp_path, built)
     executor.prepare(write_bundle(tmp_path / "bundle", {"killer": killer}), "android-x86_64")
     try:

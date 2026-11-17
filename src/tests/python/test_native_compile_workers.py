@@ -23,6 +23,35 @@ REPO = Path(__file__).resolve().parents[3]
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="real POSIX compiler-parent fault injection")
 
 
+def write_compiler(path, clang, log, crash, hold, *, owner):
+    """A compiler that records the process running it, and kills that process when `crash` exists.
+
+    A script whose worker is already gone has the session's process reaper for
+    a parent (on a desktop, the user's service manager), so it signals its
+    parent only when that process descends from `owner`, the test's own pid.
+    """
+
+    path.write_text(
+        "#!/bin/sh\nset -eu\n"
+        "started_by_the_test() {\n  process=$1\n"
+        '  while [ -n "$process" ] && [ "$process" -gt 1 ]; do\n'
+        f'    if [ "$process" = {owner} ]; then return 0; fi\n'
+        '    if [ -r "/proc/$process/stat" ]; then\n'
+        "      process=$(sed 's/^.*) [^ ]* \\([0-9]*\\) .*$/\\1/' \"/proc/$process/stat\")\n"
+        "    else\n      process=$(ps -o ppid= -p \"$process\" | tr -d ' ')\n    fi\n"
+        "  done\n  return 1\n}\n"
+        'for argument do\n  if [ "$argument" = -E ]; then\n'
+        f'    printf "%s\\n" "$PPID" >> {shlex.quote(str(log))}\n'
+        f"    if [ -f {shlex.quote(str(crash))} ]; then\n"
+        '      if started_by_the_test "$PPID"; then kill -KILL "$PPID"; fi\n'
+        "      exit 0\n    fi\n"
+        f"    while [ -f {shlex.quote(str(hold))} ]; do sleep 0.02; done\n"
+        "  fi\ndone\n"
+        f'exec {shlex.quote(clang)} "$@"\n'
+    )
+    path.chmod(0o755)
+
+
 @pytest.fixture
 def project(tmp_path):
     clang = HOST_CLANG
@@ -46,16 +75,7 @@ def project(tmp_path):
     crash = tmp_path / "crash-worker"
     hold = tmp_path / "hold-workers"
     compiler = tmp_path / "compiler"
-    compiler.write_text(
-        "#!/bin/sh\nset -eu\n"
-        'for argument do\n  if [ "$argument" = -E ]; then\n'
-        f'    printf "%s\\n" "$PPID" >> {shlex.quote(str(log))}\n'
-        f'    if [ -f {shlex.quote(str(crash))} ]; then kill -KILL "$PPID"; exit 0; fi\n'
-        f"    while [ -f {shlex.quote(str(hold))} ]; do sleep 0.02; done\n"
-        "  fi\ndone\n"
-        f'exec {shlex.quote(clang)} "$@"\n'
-    )
-    compiler.chmod(0o755)
+    write_compiler(compiler, clang, log, crash, hold, owner=os.getpid())
     options = dict(
         plan_path=plan,
         generated_c=source,
@@ -82,6 +102,31 @@ def project(tmp_path):
         return child.pid, subprocess.CompletedProcess(command, child.returncode, stdout, stderr), parents
 
     return options, parts, log, crash, report, run, command
+
+
+@pytest.mark.parametrize("started_by_the_test", [True, False])
+def test_crashing_compiler_signals_only_a_process_the_test_started(tmp_path, started_by_the_test):
+    """The worker crash is `kill -KILL "$PPID"`; an orphaned script's parent is not the test's to kill."""
+
+    bystander = subprocess.Popen(["sleep", "60"])
+    try:
+        compiler, crash = tmp_path / "compiler", tmp_path / "crash-worker"
+        owner = os.getpid() if started_by_the_test else bystander.pid
+        write_compiler(compiler, "true", tmp_path / "parents", crash, tmp_path / "hold-workers", owner=owner)
+        crash.touch()
+        parent = subprocess.run(
+            ["/bin/sh", "-c", f"{shlex.quote(str(compiler))} -E; echo spared"],
+            capture_output=True,
+            text=True,
+            timeout=TOOL_TIMEOUT,
+        )
+    finally:
+        bystander.kill()
+        bystander.wait(timeout=TOOL_TIMEOUT)
+    if started_by_the_test:
+        assert parent.returncode == -signal.SIGKILL and parent.stdout == ""
+    else:
+        assert (parent.returncode, parent.stdout) == (0, "spared\n")
 
 
 def test_cli_reuses_objects_with_bounded_separate_workers(project):
