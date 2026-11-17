@@ -304,6 +304,10 @@ jobs:
         with:
           use-flakehub: false
       - run: make devcontainer
+      # The artifact's directory is made here, by the runner's user: the
+      # container's user creates the rest of build/, and the runner's cannot
+      # add a directory to one that is not its own.
+      - run: mkdir -p build/ci-prepared
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-test
       - run: tools/ci-prepared.sh save build/ci-prepared

@@ -92,3 +92,37 @@ def test_the_script_names_its_two_actions(tmp_path, runner, arguments):
     result = run(tmp_path / "checkout", *arguments)
     assert result.returncode == 64 and "usage: tools/ci-prepared.sh save|restore <directory>" in result.stderr
     assert not log.exists()
+
+
+def test_save_works_in_a_build_directory_the_containers_user_made(tmp_path, runner):
+    """On a runner the container creates build/, and the job's user may not add to it.
+
+    The first hosted run failed there: `save` made its directory itself and
+    got "mkdir: Permission denied". The prepare job now makes the directory
+    before the container runs; `save` then only fills it.
+    """
+
+    run, _log, _tools = runner
+    checkout = tmp_path / "checkout"
+    compiler = checkout / "build" / "test-btrcc" / "aaaa" / "btrcc"
+    compiler.parent.mkdir(parents=True)
+    compiler.write_text("compiler")
+    prepared = checkout / "build" / "ci-prepared"
+    prepared.mkdir()
+    (checkout / "build").chmod(0o555)  # as the runner's user finds what another user created
+    try:
+        saved = run(checkout, "save", "build/ci-prepared")
+        assert saved.returncode == 0, saved.stderr
+        assert sorted(path.name for path in prepared.iterdir()) == ["devcontainer.tar.gz", "test-btrcc.tar.gz"]
+        # Without the directory the save cannot make it, which is what the workflow's own step is for.
+        # (Root may write anywhere, so there is nothing to refuse it.)
+        if os.geteuid() != 0:
+            for archive in prepared.iterdir():
+                archive.unlink()
+            (checkout / "build").chmod(0o755)
+            prepared.rmdir()
+            (checkout / "build").chmod(0o555)
+            refused = run(checkout, "save", "build/ci-prepared")
+            assert refused.returncode != 0 and "Permission denied" in refused.stderr
+    finally:
+        (checkout / "build").chmod(0o755)

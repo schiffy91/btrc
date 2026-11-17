@@ -1243,8 +1243,11 @@ def test_one_job_builds_the_image_and_the_compiler_for_every_linux_job_of_the_ru
     # It runs exactly when a job that restores its artifact does.
     assert prepare["if"] == "${{ " + " || ".join(f"contains({PLAN}.jobs, '{name}')" for name in PREPARED_JOBS) + " }}"
     commands = [step["run"] for step in prepare["steps"] if "run" in step]
+    # The runner's user makes the artifact's directory before the container's user creates the rest of
+    # build/: the first hosted run failed at `save` with "mkdir: Permission denied".
     assert commands == [
         "make devcontainer",
+        "mkdir -p build/ci-prepared",
         "chmod -R a+w .",
         'podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-test',
         "tools/ci-prepared.sh save build/ci-prepared",
