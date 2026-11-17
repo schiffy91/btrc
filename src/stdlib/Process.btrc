@@ -1933,15 +1933,18 @@ class BackgroundProcess {
 #endif
 	}
 
+	/* The child is killed and reaped, and its status is not kept: an object
+	 * that is being destroyed cannot take a new managed field, and nothing
+	 * can read one. A pid that is not a child's would name a process group
+	 * (0) or every process the user may signal (-1). */
 	public void __del__() {
-		if (self.killOnDrop && self.exitStatus == null) {
+		if (self.killOnDrop && self.exitStatus == null && self.childPid > 0) {
 #if !defined(_WIN32)
 			if (kill((pid_t)(0 - self.childPid), SIGKILL) != 0) {
 				kill((pid_t)self.childPid, SIGKILL);
 			}
 			int raw = 0;
 			while (waitpid((pid_t)self.childPid, &raw, 0) < (pid_t)0 && errno == EINTR) {}
-			self.exitStatus = ProcessStatus(raw);
 #endif
 		}
 	}

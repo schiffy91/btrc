@@ -51,6 +51,7 @@ cites = "docs/design/platform-inventory.toml#corpus.gpu"
 # app cannot start a child process; the explicit mobile refusal is CX-P2-06.
 [[programs]]
 paths = [
+    "stdlib/BackgroundProcessDrop.btrc",
     "stdlib/ChildProcess*.btrc",
     "stdlib/Daemon.btrc",
     "stdlib/DaemonPosix.btrc",
@@ -92,6 +93,14 @@ targets = ["windows-x86_64", "windows-aarch64"]
 status = "restricted"
 scope = "build"
 reason = "POSIX descriptor contracts (descriptor-limit closing after fork, fcntl leases, fexecve); Windows refuses descriptor-backed launches with the platform-adaptations row 1 diagnostic and passes the child only its three stdio handles through STARTUPINFOEX's handle list, both checked natively by test_windows_process.py and test_windows_launch_seam.py"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/BackgroundProcessDrop.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "run"
+reason = "drives POSIX children by pid (sleep, true, and `kill -0` through sh) to show that a dropped handle kills and reaps its child; the handle's kill-on-drop is a POSIX signal and wait, with no Windows form in BackgroundProcess"
 cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
 
 [[programs]]

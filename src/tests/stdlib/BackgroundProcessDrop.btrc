@@ -1,0 +1,52 @@
+/* A BackgroundProcess that owns its child (killOnDrop) kills and reaps it when
+ * the handle is dropped, also while the child is still running: the program
+ * goes on, nothing is written to stderr, and no child is left. */
+
+import Library.Process;
+import Library.Testing;
+
+class Server {
+	private BackgroundProcess? process = null;
+
+	public Server() { self.process = BackgroundProcess.start("sleep", ["60"], killOnDrop=true); }
+
+	public int pid() {
+		var process = self.process;
+		if (process == null) { return -1; }
+		return process.pid();
+	}
+}
+
+/* Signal 0 reaches a zombie too, so a child that was killed and not reaped still counts as left. */
+bool exists(int pid) { return ChildProcess.run("sh", ["-c", f"kill -0 {pid}"]).code == 0; }
+
+int dropRunningHandle() {
+	var child = BackgroundProcess.start("sleep", ["60"], killOnDrop=true);
+	Expect.isTrue(child.running(), "the child runs while its handle is held");
+	return child.pid();
+}
+
+int dropRunningOwner() {
+	var server = Server();
+	Expect.isTrue(exists(server.pid()), "the owner's child runs while the owner lives");
+	return server.pid();
+}
+
+int dropFinishedHandle() {
+	var child = BackgroundProcess.start("true", killOnDrop=true);
+	Expect.intEq((long long)child.wait(), 0LL, "the child's own exit status");
+	return child.pid();
+}
+
+int main() {
+	int handle = dropRunningHandle();
+	Expect.isTrue(handle > 0, "a started child has a pid");
+	Expect.isFalse(exists(handle), "a dropped handle leaves no child");
+
+	int owned = dropRunningOwner();
+	Expect.isFalse(exists(owned), "an owner that drops its handle leaves no child");
+
+	Expect.isFalse(exists(dropFinishedHandle()), "a child that was waited for is not signalled again");
+	print("PASS");
+	return 0;
+}
