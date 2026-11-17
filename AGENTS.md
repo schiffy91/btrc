@@ -602,6 +602,11 @@ make clean                Remove build artifacts
 
 Run `make help` for the canonical, complete target list.
 
+On a Linux desktop run a gate through `tools/headless-gate.sh` (`tools/headless-gate.sh nix develop
+--command make NIX= test`): it takes the session's display, runtime directory and compiler variables
+away, so no test reaches the desktop, and it is the environment the `linux` expected-skip manifest
+qualifies. With the session's display in the environment `make test` drives real windows there.
+
 ---
 
 ## Hard Rules (Summary)

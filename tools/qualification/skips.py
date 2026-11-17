@@ -14,8 +14,9 @@ runners, which ``macos.yml`` names), ``linux-hosted`` (direct hosted Ubuntu
 test sessions, including the provisioned Android JNI harness),
 ``linux-devcontainer`` (the CI and
 ``make linux-ci`` container), ``linux`` (a physical Linux desktop outside any
-container, PLAN D7's acceptance host; it has no manifest until that host
-runs), ``windows``, and later the ``ios`` and
+container, PLAN D7's acceptance host; its manifest qualifies the headless
+``make test`` there, and the real X11 and Wayland session check stays
+uncovered until that host runs it), ``windows``, and later the ``ios`` and
 ``android`` executors. A run names its runner through ``BTRC_TEST_RUNNER``,
 or it is detected from the host; a Darwin host detects as ``macos``, so a
 hosted runner must name itself. Each runner's manifest is

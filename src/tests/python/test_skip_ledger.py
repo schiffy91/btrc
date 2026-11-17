@@ -119,11 +119,11 @@ def _rule(**overrides) -> dict:
 def test_every_tracked_manifest_is_valid_and_named_for_a_known_runner():
     manifests = {path.stem: ExpectedSkipManifest.load(path) for path in sorted(MANIFEST_ROOT.glob("*.json"))}
 
-    assert {"macos", "macos-hosted", "linux-hosted", "linux-devcontainer", "windows"} <= set(manifests)
+    assert {"macos", "macos-hosted", "linux-hosted", "linux-devcontainer", "linux", "windows"} <= set(manifests)
     assert set(manifests) <= set(RUNNERS)
     assert all(
         manifests[runner].enforce
-        for runner in ("macos", "macos-hosted", "linux-hosted", "linux-devcontainer", "windows")
+        for runner in ("macos", "macos-hosted", "linux-hosted", "linux-devcontainer", "linux", "windows")
     )
     for manifest in manifests.values():
         for rule in manifest.rules:
@@ -517,6 +517,58 @@ def test_only_the_hosted_runner_expects_the_e40_presentation_trials_to_skip():
         if path.exists():
             manifest = ExpectedSkipManifest.load(path)
             assert not any(manifest.classify(node, E40_NO_PRESENTATION) for node in MacOSE40Cases.all_nodes()), runner
+
+
+def test_the_native_linux_manifest_qualifies_the_headless_gate_and_leaves_the_desktop_check_uncovered():
+    """`make test` on a Linux desktop outside any container, run without the session's display."""
+
+    native = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux.json")
+    container = ExpectedSkipManifest.load(MANIFEST_ROOT / "linux-devcontainer.json")
+    rules = {rule.id: rule for rule in native.rules}
+    shared = {rule.id: rule for rule in container.rules if rule.id != "linux-real-desktop-session"}
+    # The same platform, SDK and provider facts hold in and out of the container, rule for rule.
+    for name, rule in shared.items():
+        assert (rules[name].files, rules[name].nodes, rules[name].reason.pattern, rules[name].category) == (
+            rule.files,
+            rule.nodes,
+            rule.reason.pattern,
+            rule.category,
+        ), name
+    assert set(rules) - set(shared) == {
+        "native-gui-no-display",
+        "native-audio-no-device",
+        "linux-real-desktop-session-headless",
+    }
+
+    # Without a display the Linux GUI suites skip here; the container runs every one of them under Xvfb.
+    no_display = "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY"
+    gui = native.classify("src/tests/python/test_native_ui_core_linux.py::test_case[plain-python]", no_display)
+    assert gui is rules["native-gui-no-display"] and gui.category == "capability"
+    assert gui.covered_by == ("linux-devcontainer",) and gui.gating_env == ("DISPLAY", "WAYLAND_DISPLAY")
+    assert (
+        container.classify("src/tests/python/test_native_ui_core_linux.py::test_case[plain-python]", no_display) is None
+    )
+
+    # Nor does it have a sound device; the container's Linux GUI and audio shard has the null PCM.
+    audio = native.classify(
+        "src/tests/python/test_native_linux_providers.py::test_linux_audio_session[False-python]",
+        "native audio backend is unavailable: cannot open default ALSA PCM (Host is down)",
+    )
+    assert audio is rules["native-audio-no-device"] and audio.covered_by == ("linux-devcontainer",)
+
+    # The real-session check is this runner's own test. The headless gate cannot run it, and nothing
+    # else does: the manifest says so (no covering runner) instead of claiming it, as the container's
+    # rule claims it of this runner.
+    node = "src/tests/python/test_native_ui_shell_linux.py::test_linux_real_desktop_session"
+    reason = (
+        "requires a physical Linux desktop session (awaiting hardware); run: nix develop --command "
+        "tools/ui/linux-desktop-check.sh --artifacts <dir> > linux-desktop-check.json"
+    )
+    desktop = native.classify(node, reason)
+    assert desktop is rules["linux-real-desktop-session-headless"]
+    assert desktop.category == "capability" and desktop.covered_by == ()
+    assert container.classify(node, reason).covered_by == ("linux",)
+    assert not any("linux" in rule.covered_by for rule in native.rules)
 
 
 def test_ci_manifests_name_coverage_that_ci_reports_can_confirm():
@@ -1152,9 +1204,10 @@ def test_hosted_linux_collector_and_gate_require_every_selected_case(tmp_path):
     (suite / "test_cases.py").write_text("def test_round_trip():\n    pass\n")
     report_path = tmp_path / "out" / "skip-report.json"
 
-    baseline, report = _run_inner(tmp_path, "-p", "no:xdist", runner="linux")
+    # A runner without a manifest qualifies nothing: its report says so and its gate fails.
+    baseline, report = _run_inner(tmp_path, "-p", "no:xdist", runner="android")
     assert baseline.returncode == 0, baseline.stdout + baseline.stderr
-    assert report["classification_error"] == "no expected-skip manifest for runner 'linux'"
+    assert report["classification_error"] == "no expected-skip manifest for runner 'android'"
     assert not SkipGate().check([report_path]).passed
 
     completed, report = _run_inner(tmp_path, "-p", "no:xdist", runner="linux-hosted")
