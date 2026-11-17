@@ -10,6 +10,7 @@ class TrayItem {
 	public bool isSubmenu;
 	public bool isRadio;
 	public string stateCommand;  /* non-empty: exit 0 renders a checkmark */
+	public string textCommand;  /* non-empty: the text is the label and the first line this prints */
 
 	public TrayItem(string label, string command) {
 		self.label = label;
@@ -19,6 +20,7 @@ class TrayItem {
 		self.isSubmenu = false;
 		self.isRadio = false;
 		self.stateCommand = "";
+		self.textCommand = "";
 	}
 
 	public TrayItem disabled() {
@@ -33,6 +35,9 @@ class Tray {
 	public string iconPath;
 	public string clickCommand;
 	public Vector<TrayItem> items;
+	public Vector<string> attentionCommands;  /* the icon asks for attention while any of these exits 0 */
+	public string attentionIconPath;  /* what it shows then; empty keeps the icon */
+	public int attentionSeconds;  /* how often the commands are asked while the tray runs */
 
 	public Tray(string title) {
 		self.title = title;
@@ -40,6 +45,9 @@ class Tray {
 		self.iconPath = "";
 		self.clickCommand = "";
 		self.items = [];
+		self.attentionCommands = [];
+		self.attentionIconPath = "";
+		self.attentionSeconds = 5;
 	}
 
 	public Tray icon(string path) {
@@ -78,6 +86,35 @@ class Tray {
 	/* Radio state is supplied by one mutually exclusive external setting. */
 	public Tray radioItem(string label, string command, string stateCommand) { return self.checkItem(label, command, stateCommand, radio=true); }
 
+	/* A line of status: `label: ` and the first line `command` prints, or the
+	 * label alone when it prints nothing. The command runs when the tray is
+	 * shown and again each time the menu that holds the line opens; choosing
+	 * the line does nothing. With an attentionCommand the icon also asks for
+	 * attention while that command exits 0 (see attention). */
+	public Tray status(string label, string command, string attentionCommand = "") {
+		TrayItem entry = TrayItem(label, "");
+		entry.textCommand = command;
+		entry.enabled = false;
+		self.items.push(entry);
+		if (!attentionCommand.isEmpty()) { self.attentionCommands.push(attentionCommand); }
+		return self;
+	}
+
+	/* The icon asks for attention while `command` exits 0, and stops when it
+	 * no longer does. Every such command of the tray is asked when the tray
+	 * is shown, every attentionSeconds while it runs, when a menu opens and
+	 * after an item is chosen; one that exits 0 is enough. */
+	public Tray attention(string command) {
+		if (!command.isEmpty()) { self.attentionCommands.push(command); }
+		return self;
+	}
+
+	/* The icon to show while the tray asks for attention. */
+	public Tray attentionIcon(string path) {
+		self.attentionIconPath = path;
+		return self;
+	}
+
 	public Tray add(TrayItem item) {
 		self.items.push(item);
 		return self;
@@ -92,11 +129,14 @@ class Tray {
 			var child = TrayItem(entry.label, entry.command);
 			child.enabled = entry.enabled;
 			child.stateCommand = entry.stateCommand;
+			child.textCommand = entry.textCommand;
 			child.isSubmenu = entry.isSubmenu;
 			child.isRadio = entry.isRadio;
 			child.parentId = parentId + entry.parentId;
 			self.items.push(child);
 		}
+		/* A status line in a submenu asks for the same icon's attention. */
+		for command in menu.attentionCommands { self.attentionCommands.push(command); }
 		return self;
 	}
 }

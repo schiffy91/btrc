@@ -27,6 +27,12 @@ class SystemTray {
 
 	public SystemTray radioItem(string label, string command, string stateCommand) { self.model.radioItem(label, command, stateCommand); return self; }
 
+	public SystemTray status(string label, string command, string attentionCommand = "") { self.model.status(label, command, attentionCommand); return self; }
+
+	public SystemTray attention(string command) { self.model.attention(command); return self; }
+
+	public SystemTray attentionIcon(string path) { self.model.attentionIcon(path); return self; }
+
 	public SystemTray add(TrayItem item) { self.model.add(item); return self; }
 
 	public SystemTray submenu(string label, Tray menu) { self.model.submenu(label, menu); return self; }

@@ -20,6 +20,36 @@ native failure is thrown from `pump()` and `run()` on both platforms rather
 than ending the loop normally. `close()` removes the item and is idempotent. Shell commands and check-item probes execute synchronously, so
 callers must keep them bounded.
 
+## Status lines and attention
+
+```btrc
+SystemTray("Machine")
+	.status("Games drive", "storage status games", "storage status games | grep -q locked")
+	.status("Pad", "pad status")
+	.attentionIcon(warning)
+	.item("Quit", TraySignal.quit()).run();
+```
+
+`status(label, command)` adds a line that reads `label: ` and the first line
+`command` prints, or the label alone when it prints nothing. The command runs
+when the tray is shown and again each time the menu that holds the line opens,
+so the line is current when it is read and costs nothing while the menu is
+shut. Choosing the line does nothing. A third argument, or `attention(command)`
+on its own, names a command the icon follows: the tray asks for attention while
+any such command exits 0 and stops when none does. The commands are asked when
+the tray is shown, every `attentionSeconds` (5) while it runs, when a menu
+opens and after an item is chosen. `attentionIcon(path)` is what the icon shows
+meanwhile; without one the icon stays and the host marks it.
+
+A caller that keeps its entries as data needs three strings per line: the
+label, the command, and the attention command or none.
+
+On Linux the line is the item's `label` in the menu's layout, changed in place
+with `ItemsPropertiesUpdated`; attention is the item's `Status`
+(`NeedsAttention` or `Active`), announced with `NewStatus`, and
+`AttentionIconName`. On macOS a status line shows its label only and the icon
+does not change: neither is implemented there.
+
 ## A tray that reports a state
 
 ```btrc

@@ -361,3 +361,160 @@ int main() {{
     finally:
         process.terminate()
         process.communicate(timeout=10)
+
+
+def test_linux_tray_status_lines_and_attention(tmp_path):
+    """A status line is its label and the first line its command prints, fresh when its menu opens; the icon
+    asks for attention while a command exits 0. Read over D-Bus: nothing is clicked."""
+    if sys.platform != "linux" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("requires Linux and the explicitly built native header reader")
+    if error := linux_tray_backend_error():
+        pytest.skip(error)
+    from gi.repository import Gio, GLib
+
+    volume, pad, alarm, warning = (tmp_path / name for name in ("volume", "pad", "alarm", "warning.png"))
+    volume.write_text("  locked  \nand a second line\n")
+    pad.write_text("absent\n")
+    warning.write_bytes(b"not read by the provider")
+    source = tmp_path / "StatusTray.btrc"
+    source.write_text(f"""import Library.Tray;
+int main() {{
+    var devices = Tray("Devices").status("Pad", "cat {pad}");
+    var tray = SystemTray("Status").status("Volume", "cat {volume}", "test -e {alarm}")
+        .submenu("Devices", devices).attentionIcon("{warning}").item("Quit", TraySignal.quit());
+    tray.model.attentionSeconds = 1;
+    tray.show();
+    for (int i = 0; i < 6000; i++) {{ if (!tray.pump(10)) {{ break; }} }}
+    tray.close();
+    return 0;
+}}
+""")
+    generated = tmp_path / "StatusTray.c"
+    plan = tmp_path / "StatusTray.json"
+    compiled = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src.compiler.python.main",
+            "--no-cache",
+            str(source),
+            "-o",
+            str(generated),
+            "--emit-link-plan",
+            str(plan),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "BTRC_HOME": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    executable = tmp_path / "StatusTray"
+    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+    process = subprocess.Popen([str(executable)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+
+        def call(path, interface, member, arguments, service=None):
+            return bus.call_sync(
+                service or tray, path, interface, member, arguments, None, Gio.DBusCallFlags.NONE, 5000, None
+            ).unpack()
+
+        def eventually(condition):
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                GLib.MainContext.default().iteration(False)
+                if condition():
+                    return True
+                assert process.poll() is None, process.communicate()
+                time.sleep(0.01)
+            return False
+
+        def registered():
+            names = call("/org/freedesktop/DBus", "org.freedesktop.DBus", "ListNames", None, "org.freedesktop.DBus")[0]
+            return next((name for name in names if name.startswith(f"org.kde.StatusNotifierItem-{process.pid}-")), None)
+
+        assert eventually(lambda: registered() is not None)
+        tray = registered()
+
+        def layout(node=0):
+            return call("/MenuBar", "com.canonical.dbusmenu", "GetLayout", GLib.Variant("(iias)", (node, -1, [])))[1]
+
+        def labels(node=0):
+            return [child[1]["label"] for child in layout(node)[2]]
+
+        def opens(node):
+            return call("/MenuBar", "com.canonical.dbusmenu", "AboutToShow", GLib.Variant("(i)", (node,)))
+
+        def status(name="Status"):
+            return call(
+                "/StatusNotifierItem",
+                "org.freedesktop.DBus.Properties",
+                "Get",
+                GLib.Variant("(ss)", ("org.kde.StatusNotifierItem", name)),
+            )[0]
+
+        # The label and the first line the command printed, trimmed; the rest of its output is not shown.
+        assert labels() == ["Volume: locked", "Devices\u2003\u2003", "Quit"]
+        line, devices, _quit = layout()[2]
+        assert line[1]["enabled"] is False and "toggle-type" not in line[1]  # a line to read, not to choose
+        assert [child[1]["label"] for child in devices[2]] == ["Pad: absent"]
+
+        updated = []
+        announced = []
+        bus.signal_subscribe(
+            tray,
+            "com.canonical.dbusmenu",
+            "ItemsPropertiesUpdated",
+            "/MenuBar",
+            None,
+            Gio.DBusSignalFlags.NONE,
+            lambda *signal: updated.extend(signal[5].unpack()[0]),
+        )
+        bus.signal_subscribe(
+            tray,
+            "org.kde.StatusNotifierItem",
+            "NewStatus",
+            "/StatusNotifierItem",
+            None,
+            Gio.DBusSignalFlags.NONE,
+            lambda *signal: announced.append(signal[5].unpack()[0]),
+        )
+
+        # What stands behind the lines changes; a shut menu costs nothing and says what it said.
+        volume.write_text("open\n")
+        pad.write_text("connected\n")
+        time.sleep(0.3)
+        assert labels() == ["Volume: locked", "Devices\u2003\u2003", "Quit"]
+        # The menu opens: it is answered at once, and its own lines are read again and changed in place.
+        assert opens(0) == (False,)
+        assert eventually(lambda: labels()[0] == "Volume: open")
+        assert eventually(lambda: (line[0], {"label": "Volume: open"}) in updated), updated
+        assert [child[1]["label"] for child in layout(devices[0])[2]] == ["Pad: absent"]  # another menu's line waits
+        opens(devices[0])
+        assert eventually(lambda: [child[1]["label"] for child in layout(devices[0])[2]] == ["Pad: connected"])
+        # A command that prints nothing leaves the label alone.
+        volume.write_text("")
+        opens(0)
+        assert eventually(lambda: labels()[0] == "Volume")
+
+        # The icon asks for attention while the command exits 0, and stops when it no longer does.
+        assert status() == "Active" and announced == []
+        assert status("AttentionIconName") == str(warning) != status("IconName")
+        alarm.touch()
+        assert eventually(lambda: status() == "NeedsAttention")
+        assert eventually(lambda: announced == ["NeedsAttention"]), announced
+        alarm.unlink()
+        assert eventually(lambda: status() == "Active")
+        assert eventually(lambda: announced == ["NeedsAttention", "Active"]), announced
+        properties = call(
+            "/StatusNotifierItem",
+            "org.freedesktop.DBus.Properties",
+            "GetAll",
+            GLib.Variant("(s)", ("org.kde.StatusNotifierItem",)),
+        )[0]
+        assert properties["Status"] == "Active" and properties["AttentionIconName"] == str(warning)
+    finally:
+        process.terminate()
+        process.communicate(timeout=10)
