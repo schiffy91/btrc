@@ -242,3 +242,103 @@ def test_missing_compiler_evidence_preserves_actual_pytest_failure(tmp_path: Pat
     assert evidence["failure"]["lstat"]["errno"] == errno.ENOENT
     ledger = json.loads((tmp_path / "skip-report.json").read_text())
     assert ledger["tests"] == {"test_launch.py::test_original_failure": "failed"}
+
+
+_TIERED_SUITE = """
+import pytest
+
+def test_in_process():
+    pass
+
+def test_static_compiler(immutable_btrcc):
+    raise AssertionError("the fast tier ran a self-hosted test")
+
+def test_static_driver(selfhost_driver):
+    raise AssertionError("the fast tier ran a helper-driver test")
+
+def test_derived_compiler(semantic_btrcc):
+    raise AssertionError("the fast tier ran a self-hosted test")
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_each_frontend(request, frontend):
+    if frontend == "selfhost":
+        request.getfixturevalue("immutable_btrcc")
+        raise AssertionError("the fast tier ran a self-hosted half")
+
+@pytest.mark.linux_gui
+def test_display_owner():
+    raise AssertionError("the fast tier ran a display test")
+
+@pytest.mark.e40_qualification
+def test_sustained_load():
+    raise AssertionError("the fast tier ran a qualification load")
+"""
+
+
+def _run_tiered_suite(tmp_path: Path, *options: str) -> subprocess.CompletedProcess:
+    root = Path(__file__).resolve().parents[3]
+    (tmp_path / "conftest.py").write_text(
+        "from src.tests import conftest as owner\n"
+        "pytest_addoption = owner.pytest_addoption\n"
+        "pytest_configure = owner.pytest_configure\n"
+        "pytest_collection_modifyitems = owner.pytest_collection_modifyitems\n"
+        "_selfhost_runtime_data = owner._selfhost_runtime_data\n"
+        "immutable_btrcc = owner.immutable_btrcc\n"
+        "semantic_btrcc = owner.semantic_btrcc\n"
+        "selfhost_driver = owner.selfhost_driver\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_tiers.py").write_text(_TIERED_SUITE, encoding="utf-8")
+    environment = os.environ.copy()
+    # A tier that reached the compiler fixture would fail on this path instead of building for minutes.
+    environment.update(
+        PYTHONPATH=str(root),
+        PYTEST_ADDOPTS="",
+        PYTHONDONTWRITEBYTECODE="1",
+        BTRC_TEST_BTRCC=str(tmp_path / "no-compiler"),
+    )
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-c",
+            str(root / "pyproject.toml"),
+            f"--rootdir={tmp_path}",
+            f"--confcutdir={tmp_path}",
+            "-o",
+            "addopts=",
+            "-p",
+            "no:cacheprovider",
+            "test_tiers.py",
+            "--skip-report=skip-report.json",
+            *options,
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def test_fast_tier_leaves_out_the_selfhost_compiler_displays_and_loads(tmp_path: Path) -> None:
+    result = _run_tiered_suite(tmp_path, "--fast")
+    assert result.returncode == 0, result.stdout + result.stderr
+    ledger = json.loads((tmp_path / "skip-report.json").read_text())
+    assert ledger["tests"] == {
+        "test_tiers.py::test_in_process": "passed",
+        "test_tiers.py::test_each_frontend[python]": "passed",
+        "test_tiers.py::test_each_frontend[selfhost]": "skipped",
+    }
+    assert "5 deselected" in result.stdout
+    (skip,) = ledger["skips"]
+    assert skip["nodeid"] == "test_tiers.py::test_each_frontend[selfhost]"
+    assert "the fast tier never builds the self-hosted compiler" in skip["reason"]
+
+
+def test_every_other_tier_keeps_the_whole_selection(tmp_path: Path) -> None:
+    result = _run_tiered_suite(tmp_path, "--collect-only")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "8 tests collected" in result.stdout and "deselected" not in result.stdout

@@ -1,6 +1,6 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-release-c-linux btrcc-release-c-macos btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required \
-        test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
+        test test-fast test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         skip-gate qualification-report \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -300,6 +300,21 @@ test: generated-check test-boundaries gpu-required ## Run everything: unit + LSP
 	$(MAKE) --no-print-directory test-e40
 	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report-bootstrap.json $(PYTEST_SERIAL_ARGS)
 	$(NIX) $(SKIP_GATE) build/skip-report-bootstrap.json
+
+# The fast tier, for the edit loop: every test under src/tests/python, the LSP
+# and the formatter that needs neither the self-hosted compiler nor a display
+# (`--fast`, src/tests/conftest.py), and one pass of the language corpus through
+# the reference compiler. It never builds btrcc or a helper driver, so a stdlib
+# edit costs it nothing, and it runs without the session's display, so the GUI
+# suites it leaves out cannot reach a desktop. It is not a gate: `make test`
+# runs everything here and the rest, and only gates check skips against a
+# runner's manifest. Its report (build/skip-report-fast.json, build/junit-fast.xml)
+# lists what the tier left to `make test`.
+FAST_WORKERS ?= auto
+PYTEST_FAST_ARGS ?= -q -rs $(PYTEST_DURATIONS) -n $(FAST_WORKERS)
+test-fast: generated-check ## Fast tier: in-process tests, LSP, formatter and one reference-compiler corpus pass
+	$(NIX) env -u DISPLAY -u WAYLAND_DISPLAY $(PYTEST) src/tests/python/ src/tests/lsp/ src/tests/formatter/ src/tests/runner.py \
+		--fast --compilers=python $(addprefix --ignore=,$(NATIVE_GUI_TESTS)) --skip-report=build/skip-report-fast.json $(PYTEST_FAST_ARGS)
 
 test-unit: generated-check ## Run Python reference-compiler unit tests (lexer, parser, analyzer, codegen)
 	$(NIX) $(PYTEST) src/tests/python/ $(PYTEST_ARGS) -m "not e40_qualification"

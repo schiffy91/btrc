@@ -29,6 +29,8 @@ def _make_dry_run(*args: str) -> str:
         "PYTEST_WORKERS",
         "PYTEST_ARGS",
         "PYTEST_SERIAL_ARGS",
+        "PYTEST_FAST_ARGS",
+        "FAST_WORKERS",
         "UNIT_GUI_DELEGATED",
         "GUI_PYTEST_WORKERS",
         "MAKEFLAGS",
@@ -79,6 +81,30 @@ def test_default_pytest_parallelism_is_bounded_and_configurable():
     assert " -n 8" in default
     assert " -n auto" not in default
     assert " -n 2" in constrained
+
+
+def test_fast_tier_runs_without_the_selfhost_compiler_or_a_display():
+    output = _make_dry_run("test-fast", "NIX=").replace("\\\n", " ")
+    commands = [shlex.split(line) for line in output.splitlines() if "python3 -m pytest" in line]
+
+    assert len(commands) == 1
+    (command,) = commands
+    # The session's display is taken away before pytest starts, so no GUI suite can reach a desktop.
+    assert command[: command.index("python3")] == ["env", "-u", "DISPLAY", "-u", "WAYLAND_DISPLAY"]
+    arguments = command[command.index("pytest") + 1 :]
+    selected = [argument for argument in arguments if argument.startswith("src/tests/")]
+    assert selected == ["src/tests/python/", "src/tests/lsp/", "src/tests/formatter/", "src/tests/runner.py"]
+    assert "--fast" in arguments and "--compilers=python" in arguments
+    assert arguments[arguments.index("-n") + 1] == "auto"
+    assert "--skip-report=build/skip-report-fast.json" in arguments
+    gui = _make_dry_run("test-native-gui", "NIX=").replace("\\\n", " ")
+    gui_command = shlex.split(next(line for line in gui.splitlines() if "-m pytest " in line))
+    gui_suites = {argument for argument in gui_command if argument.startswith("src/tests/")}
+    assert gui_suites and {f"--ignore={path}" for path in gui_suites} <= set(arguments)
+    # Nothing builds the self-hosted compiler, and a tier is not a gate.
+    assert "Built bin/btrcc" not in output and "compiler_build" not in output
+    assert "skip-gate" not in output
+    assert " -n 8" in _make_dry_run("test-fast", "NIX=", "FAST_WORKERS=8")
 
 
 def test_unit_shard_builds_and_shares_the_selfhost_compiler():

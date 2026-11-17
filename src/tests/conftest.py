@@ -57,7 +57,40 @@ def pytest_addoption(parser):
         default="python,btrc",
         help="'both', or a comma-separated list containing 'python' (reference) and/or 'btrc' (self-hosted)",
     )
+    parser.addoption(
+        "--fast",
+        action="store_true",
+        default=False,
+        help="the fast tier: only tests that need neither the self-hosted compiler nor a display (make test-fast)",
+    )
     SkipLedger.add_options(parser)
+
+
+# What keeps a test out of the fast tier (`make test-fast`): it builds or runs
+# the self-hosted compiler or a helper driver, it owns a display, or it is a
+# sustained qualification load. Everything else is in the tier, so a new test
+# joins it without being listed anywhere.
+_SELFHOST_FIXTURES = frozenset({"immutable_btrcc", "selfhost_driver"})
+_FAST_TIER_EXCLUDED_MARKERS = ("e40_qualification", "linux_gui", "macos_gui")
+
+
+def _in_fast_tier(item) -> bool:
+    """Whether collection already shows that a test needs nothing the fast tier leaves out."""
+
+    if _SELFHOST_FIXTURES & set(getattr(item, "fixturenames", ())):
+        return False
+    return all(item.get_closest_marker(marker) is None for marker in _FAST_TIER_EXCLUDED_MARKERS)
+
+
+def _skip_selfhost_in_the_fast_tier(config) -> None:
+    """A test that asks for the self-hosted compiler while it runs leaves the fast tier here.
+
+    Collection cannot see `request.getfixturevalue`, which the tests that run
+    one case per frontend use for their self-hosted half.
+    """
+
+    if config.getoption("--fast"):
+        pytest.skip("the fast tier never builds the self-hosted compiler; `make test` runs this test")
 
 
 def pytest_configure(config):
@@ -82,7 +115,12 @@ def pytest_runtest_makereport(item, call):
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
-    """Schedule one AppKit/Linux GUI owner per worker pool; the kernel lease spans pools."""
+    """Select the fast tier; schedule one AppKit/Linux GUI owner per worker pool (the kernel lease spans pools)."""
+    if config.getoption("--fast"):
+        left_out = [item for item in items if not _in_fast_tier(item)]
+        if left_out:
+            items[:] = [item for item in items if _in_fast_tier(item)]
+            config.hook.pytest_deselected(items=left_out)
     if not (config.getoption("dist", default=None) == "loadgroup" or config.getoption("loadgroup", default=False)):
         return
     if sys.platform == "darwin":
@@ -425,7 +463,7 @@ def _linux_gui_session(request):
 
 
 @pytest.fixture(scope="session")
-def immutable_btrcc(_selfhost_runtime_data) -> Path:
+def immutable_btrcc(request, _selfhost_runtime_data) -> Path:
     """Return one strict immutable self-host compiler for the whole run.
 
     Building it costs minutes -- a 431k-line single translation unit -- so it is
@@ -434,6 +472,7 @@ def immutable_btrcc(_selfhost_runtime_data) -> Path:
     the key and forces a rebuild.
     """
 
+    _skip_selfhost_in_the_fast_tier(request.config)
     configured = _configured_test_btrcc()
     if configured is not None:
         return configured
@@ -506,7 +545,7 @@ def _build_immutable_btrcc(compiler: list[str], output: Path, binary: Path) -> N
 
 
 @pytest.fixture(scope="session")
-def selfhost_driver(_selfhost_runtime_data):
+def selfhost_driver(request, _selfhost_runtime_data):
     """Build one self-hosted driver per source and share it everywhere.
 
     Modules needing a driver binary built their own in module-scoped fixtures,
@@ -520,6 +559,7 @@ def selfhost_driver(_selfhost_runtime_data):
     worker, and every later run over unchanged sources.
     """
 
+    _skip_selfhost_in_the_fast_tier(request.config)
     compiler = configured_c_compiler()
     if not compiler:
         raise ValueError("BTRC_CC must name a C compiler")
