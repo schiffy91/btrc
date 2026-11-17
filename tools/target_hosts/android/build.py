@@ -9,6 +9,8 @@ import os
 import re
 import shutil
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 from tools.target_hosts.android.sdk import SDKVersions
@@ -22,6 +24,10 @@ ROWS = {
 
 
 class AndroidHostBuilder:
+    # What Gradle prints when a repository did not hand over a dependency.
+    FETCH_FAILURES = ("Could not resolve ", "Could not GET ", "Could not HEAD ")
+    GRADLE_ATTEMPTS = 3
+
     def __init__(self, ndk, output, *, abi="x86_64"):
         if abi not in ("x86_64", "arm64-v8a"):
             raise ValueError("supported Android ABIs are x86_64 and arm64-v8a")
@@ -38,6 +44,29 @@ class AndroidHostBuilder:
         rows = [line.split() for line in text.splitlines() if line.strip().startswith("LOAD ")]
         if not rows or any(int(row[-1], 16) < 0x4000 for row in rows):
             raise ValueError("every ELF LOAD segment must be aligned to at least 0x4000")
+
+    @classmethod
+    def gradle(cls, command, *, run=subprocess.run, sleep=time.sleep, wait=30.0):
+        """Run Gradle; a build that could not fetch its dependencies is tried again.
+
+        Maven Central answers a hosted runner's address with "429 Too Many
+        Requests" now and then, and the build stops before it compiles
+        anything. That passes by itself, so the build waits and asks again, up
+        to GRADLE_ATTEMPTS times. Any other failure is the build's own and is
+        reported at once. The output is shown as before.
+        """
+
+        for attempt in range(1, cls.GRADLE_ATTEMPTS + 1):
+            result = run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600)
+            sys.stdout.write(result.stdout)
+            sys.stdout.flush()
+            if result.returncode == 0:
+                return
+            fetching = any(marker in result.stdout for marker in cls.FETCH_FAILURES)
+            if not fetching or attempt == cls.GRADLE_ATTEMPTS:
+                raise subprocess.CalledProcessError(result.returncode, command, output=result.stdout)
+            print(f"Gradle could not fetch its dependencies (attempt {attempt} of {cls.GRADLE_ATTEMPTS}); waiting")
+            sleep(wait * attempt)
 
     def build(self, *, app=False, native_only=False):
         self.output.mkdir(parents=True, exist_ok=True)
@@ -100,7 +129,7 @@ class AndroidHostBuilder:
         if app:
             package = "dev.btrc.testhost.fixture"
             build_dir = self.output / "gradle-build"
-            subprocess.run(
+            self.gradle(
                 [
                     str(ROOT / "app/gradlew"),
                     "--project-dir",
@@ -114,9 +143,7 @@ class AndroidHostBuilder:
                     f"-PbtrcAbi={self.abi}",
                     f"-PbtrcJniLibs={native.parent}",
                     f"-PbtrcBuildDir={build_dir}",
-                ],
-                check=True,
-                timeout=600,
+                ]
             )
             apks = list((build_dir / "outputs/apk/debug").glob("*.apk"))
             if len(apks) != 1:

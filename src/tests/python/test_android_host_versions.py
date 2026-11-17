@@ -172,6 +172,45 @@ def test_archive_registration_refuses_wrong_payload_and_identity(tmp_path):
     assert not (directory / "package.xml").exists()
 
 
+def test_a_gradle_build_that_could_not_fetch_its_dependencies_is_tried_again(capsys):
+    """Maven Central's "429 Too Many Requests" stopped a hosted build before it compiled anything."""
+
+    refused = (
+        "> Could not resolve org.ow2.asm:asm-commons:9.9.\n"
+        "   > Could not GET 'https://repo.maven.apache.org/maven2/org/ow2/asm/asm-commons/9.9/asm-commons-9.9.pom'. "
+        "Received status code 429 from server: Too Many Requests\nBUILD FAILED in 21s\n"
+    )
+
+    def builds(outputs):
+        """Run the build against Gradle runs that end as `outputs` say; what ran and how long it waited."""
+
+        remaining, commands, waits = list(outputs), [], []
+
+        def run(command, **options):
+            commands.append(command)
+            assert options["timeout"] == 600 and options["text"] is True
+            code, text = remaining.pop(0)
+            return subprocess.CompletedProcess(command, code, text)
+
+        try:
+            AndroidHostBuilder.gradle(["gradlew", "assembleDebug"], run=run, sleep=waits.append)
+            failure = None
+        except subprocess.CalledProcessError as error:
+            failure = error
+        return len(commands), waits, failure
+
+    # Refused twice, then served: the build goes through, having waited longer the second time.
+    assert builds([(1, refused), (1, refused), (0, "BUILD SUCCESSFUL\n")]) == (3, [30.0, 60.0], None)
+    assert "attempt 2 of 3" in capsys.readouterr().out
+    # Still refused at the last attempt: the failure is the build's, with Gradle's own words.
+    runs, waits, failure = builds([(1, refused)] * 3)
+    assert (runs, waits) == (3, [30.0, 60.0]) and failure.returncode == 1 and "429" in failure.output
+    # A build that fails for a reason of its own is not run again.
+    runs, waits, failure = builds([(1, "e: Main.kt: (3, 5): Unresolved reference: nothing\nBUILD FAILED in 9s\n")])
+    assert (runs, waits) == (1, []) and failure.returncode == 1
+    assert builds([(0, "BUILD SUCCESSFUL\n")]) == (1, [], None)
+
+
 def test_gradle_wrapper_is_the_pinned_official_artifact():
     wrapper = ANDROID / "app/gradle/wrapper"
     assert (
