@@ -339,8 +339,12 @@ def test_a_program_cannot_forge_its_outcome_on_stderr(tmp_path, built):
 
 def test_a_supervisor_killed_from_outside_is_an_infrastructure_error(tmp_path, built):
     # The program's parent is the supervisor; were that gone, it would be the session's process reaper.
+    # The kernel names the parent where it can: the devcontainer has no `ps`, and the killer then did nothing.
     killer = script(
-        tmp_path, "killer", 'case "$(ps -o comm= -p "$PPID")" in *supervisor) kill -9 "$PPID" ;; esac; sleep 5\n'
+        tmp_path,
+        "killer",
+        'parent=$(cat "/proc/$PPID/comm" 2>/dev/null || ps -o comm= -p "$PPID")\n'
+        'case "$parent" in *supervisor) kill -9 "$PPID" ;; esac; sleep 5\n',
     )
     executor, _ = executor_for(tmp_path, built)
     executor.prepare(write_bundle(tmp_path / "bundle", {"killer": killer}), "android-x86_64")

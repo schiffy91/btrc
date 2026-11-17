@@ -40,6 +40,8 @@ def runner(tmp_path):
         shutil.copy(REPO / "tools" / "ci-prepared.sh", script)
         environment = {**os.environ, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}"}
         environment.pop("BTRC_LINUX_IMAGE", None)
+        # The devcontainer has every bash source its dev shell first, which puts the real make before the stand-in.
+        environment.pop("BASH_ENV", None)
         return subprocess.run(
             ["bash", str(script), *arguments], cwd=tmp_path, env=environment, capture_output=True, text=True, timeout=60
         )
