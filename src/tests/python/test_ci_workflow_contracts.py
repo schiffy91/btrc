@@ -15,13 +15,15 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.abi.generated import TARGET_ROWS
-from tools.qualification.local import LocalJobs
+from tools.qualification.local import LocalJobs, LocalPasses
 from tools.qualification.tiers import MANIFEST as TIER_MANIFEST
 from tools.qualification.tiers import TierManifest
 
 REPO = Path(__file__).resolve().parents[3]
 WORKFLOWS = REPO / ".github/workflows"
 UPLOAD_ARTIFACT = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+# Every repository that takes local passes reads them through this one workflow, pinned by commit.
+LOCAL_PASSES = "schiffy91/ci-local/.github/workflows/local-passes.yml@46bebec22a3affc1be02f115640488afdbbcf31a"
 SETUP_NODE = "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e"
 SKIP_REPORTS = "build/skip-report*.json"
 
@@ -666,7 +668,7 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
         assert _job_names(document)[0] == "scope", workflow
         listed = {entry.job for entry in TIERS.jobs if entry.workflow == workflow}
         jobs = document["jobs"]
-        untiered = {"scope", "skip-reports"}
+        untiered = {"scope", "local", "skip-reports"}
         if workflow == "ci.yml":
             untiered.update({"bench-diagnostic", "unit-diagnostic", "prepare"})
         if workflow == "macos.yml":
@@ -720,7 +722,9 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
                 assert matrix == _plan_matrix(name), (workflow, name)
                 assert job["strategy"]["fail-fast"] == "false", (workflow, name)
     assert scope["runs-on"] == "ubuntu-latest"
-    assert scope["permissions"] == {"contents": "read", "pull-requests": "read", "statuses": "read"}
+    # The statuses are the `local` job's to read; scope takes its list.
+    assert scope["needs"] == "local"
+    assert scope["permissions"] == {"contents": "read", "pull-requests": "read"}
     assert scope["outputs"] == {
         "tier": "${{ steps.classify.outputs.tier }}",
         "plan": "${{ steps.plan.outputs.plan }}",
@@ -791,7 +795,7 @@ def test_release_runs_every_tiered_workflow_at_one_tier_then_bundles_them() -> N
     assert {job["uses"] for job in calls.values()} == {f"./.github/workflows/{name}" for name in CORE_WORKFLOWS}
     for name, job in calls.items():
         assert job["with"] == {"tier": tier}, name
-        # A called job may ask for no more than its caller grants: scope lists statuses.
+        # A called job may ask for no more than its caller grants: its `local` job lists statuses.
         assert job["permissions"] == {
             "contents": "read",
             "pull-requests": "read",
@@ -982,11 +986,13 @@ def _plan(
 ) -> dict[str, object]:
     """Run the scope job's local-pass and plan steps after `_classify`, as the job runs them.
 
-    `statuses` is what the stand-in `gh` lists for the commit: pages of
-    statuses, or None for a listing that fails.
+    `statuses` is what the commit carries: pages of statuses, from which the
+    `local` job's output is what the shared workflow would report, or None
+    for a run in which that job gave no output.
     """
 
-    local = _scope_step(workflow, "Read the owner's local passes")
+    local = _scope_step(workflow, "Take the owner's local passes")
+    passed = "" if statuses is None else json.dumps(LocalPasses.accepted(statuses, "schiffy91"))
     step = _scope_step(workflow, "Plan the tier's jobs")
     output = tmp_path / "plan-output"
     output.unlink(missing_ok=True)
@@ -1003,6 +1009,7 @@ def _plan(
         "TIER": tier,
         "EVENT": event,
         "CALLED_TIER": called_tier,
+        "PASSED": passed,
         "GITHUB_REPOSITORY": "schiffy91/btrc",
         "GITHUB_REPOSITORY_OWNER": "schiffy91",
         "GITHUB_SHA": "c" * 40,
@@ -1855,7 +1862,8 @@ def test_the_android_corpus_lane_is_tiered_beside_untiered_fixture_jobs() -> Non
     tiered = [entry for entry in TIERS.jobs if entry.workflow == workflow]
     listed = {entry.job for entry in tiered}
     assert listed == {"target-corpus-build", "target-corpus-compile", "target-corpus"}
-    assert set(jobs) - listed == {"scope", "tooling", "emulator"}
+    assert set(jobs) - listed == {"scope", "local", "tooling", "emulator"}
+    assert jobs["local"] == {"uses": LOCAL_PASSES, "permissions": {"statuses": "read"}}
     for name in listed:
         assert jobs[name]["if"] == f"contains({PLAN}.jobs, '{name}')", name
         assert jobs[name]["needs"] in ("scope", ["scope", "target-corpus-build"]), name
@@ -2901,24 +2909,37 @@ def test_only_the_missing_report_job_consumes_a_job_a_local_pass_can_drop() -> N
     assert "tools.qualification bundle" in _workflow("release.yml")
 
 
-def test_scope_reads_only_the_owners_statuses_for_this_runs_commit() -> None:
-    step = _scope_step("ci.yml", "Read the owner's local passes")
-    assert step["env"] == {
-        "GH_TOKEN": "${{ github.token }}",
-        "EVENT": "${{ github.event_name }}",
-        "CALLED_TIER": "${{ inputs.tier }}",
-    }
-    script = _code(step["run"])
-    assert 'gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses?per_page=100"' in script
-    assert 'python3 -m tools.qualification local-passes --owner "$GITHUB_REPOSITORY_OWNER"' in script
-    assert '[ -z "$CALLED_TIER" ] && { [ "$EVENT" = push ] || [ "$EVENT" = pull_request ]; }' in script
-    # A pull request's head commit is never read: only the commit this run tests.
-    assert "pull_request.head" not in _workflow("ci.yml") and "head.sha" not in script
-    steps = [step.get("name") for step in _parsed("ci.yml")["jobs"]["scope"]["steps"]]
-    assert steps[-3:] == ["Classify the change", "Read the owner's local passes", "Plan the tier's jobs"]
-    plan = _scope_step("ci.yml", "Plan the tier's jobs")["run"]
-    assert "--changed build/changed-files.txt --local-passes build/local-passes.json" in plan
-    assert '((.local // [])[] | "Passed locally, not run here: `\\(.)`")' in plan
+def test_the_shared_workflow_reads_the_owners_statuses_and_scope_takes_its_list() -> None:
+    for workflow in CORE_WORKFLOWS:
+        jobs = _parsed(workflow)["jobs"]
+        # One reader for every repository that takes local passes, pinned by commit.
+        assert jobs["local"] == {"uses": LOCAL_PASSES, "permissions": {"statuses": "read"}}, workflow
+        assert jobs["scope"]["needs"] == "local", workflow
+        assert "statuses" not in jobs["scope"]["permissions"], workflow
+        # No workflow lists statuses itself any more.
+        text = _workflow(workflow)
+        assert "/statuses" not in text and "tools.qualification local-passes" not in text, workflow
+        step = _scope_step(workflow, "Take the owner's local passes")
+        assert step["env"] == {
+            "PASSED": "${{ needs.local.outputs.passed }}",
+            "EVENT": "${{ github.event_name }}",
+            "CALLED_TIER": "${{ inputs.tier }}",
+        }, workflow
+        script = _code(step["run"])
+        assert '[ -z "$CALLED_TIER" ] && { [ "$EVENT" = push ] || [ "$EVENT" = pull_request ]; }' in script
+        assert "passed=${PASSED:-[]}" in script and "> build/local-passes.json" in script
+        # A pull request's head commit is never read: only the commit this run tests.
+        assert "pull_request.head" not in text and "head.sha" not in script
+        steps = [step.get("name") for step in jobs["scope"]["steps"]]
+        assert steps[-3:] == ["Classify the change", "Take the owner's local passes", "Plan the tier's jobs"]
+        plan = _scope_step(workflow, "Plan the tier's jobs")["run"]
+        assert "--changed build/changed-files.txt --local-passes build/local-passes.json" in plan
+    assert (
+        '((.local // [])[] | "Passed locally, not run here: `\\(.)`")'
+        in _scope_step("ci.yml", "Plan the tier's jobs")["run"]
+    )
+    # release.yml lets its calls read statuses, which the nested job needs.
+    assert _workflow("release.yml").count("      statuses: read") == 3
 
 
 def _status(context: str, state: str = "success", login: str = "schiffy91", created: str = "2026-11-15T20:00:00Z"):
@@ -2936,7 +2957,7 @@ def _plan_output(plan: dict[str, object]) -> str:
     ("statuses", "event", "called_tier"),
     [
         ([[]], "push", ""),
-        (None, "push", ""),  # the listing failed: every job runs
+        (None, "push", ""),  # the local job gave no output: every job runs
         ([[_status(LOCAL_UNIT, login="someone-else")]], "push", ""),
         ([[_status(LOCAL_UNIT, "failure", created="2026-11-15T21:00:00Z"), _status(LOCAL_UNIT)]], "push", ""),
         (

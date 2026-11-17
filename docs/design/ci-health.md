@@ -528,12 +528,15 @@ otherwise; the newest four compilers and 160 drivers are kept. In CI the
 `prepare` job plays the same part for one run: it builds the image and the
 compiler once and the other Linux jobs restore its `ci-prepared` artifact.
 
-**What CI does with it.** Each `scope` job lists the statuses of the run's
-commit, and `python3 -m tools.qualification local-passes` keeps the `local/`
-contexts whose newest status by the repository's owner is a success. Anyone
-with write access can post a status, so nobody else's counts. `tiers
---local-passes` then removes each passed job and row from the plan, and the
-step summary names them. A job whose rows all passed is not started.
+**What CI does with it.** Each workflow's `local` job calls the shared
+workflow `schiffy91/ci-local/.github/workflows/local-passes.yml`, pinned by
+commit, which lists the statuses of the run's commit and reports the `local/`
+contexts whose latest status by the repository's owner is a success. Anyone
+with write access can post a status, so nobody else's counts. The `scope`
+job takes that list, and `tiers --local-passes` removes each passed job and
+row from the plan; the step summary names them. A job whose rows all passed
+is not started. If the `local` job fails, `scope` and every job behind it are
+skipped: the run fails instead of running everything, and is run again.
 
 **What a pass stands in for, and what it does not.**
 

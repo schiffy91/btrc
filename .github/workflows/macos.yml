@@ -80,13 +80,13 @@ jobs:
   # so "Re-run all jobs" sees a label added after the push ("Re-run failed
   # jobs" keeps this job's earlier result).
   scope:
+    needs: local
     if: github.event_name != 'workflow_dispatch' || (inputs.focus != 'e40-diagnostic' && inputs.focus != 'collection-release-diagnostic' && inputs.focus != 'host-controls')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
-      statuses: read
     outputs:
       tier: ${{ steps.classify.outputs.tier }}
       plan: ${{ steps.plan.outputs.plan }}
@@ -160,25 +160,23 @@ jobs:
       # (`ci-local`, ci/local.json): a status `local/<platform>/<job>` that the
       # repository's owner posted, and has not since replaced with a failure,
       # stands in for the same job here, and the plan below leaves it out.
-      # Statuses are read for this run's commit alone, so a pull request's
-      # merge commit has none. A dispatch asks for the hosted jobs themselves,
-      # and release.yml's bundle needs every report, so neither reads any. A
-      # listing that cannot be read runs everything.
-      - name: Read the owner's local passes
+      # The `local` job reads them, for this run's commit alone, so a pull
+      # request's merge commit has none. A dispatch asks for the hosted jobs
+      # themselves, and release.yml's bundle needs every report, so neither
+      # counts any.
+      - name: Take the owner's local passes
         env:
-          GH_TOKEN: ${{ github.token }}
+          PASSED: ${{ needs.local.outputs.passed }}
           EVENT: ${{ github.event_name }}
           CALLED_TIER: ${{ inputs.tier }}
         run: |
           set -euo pipefail
-          statuses='[]'
+          passed='[]'
           if [ -z "$CALLED_TIER" ] && { [ "$EVENT" = push ] || [ "$EVENT" = pull_request ]; }; then
-            statuses=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses?per_page=100") || {
-              echo "::warning::could not list this commit's statuses; no local pass is counted"
-              statuses='[]'
-            }
+            passed=${PASSED:-[]}
           fi
-          python3 -m tools.qualification local-passes --owner "$GITHUB_REPOSITORY_OWNER" <<<"$statuses" > build/local-passes.json
+          mkdir -p build
+          jq -ce 'if type == "array" and all(.[]; type == "string") then . else error("not a list of contexts") end' <<<"$passed" > build/local-passes.json
       - name: Plan the tier's jobs
         id: plan
         env:
@@ -188,6 +186,16 @@ jobs:
           plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
           echo "plan=$plan" >> "$GITHUB_OUTPUT"
           jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)"), ((.local // [])[] | "Passed locally, not run here: `\(.)`")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
+
+  # The owner's standing local passes for this commit: the shared workflow of
+  # schiffy91/ci-local, pinned by commit, as every repository that takes local
+  # passes calls it. Its output `passed` is a JSON array of the
+  # `local/<platform>/<job>` contexts whose latest status, from the
+  # repository's owner, is a success.
+  local:
+    uses: schiffy91/ci-local/.github/workflows/local-passes.yml@46bebec22a3affc1be02f115640488afdbbcf31a
+    permissions:
+      statuses: read
 
   native-bundle:
     needs: scope

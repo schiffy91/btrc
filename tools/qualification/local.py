@@ -10,9 +10,11 @@ steps to ``tools/ci-local-job.sh``, which runs them in a fresh clone of the
 commit. ``ci-local run`` records a pass for that exact commit and ``ci-local
 push`` posts it as the commit status ``local/<platform>/<name>``.
 
-In CI, `LocalPasses.accepted` is the filter a workflow's ``scope`` job
-applies to the commit's statuses, and `LocalJobs.without_passed` takes each
-passed job and row out of that workflow's plan. A row leaves only when the
+In CI, a workflow's ``local`` job (the shared workflow of schiffy91/ci-local)
+reports the owner's standing passes among the commit's statuses, and
+`LocalJobs.without_passed` takes each passed job and row out of that
+workflow's plan. `LocalPasses.accepted` is the same filter here, for the
+``local-passes`` command and the tests. A row leaves only when the
 plan would run exactly the row the local command ran: a pull request's unit
 shard that keeps the GUI files, or a corpus row narrowed to some directories,
 is a different command and still runs.
