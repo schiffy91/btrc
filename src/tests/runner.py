@@ -37,6 +37,7 @@ from src.tests.c_toolchains import configured_c_compiler
 from src.tests.c_toolchains import default_c_compiler as default_c_compiler  # re-exported for CI steps
 from src.tests.corpus_c_cache import CorpusCCache
 from src.tests.corpus_files import language_test_files
+from src.tests.line_coverage import LineCoverage
 from src.tests.native_build import NativeCorpusBuild
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.runner_capabilities import (
@@ -68,6 +69,15 @@ MODULE_UNITS = os.environ.get("BTRC_TEST_MODULE_UNITS") == "1"
 # differ only in those (the strict-C11 cells) share it: BTRC_TEST_CORPUS_C
 # names the directory, and without it every run transpiles for itself.
 CORPUS_C = CorpusCCache.configured()
+
+# `make coverage` asks every reference-compiler program which BTRC lines it ran (src/tests/line_coverage.py).
+LINE_COVERAGE = LineCoverage.configured()
+
+
+def _python_options() -> CompilerOptions:
+    """How the corpus asks the reference compiler for C: with line directives when lines are being counted."""
+
+    return CompilerOptions(map_stdlib_positions=True, use_cache=False, debug=LINE_COVERAGE is not None)
 
 
 # The corpus limits are the shared test-process limits; the names stay here
@@ -142,11 +152,7 @@ def _transpile_python_with_warnings(btrc_path, btrc_file, native_directory=None)
     """The reference compiler's C for a .btrc file, and its sorted warning lines."""
     with open(btrc_path) as f:
         source = f.read()
-    result = _PYTHON_COMPILER.compile(
-        source,
-        btrc_path,
-        CompilerOptions(map_stdlib_positions=True, use_cache=False),
-    )
+    result = _PYTHON_COMPILER.compile(source, btrc_path, _python_options())
     assert result.failure is None, f"{btrc_file}: compile failed: {result.failure}"
     assert result.analyzed is None or not result.analyzed.errors, f"Analyzer errors: {result.analyzed.errors}"
     assert result.c_source is not None, f"{btrc_file}: the compiler emitted no C"
@@ -251,9 +257,11 @@ def _gcc_flags(c_source, c_path, bin_path, *, native=False):
     and any separately compiled runtime object the emitted C retains."""
     runtime_objects = RuntimeObjects.selected([c_source])
     host = {"Windows": "windows", "Darwin": "macos"}.get(platform.system(), "linux")
+    # Counting lines takes an unoptimised, instrumented build, whatever the gate's own flags ask for.
+    c_flags = [*BTRC_CFLAGS, *(LineCoverage.FLAGS if LINE_COVERAGE is not None else ())]
     gcc_flags = [
         *BTRC_CC,
-        *BTRC_CFLAGS,
+        *c_flags,
         c_path,
         *(str(source) for source in RuntimeObjects.sources(runtime_objects)),
         "-o",
@@ -286,7 +294,7 @@ def _gcc_flags(c_source, c_path, bin_path, *, native=False):
             pytest.skip(f"WebGPU toolchain is unavailable on {platform.system()}: set GPU_CFLAGS and GPU_LDFLAGS")
     if native:
         compile_flags, link_flags = NativeCorpusBuild.split_dependency_flags(gcc_flags[dependency_start:])
-        return [*BTRC_CFLAGS, *compile_flags], [*BTRC_CFLAGS, *link_flags]
+        return [*c_flags, *compile_flags], [*c_flags, *link_flags]
     return gcc_flags
 
 
@@ -311,16 +319,35 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
         gcc_flags = _gcc_flags(c_source, c_path, bin_path)
         if unit_paths:
             gcc_flags[gcc_flags.index(c_path) + 1 : gcc_flags.index(c_path) + 1] = unit_paths
+        # A native plan's objects are gone once it is linked: counting lines keeps gcov's notes, and has the
+        # program write its data beside them.
+        native_lines = native.primary.parent / "gcov" if native is not None and LINE_COVERAGE is not None else None
         if native is not None:
             compile_flags, link_flags = _gcc_flags(c_source, c_path, bin_path, native=True)
-            native.build(Path(bin_path), cc=BTRC_CC, compile_flags=compile_flags, link_flags=link_flags)
+            native.build(
+                Path(bin_path),
+                cc=BTRC_CC,
+                compile_flags=compile_flags,
+                link_flags=link_flags,
+                runner=LineCoverage.keeping_notes(native_lines, NativeCorpusBuild.run_tool) if native_lines else None,
+            )
         else:
             compile_result = subprocess.run(gcc_flags, capture_output=True, text=True, timeout=C_COMPILE_TIMEOUT)
             assert compile_result.returncode == 0, (
                 f"gcc failed:\nstdout: {compile_result.stdout}\nstderr: {compile_result.stderr}"
             )
         _require_test_capabilities(btrc_path)
-        run_result = subprocess.run([bin_path], capture_output=True, text=True, timeout=BTRC_RUN_TIMEOUT)
+        run_result = subprocess.run(
+            [bin_path],
+            capture_output=True,
+            text=True,
+            timeout=BTRC_RUN_TIMEOUT,
+            env={**os.environ, "GCOV_PREFIX": str(native_lines)} if native_lines else None,
+        )
+        if LINE_COVERAGE is not None and not LINE_COVERAGE.record(
+            Path(bin_path), *((native_lines,) if native_lines else ())
+        ):
+            LINE_COVERAGE.unrecorded(btrc_file)  # it ended without exiting, so gcov wrote nothing
         assert run_result.returncode == 0, (
             f"Program exited with {run_result.returncode}:\nstdout: {run_result.stdout}\nstderr: {run_result.stderr}"
         )

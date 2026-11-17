@@ -106,8 +106,11 @@ class NativeCorpusBuild:
         compile_flags: Sequence[str] = (),
         link_flags: Sequence[str] = (),
         report: Path | None = None,
+        runner=None,
     ):
-        return NativePlanBuilder(runner=self.run_tool).build(
+        """`runner` runs each tool command in place of `run_tool`; a caller that watches the build passes one."""
+
+        return NativePlanBuilder(runner=runner or self.run_tool).build(
             plan_path=self.plan,
             generated_c=self.primary,
             output=output,

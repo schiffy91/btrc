@@ -1,7 +1,7 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-release-c-linux btrcc-release-c-macos btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required \
         test test-suite test-fast test-nightly btrcc-test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
-        skip-gate qualification-report \
+        skip-gate qualification-report coverage \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
@@ -374,6 +374,26 @@ test-e40: generated-check gpu-required ## Run platform-admitted E40 qualificatio
 	$(NIX) env BTRC_E40_BURST_REPETITIONS=$(E40_BURST_REPETITIONS) tools/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and not nightly" \
 		--skip-report=build/skip-report-e40.json $(PYTEST_SERIAL_ARGS) -n 0
 	$(NIX) $(SKIP_GATE) build/skip-report-e40.json
+
+# Line coverage of the standard library and of both compilers: one command,
+# one report (build/coverage/report.md, and report.json beside it). It is the
+# fast tier run once more with every corpus program built for gcov and
+# coverage.py watching the reference compiler, then the corpus through a
+# self-hosted compiler built for gcov (tools/line_coverage.py says what each
+# number is and what it leaves out). It needs gcc and its gcov, and is not a
+# gate: a test that fails under instrumentation stops it before the report.
+COVERAGE_DIR := build/coverage
+coverage: generated-check gpu-required ## Line coverage of the stdlib and both compilers -> build/coverage/report.md
+	$(NIX) python3 -m tools.line_coverage census --output $(COVERAGE_DIR) --workers $(PYTEST_WORKERS)
+	$(NIX) env -u DISPLAY -u WAYLAND_DISPLAY BTRC_TEST_LINE_COVERAGE="$(abspath $(COVERAGE_DIR))/lines" \
+		$(PYTEST) src/tests/python/ src/tests/lsp/ src/tests/formatter/ src/tests/runner.py \
+		--fast --compilers=python $(addprefix --ignore=,$(NATIVE_GUI_TESTS)) \
+		--cov=src/compiler/python --cov-report=json:$(COVERAGE_DIR)/reference.json --cov-report= \
+		-q -n $(PYTEST_WORKERS) --dist worksteal
+	$(NIX) python3 -m tools.line_coverage selfhost-build --output $(COVERAGE_DIR)
+	$(NIX) env BTRC_TEST_BTRCC="$(abspath $(COVERAGE_DIR))/btrcc/btrcc" \
+		$(PYTEST) src/tests/runner.py --compilers=btrc -q -n $(PYTEST_WORKERS) --dist worksteal
+	$(NIX) python3 -m tools.line_coverage report --output $(COVERAGE_DIR)
 
 # The nightly set: what is required but too long for every gate. It is a named
 # set, not a schedule; nothing runs it on a timer. It holds
