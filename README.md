@@ -2013,9 +2013,9 @@ The corpus runner (`src/tests/runner.py`) executes every program through both
 compilers and compares stdout to a golden file, so the two compilers are held
 to identical behavior by the same tests. The harness builds the self-hosted
 compiler once per source revision and caches it under
-`build/test-btrcc/<fingerprint>/`; a change to any compiler source, the stdlib,
-a shared spec, a runtime asset, or the C compiler version invalidates it. Set
-`BTRC_TEST_BTRCC` to reuse a binary you built yourself.
+`build/test-btrcc/<fingerprint>/`; a change to any compiler source, a stdlib
+module the compiler imports, a shared spec, a runtime asset, or the C compiler
+invalidates it. Set `BTRC_TEST_BTRCC` to reuse a binary you built yourself.
 
 ### Cross-platform builds of the self-hosted compiler
 

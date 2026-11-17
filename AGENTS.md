@@ -159,8 +159,9 @@ not discard its frozen boundary fixtures.
 
 The test harness builds the self-hosted compiler once per source revision and
 caches it under `build/test-btrcc/<fingerprint>/`; a change to any compiler
-source, the stdlib, a shared spec, a runtime asset, or the C compiler
-invalidates it. That one cache (`src/tests/selfhost_cache.py`) serves `make
+source, a stdlib module the compiler imports, a shared spec, a runtime asset,
+or the C compiler invalidates it. An edit to any other stdlib module leaves
+the compiler in place and rebuilds only the helper drivers. That one cache (`src/tests/selfhost_cache.py`) serves `make
 test`, `make test-c11` and every shard: on Linux they take the compiler from
 it through `make test-btrcc` instead of building a second one in `bin/`, and
 the helper drivers are transpiled by it rather than by the reference

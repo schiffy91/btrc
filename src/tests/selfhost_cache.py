@@ -15,6 +15,13 @@ match the tree is never used, so the root can be shared between checkouts:
 ``build/test-btrcc``. The fingerprint includes the C compiler's resolved path
 and version, so a shared root never hands one toolchain's binary to another.
 
+Of the standard library the compiler's key covers only what building the
+compiler reads (`ReferenceCompilerInputs`): the modules its sources import,
+their packages' manifests and native inputs, and which root module owns each
+stdlib symbol. An edit to any other stdlib module leaves the compiler in
+place. A driver may import any stdlib module, so its key keeps the whole
+stdlib; the cached compiler rebuilds one in about a minute.
+
 A helper driver is a btrc program that imports compiler modules. It is
 transpiled by the cached self-hosted compiler, which takes a third to a half
 of the reference compiler's time on the same source. `REFERENCE` builds one
@@ -45,6 +52,9 @@ from src.tests.process_limits import C_COMPILE_TIMEOUT
 REPO = Path(__file__).resolve().parents[2]
 SELFHOST = "selfhost"
 REFERENCE = "reference"
+# The entry point the suite's compiler is generated from: the portable one, or Windows' host composition.
+ENTRY = "src/compiler/btrc/cli/WindowsMain.btrc" if os.name == "nt" else "src/compiler/btrc/BtrccMain.btrc"
+STDLIB = Path("src") / "stdlib"
 
 
 @contextlib.contextmanager
@@ -87,22 +97,77 @@ def exclusive(lock_path: Path, *, timeout: float | None = None, owner: str = "")
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+class ReferenceCompilerInputs:
+    """What the reference compiler reads from this checkout's stdlib to build the self-hosted compiler.
+
+    The answer is the reference compiler's own: its resolve stage walks the
+    entry point's imports and packages exactly as a build does, and reports
+    every source, manifest, lock and native input it settled on. Two things a
+    build consults beyond those are added: every package manifest, because the
+    package universe is assembled from all of them, and the owner of each
+    stdlib symbol, which strict visibility checks against even for modules the
+    program never imports. Nothing else of the stdlib can change the compiler.
+    """
+
+    MANIFESTS = ("btrc.toml", "btrc.lock")
+
+    def __init__(self) -> None:
+        self._resolved: tuple[tuple[Path, ...], tuple[tuple[str, tuple[str, ...]], ...]] | None = None
+
+    def _resolve(self) -> tuple[tuple[Path, ...], tuple[tuple[str, tuple[str, ...]], ...]]:
+        if self._resolved is None:
+            from src.compiler.python import Compiler, CompilerOptions
+
+            compiler = Compiler()
+            stdlib = Path(os.path.realpath(compiler.stdlib_directory))
+            if stdlib != (REPO / STDLIB).resolve():
+                raise ValueError(f"the reference compiler reads {stdlib}, not this checkout's stdlib")
+            entry = REPO / ENTRY
+            resolved = compiler.pipeline.resolve(
+                entry.read_text(encoding="utf-8"), str(entry), CompilerOptions(use_cache=False)
+            )
+            read = {
+                *resolved.graph.source_paths(),
+                *resolved.native_plan.input_paths(),
+                *(path for path, _line in resolved.source_positions),
+            }
+            files = {Path(os.path.realpath(path)) for path in read if path}
+            files.update(path.resolve() for name in self.MANIFESTS for path in stdlib.rglob(name))
+            owners = compiler.pipeline.frontend.stdlib.symbol_files()
+            self._resolved = (
+                tuple(sorted(path for path in files if path.is_relative_to(stdlib) and path.is_file())),
+                tuple(
+                    (name, tuple(sorted(os.path.relpath(path, stdlib) for path in paths)))
+                    for name, paths in sorted(owners.items())
+                ),
+            )
+        return self._resolved
+
+    def files(self) -> tuple[Path, ...]:
+        """Every stdlib file whose bytes a build of the compiler depends on."""
+
+        return self._resolve()[0]
+
+    def symbol_owners(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """Each stdlib symbol and the root modules that define it."""
+
+        return self._resolve()[1]
+
+
 class SelfhostCompilerCache:
     """Content-addressed self-hosted compilers and helper drivers for one tree and one C toolchain."""
 
     ROOT_VARIABLE = "BTRC_TEST_COMPILER_CACHE"
     # The checkout's pointer at the compiler `ensure` last resolved, for the Makefile to name.
     CURRENT = Path("build") / "btrcc-test"
-    # Every input category the self-hosted compiler is generated from. This
-    # mirrors BTRCC_INPUTS in the Makefile: the fingerprint must cover exactly
-    # what can change btrcc.c, or a cached compiler would silently answer for
-    # sources it was not built from.
+    # Every input category the self-hosted compiler is generated from, the
+    # stdlib apart: the fingerprint must cover exactly what can change btrcc.c,
+    # or a cached compiler would silently answer for sources it was not built
+    # from. BTRCC_INPUTS in the Makefile names the same categories with the
+    # whole stdlib; here the stdlib is narrowed to what a build reads.
     INPUT_GLOBS = (
         ("src/compiler/python", "*.py"),
         ("src/compiler/btrc", "*.btrc"),
-        ("src/stdlib", "*.btrc"),
-        ("src/stdlib", "*.toml"),
-        ("src/stdlib", "*.h"),
         ("src/language", "*.ebnf"),
         ("src/language", "*.asdl"),
         ("src/language", "*.toml"),
@@ -111,15 +176,28 @@ class SelfhostCompilerCache:
         ("src/runtime/c", "*.toml"),
         ("tools/compiler_codegen", "*.py"),
     )
+    # What a helper driver may read of the stdlib: any of it.
+    STDLIB_GLOBS = ("*.btrc", "*.toml", "*.h")
     BUILD_TIMEOUT = 900
 
-    def __init__(self, compiler: Sequence[str], *, repo: Path = REPO, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        compiler: Sequence[str],
+        *,
+        repo: Path = REPO,
+        root: Path | None = None,
+        compiler_inputs: ReferenceCompilerInputs | None = None,
+    ) -> None:
         if not compiler:
             raise ValueError("BTRC_CC must name a C compiler")
+        if compiler_inputs is None and repo != REPO:
+            raise ValueError("another checkout's compiler inputs must be named: the reference compiler reads its own")
         self.compiler = list(compiler)
         self.repo = repo
         self.root = root if root is not None else self.configured_root(repo)
+        self.compiler_inputs = compiler_inputs if compiler_inputs is not None else ReferenceCompilerInputs()
         self._fingerprint: str | None = None
+        self._stdlib_digest: bytes | None = None
 
     @classmethod
     def configured(cls) -> SelfhostCompilerCache:
@@ -139,20 +217,20 @@ class SelfhostCompilerCache:
     def fingerprint(self) -> str:
         """Identify one self-host compiler by everything that can change it.
 
-        The artifact is a pure function of the compiler sources, the shared
-        specifications, the runtime C, the generators, the C toolchain that
-        links it, and the recipe that drives them. Hashing all of them lets one
-        build serve every worker, every gate and every later run, while a
-        single edited byte anywhere produces a different key. The recipe is
-        included because changing a build flag changes the artifact without
-        touching any input file, and the toolchain's resolved path because two
-        environments can report one version for compilers that link against
-        different libraries.
+        The artifact is a pure function of the compiler sources, the stdlib
+        they read, the shared specifications, the runtime C, the generators,
+        the C toolchain that links it, and the recipe that drives them. Hashing
+        all of them lets one build serve every worker, every gate and every
+        later run, while a single edited byte in any of them produces a
+        different key. The recipe is included because changing a build flag
+        changes the artifact without touching any input file, and the
+        toolchain's resolved path because two environments can report one
+        version for compilers that link against different libraries.
         """
 
         if self._fingerprint is None:
             digest = hashlib.sha256()
-            digest.update(b"btrcc-test-fixture-v2")
+            digest.update(b"btrcc-test-fixture-v3")
             digest.update(b"\0".join(flag.encode() for flag in selfhost_link_flags()))
             for relative, pattern in self.INPUT_GLOBS:
                 for source in sorted((self.repo / relative).rglob(pattern)):
@@ -160,6 +238,11 @@ class SelfhostCompilerCache:
                         continue
                     digest.update(str(source.relative_to(self.repo)).encode())
                     digest.update(source.read_bytes())
+            stdlib = (self.repo / STDLIB).resolve()
+            for source in self.compiler_inputs.files():
+                digest.update(source.relative_to(stdlib).as_posix().encode())
+                digest.update(source.read_bytes())
+            digest.update(json.dumps(self.compiler_inputs.symbol_owners()).encode())
             digest.update(self._toolchain_identity())
             digest.update(inspect.getsource(SelfhostCompilerCache._build_compiler).encode())
             self._fingerprint = digest.hexdigest()[:32]
@@ -175,6 +258,18 @@ class SelfhostCompilerCache:
         return b"\0".join(
             [*(part.encode() for part in self.compiler), resolved.encode(), version.stdout.encode(), host.encode()]
         )
+
+    def stdlib_digest(self) -> bytes:
+        """The whole stdlib, for a driver's key: a driver may import what the compiler does not."""
+
+        if self._stdlib_digest is None:
+            digest = hashlib.sha256()
+            stdlib = self.repo / STDLIB
+            for source in sorted({path for pattern in self.STDLIB_GLOBS for path in stdlib.rglob(pattern)}):
+                digest.update(source.relative_to(stdlib).as_posix().encode())
+                digest.update(source.read_bytes())
+            self._stdlib_digest = digest.digest()
+        return self._stdlib_digest
 
     def compiler_binary(self) -> Path:
         """The tree's self-hosted compiler, built here at most once per fingerprint."""
@@ -197,7 +292,7 @@ class SelfhostCompilerCache:
                 sys.executable,
                 "-m",
                 "src.compiler.python.main",
-                "src/compiler/btrc/cli/WindowsMain.btrc" if os.name == "nt" else "src/compiler/btrc/BtrccMain.btrc",
+                ENTRY,
                 "--no-cache",
                 "-o",
                 str(generated),
@@ -265,6 +360,7 @@ class SelfhostCompilerCache:
         origin = Path(source).resolve()
         key = hashlib.sha256()
         key.update(self.fingerprint().encode())
+        key.update(self.stdlib_digest())
         key.update(frontend.encode())
         # A checkout's path is not part of a tracked driver's identity, so checkouts can share one root.
         key.update(

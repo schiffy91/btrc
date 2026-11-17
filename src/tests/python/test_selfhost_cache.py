@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from src.tests.selfhost_cache import REFERENCE, SELFHOST, SelfhostCompilerCache
+from src.tests.process_limits import TRANSPILE_TIMEOUT
+from src.tests.selfhost_cache import (
+    ENTRY,
+    REFERENCE,
+    REPO,
+    SELFHOST,
+    ReferenceCompilerInputs,
+    SelfhostCompilerCache,
+)
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="the stand-in compilers are shell scripts")
 
@@ -45,6 +56,7 @@ def _checkout(root: Path) -> Path:
         "src/compiler/python/main.py",
         "src/compiler/btrc/BtrccMain.btrc",
         "src/stdlib/Vector.btrc",
+        "src/stdlib/GUI/Window.btrc",
         "src/stdlib/btrc.toml",
         "src/language/grammar.ebnf",
         "src/runtime/c/core.c",
@@ -57,20 +69,35 @@ def _checkout(root: Path) -> Path:
     return root
 
 
+class _Inputs:
+    """What building the stand-in compiler reads from its checkout's stdlib."""
+
+    def __init__(self, repo: Path, modules=("Vector.btrc",), owners=(("Vector", ("Vector.btrc",)),)) -> None:
+        self.repo, self.modules, self.owners = repo, modules, owners
+
+    def files(self) -> tuple[Path, ...]:
+        return tuple(sorted((self.repo / "src/stdlib" / name).resolve() for name in (*self.modules, "btrc.toml")))
+
+    def symbol_owners(self):
+        return self.owners
+
+
+def _cache(compiler: Path, repo: Path, root: Path | None = None, **inputs) -> SelfhostCompilerCache:
+    return SelfhostCompilerCache([str(compiler)], repo=repo, root=root, compiler_inputs=_Inputs(repo, **inputs))
+
+
 def test_fingerprint_follows_the_sources_and_the_toolchain(tmp_path: Path) -> None:
     repo, cc = _checkout(tmp_path / "checkout"), _toolchain(tmp_path / "tools")
-    key = SelfhostCompilerCache([str(cc)], repo=repo).fingerprint()
+    key = _cache(cc, repo).fingerprint()
 
-    assert SelfhostCompilerCache([str(cc)], repo=repo).fingerprint() == key
+    assert _cache(cc, repo).fingerprint() == key
     # A second checkout of the same tree, somewhere else, is the same compiler.
-    assert SelfhostCompilerCache([str(cc)], repo=_checkout(tmp_path / "clone")).fingerprint() == key
+    assert _cache(cc, _checkout(tmp_path / "clone")).fingerprint() == key
     # Another toolchain is not, even when it reports the same version.
-    assert SelfhostCompilerCache([str(_toolchain(tmp_path / "other"))], repo=repo).fingerprint() != key
-    assert (
-        SelfhostCompilerCache([str(_toolchain(tmp_path / "newer", "stand-in cc 2.0"))], repo=repo).fingerprint() != key
-    )
+    assert _cache(_toolchain(tmp_path / "other"), repo).fingerprint() != key
+    assert _cache(_toolchain(tmp_path / "newer", "stand-in cc 2.0"), repo).fingerprint() != key
     (repo / "src/compiler/btrc/BtrccMain.btrc").write_text("edited\n")
-    assert SelfhostCompilerCache([str(cc)], repo=repo).fingerprint() != key
+    assert _cache(cc, repo).fingerprint() != key
 
 
 def test_cache_root_is_the_checkouts_unless_one_is_named(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -87,8 +114,8 @@ def test_cache_root_is_the_checkouts_unless_one_is_named(tmp_path: Path, monkeyp
 def test_checkouts_sharing_a_root_build_each_compiler_and_driver_once(tmp_path: Path) -> None:
     cc, log, shared = _toolchain(tmp_path / "tools"), tmp_path / "transpiled", tmp_path / "shared"
     btrcc = _transpiler(tmp_path / "tools", log)
-    first = SelfhostCompilerCache([str(cc)], repo=_checkout(tmp_path / "checkout"), root=shared)
-    second = SelfhostCompilerCache([str(cc)], repo=_checkout(tmp_path / "clone"), root=shared)
+    first = _cache(cc, _checkout(tmp_path / "checkout"), shared)
+    second = _cache(cc, _checkout(tmp_path / "clone"), shared)
 
     built = first.driver(
         first.repo / "src/tests/Driver.btrc", compile_flags=("-pedantic-errors",), selfhost_compiler=btrcc
@@ -114,7 +141,7 @@ def test_helper_drivers_are_transpiled_by_the_selfhost_compiler_unless_the_refer
 ) -> None:
     cc, log = _toolchain(tmp_path / "tools"), tmp_path / "transpiled"
     btrcc = _transpiler(tmp_path / "tools", log)
-    cache = SelfhostCompilerCache([str(cc)], repo=_checkout(tmp_path / "checkout"))
+    cache = _cache(cc, _checkout(tmp_path / "checkout"))
     source = cache.repo / "src/tests/Driver.btrc"
     # The reference compiler is this interpreter running src.compiler.python.main in the checkout.
     package = cache.repo / "src/compiler/python"
@@ -141,7 +168,7 @@ def test_ensure_points_the_checkout_at_the_compiler_it_resolved(tmp_path: Path) 
     cc = _toolchain(tmp_path / "tools")
     repo = _checkout(tmp_path / "checkout")
     for root in (None, tmp_path / "shared"):
-        cache = SelfhostCompilerCache([str(cc)], repo=repo, root=root)
+        cache = _cache(cc, repo, root)
         # A compiler already in the cache is reused, never rebuilt.
         binary = _script(cache.root / cache.fingerprint() / "btrcc", "exit 0\n")
         current = cache.ensure()
@@ -149,3 +176,87 @@ def test_ensure_points_the_checkout_at_the_compiler_it_resolved(tmp_path: Path) 
         assert current == link / "btrcc" and current.resolve() == binary.resolve()
         # Inside the checkout the link is relative, so it holds where the checkout is mounted elsewhere.
         assert os.path.isabs(os.readlink(link)) == (root is not None)
+
+
+def test_compiler_key_covers_only_the_stdlib_the_compiler_reads(tmp_path: Path) -> None:
+    cc, log = _toolchain(tmp_path / "tools"), tmp_path / "transpiled"
+    btrcc = _transpiler(tmp_path / "tools", log)
+    repo = _checkout(tmp_path / "checkout")
+    driver = repo / "src/tests/Driver.btrc"
+    compiler = _cache(cc, repo).fingerprint()
+    built = _cache(cc, repo).driver(driver, selfhost_compiler=btrcc)
+
+    # A module the compiler does not import: its compiler stays, while a driver, which may import it, is rebuilt.
+    (repo / "src/stdlib/GUI/Window.btrc").write_text("edited\n")
+    assert _cache(cc, repo).fingerprint() == compiler
+    assert _cache(cc, repo).driver(driver, selfhost_compiler=btrcc) != built
+    # The same module once the compiler imports it, and a symbol that changes hands.
+    assert _cache(cc, repo, modules=("Vector.btrc", "GUI/Window.btrc")).fingerprint() != compiler
+    assert _cache(cc, repo, owners=(("Vector", ("Vector.btrc", "List.btrc")),)).fingerprint() != compiler
+    # A module the compiler does import.
+    (repo / "src/stdlib/Vector.btrc").write_text("edited\n")
+    assert _cache(cc, repo).fingerprint() != compiler
+
+
+def test_another_checkouts_compiler_inputs_must_be_named(tmp_path: Path) -> None:
+    # The reference compiler reads the stdlib beside it, so it cannot answer for another tree.
+    with pytest.raises(ValueError, match="another checkout's compiler inputs must be named"):
+        SelfhostCompilerCache([str(_toolchain(tmp_path / "tools"))], repo=_checkout(tmp_path / "checkout"))
+
+
+def test_the_compiler_reads_a_small_part_of_this_trees_stdlib() -> None:
+    stdlib = REPO / "src" / "stdlib"
+    inputs = ReferenceCompilerInputs()
+    files = {path.relative_to(stdlib).as_posix() for path in inputs.files()}
+    modules = {name for name in files if name.endswith(".btrc")}
+
+    assert {"Vector.btrc", "Process.btrc", "FileSystem/FileSystem.btrc", "Digest/SHA256.btrc"} <= modules
+    assert 20 <= len(modules) < len(list(stdlib.rglob("*.btrc"))) // 4
+    # Whole packages the compiler never imports contribute their manifest and nothing else.
+    for package in ("GUI", "UI", "Audio", "HTTP", "Tray", "App", "Bluetooth", "USB"):
+        assert {name for name in files if name.startswith(f"{package}/")} <= {f"{package}/btrc.toml"}, package
+    assert {path.relative_to(stdlib).as_posix() for path in stdlib.rglob("btrc.toml")} <= files
+    owners = dict(inputs.symbol_owners())
+    assert owners["Vector"] == ("Vector.btrc",) and "Regex" in owners
+
+
+_OPENED_BY_THE_FRONTEND = """
+import json, os, sys
+stdlib = os.path.realpath(sys.argv[1])
+opened = set()
+def record(event, arguments):
+    if event == "open" and arguments and isinstance(arguments[0], (str, bytes)):
+        path = os.path.realpath(os.fsdecode(arguments[0]))
+        if path.startswith(stdlib + os.sep):
+            opened.add(os.path.relpath(path, stdlib))
+sys.addaudithook(record)
+from src.compiler.python import Compiler, CompilerOptions
+with open(sys.argv[2], encoding="utf-8") as source:
+    Compiler().compile_frontend(source.read(), sys.argv[2], CompilerOptions(use_cache=False))
+print(json.dumps(sorted(opened)))
+"""
+
+
+def test_every_stdlib_file_the_frontend_opens_for_the_compiler_is_in_its_key() -> None:
+    """Ground truth for the narrowed key: what the reference compiler opens while it parses and analyzes the compiler."""
+
+    stdlib = REPO / "src" / "stdlib"
+    result = subprocess.run(
+        [sys.executable, "-c", _OPENED_BY_THE_FRONTEND, str(stdlib), ENTRY],
+        cwd=REPO,
+        env={**os.environ, "PYTHONPATH": str(REPO)},
+        capture_output=True,
+        text=True,
+        timeout=TRANSPILE_TIMEOUT,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    opened = set(json.loads(result.stdout.splitlines()[-1]))
+    inputs = ReferenceCompilerInputs()
+    keyed = {path.relative_to(stdlib).as_posix() for path in inputs.files()}
+    # Beyond the keyed files, strict visibility reads the root modules to learn which one owns each
+    # symbol (and the generated index of that); the key holds the owners themselves.
+    owners = {name for _symbol, names in inputs.symbol_owners() for name in names}
+    root_modules = {path.name for path in stdlib.glob("*.btrc")}
+    assert owners <= root_modules
+    assert opened - keyed <= root_modules | {"btrc.symbols"}, sorted(opened - keyed - root_modules)
+    assert opened & keyed >= {name for name in keyed if name.endswith(".btrc")}
