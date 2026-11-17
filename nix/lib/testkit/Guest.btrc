@@ -1,0 +1,244 @@
+import Library.JSON;
+import Library.Bytes;
+import Library.Crypto.Base64;
+import Library.FileSystem;
+import Library.Regex;
+import Library.Process;
+import Library.Timer;
+import Library.IO;
+import Library.Strings;
+import Library.Vector;
+import ./Check.btrc;
+import ./OwnedProcess.btrc;
+import ./Channel.btrc;
+import ./Keyboard.btrc;
+
+class GuestResult {
+    private int _code;
+    private string _output;
+    public GuestResult(int code, string output) { self._code = code; self._output = output; }
+    public int code { get { return self._code; } }
+    public string output { get { return self._output; } }
+}
+
+class Guest {
+    private string _name;
+    private string executable;
+    private string directory;
+    private string shared;
+    private Vector<string> environment;
+    private bool headless;
+    private OwnedProcess? process = null;
+    private Channel? shell = null;
+    private Channel? monitor = null;
+    private bool connected = false;
+    private int sequence = 0;
+    public int patience = 90;  // how long waitUntil waits, in seconds, when a call does not say
+
+    public Guest(string name, string executable, string directory, string shared, Vector<string> environment, bool headless = true) {
+        self._name = name;
+        self.executable = executable;
+        self.directory = directory;
+        self.shared = shared;
+        self.environment = environment.copy();
+        self.headless = headless;
+        Check.that(FileSystem.mkdirp(directory) == 0 && FileSystem.mkdirp(shared) == 0, "create guest workspace");
+    }
+
+    public string name { get { return self._name; } }
+    public string console() { return Path.readAll(PathTools.join(self.directory, "console.log")); }
+    public string statePath(string relative) { return self.path(relative); }
+    public void saveEvidence(string destination) {
+        if (destination.isEmpty()) { return; }
+        Check.that(FileSystem.mkdirp(destination) == 0, "create VM evidence directory");
+        for name in ["console.log", "shell.log", "monitor.log", "shell.log.wire", "monitor.log.wire"] {
+            if (FileSystem.exists(self.path(name))) { Check.that(FileSystem.writeText(PathTools.join(destination, f"{self.name}-{name}"), Path.readAll(self.path(name))), "save VM evidence"); }
+        }
+    }
+
+    private string path(string name) { return PathTools.join(self.directory, name); }
+
+    private OwnedProcess runningProcess() {
+        var process = self.process;
+        if (process == null) { throw "VM has not started"; }
+        return process;
+    }
+
+    private Channel shellChannel() {
+        var shell = self.shell;
+        if (shell == null) { throw "Guest shell is not connected"; }
+        return shell;
+    }
+
+    public void start() {
+        if (self.process != null && self.process.running()) { return; }
+        self.close();
+        // The safe filesystem deletion API intentionally refuses sockets.
+        Check.exited(ChildProcess.run("rm", ["-f", "--", self.path("shell.sock"), self.path("qmp.sock")]));
+        self.shell = Channel(f"UNIX-LISTEN:{self.path("shell.sock")}", self.path("shell.log"));
+        var deadline = MonotonicClock.deadlineAfter(10000);
+        while (!FileSystem.exists(self.path("shell.sock"))) {
+            Check.that(MonotonicClock.before(deadline), "create guest shell socket"); Timer.sleepMillis(10);
+        }
+        var environment = self.environment.copy();
+        environment.push(f"TMPDIR={self.directory}"); environment.push(f"SHARED_DIR={self.shared}"); environment.push("USE_TMPDIR=1");
+        var arguments = ["-qmp", f"unix:{self.path("qmp.sock")},server=on,wait=off", "-chardev", f"socket,id=shell,path={self.path("shell.sock")}", "-device", "virtio-serial", "-device", "virtconsole,chardev=shell", "-device", "virtio-rng-pci", "-serial", "stdio", "-no-reboot"];
+        if (self.headless) {
+            arguments.push("-nographic");
+            arguments.push("-monitor");
+            arguments.push("none");
+        }
+        self.process = OwnedProcess(self.executable, arguments, self.path("console.log"), self.directory, environment);
+        // The start script makes the guest's disk and its Nix store image before QEMU opens the monitor, and on
+        // a busy machine that alone has taken more than half a minute. A guest that dies is seen at once.
+        deadline = MonotonicClock.deadlineAfter(300000);
+        while (!FileSystem.exists(self.path("qmp.sock"))) {
+            Check.that(self.runningProcess().running() && MonotonicClock.before(deadline), f"start {self.name}: {self.console()}"); Timer.sleepMillis(20);
+        }
+        self.monitor = Channel(f"UNIX-CONNECT:{self.path("qmp.sock")}", self.path("monitor.log"));
+        var greeting = JSONValue.parse(self.monitor.line(deadline));
+        Check.that(greeting.has("QMP"), "QMP greeting");
+        self.qmp("qmp_capabilities", JSONValue.makeObject());
+        print(f"Started {self.name}");
+    }
+
+    public JSONValue qmp(string command, JSONValue arguments) {
+        try { return self.qmpRequest(command, arguments); }
+        catch (string error) { throw f"{self.name}: QMP {command}: {error}\n{self.console()}"; }
+    }
+
+    private JSONValue qmpRequest(string command, JSONValue arguments) {
+        var monitor = self.monitor;
+        if (monitor == null) { throw "VM monitor is not connected"; }
+        self.sequence++;
+        var request = JSONValue.makeObject(); request.set("execute", JSONValue.makeString(command)); request.set("arguments", arguments); request.set("id", JSONValue.makeInt(self.sequence));
+        var deadline = MonotonicClock.deadlineAfter(30000);
+        monitor.write(request.stringify() + "\n", deadline);
+        while (true) {
+            var reply = JSONValue.parse(monitor.line(deadline));
+            if (!reply.has("id") || reply.get("id").asInt() != self.sequence) { continue; }
+            if (reply.has("error")) { throw f"QMP {command}: {reply.get("error").stringify()}"; }
+            return reply.get("return");
+        }
+        throw "Unreachable QMP reply";
+    }
+
+    public string monitorCommand(string command) {
+        var arguments = JSONValue.makeObject(); arguments.set("command-line", JSONValue.makeString(command));
+        return self.qmp("human-monitor-command", arguments).asString();
+    }
+
+    public void connect(int timeoutSeconds = 180) {
+        self.start();
+        if (self.connected) { return; }
+        var deadline = MonotonicClock.deadlineAfter(timeoutSeconds * 1000);
+        var shell = self.shellChannel();
+        try { while (!shell.line(deadline).contains("Spawning backdoor root shell")) {} }
+        catch (string error) { throw f"{self.name}: guest shell unavailable: {error}\n{self.console()}"; }
+        self.connected = true;
+    }
+
+    public GuestResult execute(string command, int timeoutSeconds = 90) {
+        try { return self.executeFramed(command, timeoutSeconds); }
+        catch (string error) { throw f"{self.name}: executing {command}: {error}\n{self.console()}"; }
+    }
+
+    private GuestResult executeFramed(string command, int timeoutSeconds) {
+        self.connect();
+        self.sequence++;
+        var begin = f"BTRC-BEGIN-{self.sequence}";
+        var marker = f"BTRC-COMMAND-{self.sequence}:";
+        // Framing works in initrd and in GPU guests that deliberately disable
+        // shared filesystems. Command output cannot impersonate protocol lines.
+        // Wrapped base64 keeps line parsing bounded; Bytes accumulates large
+        // journals without repeatedly copying and rescanning one giant string.
+        var script = f"printf '{begin}\\n'; timeout {timeoutSeconds} bash -c {ShellWords.quote("set -euo pipefail; " + command)} </dev/null 2>&1 | base64 -w4096; btrc_status=\"${{PIPESTATUS[0]}}\"; printf '\\n{marker}%s\\n' \"$btrc_status\"\n";
+        var deadline = MonotonicClock.deadlineAfter((timeoutSeconds + 5) * 1000);
+        var shell = self.shellChannel();
+        shell.write(script, deadline);
+        while (!shell.line(deadline).equals(begin)) {}
+        var encoded = Bytes();
+        while (true) {
+            var line = shell.line(deadline);
+            if (!line.startsWith(marker)) {
+                Check.that(line.len() <= 4096 && encoded.length() + line.len() <= 33554432, "bounded guest output frame");
+                encoded.appendBytes(Bytes.fromString(line));
+                continue;
+            }
+            var status = line.substring(marker.len(), line.len() - marker.len()).trim();
+            Check.that(Regex.matches("^[0-9]+$", status), "valid guest exit status");
+            var decoded = Base64.decode(encoded.toStringLossy());
+            if (decoded == null) { throw "Invalid base64 guest output frame"; }
+            return GuestResult(Strings.toInt(status), decoded.toStringLossy());
+        }
+        throw "Unreachable guest reply";
+    }
+
+    public string succeed(string command, int timeoutSeconds = 90) {
+        var result = self.execute(command, timeoutSeconds);
+        Check.that(result.code == 0, f"{self.name}: {command}\n{result.output}");
+        return result.output;
+    }
+
+    public string fail(string command, int timeoutSeconds = 90) {
+        var result = self.execute(command, timeoutSeconds);
+        Check.that(result.code != 0 && result.code != 124, f"{self.name}: expected failure, exit {result.code}: {command}\n{result.output}");
+        return result.output;
+    }
+
+    public string waitUntil(string command, int timeoutSeconds = 0) {
+        var deadline = MonotonicClock.deadlineAfter((timeoutSeconds > 0 ? timeoutSeconds : self.patience) * 1000);
+        var output = "";
+        while (MonotonicClock.before(deadline)) {
+            var result = self.execute(command, 10);
+            if (result.code == 0) { return result.output; }
+            output = result.output;
+            Timer.sleepMillis(250);
+        }
+        throw f"{self.name}: timed out waiting for {command}\n{output}";
+    }
+
+    public void waitForUnit(string unit, int timeoutSeconds = 90) { self.waitUntil(f"systemctl is-active --quiet {ShellWords.quote(unit)}", timeoutSeconds); }
+    public void waitForConsole(string pattern, int timeoutSeconds = 180) {
+        self.start(); var deadline = MonotonicClock.deadlineAfter(timeoutSeconds * 1000);
+        while (!Regex.matches(pattern, self.console())) {
+            Check.that(self.runningProcess().running() && MonotonicClock.before(deadline), f"{self.name}: missing console pattern {pattern}\n{self.console()}"); Timer.sleepMillis(100);
+        }
+    }
+    public void sendKey(string key) { self.monitorCommand(f"sendkey {key}"); Timer.sleepMillis(150); }
+    public void sendChars(string text) { for (int index = 0; index < text.len(); index++) { self.sendKey(Keyboard.chord(text.substring(index, 1))); } }
+    public void reboot() {
+        self.connect();
+        // Shutdown may stop the backdoor before it can acknowledge a command.
+        // waitForShutdown observes the VM's exit instead of requiring a reply.
+        self.shellChannel().write("systemctl reboot --no-block </dev/null\n", MonotonicClock.deadlineAfter(10000));
+    }
+    public void crash() {
+        var script = "for child in $(cat /proc/\"$1\"/task/*/children 2>/dev/null); do case \"$(cat /proc/\"$child\"/comm)\" in qemu-system*) kill -KILL \"$child\"; emulator=1;; esac; done; test -n \"$emulator\" || kill -KILL \"$1\"";
+        Check.exited(ChildProcess.run("sh", ["-c", script, "crash-fixture", f"{self.runningProcess().pid()}"]));  // QEMU runs under the virtiofsd launcher
+        self.waitForShutdown();
+    }
+    public void switchRoot() {
+        self.waitForUnit("initrd.target");
+        self.shellChannel().write("systemctl isolate --no-block initrd-switch-root.target >/dev/null 2>&1\n", MonotonicClock.deadlineAfter(10000));
+        self.connected = false;
+        self.connect();
+    }
+    public void shutdown() { self.connect(); self.shellChannel().write("systemctl poweroff\n", MonotonicClock.deadlineAfter(10000)); self.waitForShutdown(); }
+    public void waitForFile(string path, int timeoutSeconds = 90) { self.waitUntil(f"test -e {ShellWords.quote(path)}", timeoutSeconds); }
+    public void screenshot(string path) {
+        var arguments = JSONValue.makeObject(); arguments.set("filename", JSONValue.makeString(path)); self.qmp("screendump", arguments);
+    }
+    public void waitForShutdown(int timeoutSeconds = 180) {
+        try { if (self.process != null) { self.process.wait(MonotonicClock.deadlineAfter(timeoutSeconds * 1000)); } }
+        catch (string error) { throw f"{self.name}: shutdown failed: {error}\n{self.console()}"; }
+        self.close();
+    }
+    public void close() {
+        if (self.process != null) { self.process.close(); self.process = null; }
+        if (self.shell != null) { self.shell.close(); self.shell = null; }
+        if (self.monitor != null) { self.monitor.close(); self.monitor = null; }
+        self.connected = false;
+    }
+    public void __del__() { self.close(); }
+}

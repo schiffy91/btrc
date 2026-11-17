@@ -1,5 +1,9 @@
 {
   "jobs": {
+    "CI / vm-test": {
+      "platform": "linux-x86_64",
+      "run": "tools/ci-local-job.sh -- 'nix build .#checks.x86_64-linux.vm-test --no-link --print-build-logs'"
+    },
     "CI / tests (unit)": {
       "platform": "linux-x86_64",
       "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED=1 'PYTEST_ADDOPTS=--dist=loadgroup --failure-report=build/failure-report-unit.jsonl ' -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit'"

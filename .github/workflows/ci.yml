@@ -213,7 +213,7 @@ jobs:
 
       - run: nix flake check --no-build
       - run: nix develop --command make NIX= generated-check
-      - run: nix build .#btrc .#btrc-lsp .#btrc-vscode-extension .#checks.x86_64-linux.gpu-runtime-package .#checks.x86_64-linux.native-package-plan --no-link
+      - run: nix build .#btrc .#btrc-lsp .#btrc-vscode-extension .#checks.x86_64-linux.gpu-runtime-package .#checks.x86_64-linux.native-package-plan .#checks.x86_64-linux.build-package --no-link
       - run: make devcontainer
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= lint format-check
@@ -258,6 +258,31 @@ jobs:
           nix develop --command make NIX= generated-check
           git status --porcelain --untracked-files=all
           test -z "$(git status --porcelain --untracked-files=all)"
+
+  # The flake's check of lib.vmTest and the testkit package: a NixOS machine
+  # boots, runs a command, reboots and still has the file it wrote. Nix gives
+  # the build its `kvm` feature only where /dev/kvm can be opened, which a
+  # hosted runner's user may do once the first step has run. A machine of the
+  # owner's has KVM as it is, so this is a local job (ci/local.json).
+  vm-test:
+    needs: scope
+    if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'vm-test')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Allow the runner user to open /dev/kvm
+        if: runner.environment == 'github-hosted'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - run: nix build .#checks.x86_64-linux.vm-test --no-link --print-build-logs
 
   # One build for the whole run. Every Linux test job used to build the
   # devcontainer image and the suite's self-hosted compiler for itself, about

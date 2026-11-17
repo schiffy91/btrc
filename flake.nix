@@ -682,6 +682,33 @@
         devcontainer = devcontainerFiles "${cfg.name}-devcontainer" files;
         devcontainer-ci = devcontainerFiles "${cfg.name}-devcontainer-ci" ciFiles;
       });
+      # What another repository builds and tests its BTRC programs with. Each
+      # function takes that repository's `pkgs` first; the compiler and the
+      # native plan builder are this flake's, for the system that builds.
+      lib = {
+        # buildPackage pkgs { name; src; programs; buildInputs; runtimeInputs;
+        #   linkFlags; linkPlan; nativeBuildInputs; env; wrapperArgs; postInstall; }
+        buildPackage = pkgs: self.lib.buildPackageWith { inherit pkgs; };
+        # The same builder with another compiler; `btrc-native-plan = null`
+        # builds without a link plan unless a call says `linkPlan = true`.
+        buildPackageWith = {
+          pkgs,
+          btrcpy ? self.packages.${pkgs.stdenv.buildPlatform.system}.btrcpy,
+          btrc-native-plan ? self.packages.${pkgs.stdenv.buildPlatform.system}.btrc-native-plan,
+        }: import ./nix/lib/build-package.nix { inherit pkgs btrcpy btrc-native-plan; };
+        # sources { lib } root entry: the files a program is built from, as a fileset.
+        sources = import ./nix/lib/sources.nix;
+        # The test library as a package directory, and a source tree with it inside:
+        # withTestkit pkgs { name; src; at ? "testkit"; }
+        testkit = ./nix/lib/testkit;
+        withTestkit = pkgs: import ./nix/lib/with-testkit.nix { inherit pkgs; };
+        # vmTest pkgs { name; nodes; scenario; extraFiles; settings; graphical; }
+        vmTest = pkgs: import ./nix/lib/vm-test.nix {
+          inherit pkgs;
+          buildPackage = self.lib.buildPackage pkgs;
+          withTestkit = self.lib.withTestkit pkgs;
+        };
+      };
       checks = eachSystem (pkgs: let
         system = pkgs.stdenv.hostPlatform.system;
         nativeTarget = {
@@ -777,7 +804,31 @@
           mkdir -p "$out"
           cp source/build/native-package*.link.json "$out/"
         '';
+        # lib.buildPackage and lib.sources: a program whose manifest names a
+        # pkg-config dependency is built from the files it imports, and runs.
+        build-package = let
+          program = self.lib.buildPackage pkgs {
+            name = "btrc-build-package-check";
+            src = lib.fileset.toSource {
+              root = ./src/tests/native/build_package;
+              fileset = self.lib.sources { inherit lib; } ./src/tests/native/build_package "Main.btrc";
+            };
+            programs.checksum = "Main.btrc";
+            buildInputs = [ pkgs.zlib ];
+          };
+        in pkgs.runCommand "btrc-build-package-check" { passthru = { inherit program; }; } ''
+          test "$(${program}/bin/checksum)" = "PASS: zlib through pkg-config"
+          mkdir -p "$out"
+        '';
       } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        # lib.vmTest and the testkit package: a machine boots, runs a command,
+        # reboots and still has the file it wrote. It boots a VM and needs KVM.
+        vm-test = self.lib.vmTest pkgs {
+          name = "btrc-vm-test";
+          nodes.machine = { };
+          scenario = ./src/tests/native/vm_test/Reboot.btrc;
+          settings.marker = "kept-across-the-reboot";
+        };
         # The kernel as the host of an emulated USB device; it boots a VM.
         usb-kernel-host = import ./src/tests/native/usb/usb-kernel-host.nix {
           inherit pkgs;

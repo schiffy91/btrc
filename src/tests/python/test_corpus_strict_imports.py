@@ -88,8 +88,10 @@ class CorpusImportAudit:
         )
         fixtures = (path for suite in ("btrc", "python") for path in (TEST_ROOT / suite / "fixtures").rglob("*.btrc"))
         examples = (self.repository / "examples").rglob("*.btrc")
+        # The testkit package the flake's lib places in a consumer's tree.
+        library = (self.repository / "nix/lib").rglob("*.btrc")
         supporting = (self.repository / relative for relative in SUPPORTING_CONSUMERS)
-        return tuple(sorted({*shared, *fixtures, *examples, *supporting}))
+        return tuple(sorted({*shared, *fixtures, *examples, *library, *supporting}))
 
     def expected_consumers(self) -> frozenset[str]:
         """Every consumer source, listed by git rather than by the consumer walk.
@@ -222,7 +224,14 @@ def test_corpus_declares_every_direct_stdlib_owner(
 
 @pytest.mark.parametrize(
     "tree",
-    ("src/tests/collections", "src/tests/native", "src/tests/btrc/fixtures", "src/tests/python/fixtures", "examples"),
+    (
+        "src/tests/collections",
+        "src/tests/native",
+        "src/tests/btrc/fixtures",
+        "src/tests/python/fixtures",
+        "examples",
+        "nix/lib",
+    ),
 )
 def test_coverage_names_a_source_the_consumer_walk_drops(corpus_audit: CorpusImportAudit, tree: str) -> None:
     consumers = corpus_audit.consumer_files()

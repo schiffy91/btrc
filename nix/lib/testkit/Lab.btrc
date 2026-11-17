@@ -1,0 +1,65 @@
+import Library.Map;
+import Library.Bytes;
+import Library.Platform;
+import Library.JSON;
+import Library.Timer;
+import Library.Process;
+import Library.Vector;
+import ./Guest.btrc;
+
+class Lab {
+    private Map<string, Guest> guests = {};
+    private Vector<PipeProcess> networks = [];
+    private TemporaryDirectory workspace;
+    private string artifacts;
+    private JSONValue configuration;
+    private bool closed = false;
+
+    public Lab(string descriptor) {
+        self.workspace = TemporaryDirectory.create("btrc-vm").value();
+        self.artifacts = Environment.get("out", "");
+        var configuration = JSONValue.readFile(descriptor);
+        self.configuration = configuration;
+        Vector<string> environment = [];
+        for vlan in configuration.get("vlans").elements() {
+            var socket = PathTools.join(self.workspace.path(), f"vde{vlan.asInt()}.ctl");
+            var network = PipeProcess("vde_switch", ["--sock", socket, "--dirmode", "0700", "--hub"], PathTools.join(self.workspace.path(), f"vde{vlan.asInt()}.log"));
+            self.networks.push(network);
+            var deadline = MonotonicClock.deadlineAfter(10000);
+            network.write(Bytes.fromString("showinfo\n"), deadline);
+            var response = "";
+            while (!response.contains("1000 Success")) {
+                var bytes = network.read(deadline);
+                if (bytes == null) { throw "Test network exited during startup"; }
+                response = response + bytes.toStringLossy();
+            }
+            environment.push(f"QEMU_VDE_SOCKET_{vlan.asInt()}={socket}");
+        }
+        var machines = configuration.get("vms");
+        for name in machines.keys() {
+            self.guests.put(name, Guest(name, machines.get(name).get("start_script").asString(), PathTools.join(self.workspace.path(), name), PathTools.join(self.workspace.path(), "shared"), environment, machines.get(name).get("headless").asBool()));
+        }
+    }
+
+    // A test that is expected to fail by waiting in vain says how long that wait is worth.
+    public Guest guest(string name) {
+        if (!self.guests.contains(name)) { throw f"Unknown guest: {name}"; }
+        var guest = self.guests.get(name);
+        if (self.settings().has("patienceSeconds")) { guest.patience = self.settings().get("patienceSeconds").asInt(); }
+        return guest;
+    }
+    public void startAll() { for name in self.guests.keys() { self.guests.get(name).start(); } }
+    public string artifact(string name) { return PathTools.join(self.artifacts, name); }
+    public JSONValue settings() { return self.configuration.get("settings"); }
+    public void close() {
+        if (self.closed) { return; }
+        self.closed = true;
+        for name in self.guests.keys() {
+            var guest = self.guests.get(name);
+            guest.close();
+            guest.saveEvidence(self.artifacts);
+        }
+        for network in self.networks { network.close(); }
+    }
+    public void __del__() { self.close(); }
+}

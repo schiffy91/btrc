@@ -164,6 +164,7 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
     ci = manifest.plan("ci.yml", "main")
     assert ci["jobs"] == [
         "release",
+        "vm-test",
         "tests",
         "bench",
         "linux-arm64-bundle",
@@ -560,7 +561,7 @@ def test_the_tiers_command_prints_one_line_of_json(tmp_path: Path, capsys: pytes
     assert code == 0 and out.count("\n") == 1
     assert json.loads(out) == _manifest().plan("ci.yml", "pr", ["src/tests/strings/Foo.btrc"])
     assert QualificationCommand().run(["tiers"]) == 0
-    assert "ci.yml main: 7 job(s), 16 matrix row(s)" in capsys.readouterr().out
+    assert "ci.yml main: 8 job(s), 16 matrix row(s)" in capsys.readouterr().out
     assert QualificationCommand().run(["tiers", "--workflow", "ci.yml"]) == 2
     assert QualificationCommand().run(["tiers", "--workflow", "ci.yml", "--tier", "nightly"]) == 2
 

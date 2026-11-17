@@ -1,0 +1,40 @@
+manifest-version = 1
+[package]
+name = "btrc_testkit"
+exports = [
+	"Channel",
+	"Check",
+	"CommandLog",
+	"CredentialDigest",
+	"Framebuffer",
+	"Guest",
+	"HTTPProbe",
+	"Keyboard",
+	"Lab",
+	"OwnedProcess",
+	"ParallelCommands",
+	"TerminalSession",
+	"TestDirectory",
+]
+
+[[native.bindings]]
+module = "Framebuffer"
+header = "vnc.h"
+language = "c"
+standard = "c11"
+symbols = ["TestVNC", "testVNCOpen", "testVNCClose", "testVNCRequest", "testVNCStep", "testVNCWidth", "testVNCHeight", "testVNCLength", "testVNCPixels"]
+owned-results = ["testVNCOpen"]
+read-only-borrows = ["testVNCOpen.path"]
+borrowed-parameters = ["testVNCRequest.session", "testVNCStep.session", "testVNCWidth.session", "testVNCHeight.session", "testVNCLength.session", "testVNCPixels.session"]
+[native.bindings.resources.TestVNC]
+ownership = "unique"
+release = "testVNCClose"
+[native.bindings.copied-results.testVNCPixels]
+kind = "bytes"
+owner = "session"
+length-function = "testVNCLength"
+length-arguments = ["session"]
+length-preserves-result = true
+[[native.libraries]]
+name = "vncclient"
+modules = ["Framebuffer"]

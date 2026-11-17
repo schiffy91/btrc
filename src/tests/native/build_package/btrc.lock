@@ -1,0 +1,1 @@
+{"manifest-hash":"f567f2c56f63c37182b56608e5078615687d72f7aa86e6a54cca1a8989d4c890","packages":[{"dependencies":{},"manifest-hash":"37829816aae2c1c219a58805d518d09ad0fbd01aadc079b8c748722ca0b4c18b","name":"buildPackageCheck","source":{"path":"."}}],"root":"buildPackageCheck","schema":3}

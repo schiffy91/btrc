@@ -1,0 +1,21 @@
+manifest-version = 1
+
+[package]
+name = "buildPackageCheck"
+
+# zlib is named here and nowhere else: the builder puts its headers on the
+# include path, and only this entry gives the linker the library. The check
+# builds for the systems the flake has; no phone target has a pkg-config.
+[[native.pkg-config]]
+name = "zlib"
+modules = ["Checksum"]
+os = ["linux", "macos"]
+
+[[native.bindings]]
+module = "Checksum"
+header = "checksum.h"
+language = "c"
+standard = "c11"
+symbols = ["checksumOf"]
+read-only-borrows = ["checksumOf.text"]
+os = ["linux", "macos"]

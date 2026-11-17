@@ -1,0 +1,40 @@
+import Library.FileSystem;
+import Library.JSON;
+import Library.IO;
+import Library.Strings;
+import Library.Vector;
+import ./Check.btrc;
+
+class CommandLog {
+    class JSONValue arguments(Vector<string> arguments) {
+        var entry = JSONValue.makeArray();
+        for argument in arguments { entry.push(JSONValue.makeString(argument)); }
+        return entry;
+    }
+
+    class void append(string path, Vector<string> arguments) {
+        var file = File(path, "a");
+        Check.that(file.ok(), f"open command log {path}");
+        Check.that(file.writeLine(CommandLog.arguments(arguments).stringify()) && file.flush(), "write command log");
+        Check.that(file.close(), "close command log");
+    }
+
+    class Vector<JSONValue> read(string path) {
+        Vector<JSONValue> commands = [];
+        for line in Strings.split(Path.readAll(path), "\n") {
+            if (line.isEmpty()) { continue; }
+            var command = JSONValue.parse(line);
+            Check.that(command.isArray(), "valid command record");
+            commands.push(command);
+        }
+        return commands;
+    }
+
+    class Vector<JSONValue> named(Vector<JSONValue> commands, string name) {
+        Vector<JSONValue> matches = [];
+        for command in commands {
+            if (command.at(0).asString().equals(name)) { matches.push(command); }
+        }
+        return matches;
+    }
+}

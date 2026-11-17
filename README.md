@@ -462,6 +462,39 @@ depend on BTRC directly instead of shelling into this repository.
 The formatter's complete style and exit-code contract is in
 [the devex guide](docs/devex/formatter.md).
 
+A downstream flake builds and tests its programs with the flake's `lib`. Each
+function takes that flake's own `pkgs` first:
+
+```nix
+# A package's programs: binary name -> entry file, relative to src. A manifest's
+# [[native.pkg-config]] and [[native.libraries]] entries drive the link.
+btrc.lib.buildPackage pkgs {
+  name = "drive";
+  src = lib.fileset.toSource { root = ./src; fileset = btrc.lib.sources { inherit lib; } ./src "Main.btrc"; };
+  programs.drive = "Main.btrc";
+  buildInputs = [ pkgs.fuse3 ];   # also: runtimeInputs, linkFlags, linkPlan, nativeBuildInputs, env, wrapperArgs, postInstall
+}
+
+# A NixOS VM test whose script is a BTRC program; it needs KVM.
+btrc.lib.vmTest pkgs {
+  name = "drive-writes";
+  nodes.machine = { ... }: { };
+  scenario = ./tests/writes/Main.btrc;
+  extraFiles = [ ./tests/Fixture.btrc ];   # also: settings, graphical, root, testkit
+}
+```
+
+`btrc.lib.sources { lib } root entry` is the fileset of what `entry` is built
+from: the entry, the modules the manifest names, the files they import by
+relative path, and the manifest, lock and headers. `vmTest` builds the scenario
+with the testkit package (`nix/lib/testkit`: `Lab`, `Guest`, `Framebuffer` for
+machines; `Check`, `TestDirectory`, `CommandLog`, `OwnedProcess` and others
+for any test program) placed in its tree, so a scenario begins `import
+testkit.Lab;`. A test program that is not a VM scenario gets the same package
+with `btrc.lib.withTestkit pkgs { src = ...; }` as its `src`. The flake's
+`build-package` and `vm-test` checks are the worked examples
+(`src/tests/native/build_package`, `src/tests/native/vm_test`).
+
 Both CLIs cache complete emitted generations (C units, link plan, diagnostics)
 and import-directive spans, and publish their outputs as one recoverable
 generation under directory locks. The reference compiler's cache follows

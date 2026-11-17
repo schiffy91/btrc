@@ -1,0 +1,49 @@
+import Library.Map;
+import Library.Process;
+import Library.JSON;
+import Library.IO;
+import Library.Strings;
+import Library.Vector;
+import ./TestDirectory.btrc;
+
+class HTTPObservation {
+    private int _status;
+    private string _body;
+    private Map<string, string> headers = {};
+
+    public HTTPObservation(int status, string body, string headers) {
+        self._status = status; self._body = body;
+        for line in Strings.split(headers, "\n") {
+            var colon = line.find(":", 0);
+            if (colon > 0) { self.headers.put(line.substring(0, colon).trim().toLower(), line.substring(colon + 1, line.len() - colon - 1).trim()); }
+        }
+    }
+    public int status { get { return self._status; } }
+    public string body { get { return self._body; } }
+    public JSONValue json() { return JSONValue.parse(self._body); }
+    public string header(string name) { return self.headers.getOrDefault(name.toLower(), ""); }
+}
+
+class HTTPProbe {
+    // These requests deliberately inspect self-signed fixture services.
+    // Certificate trust and pinning are tested by the installed login client.
+    class HTTPObservation fixture(string url, JSONValue? payload = null, Vector<string> headers = [], string basic = "") {
+        var directory = TestDirectory("http-observation");
+        var arguments = ["--silent", "--show-error", "--insecure", "--max-time", "5", "--max-filesize", "1048576", "--output", directory.path("body"), "--dump-header", directory.path("headers"), "--write-out", "%{http_code}", "--url", url];
+        for header in headers { arguments.push("--header"); arguments.push(header); }
+        if (payload != null) {
+            directory.json("request", payload);
+            arguments.push("--header"); arguments.push("Content-Type: application/json");
+            arguments.push("--data-binary"); arguments.push("@" + directory.path("request"));
+        }
+        var config = "";
+        if (!basic.isEmpty()) {
+            Check.that(!basic.contains("\n") && !basic.contains("\r"), "single-line Basic credentials");
+            config = "user = \"" + basic.replace("\\", "\\\\").replace("\"", "\\\"") + "\"\n";
+            arguments.push("--config"); arguments.push("-");
+        }
+        var result = ChildProcess.run("curl", arguments, stdinData=config, timeoutMilliseconds=7000);
+        var response = HTTPObservation(result.ok() ? Strings.toInt(result.stdout()) : 0, FileSystem.exists(directory.path("body")) ? Path.readAll(directory.path("body")) : "", FileSystem.exists(directory.path("headers")) ? Path.readAll(directory.path("headers")) : "");
+        directory.close(); return response;
+    }
+}

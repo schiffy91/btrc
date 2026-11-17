@@ -1,0 +1,42 @@
+import Library.Platform;
+import Library.Terminal.PTYProcess;
+import Library.Bytes;
+import Library.Process;
+import Library.Timer;
+import Library.Vector;
+import ./Check.btrc;
+
+class TerminalSession {
+    private PTYProcess child;
+    private string pending = "";
+
+    public TerminalSession(string executable, Vector<string> arguments) {
+        var path = ChildProcessExecutable.resolve(executable, "", [], []);
+        Check.that(!path.isEmpty(), f"resolve terminal program {executable}");
+        var argv = [path]; for argument in arguments { argv.push(argument); }
+        var child = PTYProcess.start(path, argv, [f"PATH={Environment.get("PATH", "")}", "TERM=xterm", f"HOME={Environment.get("HOME", "/root")}"]);
+        if (child == null) { throw f"Cannot start terminal program: {executable}"; }
+        self.child = child;
+    }
+
+    public void expect(string text, int timeoutSeconds = 20) {
+        var deadline = MonotonicClock.deadlineAfter(timeoutSeconds * 1000);
+        while (true) {
+            var found = self.pending.find(text, 0);
+            if (found >= 0) { self.pending = self.pending.substring(found + text.len(), self.pending.len() - found - text.len()); return; }
+            Check.that(MonotonicClock.before(deadline), f"terminal prompt timed out: {text}\n{self.pending}");
+            var bytes = self.child.readUntil(deadline);
+            if (bytes == null) { throw f"Terminal closed before prompt: {text}\n{self.pending}"; }
+            self.pending = self.pending + bytes.toStringLossy();
+            Check.that(self.pending.len() <= 131072, "bounded terminal transcript");
+        }
+    }
+
+    public void line(string text) { Check.that(self.child.writeUntil(Bytes.fromString(text + "\n"), MonotonicClock.deadlineAfter(5000)), "write terminal input"); }
+    public void password(string text) { Check.that(self.child.echoDisabled(), "password prompt disables terminal echo"); self.line(text); }
+    public void finish(bool success = true, int timeoutSeconds = 20) {
+        var status = self.child.waitExitUntil(MonotonicClock.deadlineAfter(timeoutSeconds * 1000));
+        Check.that(status >= 0 && (status == 0) == success, f"terminal exit status {status}");
+    }
+    public void kill() { self.child.close(); }
+}

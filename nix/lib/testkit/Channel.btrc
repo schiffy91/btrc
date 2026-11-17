@@ -1,0 +1,50 @@
+import Library.Bytes;
+import Library.FileSystem;
+import Library.Process;
+import Library.IO;
+
+class Channel {
+    private PipeProcess process;
+    private string pending = "";
+    private File transcript;
+    private int recorded = 0;
+
+    public Channel(string address, string log) {
+        self.process = PipeProcess("socat", ["-", address], log);
+        self.transcript = File(log + ".wire", "w");
+    }
+
+    private void record(Bytes bytes) {
+        if (self.recorded + bytes.length() > 33554432) { return; }
+        self.transcript.writeBytes(bytes);
+        self.recorded += bytes.length();
+    }
+
+    public void write(string text, long long deadline) {
+        var bytes = Bytes.fromString(text);
+        self.record(bytes);
+        self.process.write(bytes, deadline);
+    }
+
+    public string line(long long deadline) {
+        while (true) {
+            var newline = self.pending.find("\n", 0);
+            if (newline >= 0) {
+                var line = self.pending.substring(0, newline);
+                self.pending = self.pending.substring(newline + 1, self.pending.len() - newline - 1);
+                return line;
+            }
+            var bytes = self.process.read(deadline);
+            if (bytes == null) { throw "VM channel closed before completing its reply"; }
+            self.record(bytes);
+            self.pending = self.pending + bytes.toStringLossy();
+            if (self.pending.len() > 33554432) { throw "VM channel exceeded 32 MiB frame limit"; }
+        }
+        throw "Unreachable channel read";
+    }
+
+    public void close() {
+        self.process.close();
+        self.transcript.close();
+    }
+}

@@ -1,0 +1,32 @@
+/* The scenario of the flake's vm-test check: lib.vmTest builds it against the
+ * testkit package and runs it. One machine boots, runs a command that writes
+ * a file, reboots, and the file is read back from the disk it kept. */
+
+import Library.CLI;
+
+import testkit.Check;
+import testkit.Lab;
+
+int main(int argc, char** argv) {
+	try {
+		var lab = Lab(CLIArgs(argc, argv).require(0, "Supply the lab's descriptor"));
+		var machine = lab.guest("machine");
+		var marker = lab.settings().get("marker").asString();
+		machine.waitForUnit("multi-user.target");
+		Check.equal(machine.succeed("uname -s").trim(), "Linux", "a command runs on the machine");
+		machine.succeed(f"mkdir -p /var/lib/testkit && echo {marker} > /var/lib/testkit/marker && cp /proc/sys/kernel/random/boot_id /var/lib/testkit/boot && sync");
+		machine.reboot();
+		machine.waitForShutdown();
+		machine.start();
+		machine.waitForUnit("multi-user.target");
+		Check.equal(machine.succeed("cat /var/lib/testkit/marker").trim(), marker, "the file written before the reboot is read back");
+		machine.succeed("! cmp -s /proc/sys/kernel/random/boot_id /var/lib/testkit/boot");  // a second boot, not the first one still running
+		lab.close();
+		print("PASS: a machine boots, runs a command, reboots and keeps its file");
+		return 0;
+	} catch (string error) {
+		print(error);
+		return 1;
+	}
+	return 1;
+}

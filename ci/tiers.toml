@@ -134,6 +134,16 @@ tiers = ["lane", "main", "extended", "release"]
 changed_tiers = ["pr"]
 changed_paths = ["src/devex/**", "pyproject.toml", "examples/**", "tools/linux-ci.sh"]
 
+# The flake's VM check of lib.vmTest needs KVM: a hosted runner has it, and so
+# does a machine of the owner's, whose pass stands in for the job.
+[[jobs]]
+workflow = "ci.yml"
+job = "vm-test"
+local = "linux-x86_64"
+tiers = ["main", "extended", "release"]
+changed_tiers = ["pr", "lane"]
+changed_paths = ["nix/lib/**", "src/tests/native/vm_test/**", "src/stdlib/Process.btrc", "flake.nix", "flake.lock"]
+
 [[jobs]]
 workflow = "ci.yml"
 job = "tests"

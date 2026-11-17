@@ -1,0 +1,1 @@
+{"manifest-hash":"ac276a8a92e9e0b69ff1683f42435a30bd27f61fdae36c913db9f241729b2e96","packages":[{"dependencies":{},"manifest-hash":"5ea1de6dd1f64cc8a4ce62c970a53f023edd42690d035e164881bb7290a1b28f","name":"btrc_testkit","source":{"path":"."}}],"root":"btrc_testkit","schema":3}

@@ -1,0 +1,18 @@
+import Library.Process;
+
+class Check {
+    class void that(bool condition, string description) {
+        if (!condition) { throw f"FAIL: {description}"; }
+    }
+
+    class void equal(string actual, string expected, string description) {
+        if (!actual.equals(expected)) { throw f"FAIL: {description}\nexpected: {expected}\nactual: {actual}"; }
+    }
+
+    class ExecResult exited(ExecResult result, int expected = 0) {
+        if (result.code != expected || result.timedOut || result.captureExceeded || result.captureFailed) {
+            throw f"FAIL: {result.command}: exit {result.code}, expected {expected}\n{result.stdout()}\n{result.stderr()}";
+        }
+        return result;
+    }
+}

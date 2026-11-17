@@ -1,0 +1,24 @@
+import Library.FileSystem;
+import Library.Timer;
+import Library.Process;
+import Library.Vector;
+import ./OwnedProcess.btrc;
+import ./Check.btrc;
+
+class ParallelCommands {
+    class void run(string executable, Vector<string> arguments, string inputFile, string directory, int count, int concurrency = 4, Vector<string> environment = []) {
+        var command = f"exec {ShellWords.quote(executable)}";
+        for argument in arguments { command = command + " " + ShellWords.quote(argument); }
+        command = command + f" <{ShellWords.quote(inputFile)}";
+        for (int start = 0; start < count; start += concurrency) {
+            Vector<OwnedProcess> processes = [];
+            try {
+                for (int index = start; index < count && index < start + concurrency; index++) {
+                    processes.push(OwnedProcess("sh", ["-c", command], PathTools.join(directory, f"parallel-{index}.log"), environment=environment));
+                }
+                var deadline = MonotonicClock.deadlineAfter(20000);
+                for process in processes { Check.that(process.wait(deadline) == 0, "concurrent command succeeds"); }
+            } finally { for process in processes { process.close(); } }
+        }
+    }
+}

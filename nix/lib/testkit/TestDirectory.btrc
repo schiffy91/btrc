@@ -1,0 +1,21 @@
+import Library.FileSystem;
+import Library.JSON;
+import ./Check.btrc;
+
+class TestDirectory {
+    private TemporaryDirectory directory;
+
+    public TestDirectory(string prefix) { self.directory = TemporaryDirectory.create(prefix).value(); }
+
+    public string path(string relative = "") { return PathTools.join(self.directory.path(), relative); }
+
+    public void write(string relative, string text) {
+        var path = self.path(relative);
+        Check.that(FileSystem.mkdirp(PathTools.dirname(path)) == 0, f"create parent of {path}");
+        Check.that(FileSystem.writeText(path, text), f"write {path}");
+    }
+
+    public void json(string relative, JSONValue value) { self.write(relative, value.stringify()); }
+
+    public void close() { Check.that(self.directory.close().ok(), "remove temporary fixture"); }
+}

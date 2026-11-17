@@ -1,0 +1,27 @@
+import Library.Process;
+import Library.Timer;
+import Library.Vector;
+
+// Unlike virtual-display launches, test children must end with their scope.
+class OwnedProcess {
+    private BackgroundProcess? process = null;
+
+    public OwnedProcess(string executable, Vector<string> arguments, string log, string directory = "", Vector<string> environment = []) {
+        var script = directory.isEmpty() ? "" : f"cd -- {ShellWords.quote(directory)} || exit 125\n";
+        script = script + f"exec {ShellWords.quote(executable)}";
+        for argument in arguments { script = script + f" {ShellWords.quote(argument)}"; }
+        script = script + f" >{ShellWords.quote(log)} 2>&1";
+        self.process = BackgroundProcess.start("sh", ["-c", script], environment);
+    }
+
+    public int pid() { return self.process == null ? -1 : self.process.pid(); }
+    public bool running() { return self.process != null && self.process.running(); }
+    public int wait(long long deadline) {
+        var process = self.process;
+        if (process == null) { throw "Child was not started"; }
+        if (!process.waitUntil(deadline)) { throw "Child did not exit before deadline"; }
+        return process.code();
+    }
+    public void close() { if (self.process != null) { self.process.stop(); } }
+    public void __del__() { self.close(); }
+}

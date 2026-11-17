@@ -1,0 +1,14 @@
+/* The program of the flake's build-package check: lib.buildPackage builds it
+ * from the files lib.sources finds, and links zlib through pkg-config. */
+
+import ./Checksum.btrc;
+
+int main() {
+	// CRC-32 of "123456789" is 0xCBF43926; the binding returns its low 31 bits.
+	if (Checksum.compute("123456789") != 0x4BF43926) {
+		print("FAIL: zlib's CRC-32 of the check text");
+		return 1;
+	}
+	print("PASS: zlib through pkg-config");
+	return 0;
+}

@@ -1,0 +1,4 @@
+/* zlib's CRC-32, reached through the binding and the pkg-config entry in btrc.toml. */
+class Checksum {
+	class int compute(string text) { return checksumOf(text); }
+}

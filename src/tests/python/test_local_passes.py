@@ -209,6 +209,7 @@ def test_the_tier_model_names_a_local_jobs_platform():
         with pytest.raises(TierManifestError):
             TierManifest.from_mapping({**base, "jobs": [{**base["jobs"][0], "local": platform}]})
     assert {job.reference: job.local for job in TIERS.jobs if job.local} == {
+        "ci.yml/vm-test": "linux-x86_64",
         "ci.yml/tests": "linux-x86_64",
         "ci.yml/linux-e40": "linux-x86_64",
         "macos.yml/tests": "macos-arm64",
@@ -218,8 +219,11 @@ def test_the_tier_model_names_a_local_jobs_platform():
 
 def test_local_jobs_are_named_as_github_shows_them_and_run_through_the_clone():
     entries = LOCAL.entries()
-    assert len(entries) == len({entry.context for entry in entries}) == 22
+    assert len(entries) == len({entry.context for entry in entries}) == 23
     by_name = {entry.name: entry for entry in entries}
+    # A job without a matrix is one local job, named as the job is.
+    check = by_name["CI / vm-test"]
+    assert check.row is None and check.context == "local/linux-x86_64/CI / vm-test"
     unit = by_name["CI / tests (unit)"]
     assert unit.context == UNIT and unit.context.startswith(CONTEXT_PREFIX)
     assert unit.row == {"shard": "unit", "target": "test-shard-unit", "unit_gui_delegated": "1"}
@@ -327,11 +331,16 @@ def test_the_local_jobs_are_exactly_the_rows_a_push_to_main_runs():
         plan = TIERS.plan(workflow, "main")
         entries = [entry for entry in LOCAL.entries() if entry.workflow == workflow]
         for job in {entry.job for entry in entries}:
-            assert [entry.row for entry in entries if entry.job == job] == plan["matrix"][job]["include"], job
+            # A job without a matrix is its one command: the plan lists the job and no rows.
+            rows = plan["matrix"][job]["include"] if job in plan["matrix"] else [None]
+            assert job in plan["jobs"] and [entry.row for entry in entries if entry.job == job] == rows, job
         # The tiers that add rows run each of these cells as the same command.
         for tier in ("extended", "release"):
             wider = TIERS.plan(workflow, tier)
-            assert all(entry.row in wider["matrix"][entry.job]["include"] for entry in entries), tier
+            assert all(
+                entry.job in wider["jobs"] and (entry.row is None or entry.row in wider["matrix"][entry.job]["include"])
+                for entry in entries
+            ), tier
 
 
 def test_every_passed_row_of_a_job_removes_the_job():
@@ -352,6 +361,11 @@ def test_every_passed_row_of_a_job_removes_the_job():
     assert "tests" not in gone["jobs"] and "tests" not in gone["reports"]
     # The unit shard was planned with its GUI files delegated to partitions that still run here.
     assert "linux-gui" in gone["jobs"] and "linux-gui-coverage" in gone["jobs"]
+    # A job without a matrix leaves whole when its one command passed.
+    check = "local/linux-x86_64/CI / vm-test"
+    without = LOCAL.without_passed("ci.yml", TIERS.plan("ci.yml", "main"), [check])
+    assert "vm-test" not in without["jobs"] and "vm-test" not in without["reports"] and "tests" in without["jobs"]
+    assert without["local"] == [check]
 
 
 def test_the_plan_command_takes_the_passed_list(tmp_path, capsys):

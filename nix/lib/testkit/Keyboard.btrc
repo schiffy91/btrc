@@ -1,0 +1,14 @@
+import Library.Map;
+import Library.Strings;
+
+class Keyboard {
+    class string chord(string character) {
+        if (character.len() != 1) { throw "Expected one ASCII keyboard character"; }
+        var lower = character.toLower();
+        if ("abcdefghijklmnopqrstuvwxyz".contains(lower)) { return character.equals(lower) ? lower : "shift-" + lower; }
+        if ("0123456789".contains(character)) { return character; }
+        Map<string, string> keys = {"\n": "ret", "\t": "tab", " ": "spc", "-": "minus", "_": "shift-minus", "=": "equal", "+": "shift-equal", "[": "bracket_left", "{": "shift-bracket_left", "]": "bracket_right", "}": "shift-bracket_right", ";": "semicolon", ":": "shift-semicolon", "'": "apostrophe", "\"": "shift-apostrophe", ",": "comma", "<": "shift-comma", ".": "dot", ">": "shift-dot", "/": "slash", "?": "shift-slash", "\\": "backslash", "|": "shift-backslash", "`": "grave_accent", "~": "shift-grave_accent", "!": "shift-1", "@": "shift-2", "#": "shift-3", "$": "shift-4", "%": "shift-5", "^": "shift-6", "&": "shift-7", "*": "shift-8", "(": "shift-9", ")": "shift-0"};
+        if (!keys.contains(character)) { throw f"Unsupported keyboard character: {character}"; }
+        return keys.get(character);
+    }
+}

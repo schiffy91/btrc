@@ -1,0 +1,54 @@
+import Library.Bytes;
+import Library.Image.Pixels;
+import Library.Timer;
+import Library.Process;
+import ./Check.btrc;
+
+class Framebuffer {
+    private TestVNC session;
+    public Framebuffer(string socket) {
+        var session = testVNCOpen(socket);
+        if (session == null) { throw "Cannot connect to guest framebuffer"; }
+        self.session = session;
+    }
+    public Image capture() {
+        // Drain updates queued during guest operations, including bytes already
+        // buffered inside libvncclient, before asking for a full current frame.
+        var drainDeadline = MonotonicClock.deadlineAfter(5000);
+        while (true) {
+            Check.that(MonotonicClock.before(drainDeadline), "drain queued framebuffer updates");
+            var state = testVNCStep(self.session, 0);
+            Check.that(state >= 0, "drain framebuffer transport");
+            if (state == 0) { break; }
+        }
+        Check.that(testVNCRequest(self.session) != 0, "request full framebuffer");
+        var deadline = MonotonicClock.deadlineAfter(10000);
+        while (true) {
+            Check.that(MonotonicClock.before(deadline), "framebuffer update deadline");
+            var state = testVNCStep(self.session, 100);
+            Check.that(state >= 0, "read framebuffer update");
+            if (state == 2) { break; }
+        }
+        var pixels = testVNCPixels(self.session);
+        if (pixels == null) { throw "Cannot copy framebuffer pixels"; }
+        var frame = Image(testVNCWidth(self.session), testVNCHeight(self.session));
+        Check.that(frame.tryCopyPackedRgbaBytes(pixels), "complete RGBA framebuffer");
+        return frame;
+    }
+    public Image save(string path) {
+        var frame = self.capture();
+        Check.that(ImageIO.savePpm(frame, path), "save framebuffer evidence");
+        return frame;
+    }
+    public void waitForText(string text, string path, int timeoutSeconds = 30) {
+        var deadline = MonotonicClock.deadlineAfter(timeoutSeconds * 1000);
+        var observed = "";
+        while (MonotonicClock.before(deadline)) {
+            self.save(path);
+            observed = Check.exited(ChildProcess.run("tesseract", [path, "stdout"], timeoutMilliseconds=10000)).stdout();
+            if (observed.contains(text)) { print(f"Verified actual console frame {path}: {text}"); return; }
+            Timer.sleepMillis(1000);
+        }
+        throw f"Missing framebuffer text {text}: {observed}";
+    }
+}
