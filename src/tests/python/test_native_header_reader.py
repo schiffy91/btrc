@@ -30,45 +30,16 @@ from src.compiler.python.frontend.native_imports import (
 )
 from src.compiler.python.frontend.packages import NativeBinding, NativeInitializerBinding, NativeResourceBinding
 from src.tests.c_toolchains import HOST_CLANG, host_c_compiler
+from src.tests.selfhost_cache import STRICT_DRIVER_FLAGS
 
 REPO = Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture(scope="module", params=["reference", "selfhost"])
-def codec_probe(request, tmp_path_factory):
-    root = tmp_path_factory.mktemp(f"native-codec-{request.param}")
-    source = REPO / "src/tests/btrc/fixtures/NativeHeaderCodec.btrc"
-    generated = root / "Probe.c"
-    if request.param == "reference":
-        command = [sys.executable, "-m", "src.compiler.python.main", "--no-cache", str(source), "-o", str(generated)]
-    else:
-        command = [str(request.getfixturevalue("semantic_btrcc")), str(source)]
-    result = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT)
-    assert result.returncode == 0, result.stderr
-    if request.param == "selfhost":
-        generated.write_text(result.stdout, encoding="utf-8")
-    executable = root / "Probe"
-    built = subprocess.run(
-        [
-            "cc",
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-O2",
-            str(generated),
-            "-o",
-            str(executable),
-            "-lm",
-            "-lpthread",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert built.returncode == 0, built.stderr
-    return executable
+def codec_probe(request):
+    # One build per frontend for every module, worker and later run over the same sources.
+    build = request.getfixturevalue("reference_driver" if request.param == "reference" else "selfhost_driver")
+    return build(REPO / "src/tests/btrc/fixtures/NativeHeaderCodec.btrc", compile_flags=STRICT_DRIVER_FLAGS)
 
 
 def probe_document(codec_probe, tmp_path, source):
@@ -149,7 +120,6 @@ def assert_codec_parity(codec_probe, tmp_path, source):
 
 from src.compiler.python.frontend.packages import PackageUniverse
 from src.tests.process_limits import TOOL_TIMEOUT
-from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
 
 
 @pytest.fixture(scope="module")

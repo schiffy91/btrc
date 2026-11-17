@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast as python_ast
+import os
 import stat
 import subprocess
 import sys
@@ -89,9 +90,14 @@ def _snapshot() -> dict[Path, tuple[bytes, int, int]]:
 
 
 def _dry_run(target: str) -> str:
+    # Under `make test` this runs inside a stage whose make skips the prerequisites the gate already met.
+    environment = {
+        key: value for key, value in os.environ.items() if key not in {"MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES"}
+    }
     result = subprocess.run(
         ["make", "--dry-run", target, "NIX="],
         cwd=REPO,
+        env=environment,
         check=True,
         capture_output=True,
         text=True,

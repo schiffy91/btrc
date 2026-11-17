@@ -4,7 +4,6 @@ import json
 import os
 import subprocess
 import sys
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -41,7 +40,7 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.tests.process_limits import TOOL_TIMEOUT
-from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
+from src.tests.selfhost_cache import STRICT_DRIVER_FLAGS
 from tools.native_plan import NativePlanBuilder, NativePlanError
 
 REPO = Path(__file__).resolve().parents[3]
@@ -294,83 +293,14 @@ def adapter_module(mode=""):
     return module
 
 
-@contextmanager
-def _run_exclusive(lock_path: Path):
-    """Serialize one probe build across the xdist workers of a run."""
-    if os.name == "nt":  # pragma: no cover - POSIX advisory locks only
-        yield
-        return
-    import fcntl
-
-    with lock_path.open("w") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
 @pytest.fixture(scope="module", params=["reference", "selfhost"])
-def emitter_probe(request, tmp_path_factory):
+def emitter_probe(request):
     # The probe imports most of the self-hosted IR stage, about 3.2 MB of
     # resolved source, so one transpile is minutes of reference-compiler work.
-    # Every xdist worker of a run shares the first worker's build: the run's
-    # base directory is common to its workers and fresh for each run.
-    base = tmp_path_factory.getbasetemp()
-    if os.environ.get("PYTEST_XDIST_WORKER"):
-        base = base.parent
-    root = base / f"objc-emitter-{request.param}"
-    root.mkdir(exist_ok=True)
-    executable = root / "Emitter"
-    failure = root / "build.failure"
-    with _run_exclusive(root / "build.lock"):
-        # A failed build is reported to every worker, not repeated by each.
-        assert not failure.is_file(), failure.read_text()
-        if not executable.is_file():
-            try:
-                _build_emitter_probe(request, root, executable)
-            except Exception as error:
-                failure.write_text(f"{type(error).__name__}: {error}")
-                raise
-    return executable
-
-
-def _build_emitter_probe(request, root: Path, executable: Path) -> None:
-    source = REPO / "src/tests/native/objective_c/ObjectiveCEmitter.btrc"
-    generated = root / "Emitter.c"
-    if request.param == "reference":
-        command = [sys.executable, "-m", "src.compiler.python.main", "--no-cache", str(source), "-o", str(generated)]
-    else:
-        command = [str(request.getfixturevalue("semantic_btrcc")), str(source)]
-    compiled = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT)
-    assert compiled.returncode == 0, compiled.stderr
-    if request.param == "selfhost":
-        generated.write_text(compiled.stdout)
-    staged = root / "Emitter.partial"
-    built = subprocess.run(
-        [
-            "cc",
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-O2",
-            str(generated),
-            "-o",
-            str(staged),
-            "-lm",
-            "-lpthread",
-        ],
-        capture_output=True,
-        text=True,
-        # The unit is most of the self-hosted IR stage, so compiling it at -O2
-        # weighs as much as a transpile: on a loaded three-core hosted runner it
-        # outlasted the 120 s C budget. It takes the host's transpile budget.
-        timeout=BTRC_TRANSPILE_TIMEOUT,
-    )
-    assert built.returncode == 0, built.stderr
-    staged.replace(executable)
+    # The suite's driver cache keeps one build per frontend for every worker
+    # of a run and for later runs over the same sources.
+    build = request.getfixturevalue("reference_driver" if request.param == "reference" else "selfhost_driver")
+    return build(REPO / "src/tests/native/objective_c/ObjectiveCEmitter.btrc", compile_flags=STRICT_DRIVER_FLAGS)
 
 
 @pytest.mark.parametrize(

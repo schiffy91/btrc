@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -1026,7 +1027,12 @@ class _BoundaryCaptureSession:
         fixture_repository: Path,
         execution_repository: Path,
         observation_expectations: dict[tuple[str, str], bytes] | None = None,
+        selfhost_compiler: Path | None = None,
     ) -> None:
+        """`selfhost_compiler` is the self-hosted compiler the reference compiler
+        already built from `execution_repository`; the "c" and "diagnostics"
+        boundaries run it instead of building BtrccMain a second time."""
+
         self.manifest = manifest
         self.fixture_repository = fixture_repository
         self.execution_repository = execution_repository
@@ -1045,6 +1051,12 @@ class _BoundaryCaptureSession:
             }
         )
         self._tools: dict[str, _SelfhostToolBuild] = {}
+        if selfhost_compiler is not None:
+            if not selfhost_compiler.is_file():
+                raise CompilerVerificationError(f"no self-hosted compiler at {selfhost_compiler}")
+            self._tools[self._SELFHOST_TOOLS["c"]] = _SelfhostToolBuild(
+                binary=selfhost_compiler.resolve(), failure=None
+            )
         self._generated_c: dict[tuple[str, str], bytes] = {}
         self._observation_expectations = observation_expectations
 
@@ -1054,6 +1066,7 @@ class _BoundaryCaptureSession:
         }
         content_by_record: dict[str, bytes] = {}
         capabilities = {capability.id: capability for capability in self.manifest.capabilities}
+        self._build_selfhost_tools(capabilities)
         for fixture in self.manifest.fixtures:
             for capability_id in fixture.capabilities:
                 capability = capabilities[capability_id]
@@ -1075,6 +1088,30 @@ class _BoundaryCaptureSession:
                 for record in self.manifest.records
             )
         )
+
+    def _build_selfhost_tools(self, capabilities: dict[str, BoundaryCapability]) -> None:
+        """Build the self-hosted tools the fixtures are certain to run, side by side.
+
+        Each is one reference-compiler transpile and one C compile that share
+        nothing, and together they were most of a check's wall clock. A tool
+        only an observed capability needs stays lazy: an incompatible host
+        never launches that producer.
+        """
+
+        sources = sorted(
+            {
+                self._SELFHOST_TOOLS[capabilities[capability].boundary]
+                for fixture in self.manifest.fixtures
+                for capability in fixture.capabilities
+                if capabilities[capability].compiler == "btrc"
+                and capabilities[capability].boundary in self._SELFHOST_TOOLS
+                and not capabilities[capability].observed
+            }
+            - set(self._tools)
+        )
+        if len(sources) > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(sources)) as builders:
+                list(builders.map(self._selfhost_tool, sources))
 
     def _capture_compatible_capability(
         self,
@@ -1713,13 +1750,19 @@ class CompilerBoundaryVerifier:
         *,
         revision: str | None = None,
         force_observed: bool = True,
+        selfhost_compiler: Path | None = None,
     ) -> BoundaryCaptureReport:
         """Capture build-only bytes, optionally skipping host-incompatible executable records.
 
         Explicit ``boundary-capture`` calls leave ``force_observed`` enabled and
         intentionally execute every declared producer. Ordinary ``boundary-check``
         disables it so an incompatible observation never launches that producer.
+        ``selfhost_compiler`` names the current tree's reference-built
+        self-hosted compiler; a pinned revision always builds its own.
         """
+
+        if selfhost_compiler is not None and revision is not None:
+            raise CompilerVerificationError("a pinned revision builds its own self-hosted compiler")
 
         if not force_observed:
             if revision is not None:
@@ -1742,6 +1785,7 @@ class CompilerBoundaryVerifier:
                 self._repository_root,
                 self._repository_root,
                 observations,
+                selfhost_compiler,
             ).capture()
             revision_label = self._worktree_revision()
         else:

@@ -22,6 +22,12 @@ stdlib symbol. An edit to any other stdlib module leaves the compiler in
 place. A driver may import any stdlib module, so its key keeps the whole
 stdlib; the cached compiler rebuilds one in about a minute.
 
+The compiler is built the way the bootstrap gate builds its first stage: the
+reference compiler transpiles the entry point under `REFERENCE_COMPILER_FLAGS`
+and the C is compiled as the product is. `test_bootstrap.py` therefore takes
+its stage 1 from here instead of spending the same minutes again, and the
+frozen-boundary check runs this binary where it used to build one of its own.
+
 A helper driver is a btrc program that imports compiler modules. It is
 transpiled by the cached self-hosted compiler, which takes a third to a half
 of the reference compiler's time on the same source. `REFERENCE` builds one
@@ -55,6 +61,16 @@ REFERENCE = "reference"
 # The entry point the suite's compiler is generated from: the portable one, or Windows' host composition.
 ENTRY = "src/compiler/btrc/cli/WindowsMain.btrc" if os.name == "nt" else "src/compiler/btrc/BtrccMain.btrc"
 STDLIB = Path("src") / "stdlib"
+# What a driver that must be warning-clean is compiled with, as the compiler itself is.
+STRICT_DRIVER_FLAGS = ("-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2")
+
+
+def reference_compiler_flags() -> tuple[str, ...]:
+    """How the reference compiler is asked for the self-hosted compiler's C: by the cache and by the bootstrap."""
+
+    from src.compiler.python.artifacts.archive import TargetCatalog
+
+    return ("--strict-imports", "--target", TargetCatalog().host_target(), "--no-cache")
 
 
 @contextlib.contextmanager
@@ -232,6 +248,7 @@ class SelfhostCompilerCache:
             digest = hashlib.sha256()
             digest.update(b"btrcc-test-fixture-v3")
             digest.update(b"\0".join(flag.encode() for flag in selfhost_link_flags()))
+            digest.update(b"\0".join(flag.encode() for flag in reference_compiler_flags()))
             for relative, pattern in self.INPUT_GLOBS:
                 for source in sorted((self.repo / relative).rglob(pattern)):
                     if "__pycache__" in source.parts:
@@ -293,7 +310,7 @@ class SelfhostCompilerCache:
                 "-m",
                 "src.compiler.python.main",
                 ENTRY,
-                "--no-cache",
+                *reference_compiler_flags(),
                 "-o",
                 str(generated),
             ],
@@ -371,36 +388,59 @@ class SelfhostCompilerCache:
         digest = key.hexdigest()[:32]
         output = self.root / "drivers" / digest
         binary = output / "driver"
+        # A build that failed in this run is reported to every worker that asks, not repeated by each:
+        # the largest drivers are minutes of work. Another run tries again.
+        failure = output / f"failure-{os.environ.get('PYTEST_XDIST_TESTRUNUID', os.getpid())}"
         with exclusive(output.parent / f"{digest}.lock"):
             if binary.is_file():
                 return binary
+            assert not failure.is_file(), failure.read_text()
             output.mkdir(parents=True, exist_ok=True)
-            generated = output / "driver.c"
-            staged = output / "driver.partial"
-            if frontend == SELFHOST:
-                transpiler = [str(selfhost_compiler if selfhost_compiler is not None else self.compiler_binary())]
-            else:
-                transpiler = [sys.executable, "-m", "src.compiler.python.main"]
-            transpile = subprocess.run(
-                [*transpiler, str(origin), "--no-cache", "-o", str(generated)],
-                cwd=self.repo,
-                env=self._environment(output),
-                capture_output=True,
-                text=True,
-                timeout=self.BUILD_TIMEOUT,
-            )
-            assert transpile.returncode == 0 and generated.is_file(), transpile.stderr
-            built = subprocess.run(
-                [*self.compiler, "-std=c11", *compile_flags, str(generated), "-o", str(staged), "-lm", "-lpthread"],
-                cwd=self.repo,
-                capture_output=True,
-                text=True,
-                timeout=self.BUILD_TIMEOUT,
-            )
-            assert built.returncode == 0 and staged.is_file(), built.stderr
-            # Publish only a complete binary, as the compiler cache does.
-            staged.replace(binary)
+            for stale in output.glob("failure-*"):
+                stale.unlink()
+            try:
+                self._build_driver(origin, output, binary, frontend, compile_flags, selfhost_compiler)
+            except Exception as error:
+                failure.write_text(f"{type(error).__name__}: {error}")
+                raise
         return binary
+
+    def _build_driver(
+        self,
+        origin: Path,
+        output: Path,
+        binary: Path,
+        frontend: str,
+        compile_flags: Sequence[str],
+        selfhost_compiler: Path | None,
+    ) -> None:
+        """Transpile and link one driver, publishing it atomically."""
+
+        generated = output / "driver.c"
+        staged = output / "driver.partial"
+        if frontend == SELFHOST:
+            transpiler = [str(selfhost_compiler if selfhost_compiler is not None else self.compiler_binary())]
+        else:
+            transpiler = [sys.executable, "-m", "src.compiler.python.main"]
+        transpile = subprocess.run(
+            [*transpiler, str(origin), "--no-cache", "-o", str(generated)],
+            cwd=self.repo,
+            env=self._environment(output),
+            capture_output=True,
+            text=True,
+            timeout=self.BUILD_TIMEOUT,
+        )
+        assert transpile.returncode == 0 and generated.is_file(), transpile.stderr
+        built = subprocess.run(
+            [*self.compiler, "-std=c11", *compile_flags, str(generated), "-o", str(staged), "-lm", "-lpthread"],
+            cwd=self.repo,
+            capture_output=True,
+            text=True,
+            timeout=self.BUILD_TIMEOUT,
+        )
+        assert built.returncode == 0 and staged.is_file(), built.stderr
+        # Publish only a complete binary, as the compiler cache does.
+        staged.replace(binary)
 
     def ensure(self) -> Path:
         """Build or reuse the compiler and point the checkout's `CURRENT` link at it."""

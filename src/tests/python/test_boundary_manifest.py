@@ -6,11 +6,13 @@ import hashlib
 import json
 import subprocess
 import tempfile
+import threading
 from dataclasses import replace
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
+from tools.compiler_codegen.main import CompilerCodegenCommand
 from tools.compiler_codegen.verification import (
     BoundaryCapability,
     BoundaryManifest,
@@ -567,6 +569,53 @@ order = { python = 0, btrc = 0 }
     assert rows["__btrc_test"]["realtime_effect"] == "safe"
     assert rows["__btrc_test"]["source_size"] > 0
     assert orders == {"python": ("__btrc_test",), "btrc": ("__btrc_test",)}
+
+
+def test_the_check_runs_a_given_selfhost_compiler_and_builds_its_other_tools_side_by_side(tmp_path, monkeypatch):
+    """The suite's cache already holds the reference-built compiler; the check builds only what nothing else has."""
+
+    manifest = BoundaryManifest.load(REPO / "src/tests/fixtures/compiler_boundaries/manifest.toml")
+    capabilities = {capability.id: capability for capability in manifest.capabilities}
+    compiler = tmp_path / "cache" / "btrcc"
+    compiler.parent.mkdir()
+    compiler.write_bytes(b"compiler")
+    tools = _BoundaryCaptureSession._SELFHOST_TOOLS
+
+    def builds(session: _BoundaryCaptureSession, expected: int) -> list[str]:
+        """The sources `session` transpiles, each started while the others are still running."""
+
+        together = threading.Barrier(expected, timeout=30)
+        transpiled = []
+
+        def run(command, *, timeout=300):
+            transpiled.append(command[3])
+            together.wait()
+            return subprocess.CompletedProcess(command, 1, b"", b"stand-in transpile")
+
+        monkeypatch.setattr(session, "_run", run)
+        session._build_selfhost_tools(capabilities)
+        return sorted(transpiled)
+
+    given = _BoundaryCaptureSession(manifest, REPO, tmp_path, selfhost_compiler=compiler)
+    assert builds(given, 2) == sorted({tools["tokens"], tools["ast"]})
+    # The compiler is run where it is; both boundaries that need it share it.
+    assert tools["c"] == tools["diagnostics"] == "src/compiler/btrc/BtrccMain.btrc"
+    assert given._selfhost_tool(tools["c"]).binary == compiler.resolve()
+    assert given._selfhost_tool(tools["tokens"]).binary is None  # the stand-in transpile failed, and is not retried
+
+    own = _BoundaryCaptureSession(manifest, REPO, tmp_path)
+    assert builds(own, 3) == sorted({tools["tokens"], tools["ast"], tools["c"]})
+
+    with pytest.raises(CompilerVerificationError, match="no self-hosted compiler"):
+        _BoundaryCaptureSession(manifest, REPO, tmp_path, selfhost_compiler=tmp_path / "missing")
+    with pytest.raises(CompilerVerificationError, match="pinned revision builds its own"):
+        CompilerBoundaryVerifier(REPO).capture_boundary_candidate(
+            manifest, revision=manifest.baseline_revision, selfhost_compiler=compiler
+        )
+    # Only a check that captures its own candidate takes the option.
+    for arguments in (["boundary-capture"], ["boundary-check", "--candidate", str(tmp_path)], ["check"]):
+        with pytest.raises(SystemExit):
+            CompilerCodegenCommand(REPO).run([*arguments, "--selfhost-compiler", str(compiler)])
 
 
 def test_tracked_manifest_has_exact_capability_fixture_and_runtime_universes() -> None:

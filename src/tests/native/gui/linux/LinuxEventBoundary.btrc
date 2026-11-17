@@ -115,7 +115,7 @@ class BoundaryTrial {
 int main(int argc, char** argv) {
 	assert(argc == 3 || argc == 4);
 	int repetitions = argc == 4 ? atoi(argv[3]) : 1;
-	assert(repetitions == 1 || repetitions == 100);
+	assert(repetitions >= 1 && repetitions <= 100);  // 100 qualifies; a gate may repeat less often
 	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
 	for (int iteration = 0; iteration < repetitions; iteration++) { assert(BoundaryTrial.run(atoi(argv[1]), atoi(argv[2])) == 0); }
 	SDL_Quit(); return 0;

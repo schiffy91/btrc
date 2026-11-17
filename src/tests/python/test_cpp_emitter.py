@@ -28,7 +28,7 @@ from src.compiler.python.ir.nodes import (
 )
 from src.compiler.python.ir.verifier import IRVerifier
 from src.tests.python.native_import_fixtures import apple_environment
-from src.tests.runner import BTRC_TRANSPILE_TIMEOUT
+from src.tests.selfhost_cache import STRICT_DRIVER_FLAGS
 from tools.native_plan import NativePlanBuilder
 
 # Apple's developer-tool shim is the toolchain the plan builder targets on
@@ -40,39 +40,10 @@ REPO = Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture(scope="module", params=["reference", "selfhost"])
-def emitted_adapter(request, tmp_path_factory):
-    root = tmp_path_factory.mktemp("cpp-emitter")
-    source = REPO / "src/tests/btrc/fixtures/CppEmitter.btrc"
-    generated = root / "Emitter.c"
-    if request.param == "reference":
-        command = [sys.executable, "-m", "src.compiler.python.main", "--no-cache", str(source), "-o", str(generated)]
-    else:
-        command = [str(request.getfixturevalue("semantic_btrcc")), str(source)]
-    compiled = subprocess.run(command, cwd=REPO, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT)
-    assert compiled.returncode == 0, compiled.stderr
-    if request.param == "selfhost":
-        generated.write_text(compiled.stdout)
-    executable = root / "Emitter"
-    built = subprocess.run(
-        [
-            HOST_CC,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-O2",
-            str(generated),
-            "-o",
-            str(executable),
-            "-lm",
-            "-lpthread",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert built.returncode == 0, built.stderr
+def emitted_adapter(request):
+    # One build per frontend for every worker and later run over the same sources.
+    build = request.getfixturevalue("reference_driver" if request.param == "reference" else "selfhost_driver")
+    executable = build(REPO / "src/tests/btrc/fixtures/CppEmitter.btrc", compile_flags=STRICT_DRIVER_FLAGS)
     emitted = subprocess.run([str(executable)], capture_output=True, text=True, timeout=15)
     assert emitted.returncode == 0, emitted.stderr
     assert emitted.stdout.rstrip() == CEmitter().emit(adapter_module()).rstrip()

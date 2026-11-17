@@ -15,9 +15,9 @@ import signal
 import subprocess
 import sys
 
-from src.compiler.python.artifacts.archive import TargetCatalog
 from src.tests.c_toolchains import configured_c_compiler, selfhost_link_flags
 from src.tests.process_limits import TOOL_TIMEOUT
+from src.tests.selfhost_cache import ENTRY, SelfhostCompilerCache, reference_compiler_flags
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 CC = configured_c_compiler()
@@ -61,7 +61,10 @@ EXE_SUFFIX = ".exe" if os.name == "nt" else ""
 COMPILER_ENTRYPOINT = os.path.join("cli", "WindowsMain.btrc") if os.name == "nt" else "BtrccMain.btrc"
 if sys.platform == "darwin" and os.environ.get("BTRC_NATIVE_HEADER_READER"):
     COMPILER_ENTRYPOINT = os.path.join("cli", "MacOSMain.btrc")
-COMPILER_HOST_TARGET = TargetCatalog().host_target()
+REFERENCE_FLAGS = reference_compiler_flags()
+COMPILER_HOST_TARGET = REFERENCE_FLAGS[REFERENCE_FLAGS.index("--target") + 1]
+# What changes the first stage away from the suite's cached compiler: another interpreter, C flags or libraries.
+STAGE_ONE_OVERRIDES = ("BTRC_PYTHON", "BTRC_CFLAGS", "BTRC_LDLIBS")
 
 
 def terminate_process_tree(process: subprocess.Popen) -> None:
@@ -145,10 +148,7 @@ def transpile_with_python(project_root: str, data_root: str, in_btrc: str, out_c
             "-m",
             "src.compiler.python.main",
             in_btrc,
-            "--strict-imports",
-            "--target",
-            COMPILER_HOST_TARGET,
-            "--no-cache",
+            *REFERENCE_FLAGS,
             "-o",
             out_c,
         ],
@@ -159,6 +159,36 @@ def transpile_with_python(project_root: str, data_root: str, in_btrc: str, out_c
     assert r.returncode == 0 and os.path.exists(out_c), f"btrcpy failed to transpile btrcc:\n{r.stderr[:2000]}"
     # The compiler's own sources analyze clean, as its C builds with -Werror.
     assert "warning:" not in r.stderr, r.stderr[:2000]
+
+
+def shares_the_cached_first_stage() -> bool:
+    """Whether stage 1 of this run is the build the suite's cache holds.
+
+    The cache builds the same entry point with the same reference-compiler
+    flags and the product's C flags, keyed by every input. A run that names
+    another interpreter, other C flags or libraries, or whose entry point is
+    a host composition the cache does not build, makes its own.
+    """
+
+    entry = os.path.normpath(os.path.join("src", "compiler", "btrc", COMPILER_ENTRYPOINT))
+    return entry == os.path.normpath(ENTRY) and not any(name in os.environ for name in STAGE_ONE_OVERRIDES)
+
+
+def reference_built_compiler(project_root: str, data_root: str, compiler_source: str, directory: str) -> str:
+    """Stage 1: the compiler the reference compiler builds from the compiler's own source.
+
+    That is the suite's cached compiler when this run builds it the same way
+    (it is built here, once, if no gate built it yet); otherwise it is
+    transpiled and compiled in `directory`.
+    """
+
+    if shares_the_cached_first_stage():
+        return str(SelfhostCompilerCache.configured().compiler_binary())
+    generated = os.path.join(directory, "btrcc1.c")
+    binary = os.path.join(directory, f"btrcc1{EXE_SUFFIX}")
+    transpile_with_python(project_root, data_root, compiler_source, generated)
+    compile_c(generated, binary, workdir=project_root, compiler=True)
+    return binary
 
 
 def compile_c(src_c: str, out_bin: str, *, workdir: str, compiler: bool = False) -> None:

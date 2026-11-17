@@ -1,6 +1,6 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-release-c-linux btrcc-release-c-macos btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required \
-        test test-fast test-nightly btrcc-test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
+        test test-suite test-fast test-nightly btrcc-test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         skip-gate qualification-report \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -314,13 +314,31 @@ btrcc-test: generated-check ## Build or reuse the suite's self-hosted compiler i
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
-test: generated-check test-boundaries gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
+# The gate has three stages that need nothing from each other but the suite's
+# cached compiler: the parallel suite, the frozen boundaries and the bootstrap
+# fixed point. They run side by side. Each takes the compiler under the cache's
+# lock, so a tree that has none builds it once while the reference-compiler
+# tests go on; the boundary check runs it and the bootstrap starts from it,
+# where each used to spend the reference build again, one after the other.
+# The two side stages are a few processes beside the suite's workers, and their
+# few lines of output land between the suite's.
+# The E40 bursts follow alone: they qualify timing and own the machine.
+# A stage's own prerequisites are met by this target, so its make skips them.
+TEST_STAGES := test-suite test-boundaries bootstrap
+STAGE_FLAGS := --no-print-directory -o generated-check -o compiler-codegen-check -o gpu-required -o gpu
+test: generated-check gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
+	$(MAKE) $(STAGE_FLAGS) -j$(words $(TEST_STAGES)) $(TEST_STAGES)
+	$(MAKE) $(STAGE_FLAGS) test-e40 E40_BURST_REPETITIONS=$(E40_GATE_BURST_REPETITIONS)
+
+# The suite's longest tests sit together in a few files, and the default
+# distribution hands a worker its tests in runs of neighbours: one worker was
+# left with minutes of them while the others had finished. An idle worker
+# takes waiting tests from a busy one instead (SUITE_DISTRIBUTION).
+SUITE_DISTRIBUTION ?= --dist worksteal
+test-suite: generated-check gpu-required ## The parallel suite: everything but the E40 qualification and the bootstrap
 	$(NIX) $(PYTEST) src/tests/ \
-		--ignore=src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report.json $(PYTEST_ARGS) -m "not e40_qualification"
+		--ignore=src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report.json $(PYTEST_ARGS) $(SUITE_DISTRIBUTION) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report.json
-	$(MAKE) --no-print-directory test-e40
-	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report-bootstrap.json $(PYTEST_SERIAL_ARGS)
-	$(NIX) $(SKIP_GATE) build/skip-report-bootstrap.json
 
 # The fast tier, for the edit loop: every test under src/tests/python, the LSP
 # and the formatter that needs neither the self-hosted compiler nor a display
@@ -332,7 +350,7 @@ test: generated-check test-boundaries gpu-required ## Run everything: unit + LSP
 # runner's manifest. Its report (build/skip-report-fast.json, build/junit-fast.xml)
 # lists what the tier left to `make test`.
 FAST_WORKERS ?= auto
-PYTEST_FAST_ARGS ?= -q -rs $(PYTEST_DURATIONS) -n $(FAST_WORKERS)
+PYTEST_FAST_ARGS ?= -q -rs $(PYTEST_DURATIONS) -n $(FAST_WORKERS) --dist worksteal
 test-fast: generated-check ## Fast tier: in-process tests, LSP, formatter and one reference-compiler corpus pass
 	$(NIX) env -u DISPLAY -u WAYLAND_DISPLAY $(PYTEST) src/tests/python/ src/tests/lsp/ src/tests/formatter/ src/tests/runner.py \
 		--fast --compilers=python $(addprefix --ignore=,$(NATIVE_GUI_TESTS)) --skip-report=build/skip-report-fast.json $(PYTEST_FAST_ARGS)
@@ -345,8 +363,15 @@ test-unit: generated-check ## Run Python reference-compiler unit tests (lexer, p
 # sustained 600-second Linux loads are marked `nightly` as well and run in
 # `make test-nightly`; their 10-second diagnostic form stays in the parallel
 # suite and the repeated bursts stay here.
+# A burst case repeats its burst E40_BURST_REPETITIONS times: 100 is the
+# qualification count, which this target, `make test-nightly` and CI's linux-e40
+# cells run. `make test` runs every case at E40_GATE_BURST_REPETITIONS, a
+# quarter of it: the same 64 cases, both frontends, plain and sanitized, in a
+# quarter of the serial wall clock.
+E40_BURST_REPETITIONS ?= 100
+E40_GATE_BURST_REPETITIONS ?= 25
 test-e40: generated-check gpu-required ## Run platform-admitted E40 qualification serially (bursts; the 600-second loads are nightly)
-	$(NIX) tools/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and not nightly" \
+	$(NIX) env BTRC_E40_BURST_REPETITIONS=$(E40_BURST_REPETITIONS) tools/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and not nightly" \
 		--skip-report=build/skip-report-e40.json $(PYTEST_SERIAL_ARGS) -n 0
 	$(NIX) $(SKIP_GATE) build/skip-report-e40.json
 
@@ -356,14 +381,17 @@ test-e40: generated-check gpu-required ## Run platform-admitted E40 qualificatio
 #     sanitized), 40 minutes of serial wall clock that `make test` used to
 #     spend; CI's linux-e40 cells (`make test-e40-linux`) still run them with
 #     their evidence checks;
+#   - the repeated E40 bursts at the qualification count of 100, where `make
+#     test` repeats each a quarter as often;
 #   - the strict-C11 cells at -O1 and -O3 with gcc and clang, which `make
 #     test-c11` used to run beside -O0 and -O2.
 # CI's nightly is the `extended` tier (ci/tiers.toml), which adds the same C11
 # cells and the report-only Wayland GUI session to what every push runs.
-test-nightly: generated-check gpu-required ## Nightly set: the 600-second E40 loads and strict C11 at -O1 and -O3
+test-nightly: generated-check gpu-required ## Nightly set: the 600-second E40 loads, the bursts at 100 repetitions, strict C11 at -O1 and -O3
 	$(NIX) tools/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and nightly" \
 		--skip-report=build/skip-report-nightly-e40.json $(PYTEST_SERIAL_ARGS) -n 0
 	$(NIX) $(SKIP_GATE) build/skip-report-nightly-e40.json
+	$(MAKE) --no-print-directory test-e40 E40_BURST_REPETITIONS=100
 	$(MAKE) --no-print-directory test-c11 C11_SET=nightly
 
 E40_FRONTEND ?= python
@@ -393,8 +421,14 @@ test-debug: generated-check ## Run the debugger (DAP adapter) tests (needs lldb 
 test-selfhost: generated-check ## Verify the self-hosted lexer is byte-identical to btrcpy
 	$(NIX) python3 -m tools.compiler_codegen.main verify-lexer
 
-test-boundaries: generated-check ## Check frozen compiler boundaries with portable host gating
-	$(NIX) python3 -m tools.compiler_codegen.main boundary-check --report build/boundary-report.json
+# The check's self-hosted "c" and "diagnostics" boundaries run the compiler the
+# reference compiler builds from this tree. On Linux that is the suite's cached
+# one, so the check runs it instead of building it again; on macOS the shards'
+# compiler is the product's host composition, and the check builds its own.
+BOUNDARY_BTRCC_BUILD := $(if $(filter Darwin,$(shell uname -s)),,btrcc-test)
+BOUNDARY_BTRCC := $(if $(filter Darwin,$(shell uname -s)),,--selfhost-compiler $(TEST_BTRCC))
+test-boundaries: generated-check $(BOUNDARY_BTRCC_BUILD) ## Check frozen compiler boundaries with portable host gating
+	$(NIX) python3 -m tools.compiler_codegen.main boundary-check --report build/boundary-report.json $(BOUNDARY_BTRCC)
 
 test-boundaries-observed: generated-check ## Require the recorded local GCC/Clang behavior envelope
 	$(NIX) python3 -m tools.compiler_codegen.main boundary-check --require-observed

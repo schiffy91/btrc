@@ -5,7 +5,7 @@ source and the result is stable: compiling the compiler with itself, then again
 with that output, must yield byte-identical C (a fixed point). This walks the
 three-stage bootstrap and asserts the fixed point:
 
-    btrcc1 = cc(  btrcpy(compiler source) )      # reference-built (stage 1)
+    btrcc1 = cc(  btrcpy(compiler source) )      # reference-built (stage 1): the suite's cached compiler
     btrcc2 = cc( btrcc1(compiler source) )       # self-built     (stage 2)
     btrcc3.c =   btrcc2(compiler source)         # self-built again (stage 3)
     assert btrcc2.c == btrcc3.c                  # FIXED POINT
@@ -26,10 +26,10 @@ from src.tests.btrc.bootstrap_harness import (
     EXE_SUFFIX,
     REPO,
     compile_c,
+    reference_built_compiler,
     run_btrcc,
     run_stage,
     snapshot_compiler_inputs,
-    transpile_with_python,
 )
 from src.tests.c_toolchains import host_c_compiler
 
@@ -40,15 +40,12 @@ class TestBootstrap(unittest.TestCase):
         """Prove the fixed point, then exercise that same self-built compiler."""
         with tempfile.TemporaryDirectory(prefix="btrc-bootstrap-") as d:
             project_root, data_root, compiler_source = snapshot_compiler_inputs(d)
-            c1 = os.path.join(d, "btrcc1.c")
-            b1 = os.path.join(d, f"btrcc1{EXE_SUFFIX}")
             c2 = os.path.join(d, "btrcc2.c")
             b2 = os.path.join(d, f"btrcc2{EXE_SUFFIX}")
             c3 = os.path.join(d, "btrcc3.c")
 
             # Stage 1: reference compiler builds btrcc1.
-            transpile_with_python(project_root, data_root, compiler_source, c1)
-            compile_c(c1, b1, workdir=project_root, compiler=True)
+            b1 = reference_built_compiler(project_root, data_root, compiler_source, d)
 
             # Stage 2: btrcc1 compiles its OWN source -> btrcc2.
             run_btrcc(b1, compiler_source, c2, data_root=data_root, workdir=project_root)

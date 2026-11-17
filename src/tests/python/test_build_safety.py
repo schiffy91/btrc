@@ -33,6 +33,9 @@ def _make_dry_run(*args: str) -> str:
         "FAST_WORKERS",
         "C11_SET",
         "C11_CORPUS_C",
+        "E40_BURST_REPETITIONS",
+        "E40_GATE_BURST_REPETITIONS",
+        "SUITE_DISTRIBUTION",
         "UNIT_GUI_DELEGATED",
         "GUI_PYTEST_WORKERS",
         "MAKEFLAGS",
@@ -98,6 +101,7 @@ def test_fast_tier_runs_without_the_selfhost_compiler_or_a_display():
     assert selected == ["src/tests/python/", "src/tests/lsp/", "src/tests/formatter/", "src/tests/runner.py"]
     assert "--fast" in arguments and "--compilers=python" in arguments
     assert arguments[arguments.index("-n") + 1] == "auto"
+    assert arguments[arguments.index("--dist") + 1] == "worksteal"
     assert "--skip-report=build/skip-report-fast.json" in arguments
     gui = _make_dry_run("test-native-gui", "NIX=").replace("\\\n", " ")
     gui_command = shlex.split(next(line for line in gui.splitlines() if "-m pytest " in line))
@@ -224,26 +228,62 @@ def test_perf_target_pairs_the_host_c_and_cxx_drivers():
     assert f'--cc "{cc}" --cxx "{cxx}"' in command
 
 
-def test_memory_intensive_bootstrap_runs_after_the_parallel_suite():
+def test_the_gate_runs_its_independent_stages_side_by_side_and_the_bursts_alone():
     output = _make_dry_run("test", "NIX=").replace("\\\n", " ")
-    commands = [shlex.split(line) for line in output.splitlines() if "python3 -m pytest" in line]
+    lines = output.splitlines()
+    commands = [shlex.split(line) for line in lines if "python3 -m pytest" in line]
 
     assert len(commands) == 3
     for command in commands:
         pytest_index = command.index("pytest")
         assert command[pytest_index - 2 : pytest_index] == ["python3", "-m"]
-    parallel, e40, serial_bootstrap = [command[command.index("pytest") + 1 :] for command in commands]
+    parallel, serial_bootstrap, e40 = [command[command.index("pytest") + 1 :] for command in commands]
     assert "src/tests/" in parallel
     assert "--ignore=src/tests/btrc/test_bootstrap.py" in parallel
     assert parallel[parallel.index("-m") + 1] == "not e40_qualification"
     assert parallel[parallel.index("-n") + 1] == "8"
+    # An idle worker takes waiting tests from a busy one: the long tests of one file do not queue behind each other.
+    assert parallel[parallel.index("--dist") + 1] == "worksteal"
     assert "src/tests/" in e40
     assert e40[e40.index("-m") + 1] == "e40_qualification and not nightly"
     assert e40[e40.index("-n") + 1] == "0"
+    # The bootstrap is one process of its own beside the suite's workers, never one of them.
     assert "src/tests/btrc/test_bootstrap.py" in serial_bootstrap
     assert "src/tests/" not in serial_bootstrap
     assert "-n" not in serial_bootstrap
     assert "-m" not in serial_bootstrap
+
+    # One make runs the suite, the boundary check and the bootstrap together; the bursts follow in their own.
+    stages, bursts = [shlex.split(line) for line in lines if line.startswith("make ")]
+    assert stages[-3:] == ["test-suite", "test-boundaries", "bootstrap"] and "-j3" in stages
+    assert bursts[-2:] == ["test-e40", "E40_BURST_REPETITIONS=25"] and not [
+        flag for flag in bursts if flag.startswith("-j")
+    ]
+    burst_run = next(index for index, line in enumerate(lines) if "e40_qualification and not nightly" in line)
+    assert all(
+        index < burst_run for index, line in enumerate(lines) if "boundary-check" in line or "test_bootstrap" in line
+    )
+    assert lines[burst_run].startswith("env BTRC_E40_BURST_REPETITIONS=25 tools/virtual-display.sh ")
+    # The gate met the stages' prerequisites once; a stage's make does not check generated sources again.
+    for invocation in (stages, bursts):
+        skipped = [invocation[index + 1] for index, flag in enumerate(invocation) if flag == "-o"]
+        assert skipped == ["generated-check", "compiler-codegen-check", "gpu-required", "gpu"]
+    assert output.count("python3 -m tools.compiler_codegen.main check") == 1
+    # All three take the suite's one cached compiler: the check runs it, the bootstrap starts from it.
+    assert "python3 -m src.tests.selfhost_cache ensure" in output
+    assert "boundary-check --report build/boundary-report.json --selfhost-compiler build/btrcc-test/btrcc" in output
+
+    # Alone, the bursts repeat the qualification count, and so does the nightly set.
+    alone = _make_dry_run("test-e40", "NIX=")
+    assert "env BTRC_E40_BURST_REPETITIONS=100 tools/virtual-display.sh " in alone
+    nightly = _make_dry_run("test-nightly", "NIX=")
+    assert "test-e40 E40_BURST_REPETITIONS=100" in nightly
+    assert "env BTRC_E40_BURST_REPETITIONS=100 tools/virtual-display.sh " in nightly
+    fairness = (REPO_ROOT / "src/tests/python/test_native_ui2_fairness_linux.py").read_text()
+    assert 'BURST_REPETITIONS = int(os.environ.get("BTRC_E40_BURST_REPETITIONS", "100"))' in fairness
+    assert "str(BURST_REPETITIONS)]" in fairness and '"100"]' not in fairness
+    # A cell's evidence is only ever the full count.
+    assert 'report["repetitions"] != 100' in (REPO_ROOT / "tools/ui/e40.py").read_text()
 
     bootstrap = _make_dry_run("bootstrap", "NIX=")
     bootstrap_command = next(line for line in bootstrap.splitlines() if "python3 -m pytest" in line)
@@ -285,7 +325,7 @@ def test_sustained_loads_run_in_the_nightly_set_and_nothing_is_dropped():
 
     output = _make_dry_run("test-nightly", "NIX=").replace("\\\n", " ")
     lines = output.splitlines()
-    (run,) = [line for line in lines if "python3 -m pytest" in line and "e40_qualification" in line]
+    (run,) = [line for line in lines if "python3 -m pytest" in line and "e40_qualification and nightly" in line]
     command = shlex.split(run)
     assert command[0] == "tools/virtual-display.sh"
     arguments = command[command.index("pytest") + 1 :]
@@ -299,9 +339,9 @@ def test_sustained_loads_run_in_the_nightly_set_and_nothing_is_dropped():
 
 def test_main_gate_runs_portable_boundaries_and_keeps_observed_proof_explicit():
     makefile = MAKEFILE.read_text()
-    test_rule = next(line for line in makefile.splitlines() if line.startswith("test:"))
-    assert "test-boundaries" in test_rule
-    assert "test-boundaries-observed" not in test_rule
+    stages = next(line for line in makefile.splitlines() if line.startswith("TEST_STAGES :="))
+    assert "test-boundaries" in stages.split()
+    assert "test-boundaries-observed" not in stages
 
     portable = _make_dry_run("test-boundaries", "NIX=")
     assert "python3 -m tools.compiler_codegen.main boundary-check" in portable
@@ -312,9 +352,7 @@ def test_main_gate_runs_portable_boundaries_and_keeps_observed_proof_explicit():
 
     full = _make_dry_run("test", "NIX=")
     assert "--require-observed" not in full
-    assert full.index("python3 -m tools.compiler_codegen.main boundary-check") < full.index(
-        "python3 -m pytest src/tests/"
-    )
+    assert full.count("python3 -m tools.compiler_codegen.main boundary-check") == 1
 
 
 def test_podman_machine_matches_the_documented_host_capacity():

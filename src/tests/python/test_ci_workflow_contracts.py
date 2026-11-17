@@ -2300,11 +2300,13 @@ def test_linux_e40_has_serial_cells_and_complete_artifacts() -> None:
 
 def test_e40_moves_from_parallel_stages_to_explicit_serial_full_test_stage() -> None:
     makefile = (REPO / "Makefile").read_text()
-    for target in ("test", "test-unit", "test-shard-unit", "test-native-gui", "test-shard-gui"):
+    for target in ("test-suite", "test-unit", "test-shard-unit", "test-native-gui", "test-shard-gui"):
         body = makefile.split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
         assert '-m "not e40_qualification"' in body, target
+    # The gate's parallel stages hold no E40 run; the bursts are its last line, in a make of their own.
+    assert "TEST_STAGES := test-suite test-boundaries bootstrap\n" in makefile
     full = makefile.split("\ntest:", 1)[1].split("\n\n", 1)[0]
-    assert "$(MAKE) --no-print-directory test-e40" in full
+    assert full.rstrip().splitlines()[-1].startswith("\t$(MAKE) $(STAGE_FLAGS) test-e40 ")
     serial = makefile.split("\ntest-e40:", 1)[1].split("\n\n", 1)[0]
     assert '-m "e40_qualification and not nightly"' in serial and "$(PYTEST_SERIAL_ARGS) -n 0" in serial
     nightly = makefile.split("\ntest-nightly:", 1)[1].split("\n\n", 1)[0]

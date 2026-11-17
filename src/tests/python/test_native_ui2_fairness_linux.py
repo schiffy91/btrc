@@ -26,6 +26,11 @@ CLASS_NAMES = (
 )
 
 
+# How often a burst case repeats its burst. 100 is the qualification count, which tools/ui/e40.py
+# requires of a cell's evidence; `make test` asks for fewer (Makefile, E40_GATE_BURST_REPETITIONS).
+BURST_REPETITIONS = int(os.environ.get("BTRC_E40_BURST_REPETITIONS", "100"))
+
+
 @pytest.fixture(scope="module", params=["python", "selfhost"])
 def frontend(request):
     return request.param
@@ -151,7 +156,7 @@ def run_observed(command, sanitized, timeout, directory):
 @pytest.mark.e40_qualification
 def test_linux_e40_repeated_bursts(burst_program, frontend, sanitized, count, terminal, tmp_path):
     result = run_observed(
-        [str(burst_program), str(count), str(terminal), "100"],
+        [str(burst_program), str(count), str(terminal), str(BURST_REPETITIONS)],
         sanitized,
         600,
         tmp_path,
@@ -166,7 +171,7 @@ def test_linux_e40_repeated_bursts(burst_program, frontend, sanitized, count, te
     report = {
         **provenance(frontend, sanitized),
         "kind": "bursts",
-        "repetitions": 100,
+        "repetitions": BURST_REPETITIONS,
         "count": count,
         "terminal": terminal,
         "trials": trials,
@@ -178,7 +183,7 @@ def test_linux_e40_repeated_bursts(burst_program, frontend, sanitized, count, te
     report["limits"]["publisher_capacity"] = 0
     (tmp_path / "e40-bursts.json").write_text(json.dumps(report, indent=2) + "\n")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert len(trials) == len(admissions) == 100
+    assert BURST_REPETITIONS >= 1 and len(trials) == len(admissions) == BURST_REPETITIONS
     for trial, admission in zip(trials, admissions, strict=True):
         assert trial["count"] == count and trial["terminal"] == terminal
         assert all(trial[key] == 1 for key in ("bounded", "work", "frame", "lossless")), trial

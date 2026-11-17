@@ -30,6 +30,49 @@ def test_snapshot_preserves_host_entrypoint(tmp_path, monkeypatch, entrypoint) -
     assert ("NativeSHA256()" in text) == (entrypoint == os.path.join("cli", "MacOSMain.btrc"))
 
 
+def test_stage_one_is_the_suites_cached_compiler_unless_the_run_builds_it_differently(tmp_path, monkeypatch) -> None:
+    """The cache holds the first stage, so the gate does not spend the reference build a second time."""
+
+    built = []
+
+    class Cache:
+        def compiler_binary(self):
+            return tmp_path / "cache" / "btrcc"
+
+    monkeypatch.setattr(bootstrap.SelfhostCompilerCache, "configured", classmethod(lambda cls: Cache()))
+    monkeypatch.setattr(bootstrap, "transpile_with_python", lambda *arguments: built.append(("transpile", arguments)))
+    monkeypatch.setattr(bootstrap, "compile_c", lambda *arguments, **options: built.append(("compile", options)))
+    monkeypatch.setattr(bootstrap, "COMPILER_ENTRYPOINT", os.path.relpath(bootstrap.ENTRY, "src/compiler/btrc"))
+    for name in bootstrap.STAGE_ONE_OVERRIDES:
+        monkeypatch.delenv(name, raising=False)
+    own = str(tmp_path / f"btrcc1{bootstrap.EXE_SUFFIX}")
+
+    assert bootstrap.reference_built_compiler("project", "data", "source", str(tmp_path)) == str(
+        tmp_path / "cache" / "btrcc"
+    )
+    assert built == []
+    # The cache transpiles with the flags the gate's own first stage uses.
+    assert bootstrap.reference_compiler_flags() == bootstrap.REFERENCE_FLAGS
+    assert (
+        bootstrap.REFERENCE_FLAGS[:2] == ("--strict-imports", "--target") and "--no-cache" in bootstrap.REFERENCE_FLAGS
+    )
+
+    # Other C flags, libraries or another interpreter are another build: the gate makes its own.
+    for name in bootstrap.STAGE_ONE_OVERRIDES:
+        built.clear()
+        monkeypatch.setenv(name, "changed")
+        assert bootstrap.reference_built_compiler("project", "data", "source", str(tmp_path)) == own
+        assert [step for step, _ in built] == ["transpile", "compile"]
+        assert built[0][1] == ("project", "data", "source", str(tmp_path / "btrcc1.c"))
+        assert built[1][1] == {"workdir": "project", "compiler": True}
+        monkeypatch.delenv(name)
+    # So is a host composition the cache does not build.
+    built.clear()
+    monkeypatch.setattr(bootstrap, "COMPILER_ENTRYPOINT", os.path.join("cli", "MacOSMain.btrc"))
+    assert bootstrap.reference_built_compiler("project", "data", "source", str(tmp_path)) == own
+    assert [step for step, _ in built] == ["transpile", "compile"]
+
+
 @pytest.mark.parametrize("target", ["x86_64-windows-gnu", "aarch64-windows-gnu"])
 def test_snapshot_windows_filesystem_has_its_native_dependency_closure(tmp_path, target) -> None:
     project, source_root, _ = bootstrap.snapshot_compiler_inputs(str(tmp_path))

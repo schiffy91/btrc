@@ -18,6 +18,7 @@ from src.tests.selfhost_cache import (
     SELFHOST,
     ReferenceCompilerInputs,
     SelfhostCompilerCache,
+    reference_compiler_flags,
 )
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="the stand-in compilers are shell scripts")
@@ -164,6 +165,28 @@ def test_helper_drivers_are_transpiled_by_the_selfhost_compiler_unless_the_refer
         cache.driver(source, frontend="python")
 
 
+def test_a_failed_driver_build_is_reported_to_the_whole_run_and_tried_again_by_the_next(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cc, log = _toolchain(tmp_path / "tools"), tmp_path / "transpiled"
+    broken = _script(tmp_path / "tools" / "broken", f'echo "$1" >> "{log}"\necho "no such module" >&2\nexit 1\n')
+    cache = _cache(cc, _checkout(tmp_path / "checkout"))
+    source = cache.repo / "src/tests/Driver.btrc"
+
+    monkeypatch.setenv("PYTEST_XDIST_TESTRUNUID", "first-run")
+    with pytest.raises(AssertionError, match="no such module"):
+        cache.driver(source, selfhost_compiler=broken)
+    # Another worker of the same run is told, without spending the build again.
+    with pytest.raises(AssertionError, match="no such module"):
+        _cache(cc, cache.repo).driver(source, selfhost_compiler=broken)
+    assert len(log.read_text().splitlines()) == 1
+
+    monkeypatch.setenv("PYTEST_XDIST_TESTRUNUID", "second-run")
+    built = cache.driver(source, selfhost_compiler=_transpiler(tmp_path / "tools", log))
+    assert built.read_text() == "built\n" and len(log.read_text().splitlines()) == 2
+    assert not list(built.parent.glob("failure-*"))
+
+
 def test_ensure_points_the_checkout_at_the_compiler_it_resolved(tmp_path: Path) -> None:
     cc = _toolchain(tmp_path / "tools")
     repo = _checkout(tmp_path / "checkout")
@@ -176,6 +199,36 @@ def test_ensure_points_the_checkout_at_the_compiler_it_resolved(tmp_path: Path) 
         assert current == link / "btrcc" and current.resolve() == binary.resolve()
         # Inside the checkout the link is relative, so it holds where the checkout is mounted elsewhere.
         assert os.path.isabs(os.readlink(link)) == (root is not None)
+
+
+def test_the_compiler_is_built_as_the_bootstraps_first_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One reference build serves the suite, the boundary check and stage 1 of the fixed point."""
+
+    cc, log = _toolchain(tmp_path / "tools"), tmp_path / "transpiled"
+    cache = _cache(cc, _checkout(tmp_path / "checkout"))
+    package = cache.repo / "src/compiler/python"
+    for directory in (cache.repo / "src", cache.repo / "src/compiler", package):
+        (directory / "__init__.py").write_text("")
+    (package / "main.py").write_text(
+        "import json, sys\n"
+        f"open({str(log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "open(sys.argv[sys.argv.index('-o') + 1], 'w').write('c\\n')\n"
+    )
+    monkeypatch.setenv("PYTHONPATH", str(cache.repo))
+    before = cache.fingerprint()
+
+    binary = cache.compiler_binary()
+
+    assert binary == cache.root / before / "btrcc" and binary.read_text() == "built\n"
+    flags = reference_compiler_flags()
+    assert flags[0] == "--strict-imports" and flags[1] == "--target" and flags[3] == "--no-cache"
+    assert [json.loads(line) for line in log.read_text().splitlines()] == [
+        [ENTRY, *flags, "-o", str(binary.with_name("btrcc.c"))]
+    ]
+    # Built once: a second request, and the flags it was keyed with, find it.
+    assert cache.compiler_binary() == binary and len(log.read_text().splitlines()) == 1
+    monkeypatch.setattr("src.tests.selfhost_cache.reference_compiler_flags", lambda: ("--no-cache",))
+    assert _cache(cc, cache.repo).fingerprint() != before
 
 
 def test_compiler_key_covers_only_the_stdlib_the_compiler_reads(tmp_path: Path) -> None:

@@ -53,9 +53,19 @@ class CompilerCodegenCommand:
             type=Path,
             help="boundary-check: write which records this host checked (btrc.boundary-check/1 JSON)",
         )
+        parser.add_argument(
+            "--selfhost-compiler",
+            type=Path,
+            help="boundary-check: the tree's self-hosted compiler, already built by the reference compiler, "
+            "to run instead of building BtrccMain again",
+        )
         arguments = parser.parse_args(argv)
         if arguments.report is not None and arguments.operation != "boundary-check":
             parser.error(f"{arguments.operation} does not accept --report")
+        if arguments.selfhost_compiler is not None and (
+            arguments.operation != "boundary-check" or arguments.candidate is not None
+        ):
+            parser.error("--selfhost-compiler belongs to a boundary-check that captures its candidate")
         try:
             verifier = CompilerBoundaryVerifier(self._repository_root)
             if arguments.operation == "dump-ast":
@@ -87,7 +97,9 @@ class CompilerCodegenCommand:
                 if arguments.revision is not None:
                     parser.error("boundary-check does not accept --revision")
                 if arguments.candidate is None:
-                    verifier.capture_boundary_candidate(manifest, force_observed=False)
+                    verifier.capture_boundary_candidate(
+                        manifest, force_observed=False, selfhost_compiler=arguments.selfhost_compiler
+                    )
                 report = verifier.check_boundary_candidate(
                     manifest,
                     arguments.candidate,

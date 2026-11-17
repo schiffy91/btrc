@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.c_toolchains import HOST_COMPILER_DIAGNOSTICS
-from src.tests.selfhost_cache import SELFHOST, SelfhostCompilerCache
+from src.tests.selfhost_cache import REFERENCE, SELFHOST, SelfhostCompilerCache
 from src.tests.skip_ledger import SkipLedger
 
 REPO = Path(__file__).resolve().parents[2]
@@ -410,6 +410,24 @@ def selfhost_driver(immutable_btrcc: Path):
 
     def build(source: Path | str, *, compile_flags: Sequence[str] = (), frontend: str = SELFHOST) -> Path:
         return cache.driver(source, compile_flags=compile_flags, frontend=frontend, selfhost_compiler=immutable_btrcc)
+
+    return build
+
+
+@pytest.fixture(scope="session")
+def reference_driver():
+    """Build one helper driver per source through the reference compiler and share it everywhere.
+
+    It needs no self-hosted compiler, so the fast tier has it too. The probes
+    that take most of the self-hosted IR stage are minutes of reference-compiler
+    work; they used to be built again by every run, and by every worker a
+    module's tests were spread over.
+    """
+
+    cache = SelfhostCompilerCache.configured()
+
+    def build(source: Path | str, *, compile_flags: Sequence[str] = ()) -> Path:
+        return cache.driver(source, compile_flags=compile_flags, frontend=REFERENCE)
 
     return build
 
