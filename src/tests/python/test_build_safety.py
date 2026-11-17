@@ -270,8 +270,14 @@ def test_the_gate_runs_its_independent_stages_side_by_side_and_the_bursts_alone(
         assert skipped == ["generated-check", "compiler-codegen-check", "gpu-required", "gpu"]
     assert output.count("python3 -m tools.compiler_codegen.main check") == 1
     # All three take the suite's one cached compiler: the check runs it, the bootstrap starts from it.
-    assert "python3 -m src.tests.selfhost_cache ensure" in output
-    assert "boundary-check --report build/boundary-report.json --selfhost-compiler build/btrcc-test/btrcc" in output
+    # On macOS the shards' compiler is the product's host composition, which the cache does not hold, so the
+    # check there builds its own as it always did.
+    if platform.system() == "Darwin":
+        assert "selfhost_cache ensure" not in output and "--selfhost-compiler" not in output
+        assert "boundary-check --report build/boundary-report.json" in output
+    else:
+        assert "python3 -m src.tests.selfhost_cache ensure" in output
+        assert "boundary-check --report build/boundary-report.json --selfhost-compiler build/btrcc-test/btrcc" in output
 
     # Alone, the bursts repeat the qualification count, and so does the nightly set.
     alone = _make_dry_run("test-e40", "NIX=")
