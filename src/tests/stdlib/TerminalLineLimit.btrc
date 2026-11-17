@@ -1,0 +1,35 @@
+/* Terminal.readLine keeps at most the bytes it is asked to keep and always
+ * consumes the whole line, so the next read starts on the next line. Input is
+ * a file, as in Terminal.btrc, so every target runs it. */
+
+import Library.FileSystem;
+import Library.IO;
+import Library.Terminal;
+
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+	string dir = FileSystem.tempDir("btrc_terminal_limit");
+	assert(!dir.isEmpty());
+	string path = PathTools.join(dir, "input.txt");
+	Path.writeAll(path, "dropped whole\nalso dropped\nabc\nlast\n");
+	FILE* input = freopen(path, "r", stdin);
+	assert(input != NULL);
+
+	/* Nothing may be kept: the line is still read to its end. */
+	assert(Terminal.readLine(0).isEmpty());
+	assert(Terminal.readLine(-7).isEmpty());
+	/* A line as long as the limit is whole, and one shorter than it too. */
+	assert(Terminal.readLine(3).equals("abc"));
+	assert(Terminal.readLine(100).equals("last"));
+	assert(Terminal.readLine().isEmpty());
+
+	/* Windows cannot remove a file that is still open. */
+	fclose(stdin);
+	assert(remove(path) == 0);
+	assert(rmdir(dir) == 0);
+
+	print("PASS: terminal line limit");
+	return 0;
+}

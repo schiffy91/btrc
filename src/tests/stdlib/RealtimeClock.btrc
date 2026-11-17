@@ -1,0 +1,76 @@
+/* Realtime clock values: a frame rate, a playback speed and the mapping from a
+ * device's frame count to a transport position. Values and arithmetic only,
+ * so every target runs it. */
+
+import Library.Realtime.RealtimeClock;
+import Library.Testing;
+
+void badFrameRate() { RealtimeFrameRate(0); }
+
+void fastFrameRate() { RealtimeFrameRate(768001); }
+
+void slowSpeed() { RealtimePlaybackSpeed(0.05); }
+
+void fastSpeed() { RealtimePlaybackSpeed(4.5); }
+
+void fastTransport() { RealtimeClockMapping(0LL, 0LL, RealtimeFrameRate(48000), RealtimeFrameRate(768000), RealtimePlaybackSpeed(1.0), 10LL, 0LL); }
+
+void noWindow() { RealtimeClockMapping(0LL, 0LL, RealtimeFrameRate(48000), RealtimeFrameRate(48000), RealtimePlaybackSpeed(1.0), 0LL, 0LL); }
+
+void failedHasNoFrame() { RealtimeClockMapOutcome.failed(REALTIME_CLOCK_OVERFLOW).transportFrame(); }
+
+void mappedIsNotAFailure() { RealtimeClockMapOutcome.failed(REALTIME_CLOCK_MAPPED); }
+
+void testValues() {
+	Expect.intEq((long long)RealtimeFrameRate(44100).framesPerSecond(), 44100LL);
+	Expect.isTrue(RealtimeFrameRate(48000).equals(RealtimeFrameRate(48000)));
+	Expect.isFalse(RealtimeFrameRate(48000).equals(RealtimeFrameRate(44100)));
+	Expect.isTrue(RealtimePlaybackSpeed(0.5).equals(RealtimePlaybackSpeed(0.5)));
+	Expect.throws(badFrameRate, "invalid realtime frame rate");
+	Expect.throws(fastFrameRate, "invalid realtime frame rate");
+	Expect.throws(slowSpeed, "invalid realtime playback speed");
+	Expect.throws(fastSpeed, "invalid realtime playback speed");
+	Expect.throws(fastTransport, "invalid realtime clock mapping");
+	Expect.throws(noWindow, "invalid realtime clock mapping");
+	Expect.throws(failedHasNoFrame, "mapped transport frame is unavailable");
+	Expect.throws(mappedIsNotAFailure, "mapped status requires a transport frame");
+}
+
+void testMapping() {
+	/* A 48 kHz device drives a 96 kHz transport at half speed: one device frame is one transport frame. */
+	var mapping = RealtimeClockMapping(1000LL, 5000LL, RealtimeFrameRate(48000), RealtimeFrameRate(96000), RealtimePlaybackSpeed(0.5), 2000LL, 3LL);
+	Expect.intEq(mapping.anchorDeviceFrame(), 1000LL);
+	Expect.intEq(mapping.anchorTransportFrame(), 5000LL);
+	Expect.intEq((long long)mapping.deviceRate().framesPerSecond(), 48000LL);
+	Expect.intEq((long long)mapping.transportRate().framesPerSecond(), 96000LL);
+	Expect.intEq(mapping.maximumAbsoluteDeviceDelta(), 2000LL);
+	Expect.intEq(mapping.generation(), 3LL);
+
+	var forward = mapping.mapDeviceFrame(1480LL, 0LL, 100000LL);
+	Expect.isTrue(forward.succeeded());
+	Expect.intEq(forward.transportFrame(), 5480LL, "480 device frames later");
+	Expect.intEq(mapping.mapDeviceFrame(520LL, 0LL, 100000LL).transportFrame(), 4520LL, "480 device frames earlier");
+
+	/* A position outside the caller's range is the nearest end of it. */
+	Expect.intEq(mapping.mapDeviceFrame(1480LL, 0LL, 5100LL).transportFrame(), 5100LL, "held at the maximum");
+	Expect.intEq(mapping.mapDeviceFrame(520LL, 4900LL, 100000LL).transportFrame(), 4900LL, "held at the minimum");
+
+	/* What cannot be mapped says why, and carries no frame. */
+	Expect.isTrue(mapping.mapDeviceFrame(-1LL, 0LL, 10LL).status() == REALTIME_CLOCK_INVALID_ARGUMENT);
+	Expect.isTrue(mapping.mapDeviceFrame(1000LL, 10LL, 0LL).status() == REALTIME_CLOCK_INVALID_ARGUMENT);
+	Expect.isTrue(mapping.mapDeviceFrame(3001LL, 0LL, 100000LL).status() == REALTIME_CLOCK_DELTA_OUT_OF_RANGE);
+	Expect.isTrue(mapping.mapDeviceFrame(3000LL, 0LL, 100000LL).succeeded(), "the window's edge is inside it");
+	Expect.isFalse(mapping.mapDeviceFrame(3001LL, 0LL, 100000LL).succeeded());
+
+	/* An anchor at the top of the range has no room above it. */
+	var top = RealtimeClockMapping(0LL, 9223372036854775807LL, RealtimeFrameRate(48000), RealtimeFrameRate(48000), RealtimePlaybackSpeed(1.0), 100LL, 0LL);
+	Expect.isTrue(top.mapDeviceFrame(1LL, 0LL, 9223372036854775807LL).status() == REALTIME_CLOCK_OVERFLOW);
+	Expect.intEq(top.mapDeviceFrame(0LL, 0LL, 9223372036854775807LL).transportFrame(), 9223372036854775807LL);
+}
+
+int main() {
+	TestSuite suite = TestSuite("realtime_clock");
+	suite.add("values", testValues);
+	suite.add("mapping", testMapping);
+	return suite.run();
+}

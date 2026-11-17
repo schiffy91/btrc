@@ -128,6 +128,24 @@ class CryptoConformance {
 		assert(reread.seed().equals(fresh.seed()) && reread.publicKey().equals(fresh.publicKey()) && bare.publicKey().equals(fresh.publicKey()));
 	}
 
+	/* A label is one line of the file. A newline in it would start a second
+	 * line, and a key written there would be trusted the next time the file
+	 * is read: whoever names a key could add one of their own. */
+	class void labels() {
+		string directory = FileSystem.tempDir("btrc-trusted-labels");
+		string path = directory + "/trusted";
+		PublicKey named = SigningKey.fromSeed(CryptoConformance.hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")).publicKey();
+		PublicKey smuggled = SigningKey.fromSeed(CryptoConformance.hex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb")).publicKey();
+		TrustedKeys keys = TrustedKeys(path);
+		keys.add(named, "the desk\n" + smuggled.toOpenSSH("smuggled"));
+		assert(keys.count() == 1 && !keys.labelOf(named).contains("\n"));
+
+		TrustedKeys reloaded = TrustedKeys(path);
+		assert(reloaded.count() == 1 && reloaded.contains(named) && !reloaded.contains(smuggled));
+		assert(reloaded.labelOf(named).startsWith("the desk "));
+		FileSystem.removeRecursive(directory);
+	}
+
 	class void trusted() {
 		string directory = FileSystem.tempDir("btrc-trusted-keys");
 		string path = directory + "/trusted";
@@ -338,6 +356,7 @@ int main() {
 	CryptoConformance.signatures();
 	CryptoConformance.openSSH();
 	CryptoConformance.trusted();
+	CryptoConformance.labels();
 	CryptoConformance.channel();
 	CryptoConformance.overTCP();
 	CryptoConformance.handOver();

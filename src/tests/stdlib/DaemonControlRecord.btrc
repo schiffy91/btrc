@@ -1,0 +1,62 @@
+/* What a daemon may be called, where its control files lie, and which control
+ * records are believed. Text only, so every target runs it. */
+
+import Library.Daemon.DaemonControl;
+import Library.Testing;
+import Library.Vector;
+
+void testNames() {
+	Vector<string> allowed = ["drive", "drive-2", "a_b.c", "X9", "..."];
+	for name in allowed { Expect.isTrue(DaemonControlPaths.validDaemonName(name), name); }
+	/* A name becomes a file name: nothing that leaves the daemons' directory or needs quoting. */
+	Vector<string> refused = ["", ".", "..", "a/b", "../drive", "a b", "drive;rm", "tab\tname"];
+	for name in refused { Expect.isFalse(DaemonControlPaths.validDaemonName(name), f"'{name}'"); }
+}
+
+void testPaths() {
+	string token = "0123456789abcdef0123456789abcdef";
+	Expect.strEq(DaemonControlPaths.stop("state/drive", token), f"state/drive.{token}.stop");
+	Expect.strEq(DaemonControlPaths.probePrefix("state/drive", token), f"state/drive.{token}.probe");
+	string probe = DaemonControlPaths.probe("state/drive", token, "challenge");
+	Expect.strEq(probe, f"state/drive.{token}.probe.challenge");
+	Expect.strEq(DaemonControlPaths.acknowledgement(probe), f"state/drive.{token}.probe.challenge.ack");
+}
+
+void refused(string content, string why) {
+	DaemonControlRecord record = DaemonControlRecord.parse(content);
+	Expect.isFalse(record.valid, why);
+	Expect.isTrue(record.token.isEmpty() && record.supervisorPid == -1, f"{why}: nothing of it is kept");
+}
+
+void testRecords() {
+	string token = "0123456789abcdef0123456789abcdef";
+	DaemonControlRecord record = DaemonControlRecord.parse(f"btrc-daemon-v1\n{token}\n2147483647\n");
+	Expect.isTrue(record.valid && record.token == token && record.supervisorPid == 2147483647, "the largest pid");
+
+	refused(f"btrc-daemon-v1\n{token}\n4242", "no final newline");
+	refused(f"btrc-daemon-v1\n{token}\n4242\nmore\n", "a line too many");
+	refused(f"btrc-daemon-v2\n{token}\n4242\n", "another version");
+	refused(f"btrc-daemon-v1\n0123456789ABCDEF0123456789ABCDEF\n4242\n", "upper-case hex");
+	refused(f"btrc-daemon-v1\n0123456789abcdef0123456789abcde\n4242\n", "a short token");
+	refused(f"btrc-daemon-v1\n{token}\n\n", "no pid");
+	refused(f"btrc-daemon-v1\n{token}\n12a\n", "a pid with a letter");
+	refused(f"btrc-daemon-v1\n{token}\n-5\n", "a negative pid");
+	refused(f"btrc-daemon-v1\n{token}\n2147483648\n", "a pid past the largest");
+	/* 0 would signal the caller's group and 1 is the system's first process: neither is a supervisor. */
+	refused(f"btrc-daemon-v1\n{token}\n0\n", "pid 0");
+	refused(f"btrc-daemon-v1\n{token}\n1\n", "pid 1");
+	refused("", "nothing");
+
+	Expect.intEq((long long)DaemonControlRecord.parsePid("2"), 2LL);
+	Expect.intEq((long long)DaemonControlRecord.parsePid("99999999999"), -1LL);
+	Expect.isFalse(DaemonControlRecord.validToken("0123456789abcdef0123456789abcdeg"), "not hex");
+	Expect.isTrue(DaemonControlRecord.validToken(token));
+}
+
+int main() {
+	TestSuite suite = TestSuite("daemon_control_record");
+	suite.add("names", testNames);
+	suite.add("paths", testPaths);
+	suite.add("records", testRecords);
+	return suite.run();
+}

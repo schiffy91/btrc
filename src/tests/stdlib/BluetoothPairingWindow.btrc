@@ -1,0 +1,49 @@
+/* The pairing window: a device may pair only for a while after someone asks
+ * for it. No I/O, so every target runs it. */
+
+import Library.Bluetooth.BluetoothAddress;
+import Library.Bluetooth.BluetoothPairing;
+import Library.Testing;
+import Library.Timer;
+
+void testOpenAndClose() {
+	var window = BluetoothPairingWindow();
+	var peer = BluetoothAddress.any();
+	Expect.isFalse(window.isOpen(), "shut until someone asks");
+	Expect.isFalse(window.accept(peer));
+
+	window.open(60);
+	Expect.isTrue(window.isOpen());
+	Expect.isTrue(window.accept(peer), "a device may pair while the window is open");
+
+	window.close();
+	Expect.isFalse(window.isOpen());
+	Expect.isFalse(window.accept(peer), "and not after it was shut");
+}
+
+void testItShutsByItself() {
+	var window = BluetoothPairingWindow();
+	var peer = BluetoothAddress.any();
+
+	/* No time is no window. */
+	window.open(0);
+	Expect.isFalse(window.accept(peer), "zero seconds");
+	window.open(-5);
+	Expect.isFalse(window.accept(peer), "a negative time");
+
+	window.open(1);
+	Expect.isTrue(window.accept(peer));
+	Timer.sleepMillis(1300);
+	Expect.isFalse(window.isOpen(), "the second is over");
+	Expect.isFalse(window.accept(peer), "nobody shut it; it shut by itself");
+
+	window.open(60);
+	Expect.isTrue(window.accept(peer), "asking again opens it again");
+}
+
+int main() {
+	TestSuite suite = TestSuite("bluetooth_pairing_window");
+	suite.add("open_and_close", testOpenAndClose);
+	suite.add("it_shuts_by_itself", testItShutsByItself);
+	return suite.run();
+}

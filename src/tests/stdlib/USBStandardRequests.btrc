@@ -1,0 +1,81 @@
+/* The standard requests an emulated USB device answers itself, and the ones it
+ * hands to its function. Values and logic only, so every target runs it. */
+
+import Library.Bytes;
+import Library.Testing;
+import Library.USB.USBDescriptors;
+import Library.USB.USBVirtualDevice;
+
+/* A function that counts what reaches it and answers only vendor requests. */
+class Recorder implements IUSBFunction {
+	public int asked = 0;
+	public int lastRequest = -1;
+
+	public int control(USBSetup setup, Bytes data) {
+		self.asked++;
+		self.lastRequest = setup.request;
+		if (setup.scope() != USB_REQUEST_VENDOR) { return USB_CONTROL_STALL; }
+		data.append(7);
+		data.append(8);
+		data.append(9);
+		return 3;
+	}
+
+	public bool produce(int endpoint, Bytes packet) { return false; }
+
+	public void consume(int endpoint, Bytes packet) {}
+}
+
+void testAnsweredByTheDevice() {
+	var recorder = Recorder();
+	var device = USBVirtualDevice(USBDeviceDescription(0x1209, 0x0001, 0x0100), recorder);
+
+	Bytes status = Bytes();
+	Expect.intEq((long long)device.control(USBSetup(0x80, USB_REQUEST_GET_STATUS, 0, 0, 2), status), 2LL, "GET_STATUS");
+	Expect.isTrue(status.length() == 2 && status.get(0) == 0 && status.get(1) == 0, "bus powered, no remote wakeup");
+
+	/* An interface here has one setting, number 0. */
+	Bytes alternate = Bytes();
+	Expect.intEq((long long)device.control(USBSetup(0x81, USB_REQUEST_GET_INTERFACE, 0, 0, 1), alternate), 1LL, "GET_INTERFACE");
+	Expect.isTrue(alternate.length() == 1 && alternate.get(0) == 0, "the one alternate setting");
+	Expect.intEq((long long)device.control(USBSetup(0x01, USB_REQUEST_SET_INTERFACE, 0, 0, 0), Bytes()), 0LL, "SET_INTERFACE");
+	Expect.intEq((long long)device.control(USBSetup(0x02, USB_REQUEST_CLEAR_FEATURE, 0, 0x81, 0), Bytes()), 0LL, "CLEAR_FEATURE");
+
+	/* The host selects configuration 1, or none; there is no second one. */
+	Expect.isFalse(device.configured());
+	Expect.intEq((long long)device.control(USBSetup(0x00, USB_REQUEST_SET_CONFIGURATION, 1, 0, 0), Bytes()), 0LL);
+	Expect.isTrue(device.configured());
+	Bytes selected = Bytes();
+	Expect.intEq((long long)device.control(USBSetup(0x80, USB_REQUEST_GET_CONFIGURATION, 0, 0, 1), selected), 1LL);
+	Expect.intEq((long long)selected.get(0), 1LL, "the selected configuration");
+	Expect.intEq((long long)device.control(USBSetup(0x00, USB_REQUEST_SET_CONFIGURATION, 2, 0, 0), Bytes()), (long long)USB_CONTROL_STALL);
+	Expect.isTrue(device.configured(), "a refused configuration changes nothing");
+	device.reset();
+	Expect.isFalse(device.configured(), "the host went away");
+
+	Expect.intEq((long long)recorder.asked, 0LL, "none of these reached the function");
+}
+
+void testHandedToTheFunction() {
+	var recorder = Recorder();
+	var device = USBVirtualDevice(USBDeviceDescription(0x1209, 0x0001, 0x0100), recorder);
+
+	/* GET_INTERFACE addressed to the device, and SET_FEATURE (3): the device has no answer of its own. */
+	Expect.intEq((long long)device.control(USBSetup(0x80, USB_REQUEST_GET_INTERFACE, 0, 0, 1), Bytes()), (long long)USB_CONTROL_STALL);
+	Expect.isTrue(recorder.asked == 1 && recorder.lastRequest == USB_REQUEST_GET_INTERFACE);
+	Expect.intEq((long long)device.control(USBSetup(0x00, 3, 1, 0, 0), Bytes()), (long long)USB_CONTROL_STALL);
+	Expect.isTrue(recorder.asked == 2 && recorder.lastRequest == 3);
+
+	/* A reply longer than the host asked for is cut to what it asked for. */
+	Bytes reply = Bytes();
+	Expect.intEq((long long)device.control(USBSetup(0xC0, 0x10, 0, 0, 2), reply), 2LL, "cut to the host's length");
+	Expect.intEq((long long)device.control(USBSetup(0xC0, 0x10, 0, 0, 8), Bytes()), 3LL, "shorter than the host's length");
+	Expect.intEq((long long)recorder.asked, 4LL);
+}
+
+int main() {
+	TestSuite suite = TestSuite("usb_standard_requests");
+	suite.add("answered_by_the_device", testAnsweredByTheDevice);
+	suite.add("handed_to_the_function", testHandedToTheFunction);
+	return suite.run();
+}
