@@ -737,6 +737,78 @@ def test_dependency_local_aliases_resolve_a_diamond_once(
     assert (app / "btrc.lock").read_bytes() == reference_lock
 
 
+def test_a_lock_is_the_same_text_in_every_checkout_through_a_link_and_from_both_compilers(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    """A tracked lock may not say where its checkout lies, or where a link in it leads."""
+
+    store = tmp_path / "store"
+    library = store / "0123-testkit"
+    _manifest(library, "testkit", '\n[dependencies]\nhelper = { path = "../helper" }\n')
+    (library / "src/Kit.btrc").write_text("int kit_value() { return 2; }\n")
+    _manifest(store / "helper", "helper")
+
+    def product(base: Path, linked: bool) -> Path:
+        repo = base / "repo"
+        _manifest(
+            repo,
+            "product",
+            '\n[dependencies]\ntestkit = { path = "tests/testkit" }\nkit = { path = "./tests/../tests/testkit/" }\n',
+        )
+        _manifest(repo / "tests/unit", "unit", '\n[dependencies]\ntestkit = { path = "../testkit" }\n')
+        for entry in (repo / "src/Main.btrc", repo / "tests/unit/src/Main.btrc"):
+            entry.write_text("import testkit.Kit\nint main() { return kit_value() - 2; }\n")
+        if linked:
+            (repo / "tests/testkit").symlink_to(library, target_is_directory=True)
+        else:
+            # A build places a copy, and the library's own dependency beside it as the link's target has it.
+            shutil.copytree(library, repo / "tests/testkit")
+            shutil.copytree(store / "helper", repo / "tests/helper")
+        return repo
+
+    def locks(repo: Path, frontend: str) -> tuple[bytes, bytes]:
+        found = []
+        for entry in (repo / "tests/unit/src/Main.btrc", repo / "src/Main.btrc"):
+            lock = entry.parent.parent / "btrc.lock"
+            lock.unlink(missing_ok=True)
+            if frontend == "reference":
+                completed = _reference(entry, tmp_path / "generated.c")
+            else:
+                completed = _selfhost(semantic_btrcc, entry)
+            assert completed.returncode == 0, completed.stderr
+            found.append(lock.read_bytes())
+        return found[1], found[0]
+
+    shallow = product(tmp_path / "a", True)
+    deep = product(tmp_path / "one/two/three/four/five", True)
+    reference = locks(shallow, "reference")
+    assert locks(deep, "reference") == reference
+    assert locks(shallow, "selfhost") == reference and locks(deep, "selfhost") == reference
+    whole, unit = (json.loads(lock) for lock in reference)
+    assert {package["name"]: package["source"]["path"] for package in whole["packages"]} == {
+        "helper": os.path.join("tests", "testkit", "..", "helper"),
+        "product": ".",
+        "testkit": os.path.join("tests", "testkit"),
+    }
+    assert {package["name"]: package["source"]["path"] for package in unit["packages"]} == {
+        "helper": os.path.join("..", "testkit", "..", "helper"),
+        "testkit": os.path.join("..", "testkit"),
+        "unit": ".",
+    }
+    for lock in reference:
+        assert b"store" not in lock and str(tmp_path).encode() not in lock
+
+    # Where the library is a directory of the tree, both compilers still agree, and name it the same way.
+    built = product(tmp_path / "build/sandbox", False)
+    placed = locks(built, "reference")
+    assert locks(built, "selfhost") == placed
+    sources = {package["name"]: package["source"]["path"] for package in json.loads(placed[0])["packages"]}
+    assert sources["testkit"] == os.path.join("tests", "testkit") and sources["helper"] == os.path.join(
+        "tests", "helper"
+    )
+
+
 @pytest.mark.parametrize("frontend", ("reference", "selfhost"))
 def test_package_locked_by_an_enclosing_root_publishes_no_lock_of_its_own(
     semantic_btrcc: Path,

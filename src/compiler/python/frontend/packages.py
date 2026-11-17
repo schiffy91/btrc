@@ -3871,6 +3871,35 @@ class PackageUniverse:
             "rev": revision,
         }
 
+    @staticmethod
+    def _locked_route(lock_root: str, route: str | None, dependency_root: str, declared: str) -> str:
+        """Where a path dependency lies, as its manifest says it, from the package that holds the lock.
+
+        The lock is tracked, so it reads the same in every checkout and in a
+        build that places a copy where a checkout has a link: links are not
+        resolved, and the text is the declared path joined to the declaring
+        package's own. ``..`` steps back over a directory but never over a
+        link, whose parent is not where the link lies. A package is still
+        identified by its resolved directory; this is only how the lock names
+        it. A dependency declared by an absolute path, or by a package the
+        lock does not name by a path of its own (one fetched from git), has
+        no such text and keeps the route from the lock to where it resolved.
+        """
+
+        if route is None or os.path.isabs(declared):
+            return os.path.relpath(dependency_root, lock_root)
+        parts = [] if route == os.curdir else route.split(os.sep)
+        spelled = declared.replace(os.altsep, os.sep) if os.altsep else declared
+        for part in spelled.split(os.sep):
+            if part in ("", os.curdir):
+                continue
+            behind = part == os.pardir and parts and parts[-1] != os.pardir
+            if behind and not os.path.islink(os.path.join(lock_root, *parts)):
+                parts.pop()
+            else:
+                parts.append(part)
+        return os.sep.join(parts) or os.curdir
+
     def _resolve_strict_node(
         self,
         root: str,
@@ -3881,8 +3910,16 @@ class PackageUniverse:
         pinned: Mapping[tuple[str, str], str],
         *,
         refresh: bool,
+        lock_root: str | None = None,
     ) -> str:
+        """Resolve one package and what it depends on; `source` is how the lock names it.
+
+        A path package's `source` path is its route from `lock_root`, the
+        package the lock belongs to (the first call's own root).
+        """
+
         root = os.path.realpath(root)
+        lock_root = root if lock_root is None else lock_root
         if root in nodes_by_root:
             return nodes_by_root[root].name
         if root in visiting:
@@ -3909,6 +3946,10 @@ class PackageUniverse:
                 pinned,
                 refresh=refresh,
             )
+            if "path" in dependency_source:
+                dependency_source = {
+                    "path": self._locked_route(lock_root, source.get("path"), dependency_root, specification["path"])
+                }
             aliases[alias] = self._resolve_strict_node(
                 dependency_root,
                 dependency_source,
@@ -3917,6 +3958,7 @@ class PackageUniverse:
                 visiting,
                 pinned,
                 refresh=refresh,
+                lock_root=lock_root,
             )
         visiting.pop()
         manifest_hash = hashlib.sha256(manifest_bytes).hexdigest()
@@ -3941,7 +3983,9 @@ class PackageUniverse:
         packages = []
         for package in sorted(nodes.values(), key=lambda item: item.name):
             source = dict(package.source)
-            if "path" in source:
+            # A path package carries its route from the lock's package already; an absolute one is another
+            # caller's resolved directory.
+            if "path" in source and os.path.isabs(source["path"]):
                 source["path"] = os.path.relpath(source["path"], root)
             packages.append(
                 {
@@ -3996,7 +4040,7 @@ class PackageUniverse:
         nodes_by_root: dict[str, PackageNode] = {}
         root_package = self._resolve_strict_node(
             root,
-            {"path": root},
+            {"path": os.curdir},
             nodes_by_root,
             {},
             [],

@@ -3987,7 +3987,8 @@ class FePackageLock {
 				aliasIndex++;
 			}
 			JSONValue source = JSONValue.makeObject();
-			source.set("path", JSONValue.makeString(self.relativePath(root, package.sourcePath)));
+			/* A resolved package carries its route from the lock's package; an absolute path is a directory. */
+			source.set("path", JSONValue.makeString(PathTools.isAbsolute(package.sourcePath) ? self.relativePath(root, package.sourcePath) : package.sourcePath));
 			JSONValue record = JSONValue.makeObject();
 			record.set("dependencies", dependencies);
 			record.set("manifest-hash", JSONValue.makeString(package.manifestHash));
@@ -4113,7 +4114,35 @@ class FePackageGraphResolver {
 		return Strings.join(names, " -> ");
 	}
 
-	private string resolveNode(string root) {
+	/* Where a path dependency lies, as its manifest says it, from the package
+	 * that holds the lock. The lock is tracked, so it reads the same in every
+	 * checkout and in a build that places a copy where a checkout has a link:
+	 * links are not resolved, and the text is the declared path joined to the
+	 * declaring package's own. `..` steps back over a directory but never
+	 * over a link, whose parent is not where the link lies. A package is still
+	 * identified by its resolved directory; this is only how the lock names it. */
+	private string lockedRoute(string lockRoot, string route, string declared) {
+		string separator = Platform.pathSeparator();
+		Vector<string> parts = [];
+		if (!route.equals(".")) {
+			for part in Strings.split(route, separator) { parts.push(part); }
+		}
+		string spelled = Platform.isWindows() ? declared.replace("/", separator) : declared;
+		for part in Strings.split(spelled, separator) {
+			if (part.isEmpty() || part.equals(".")) { continue; }
+			bool behind = part.equals("..") && parts.len > 0 && !parts.get(parts.len - 1).equals("..");
+			if (behind && !FileSystem.isSymlink(PathTools.join(lockRoot, Strings.join(parts, separator)))) {
+				parts.pop();
+			} else {
+				parts.push(part);
+			}
+		}
+		return parts.len == 0 ? "." : Strings.join(parts, separator);
+	}
+
+	/* `route` is how the lock names the package: its path from `lockRoot`,
+	 * the package the lock belongs to. */
+	private string resolveNode(string root, string route, string lockRoot) {
 		string canonical = FeCanonicalPath.absolute(root);
 		if (self.nodesByRoot.has(canonical)) {
 			return self.nodesByRoot.get(canonical).name;
@@ -4154,12 +4183,12 @@ class FePackageGraphResolver {
 			if (!FileSystem.isDir(dependencyRoot)) {
 				FePackageFailure.fail(f"path dependency '{dependency.alias}' does not name a directory: " + f"'{dependency.path}'");
 			}
-			dependencies.put(dependency.alias, self.resolveNode(dependencyRoot));
+			dependencies.put(dependency.alias, self.resolveNode(dependencyRoot, self.lockedRoute(lockRoot, route, dependency.path), lockRoot));
 			index++;
 		}
 		self.visiting.remove(canonical);
 		self.visitingOrder.pop();
-		FePackageNode node = FePackageNode(manifest.name, canonical, dependencies, canonical, SHA256.digest(source), manifest.nativeDeclarations);
+		FePackageNode node = FePackageNode(manifest.name, canonical, dependencies, route, SHA256.digest(source), manifest.nativeDeclarations);
 		node.bindings = manifest.bindings;
 		self.nodesByRoot.put(canonical, node);
 		return manifest.name;
@@ -4206,7 +4235,7 @@ class FePackageGraphResolver {
 		 * compiler-owned rewrite, so first and subsequent lookups agree. */
 		FePackageLock lock = FePackageLock(FeSourceFileReader());
 		string existingLock = lock.validatedExisting(lockPath);
-		string rootPackage = self.resolveNode(root);
+		string rootPackage = self.resolveNode(root, ".", root);
 		Map<string, FePackageNode> nodes = {};
 		Vector<FePackageNode> packages = [];
 		Vector<FeNativeDeclaration> declarations = [];

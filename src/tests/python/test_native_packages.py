@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -1137,6 +1138,123 @@ def test_restore_cached_native_adapters_validates_resolved_plan(damage):
         assert restored == cached
     else:
         assert restored is None
+
+
+def _product(base: Path, library: Path, *, linked: bool) -> Path:
+    """A repository and a test package of its own that share a library.
+
+    The library is a link to `library`, as a checkout has it, or a copy, as
+    a build places it. The repository declares it twice, by two spellings of
+    one path; the test package declares it from where it lies.
+    """
+
+    repo = base / "repo"
+    _manifest(
+        repo,
+        "product",
+        '\n[dependencies]\ntestkit = { path = "tests/testkit" }\nkit = { path = "./tests/../tests/testkit/" }\n',
+    )
+    unit = repo / "tests/unit"
+    _manifest(unit, "unit", '\n[dependencies]\ntestkit = { path = "../testkit" }\n')
+    for directory in (repo / "src", unit / "src"):
+        directory.mkdir()
+    (unit / "src/Main.btrc").write_text("import testkit.Kit\nint main() { return kit_value() - 2; }\n")
+    (repo / "src/Main.btrc").write_text("import testkit.Kit\nint main() { return kit_value() - 2; }\n")
+    if linked:
+        (repo / "tests/testkit").symlink_to(library, target_is_directory=True)
+    else:
+        shutil.copytree(library, repo / "tests/testkit")
+    return repo
+
+
+def _library(store: Path) -> Path:
+    library = store / "0123-testkit"
+    _manifest(library, "testkit")
+    (library / "src").mkdir()
+    (library / "src/Kit.btrc").write_text("int kit_value() { return 2; }\n")
+    return library
+
+
+def _locks(repo: Path) -> tuple[bytes, bytes]:
+    """The locks of the repository and of its test package, each from a compile of its own entry."""
+
+    for entry in (repo / "src/Main.btrc", repo / "tests/unit/src/Main.btrc"):
+        result = _compile(entry)
+        assert result.failure is None, result.failure
+    return (repo / "btrc.lock").read_bytes(), (repo / "tests/unit/btrc.lock").read_bytes()
+
+
+def test_a_lock_is_the_same_text_in_every_checkout_and_through_a_link(tmp_path: Path) -> None:
+    """A tracked lock may not say where its checkout lies, or where a link in it leads."""
+
+    library = _library(tmp_path / "store")
+    shallow = _product(tmp_path / "a", library, linked=True)
+    deep = _product(tmp_path / "one/two/three/four/five", library, linked=True)
+    built = _product(tmp_path / "build/sandbox", library, linked=False)
+
+    locks = _locks(shallow)
+    assert _locks(deep) == locks and _locks(built) == locks
+    whole, test = (json.loads(lock) for lock in locks)
+    # Each package by the path its manifest declares, normalised, from the lock's own package.
+    assert {package["name"]: package["source"] for package in whole["packages"]} == {
+        "product": {"path": "."},
+        "testkit": {"path": os.path.join("tests", "testkit")},
+    }
+    assert {package["name"]: package["source"] for package in test["packages"]} == {
+        "testkit": {"path": os.path.join("..", "testkit")},
+        "unit": {"path": "."},
+    }
+    for lock in locks:
+        assert b"store" not in lock and str(tmp_path).encode() not in lock
+    # The library is one package, by whichever spelling of its path a manifest reaches it.
+    assert whole["packages"][0]["dependencies"] == {"kit": "testkit", "testkit": "testkit"}
+
+
+def test_a_lock_in_the_old_form_is_rewritten_once(tmp_path: Path) -> None:
+    library = _library(tmp_path / "store")
+    repo = _product(tmp_path / "checkout", library, linked=True)
+    current, _ = _locks(repo)
+    # What the compiler used to write: the route from this checkout to where the link leads.
+    old = json.loads(current)
+    for package in old["packages"]:
+        if package["name"] == "testkit":
+            package["source"]["path"] = os.path.relpath(library, repo)
+    lock = repo / "btrc.lock"
+    lock.write_text(json.dumps(old, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+    assert b"store" in lock.read_bytes()
+
+    assert _compile(repo / "src/Main.btrc").failure is None
+    assert lock.read_bytes() == current
+    written = lock.stat().st_mtime_ns
+    assert _compile(repo / "src/Main.btrc").failure is None
+    assert lock.read_bytes() == current and lock.stat().st_mtime_ns == written
+
+
+def test_a_dependency_of_a_linked_package_is_named_through_the_link(tmp_path: Path) -> None:
+    """`..` from a linked package is its real parent, so the lock steps back over directories only."""
+
+    store = tmp_path / "store"
+    library = _library(store)
+    (library / "btrc.toml").write_text(
+        (library / "btrc.toml").read_text() + '\n[dependencies]\nhelper = { path = "../helper" }\n'
+    )
+    _manifest(store / "helper", "helper")
+    locks = []
+    for base in (tmp_path / "a", tmp_path / "deeper/down/here"):
+        repo = _product(base, library, linked=True)
+        # A directory that is not the helper lies where a textual `tests/testkit/..` would look.
+        (repo / "tests/helper").mkdir()
+        whole, _ = _locks(repo)
+        locks.append(whole)
+        sources = {package["name"]: package["source"]["path"] for package in json.loads(whole)["packages"]}
+        assert sources["helper"] == os.path.join("tests", "testkit", "..", "helper")
+        assert os.path.realpath(repo / sources["helper"]) == os.path.realpath(store / "helper")
+    assert locks[0] == locks[1]
+    assert PackageUniverse._locked_route(str(tmp_path), "a/b", str(tmp_path / "a/c"), "../c") == os.path.join("a", "c")
+    # An absolute declaration has no text of its own: it keeps the route to where it resolved.
+    assert PackageUniverse._locked_route(str(tmp_path / "a"), ".", str(store), str(store)) == os.path.join(
+        "..", "store"
+    )
 
 
 def test_every_checked_in_lock_matches_its_manifests():
