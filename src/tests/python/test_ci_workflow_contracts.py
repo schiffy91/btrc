@@ -668,7 +668,7 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
         jobs = document["jobs"]
         untiered = {"scope", "skip-reports"}
         if workflow == "ci.yml":
-            untiered.update({"bench-diagnostic", "unit-diagnostic"})
+            untiered.update({"bench-diagnostic", "unit-diagnostic", "prepare"})
         if workflow == "macos.yml":
             untiered.update({"macos-e40-diagnostic", "collection-release-diagnostic", "macos-host-controls"})
         if workflow == "windows.yml":
@@ -690,6 +690,10 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
                     [shard.condition for shard in TIERS.shards_of(tiered)] if tiered.key else [tiered.condition]
                 )
                 for producer in needs[1:]:
+                    if (workflow, producer) == ("ci.yml", "prepare"):
+                        # The run's one build is no tier's job: it runs whenever a job that restores it does.
+                        assert f"contains({PLAN}.jobs, '{name}')" in jobs["prepare"]["if"], name
+                        continue
                     assert producer in listed, (workflow, name, producer)
                     made = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{producer}")
                     if (workflow, name, producer) == ("ci.yml", "linux-gui-coverage", "linux-gui"):
@@ -1206,11 +1210,11 @@ def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
         for shard, target in shards
         if shard.startswith("c11-")
     )
-    # Every shard rebuilds the container from the Nix cache and runs one make
-    # target with the budgets the container needs: it rebuilds the self-hosted
-    # compiler against a cold cache, and the corpus's heaviest program does not
+    # Every shard restores the run's image and compiler and runs one make
+    # target with the budgets the container needs: a helper driver is still
+    # built against a cold cache, and the corpus's heaviest program does not
     # finish inside the default run budget at -O0.
-    assert "make devcontainer" in job
+    assert "tools/ci-prepared.sh restore build/ci-prepared" in job and "make devcontainer" not in job
     assert job.count('podman run --rm --init -v "$PWD:/workspace"') == 1
     assert ("PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}") in job
     # The runner is headless: every shard runs under the virtual display and
@@ -1221,6 +1225,54 @@ def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
     # add none on Linux.
     for tier in TIERS.scheduled_tiers():
         assert {name for name, _ in _tier_shards("ci.yml", tier)} <= {name for name, _ in shards}, tier
+
+
+PREPARED_JOBS = ("tests", "bench", "native-gui", "linux-gui", "linux-e40")
+
+
+def test_one_job_builds_the_image_and_the_compiler_for_every_linux_job_of_the_run() -> None:
+    jobs = _parsed("ci.yml")["jobs"]
+    prepare = jobs["prepare"]
+    assert prepare["needs"] == "scope" and prepare["runs-on"] == "ubuntu-latest"
+    # It runs exactly when a job that restores its artifact does.
+    assert prepare["if"] == "${{ " + " || ".join(f"contains({PLAN}.jobs, '{name}')" for name in PREPARED_JOBS) + " }}"
+    commands = [step["run"] for step in prepare["steps"] if "run" in step]
+    assert commands == [
+        "make devcontainer",
+        "chmod -R a+w .",
+        'podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-test',
+        "tools/ci-prepared.sh save build/ci-prepared",
+    ]
+    upload = prepare["steps"][-1]
+    assert upload["uses"] == UPLOAD_ARTIFACT
+    assert upload["with"] == {
+        "name": "ci-prepared",
+        "path": "build/ci-prepared",
+        "if-no-files-found": "error",
+        "compression-level": "0",
+        "retention-days": "3",
+    }
+    # Every job that used to build the image restores it instead, before its first container step.
+    restored = set()
+    for name, job in jobs.items():
+        runs = [step.get("run", "") for step in job.get("steps", [])]
+        if name in PREPARED_JOBS:
+            assert job["needs"] == ["scope", "prepare"], name
+            download = job["steps"][1]
+            assert download["uses"].startswith("actions/download-artifact@"), name
+            assert download["with"] == {"name": "ci-prepared", "path": "build/ci-prepared"}, name
+            assert runs[2:4] == ["tools/ci-prepared.sh restore build/ci-prepared", "chmod -R a+w ."], name
+            assert "make devcontainer" not in runs and not any(
+                "nix-action@" in step.get("uses", "") for step in job["steps"]
+            )
+            restored.add(name)
+        elif "make devcontainer" in runs:
+            # The release job and the two diagnostics build their own: they run alone or on a dispatch.
+            assert name in {"prepare", "release", "bench-diagnostic", "unit-diagnostic"}, name
+    assert restored == set(PREPARED_JOBS)
+    script = (REPO / "tools/ci-prepared.sh").read_text(encoding="utf-8")
+    assert os.access(REPO / "tools/ci-prepared.sh", os.X_OK)
+    assert "make devcontainer" in script and "podman load" in script and "podman save" in script
 
 
 def _tier_shards(workflow: str, tier: str) -> list[tuple[str, str]]:
@@ -1477,7 +1529,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
         "btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 "
         "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui"
     ) in linux
-    assert "make devcontainer" in linux
+    assert "tools/ci-prepared.sh restore build/ci-prepared" in linux
 
     macos = _parsed("macos.yml")["jobs"]
     assert macos["native-gui"]["runs-on"] == "macos-15"
@@ -2592,7 +2644,7 @@ def test_unit_make_recipe_reuses_the_compiler_and_preserves_gui_coverage(tmp_pat
         "-o",
         "btrcc",
         "-o",
-        "test-btrcc",
+        "btrcc-test",
         "NIX=",
         f"PYTEST={shlex.quote(sys.executable)} {shlex.quote(str(capture))}",
         "PYTEST_ARGS=",
@@ -2763,7 +2815,11 @@ def test_each_local_job_is_its_workflow_jobs_unconditional_steps() -> None:
         "UNIT_GUI_DELEGATED": "1",
         "PYTEST_ADDOPTS": "--dist=loadgroup --failure-report=build/failure-report-unit.jsonl ",
     }
-    assert by_name["CI / tests (unit)"].steps[:2] == ("make devcontainer", "chmod -R a+w .")
+    # In a fresh local clone nothing was downloaded, so the restore builds the image itself.
+    assert by_name["CI / tests (unit)"].steps[:2] == (
+        "tools/ci-prepared.sh restore build/ci-prepared",
+        "chmod -R a+w .",
+    )
     e40 = by_name["macOS / macos-e40 (macos-selfhost-sanitized)"]
     assert dict(e40.environment) == {"BTRC_TEST_RUNNER": "macos", "CI": "true", "BTRC_UI2_HOSTED_E40": "1"}
     assert e40.steps[-1] == (

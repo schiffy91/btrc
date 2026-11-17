@@ -163,7 +163,7 @@ source, a stdlib module the compiler imports, a shared spec, a runtime asset,
 or the C compiler invalidates it. An edit to any other stdlib module leaves
 the compiler in place and rebuilds only the helper drivers. That one cache (`src/tests/selfhost_cache.py`) serves `make
 test`, `make test-c11` and every shard: on Linux they take the compiler from
-it through `make test-btrcc` instead of building a second one in `bin/`, and
+it through `make btrcc-test` instead of building a second one in `bin/`, and
 the helper drivers are transpiled by it rather than by the reference
 compiler. `BTRC_TEST_COMPILER_CACHE` names a cache directory that several
 checkouts share. Set `BTRC_TEST_BTRCC` to reuse a binary you built yourself.
@@ -568,7 +568,7 @@ make build                Create bin/btrcpy wrapper script
 make test                 Run unit, LSP, debugger, and both compiler corpora
 make test-fast            Fast tier: tests needing neither btrcc nor a display, and one reference corpus pass
 make test-nightly         Nightly set: the four 600-second Linux E40 loads `make test` leaves out
-make test-btrcc           Build or reuse the suite's self-hosted compiler in its cache
+make btrcc-test           Build or reuse the suite's self-hosted compiler in its cache
 make test-unit            Run Python reference-compiler unit tests
 make test-lsp             Run editor/LSP tests
 make test-debug           Run debugger/DAP tests

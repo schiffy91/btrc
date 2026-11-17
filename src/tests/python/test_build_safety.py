@@ -153,13 +153,13 @@ def test_every_gate_takes_its_selfhost_compiler_from_one_build(target):
 
 
 def test_the_main_gate_resolves_the_same_cache_through_its_fixture():
-    # `make test` hands pytest no compiler: the fixture builds or reuses the cache entry `test-btrcc` names.
+    # `make test` hands pytest no compiler: the fixture builds or reuses the cache entry `btrcc-test` names.
     output = _make_dry_run("test", "NIX=")
     assert "BTRC_TEST_BTRCC" not in output and "Built bin/btrcc" not in output
     conftest = (REPO_ROOT / "src/tests/conftest.py").read_text()
     assert "SelfhostCompilerCache.configured().compiler_binary()" in conftest
     assert "src.compiler.python.main" not in conftest
-    ensure = _make_dry_run("test-btrcc", "NIX=")
+    ensure = _make_dry_run("btrcc-test", "NIX=")
     assert "python3 -m src.tests.selfhost_cache ensure" in ensure
 
 

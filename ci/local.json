@@ -2,87 +2,87 @@
   "jobs": {
     "CI / tests (unit)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED=1 'PYTEST_ADDOPTS=--dist=loadgroup --failure-report=build/failure-report-unit.jsonl ' -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED=1 'PYTEST_ADDOPTS=--dist=loadgroup --failure-report=build/failure-report-unit.jsonl ' -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit'"
     },
     "CI / tests (btrc)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-btrc'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-btrc'"
     },
     "CI / tests (corpus-python)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-corpus-python'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-corpus-python'"
     },
     "CI / tests (corpus-btrc)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-corpus-btrc'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-corpus-btrc'"
     },
     "CI / tests (bootstrap)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-bootstrap'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-bootstrap'"
     },
     "CI / tests (c11-gcc-O0)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=gcc C11_OPT=O0'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=gcc C11_OPT=O0'"
     },
     "CI / tests (c11-gcc-O1)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=gcc C11_OPT=O1'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=gcc C11_OPT=O1'"
     },
     "CI / tests (c11-gcc-O2)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=gcc C11_OPT=O2'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=gcc C11_OPT=O2'"
     },
     "CI / tests (c11-gcc-O3)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=gcc C11_OPT=O3'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=gcc C11_OPT=O3'"
     },
     "CI / tests (c11-clang-O0)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O0'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O0'"
     },
     "CI / tests (c11-clang-O1)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O1'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O1'"
     },
     "CI / tests (c11-clang-O2)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O2'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O2'"
     },
     "CI / tests (c11-clang-O3)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O3'"
+      "run": "tools/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O3'"
     },
     "CI / linux-e40 (x11-python-plain)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=x11 E40_FRONTEND=python E40_VARIANT=plain test-e40-linux'"
+      "run": "tools/ci-local-job.sh -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=x11 E40_FRONTEND=python E40_VARIANT=plain test-e40-linux'"
     },
     "CI / linux-e40 (x11-python-sanitized)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=x11 E40_FRONTEND=python E40_VARIANT=sanitized test-e40-linux'"
+      "run": "tools/ci-local-job.sh -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=x11 E40_FRONTEND=python E40_VARIANT=sanitized test-e40-linux'"
     },
     "CI / linux-e40 (x11-selfhost-plain)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=x11 E40_FRONTEND=selfhost E40_VARIANT=plain test-e40-linux'"
+      "run": "tools/ci-local-job.sh -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=x11 E40_FRONTEND=selfhost E40_VARIANT=plain test-e40-linux'"
     },
     "CI / linux-e40 (x11-selfhost-sanitized)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=x11 E40_FRONTEND=selfhost E40_VARIANT=sanitized test-e40-linux'"
+      "run": "tools/ci-local-job.sh -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=x11 E40_FRONTEND=selfhost E40_VARIANT=sanitized test-e40-linux'"
     },
     "CI / linux-e40 (wayland-python-plain)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=python E40_VARIANT=plain test-e40-linux'"
+      "run": "tools/ci-local-job.sh -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=python E40_VARIANT=plain test-e40-linux'"
     },
     "CI / linux-e40 (wayland-python-sanitized)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=python E40_VARIANT=sanitized test-e40-linux'"
+      "run": "tools/ci-local-job.sh -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=python E40_VARIANT=sanitized test-e40-linux'"
     },
     "CI / linux-e40 (wayland-selfhost-plain)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=selfhost E40_VARIANT=plain test-e40-linux'"
+      "run": "tools/ci-local-job.sh -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=selfhost E40_VARIANT=plain test-e40-linux'"
     },
     "CI / linux-e40 (wayland-selfhost-sanitized)": {
       "platform": "linux-x86_64",
-      "run": "tools/ci-local-job.sh -- 'make devcontainer' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=selfhost E40_VARIANT=sanitized test-e40-linux'"
+      "run": "tools/ci-local-job.sh -- 'tools/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=selfhost E40_VARIANT=sanitized test-e40-linux'"
     },
     "macOS / tests (unit)": {
       "platform": "macos-arm64",

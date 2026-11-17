@@ -512,9 +512,21 @@ table to the generator and each command to its workflow job.
 On the Mac the jobs run as `BTRC_TEST_RUNNER=macos`, the acceptance runner,
 never `macos-hosted`: `macOS / macos-e40 (…)` runs all twelve trials there.
 Start it from a terminal that has Accessibility access; over SSH the popup
-and resize trials cannot post their events. On Linux the `make devcontainer`
-step builds CI's image, so `btrc-devcontainer:latest` afterwards is the one
-without Claude Code until `make devcontainer` is run again.
+and resize trials cannot post their events. On Linux the job's
+`tools/ci-prepared.sh restore` step finds no artifact in a fresh clone and
+builds CI's image with `make devcontainer`, so `btrc-devcontainer:latest`
+afterwards is the one without Claude Code until `make devcontainer` is run
+again.
+
+**What a local job keeps between clones.** The suite's self-hosted compilers
+and helper drivers, binaries only, in `~/.cache/btrc/ci-local/compilers`.
+`tools/ci-local-job.sh` copies them into the clone's `build/test-btrcc`
+before the first step and collects new ones after the last. Each is keyed by
+the tree it was built from and the C toolchain (`src/tests/selfhost_cache.py`),
+so a job reuses one only when its fingerprint matches and rebuilds it
+otherwise; the newest four compilers and 160 drivers are kept. In CI the
+`prepare` job plays the same part for one run: it builds the image and the
+compiler once and the other Linux jobs restore its `ci-prepared` artifact.
 
 **What CI does with it.** Each `scope` job lists the statuses of the run's
 commit, and `python3 -m tools.qualification local-passes` keeps the `local/`

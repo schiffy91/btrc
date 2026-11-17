@@ -3,7 +3,7 @@
 Every gate takes its self-hosted compiler from here: the `immutable_btrcc`
 fixture, the helper drivers of `selfhost_driver`, and the Makefile's shard
 and strict-C11 targets, which run ``python3 -m src.tests.selfhost_cache
-ensure`` first (``make test-btrcc``) and hand the result to pytest through
+ensure`` first (``make btrcc-test``) and hand the result to pytest through
 ``BTRC_TEST_BTRCC``. One build therefore serves `make test`, `make test-c11`
 and every shard of a tree, instead of one in ``bin/`` for the shards and a
 second under ``build/`` for the fixture.

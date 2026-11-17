@@ -1,6 +1,6 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-release-c-linux btrcc-release-c-macos btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required \
-        test test-fast test-nightly test-btrcc test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
+        test test-fast test-nightly btrcc-test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         skip-gate qualification-report \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -294,20 +294,22 @@ gpu-required: gpu ## Require the compiler's WebGPU compute runtime
 # ─── The suite's self-hosted compiler ───────────────────────────────────────
 # One content-addressed cache serves every gate (src/tests/selfhost_cache.py):
 # `make test` takes its compiler from it through the fixture, and the shard,
-# strict-C11 and E40 targets through `test-btrcc`, which builds or reuses the
+# strict-C11 and E40 targets through `btrcc-test`, which builds or reuses the
 # tree's compiler there and points build/btrcc-test at it. So `make test`,
 # `make test-c11` and every shard of one tree share one build; `bin/btrcc`
 # (`make btrcc`) is the product build, which the benchmarks and releases use.
 # BTRC_TEST_COMPILER_CACHE names the cache when checkouts share one; the
 # default is this checkout's build/test-btrcc. TEST_BTRCC=<path> hands the
-# shards a compiler built elsewhere (with `-o test-btrcc` to skip the build).
+# shards a compiler built elsewhere (with `-o btrcc-test` to skip the build).
+# The target is a btrcc-* one, not test-*: every test-* target is a pytest
+# gate, and the workflows' contract holds a job that runs one to a skip report.
 #
 # On macOS the shards keep the product build: it is generated from
 # cli/MacOSMain.btrc, which composes the SDK digest provider the hosted jobs
 # qualify, where the cache holds the portable entry point `make test` uses.
-TEST_BTRCC_BUILD := $(if $(filter Darwin,$(shell uname -s)),btrcc,test-btrcc)
+TEST_BTRCC_BUILD := $(if $(filter Darwin,$(shell uname -s)),btrcc,btrcc-test)
 TEST_BTRCC := $(if $(filter Darwin,$(shell uname -s)),$(BTRCC_NATIVE),build/btrcc-test/btrcc)
-test-btrcc: generated-check ## Build or reuse the suite's self-hosted compiler in its cache -> build/btrcc-test
+btrcc-test: generated-check ## Build or reuse the suite's self-hosted compiler in its cache -> build/btrcc-test
 	$(NIX) python3 -m src.tests.selfhost_cache ensure
 
 # ─── Test ────────────────────────────────────────────────────────────────────

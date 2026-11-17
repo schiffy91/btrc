@@ -259,14 +259,46 @@ jobs:
           git status --porcelain --untracked-files=all
           test -z "$(git status --porcelain --untracked-files=all)"
 
+  # One build for the whole run. Every Linux test job used to build the
+  # devcontainer image and the suite's self-hosted compiler for itself, about
+  # a third of this workflow's minutes. This job builds both once and
+  # tools/ci-prepared.sh saves them in one artifact; the jobs that need them
+  # restore it where they used to run `make devcontainer`, and `make
+  # btrcc-test` there finds the compiler in its cache by fingerprint
+  # (src/tests/selfhost_cache.py), so an artifact from another tree could
+  # only cost a rebuild. It runs whenever one of those jobs does.
+  prepare:
+    needs: scope
+    if: ${{ contains(fromJSON(needs.scope.outputs.plan).jobs, 'tests') || contains(fromJSON(needs.scope.outputs.plan).jobs, 'bench') || contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui') || contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-gui') || contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-e40') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+        with:
+          use-flakehub: false
+      - run: make devcontainer
+      - run: chmod -R a+w .
+      - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-test
+      - run: tools/ci-prepared.sh save build/ci-prepared
+      # The archives are compressed already; three days cover a rerun of a failed job.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-prepared
+          path: build/ci-prepared
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
   # The suite is split into independent shards that run as parallel jobs on
-  # four-core runners; each builds the devcontainer from the Nix cache (about
-  # two minutes) and the self-host compiler once. ci/tiers.toml lists the
+  # four-core runners; each restores the run's devcontainer image and
+  # self-host compiler from the prepare job. ci/tiers.toml lists the
   # shards: in the main tier they cover exactly what `make test` and `make
   # test-c11` cover. A pr-tier corpus row carries pytest_addopts, which
   # selects the corpus directories its change touched.
   tests:
-    needs: scope
+    needs: [scope, prepare]
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'tests')
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -276,11 +308,11 @@ jobs:
     name: tests (${{ matrix.shard }})
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          use-flakehub: false
-      - run: make devcontainer
+          name: ci-prepared
+          path: build/ci-prepared
+      - run: tools/ci-prepared.sh restore build/ci-prepared
       - run: chmod -R a+w .
       # Each pytest worker also runs native compilers. Keep the four-core
       # runner within its real CPU/memory envelope and allow one slow
@@ -451,17 +483,17 @@ jobs:
           retention-days: 14
 
   bench:
-    needs: scope
+    needs: [scope, prepare]
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'bench')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          use-flakehub: false
-      - run: make devcontainer
+          name: ci-prepared
+          path: build/ci-prepared
+      - run: tools/ci-prepared.sh restore build/ci-prepared
       - run: chmod -R a+w .
       # The suite measures compile time, startup, emitted-C size, cc time,
       # generated-code speed and compile peaks against the tracked
@@ -536,17 +568,17 @@ jobs:
   # the skip report, so a GUI run's pass and skip counts survive without
   # rerunning it.
   native-gui:
-    needs: scope
+    needs: [scope, prepare]
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-gui')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          use-flakehub: false
-      - run: make devcontainer
+          name: ci-prepared
+          path: build/ci-prepared
+      - run: tools/ci-prepared.sh restore build/ci-prepared
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS=--junitxml=build/junit/native-gui.xml btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui
       - name: Retain the JUnit results
@@ -574,7 +606,7 @@ jobs:
   # Each row keeps its session's AT-SPI dump, the native-shell ledgers, the
   # shell and restore logs pytest left, and its JUnit results.
   linux-gui:
-    needs: scope
+    needs: [scope, prepare]
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-gui')
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -586,11 +618,11 @@ jobs:
     continue-on-error: ${{ matrix.report_only == 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          use-flakehub: false
-      - run: make devcontainer
+          name: ci-prepared
+          path: build/ci-prepared
+      - run: tools/ci-prepared.sh restore build/ci-prepared
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION=${{ matrix.session }} GUI_PARTITION=${{ matrix.index }} GUI_PARTITIONS=${{ matrix.count }} test-shard-gui
         env:
@@ -685,7 +717,7 @@ jobs:
   # Each row runs 16 repeated bursts and one 600-second load serially.
   # X11 gates; Wayland retains the approved carried residual.
   linux-e40:
-    needs: scope
+    needs: [scope, prepare]
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-e40')
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -696,11 +728,11 @@ jobs:
     continue-on-error: ${{ matrix.report_only == 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          use-flakehub: false
-      - run: make devcontainer
+          name: ci-prepared
+          path: build/ci-prepared
+      - run: tools/ci-prepared.sh restore build/ci-prepared
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=${{ matrix.session }} E40_FRONTEND=${{ matrix.frontend }} E40_VARIANT=${{ matrix.variant }} test-e40-linux
       - name: Open qualification evidence to the runner

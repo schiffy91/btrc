@@ -456,3 +456,51 @@ def test_a_failing_step_stops_the_job_and_keeps_its_clone(checkout, tmp_path):
 def test_a_local_job_needs_assignments_a_separator_and_a_step(checkout, tmp_path, arguments):
     result = run_job(checkout, tmp_path, *arguments)
     assert result.returncode == 64 and not (tmp_path / "clones").exists()
+
+
+def kept_binaries(tmp_path):
+    kept = tmp_path / "clones" / "compilers"
+    return sorted(path.relative_to(kept).as_posix() for path in kept.rglob("*") if path.is_file())
+
+
+def test_a_later_job_reuses_the_compilers_an_earlier_one_built(checkout, tmp_path):
+    built = (
+        "mkdir -p build/test-btrcc/aaaa build/test-btrcc/drivers/dddd\n"
+        "echo compiler > build/test-btrcc/aaaa/btrcc\n"
+        "echo generated > build/test-btrcc/aaaa/btrcc.c\n"
+        "echo driver > build/test-btrcc/drivers/dddd/driver\n"
+        "chmod 0555 build/test-btrcc/aaaa/btrcc"
+    )
+    # Nothing is kept yet, so the first clone starts without a build directory, as a runner does.
+    first = run_job(checkout, tmp_path, "--", "test ! -e build", built)
+    assert first.returncode == 0, first.stderr
+    # Binaries only: the generated C is not what a later job needs.
+    assert kept_binaries(tmp_path) == ["aaaa/btrcc", "drivers/dddd/driver"]
+
+    second = run_job(
+        checkout,
+        tmp_path,
+        "--",
+        'test "$(cat build/test-btrcc/aaaa/btrcc)" = compiler',
+        'test "$(cat build/test-btrcc/drivers/dddd/driver)" = driver',
+        "test ! -e build/test-btrcc/aaaa/btrcc.c",
+        # The clone has copies: the job's chmod and its writes never reach what is kept.
+        "chmod -R a+w . && echo replaced > build/test-btrcc/aaaa/btrcc",
+    )
+    assert second.returncode == 0, second.stderr
+    assert (tmp_path / "clones" / "compilers" / "aaaa" / "btrcc").read_text() == "compiler\n"
+    assert [entry.name for entry in (tmp_path / "clones").iterdir()] == ["compilers"]
+
+    # A compiler is valid by its key, not by its job's outcome: a failing job's is kept as well.
+    third = run_job(
+        checkout, tmp_path, "--", "mkdir -p build/test-btrcc/bbbb && echo other > build/test-btrcc/bbbb/btrcc", "false"
+    )
+    assert third.returncode == 1
+    assert kept_binaries(tmp_path) == ["aaaa/btrcc", "bbbb/btrcc", "drivers/dddd/driver"]
+
+
+def test_only_the_newest_compilers_are_kept(checkout, tmp_path):
+    for index in range(6):
+        step = f"mkdir -p build/test-btrcc/key{index} && echo {index} > build/test-btrcc/key{index}/btrcc"
+        assert run_job(checkout, tmp_path, "--", step).returncode == 0
+    assert kept_binaries(tmp_path) == [f"key{index}/btrcc" for index in range(2, 6)]
