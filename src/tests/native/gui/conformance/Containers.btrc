@@ -1,0 +1,175 @@
+import Library.GUI;
+import Library.GUI.ControlEvents;
+import Library.GUI.IContainer;
+import Library.GUI.IScrollView;
+import Library.GUI.IView;
+import Library.Callback;
+import Library.Testing;
+import Library.Vector;
+
+import ./Layout.btrc;
+import ./Picture.btrc;
+import ./Suite.btrc;
+
+/* A container owns its children's order and lifetime: attach, insert, move
+ * and detach keep identity, a batch applies whole or not at all, and every
+ * accepted change advances the tree revision. */
+class ContainerTree implements IConformanceCase {
+	public string name() { return "container.tree"; }
+
+	public void run(Turns turns) {
+		var root = GUI.createContainer();
+		var first = GUI.createLabel("first");
+		var second = GUI.createLabel("second");
+		var third = GUI.createLabel("third");
+		Expect.intEq((long long)root.childCount(), 0LL);
+		long long revision = root.treeRevision();
+		root.attach(first);
+		root.attach(third);
+		root.insert(second, 1);
+		Expect.intEq((long long)root.childCount(), 3LL);
+		Expect.isTrue(root.childAt(0) == first && root.childAt(1) == second && root.childAt(2) == third, "insert places a child at its index");
+		Expect.isTrue(root.treeRevision() > revision, "an accepted change advances the tree revision");
+		root.move(first, 2);
+		Expect.isTrue(root.childAt(0) == second && root.childAt(1) == third && root.childAt(2) == first, "move keeps the others in order");
+		var edit = ContainerEdit();
+		edit.kind = CONTAINER_EDIT_MOVE;
+		edit.child = first;
+		edit.index = 0;
+		Vector<ContainerEdit> edits = [edit];
+		var stale = root.applyBatch(revision, edits);
+		Expect.isTrue(stale.kind == CONTAINER_BATCH_REJECTED && root.childAt(2) == first, "a batch against a stale revision changes nothing");
+		var applied = root.applyBatch(root.treeRevision(), edits);
+		Expect.isTrue(applied.kind == CONTAINER_BATCH_COMMITTED && root.childAt(0) == first);
+		var detached = root.detach(second);
+		Expect.isTrue(detached == second && detached.isOpen(), "detach returns the same open child");
+		Expect.intEq((long long)root.childCount(), 2LL);
+		Expect.throws(ContainerTree.closeAttached, "", "an attached child cannot be closed through an alias");
+		Expect.isTrue(second.close() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isTrue(root.close() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isFalse(first.isOpen() || third.isOpen(), "closing a container closes its children");
+	}
+
+	class void closeAttached() {
+		var parent = GUI.createContainer();
+		var child = GUI.createLabel("held");
+		parent.attach(child);
+		try { child.close(); } finally { parent.close(); }
+	}
+}
+
+/* A grid places each cell's child at its column and row; fixed sizes, fitted
+ * sizes, spacing and hidden rows and columns all move the cells after them. */
+class GridCells implements IConformanceCase {
+	public string name() { return "grid.cells"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance grid.cells", 400.0, 300.0);
+		var grid = GUI.createGrid(3, 2, 10.0, 5.0);
+		Expect.intEq((long long)grid.columnCount(), 3LL);
+		Expect.intEq((long long)grid.rowCount(), 2LL);
+		var red = GUI.createPanel(Palette.red());
+		var green = GUI.createPanel(Palette.green());
+		var blue = GUI.createPanel(Palette.blue());
+		grid.setColumnWidth(0, 50.0);
+		grid.setColumnWidth(1, 70.0);
+		grid.setColumnWidth(2, 40.0);
+		grid.setRowHeight(0, 30.0);
+		grid.setRowHeight(1, 60.0);
+		grid.setChild(0, 0, red);
+		grid.setChild(1, 0, green);
+		grid.setChild(2, 1, blue);
+		Expect.isTrue(grid.childAt(1, 0) == green && grid.childAt(0, 1) == null);
+		window.attachRoot(grid);
+		window.show();
+		turns.settle();
+		var placed = Picture(window);
+		placed.expect(Palette.red(), Frame(0.0, 0.0, 50.0, 30.0), "the first cell");
+		placed.expect(Palette.green(), Frame(60.0, 0.0, 70.0, 30.0), "the second column");
+		placed.expect(Palette.blue(), Frame(140.0, 35.0, 40.0, 60.0), "the third column of the second row");
+		grid.setSpacing(0.0, 0.0);
+		grid.layout();
+		turns.settle();
+		Picture(window).expect(Palette.blue(), Frame(120.0, 30.0, 40.0, 60.0), "the last cell with no spacing");
+		grid.setColumnHidden(1, true);
+		grid.setRowHidden(0, true);
+		grid.layout();
+		turns.settle();
+		var hidden = Picture(window);
+		Expect.isTrue(hidden.find(Palette.red()) == null && hidden.find(Palette.green()) == null, "a hidden row shows none of its cells");
+		hidden.expect(Palette.blue(), Frame(50.0, 0.0, 40.0, 60.0), "the last cell after a hidden row and column gave up their space");
+		grid.setColumnHidden(1, false);
+		grid.setRowHidden(0, false);
+		grid.setChild(1, 0, null);
+		Expect.isTrue(grid.childAt(1, 0) == null && green.isOpen(), "clearing a cell detaches its view without closing it");
+		grid.fitColumn(1);
+		grid.fitRow(0);
+		grid.layout();
+		turns.settle();
+		/* Column 1 is empty and fitted, so it has no width; row 0 fits its 30-point... nothing: red has no size of its own. */
+		var fitted = Picture(window);
+		var corner = fitted.find(Palette.blue());
+		Expect.isTrue(corner != null && Frame.close(corner.x, 50.0, fitted.pixel() + 0.01), "a fitted, empty column takes no width");
+		Expect.isTrue(green.close() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+	}
+}
+
+class OffsetLog implements IScrollControlEventHandler {
+	public Vector<ScrollControlEvent> events = [];
+
+	public void scrollEvent(ScrollControlEvent event) { self.events.push(event); }
+}
+
+/* A scroll view shows a window onto content larger than itself: its offset
+ * moves what is seen, stays inside the content, and is reported once per
+ * change. */
+class ScrollOffsets implements IConformanceCase {
+	public string name() { return "scroll.offsets"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance scroll.offsets", 200.0, 150.0);
+		var scroll = GUI.createScrollView();
+		var content = GUI.createContainer();
+		var marker = GUI.createPanel(Palette.red());
+		content.attach(marker);
+		marker.arrange(20.0, 300.0, 60.0, 40.0);
+		scroll.attach(content);
+		scroll.setContentSize(800.0, 600.0);
+		window.attachRoot(scroll);
+		window.show();
+		turns.settle();
+		var log = OffsetLog();
+		var scope = CallbackScope();
+		scroll.onOffsetChanged(log, scope);
+		turns.settle();
+		Expect.intEq((long long)log.events.length, 0LL, "subscribing reports nothing");
+		Expect.isTrue(scroll.scrollOffset() == 0.0 && scroll.offset().x == 0.0 && scroll.offset().y == 0.0);
+		Expect.isTrue(Picture(window).find(Palette.red()) == null, "content below the view is not seen");
+		scroll.scrollTo(280.0);
+		turns.settle();
+		Expect.isTrue(scroll.scrollOffset() == 280.0 && scroll.offset().y == 280.0);
+		Picture(window).expect(Palette.red(), Frame(20.0, 20.0, 60.0, 40.0), "the marker after scrolling down to it");
+		Expect.intEq((long long)log.events.length, 1LL, "one change, one event");
+		Expect.isTrue(log.events.get(0).offset.y == 280.0 && log.events.get(0).context.origin == CONTROL_ORIGIN_MODEL);
+		var target = ScrollOffset();
+		target.x = 10.0;
+		target.y = 290.0;
+		scroll.scrollToOffset(target);
+		turns.settle();
+		Expect.isTrue(scroll.offset().x == 10.0 && scroll.offset().y == 290.0);
+		var visible = scroll.visibleRect();
+		Expect.isTrue(visible.x == 10.0 && visible.y == 290.0 && visible.width > 0.0 && visible.height > 0.0);
+		Picture(window).expect(Palette.red(), Frame(10.0, 10.0, 60.0, 40.0), "the marker after scrolling on both axes");
+		scroll.scrollTo(100000.0);
+		turns.settle();
+		Expect.isTrue(scroll.scrollOffset() <= 600.0, "an offset stays inside the content");
+		scroll.setContentSize(20.0, 20.0);
+		turns.settle();
+		Expect.isTrue(scroll.offset().x == 0.0 && scroll.offset().y == 0.0, "content smaller than the view cannot be scrolled");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+	}
+}

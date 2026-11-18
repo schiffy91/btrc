@@ -1,0 +1,88 @@
+import Library.GUI;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.Image;
+import Library.Vector;
+
+/* A rectangle in a window's content points, from the top left. */
+class Frame {
+	public double x;
+	public double y;
+	public double width;
+	public double height;
+
+	public Frame(double x, double y, double width, double height) {
+		self.x = x;
+		self.y = y;
+		self.width = width;
+		self.height = height;
+	}
+
+	public double right() { return self.x + self.width; }
+
+	public double bottom() { return self.y + self.height; }
+
+	public string describe() { return f"{self.x},{self.y} {self.width}x{self.height}"; }
+
+	/* Equal to within one device pixel on every edge. */
+	public bool near(Frame other, double tolerance) { return Frame.close(self.x, other.x, tolerance) && Frame.close(self.y, other.y, tolerance) && Frame.close(self.right(), other.right(), tolerance) && Frame.close(self.bottom(), other.bottom(), tolerance); }
+
+	class bool close(double left, double right, double tolerance) {
+		double difference = left - right;
+		return difference <= tolerance && difference >= 0.0 - tolerance;
+	}
+}
+
+/* What a window shows, read back through GUI.capture: the suite's eyes.
+ * Views have no frame getter, so geometry is checked the way a person sees
+ * it, by finding a flat colour's bounding box in the capture. */
+class Picture {
+	private Image image;
+	private double scale;
+
+	public Picture(IWindow window) {
+		var root = window.root();
+		if (root == null) { throw "a window without a root has nothing to capture"; }
+		self.image = GUI.capture(root, []);
+		if (self.image.width <= 0 || window.contentWidth() <= 0.0) { throw "the capture is empty"; }
+		self.scale = (double)self.image.width / window.contentWidth();
+	}
+
+	/* One device pixel, in content points. */
+	public double pixel() { return 1.0 / self.scale; }
+
+	public RGBA at(double x, double y) { return self.image.pixel((int)(x * self.scale), (int)(y * self.scale)); }
+
+	class bool same(RGBA left, RGBA right) { return Picture.within(left.red, right.red) && Picture.within(left.green, right.green) && Picture.within(left.blue, right.blue); }
+
+	class bool within(int left, int right) {
+		int difference = left - right;
+		return difference <= 2 && difference >= -2;
+	}
+
+	/* The bounding box of every pixel of this colour, or null when none shows. */
+	public Frame? find(RGBA color) {
+		int left = self.image.width;
+		int top = self.image.height;
+		int right = -1;
+		int bottom = -1;
+		for (int y = 0; y < self.image.height; y++) {
+			for (int x = 0; x < self.image.width; x++) {
+				if (!Picture.same(self.image.pixel(x, y), color)) { continue; }
+				if (x < left) { left = x; }
+				if (x > right) { right = x; }
+				if (y < top) { top = y; }
+				if (y > bottom) { bottom = y; }
+			}
+		}
+		if (right < 0) { return null; }
+		return Frame((double)left / self.scale, (double)top / self.scale, (double)(right - left + 1) / self.scale, (double)(bottom - top + 1) / self.scale);
+	}
+
+	/* The colour's box, which must be where the frame says, to within a pixel. */
+	public void expect(RGBA color, Frame frame, string what) {
+		var found = self.find(color);
+		if (found == null) { throw f"{what} is not in the picture"; }
+		if (!found.near(frame, self.pixel() + 0.01)) { throw f"{what} is at {found.describe()}, expected {frame.describe()}"; }
+	}
+}

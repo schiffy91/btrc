@@ -1,0 +1,116 @@
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.IButton;
+import Library.Testing;
+
+import ./Probe.btrc;
+import ./Suite.btrc;
+
+class CountedAction implements IButtonAction {
+	public int count = 0;
+
+	public void invoke() { self.count++; }
+}
+
+/* IButton's own state: what is set is what is read, and no setter acts. */
+class ButtonState implements IConformanceCase {
+	public string name() { return "button.state"; }
+
+	public void run(Turns turns) {
+		var button = GUI.createButton("Save");
+		var action = CountedAction();
+		var scope = CallbackScope();
+		button.onAction(action, scope);
+		Expect.strEq(button.title(), "Save");
+		button.setTitle("Save all");
+		Expect.strEq(button.title(), "Save all");
+		Expect.isTrue(button.isEnabled(), "a new button is enabled");
+		button.setEnabled(false);
+		Expect.isFalse(button.isEnabled());
+		button.setEnabled(true);
+		Expect.isFalse(button.isSelected(), "a new button is not selected");
+		button.setSelected(true);
+		Expect.isTrue(button.isSelected());
+		button.setToolTip("Writes every open document");
+		Expect.strEq(button.toolTip(), "Writes every open document");
+		turns.settle();
+		Expect.intEq((long long)action.count, 0LL, "setting a button's state never invokes its action");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isTrue(button.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+/* A click on a button that fills its window invokes its action once, after
+ * the click and not inside it; a disabled button's click invokes nothing. */
+class ButtonClick implements IConformanceCase {
+	public string name() { return "button.click"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance button.click", 240.0, 120.0);
+		var button = GUI.createButton("Press");
+		var action = CountedAction();
+		var scope = CallbackScope();
+		button.onAction(action, scope);
+		window.attachRoot(button);
+		window.show();
+		turns.settle();
+		var probe = Probe(window);
+		probe.click(120.0, 60.0);
+		Expect.intEq((long long)action.count, 0LL, "an action is delivered on a later turn, never inside the input");
+		turns.settle();
+		Expect.intEq((long long)action.count, 1LL, "one click, one action");
+		button.setEnabled(false);
+		probe.click(120.0, 60.0);
+		turns.settle();
+		Expect.intEq((long long)action.count, 1LL, "a disabled button ignores a click");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+		Expect.isTrue(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+/* A program may press a button itself: the action arrives like a click's, and
+ * actions still waiting can be withdrawn. Appearance changes act on nothing. */
+class ButtonActivate implements IConformanceCase {
+	public string name() { return "button.activate"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance button.activate", 240.0, 120.0);
+		var button = GUI.createButton("Run");
+		var action = CountedAction();
+		var scope = CallbackScope();
+		button.onAction(action, scope);
+		window.attachRoot(button);
+		window.show();
+		turns.settle();
+		Expect.isTrue(button.activate(), "an enabled, shown button accepts a programmatic press");
+		Expect.intEq((long long)action.count, 0LL, "the action is delivered on a later turn");
+		turns.settle();
+		Expect.intEq((long long)action.count, 1LL);
+		Expect.isTrue(button.activate());
+		button.cancelPendingActions();
+		turns.settle();
+		Expect.intEq((long long)action.count, 1LL, "a withdrawn action is never delivered");
+		button.setEnabled(false);
+		Expect.isFalse(button.activate(), "a disabled button refuses a press");
+		button.setEnabled(true);
+		double regular = button.fittingHeight();
+		button.setFont(18.0);
+		Expect.isTrue(button.fittingHeight() > regular, "a larger font is taller");
+		bool refused = false;
+		try { button.setFont(ButtonTypography.borderedMaximumSize() + 1.0); } catch (string error) { refused = true; }
+		Expect.isTrue(refused, "a bordered button refuses a font that would overflow its border");
+		button.setCentered(true);
+		button.setSystemSymbol("play.fill");
+		button.setBordered(false);
+		button.setFont(ButtonTypography.borderedMaximumSize() + 1.0);
+		button.setTransparent(true);
+		turns.settle();
+		Expect.strEq(button.title(), "Run", "appearance never changes the title");
+		Expect.intEq((long long)action.count, 1LL, "and never presses the button");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+	}
+}

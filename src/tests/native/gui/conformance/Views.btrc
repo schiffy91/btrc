@@ -1,0 +1,198 @@
+import Library.App;
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.IView;
+import Library.Vector;
+import Library.Image;
+import Library.Testing;
+
+import ./Probe.btrc;
+import ./Picture.btrc;
+import ./Suite.btrc;
+
+/* IView.arrange places a child where it says, in its parent's points; a
+ * hidden view shows nothing and keeps its place. */
+class ViewArrange implements IConformanceCase {
+	public string name() { return "view.arrange"; }
+
+	public void run(Turns turns) {
+		var red = RGBA(200, 30, 30);
+		var blue = RGBA(30, 30, 200);
+		var window = GUI.createWindow("conformance view.arrange", 320.0, 200.0);
+		var root = GUI.createContainer();
+		var first = GUI.createPanel(red);
+		var second = GUI.createPanel(blue);
+		window.attachRoot(root);
+		root.attach(first);
+		root.attach(second);
+		first.arrange(20.0, 30.0, 100.0, 40.0);
+		second.arrange(140.0, 90.0, 160.0, 80.0);
+		window.show();
+		turns.settle();
+		Expect.isTrue(first.isVisible() && second.isVisible(), "an attached view is visible until hidden");
+		var shown = Picture(window);
+		shown.expect(red, Frame(20.0, 30.0, 100.0, 40.0), "the first panel");
+		shown.expect(blue, Frame(140.0, 90.0, 160.0, 80.0), "the second panel");
+		first.setVisible(false);
+		turns.settle();
+		Expect.isFalse(first.isVisible());
+		var hidden = Picture(window);
+		Expect.isTrue(hidden.find(red) == null, "a hidden view shows nothing");
+		hidden.expect(blue, Frame(140.0, 90.0, 160.0, 80.0), "the second panel, with its sibling hidden");
+		first.setVisible(true);
+		first.arrange(0.0, 0.0, 50.0, 50.0);
+		turns.settle();
+		Picture(window).expect(red, Frame(0.0, 0.0, 50.0, 50.0), "the first panel after it was arranged again");
+		window.close();
+		turns.settle();
+		Expect.isTrue(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isFalse(first.isOpen() || second.isOpen() || root.isOpen(), "closing a window closes its subtree");
+		Expect.isTrue(first.pollClose() == CALLBACK_CANCELLATION_COMPLETE, "and the subtree's own closing is complete");
+	}
+}
+
+class PointerLog implements IViewPointerHandler {
+	public Vector<AppPointerEvent> events = [];
+
+	public bool pointer(AppPointerEvent event) {
+		self.events.push(event);
+		return true;
+	}
+
+	public int presses() {
+		int found = 0;
+		for event in self.events { if (event.action == APP_POINTER_PRESSED) { found++; } }
+		return found;
+	}
+}
+
+class WheelLog implements IViewScrollHandler {
+	public Vector<AppScrollEvent> events = [];
+
+	public bool scroll(AppScrollEvent event) {
+		self.events.push(event);
+		return true;
+	}
+}
+
+/* A view hears the pointer and the wheel over it, in its own coordinates. */
+class ViewPointer implements IConformanceCase {
+	public string name() { return "view.pointer"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance view.pointer", 300.0, 200.0);
+		var root = GUI.createContainer();
+		var target = GUI.createPanel(RGBA(30, 160, 60));
+		window.attachRoot(root);
+		root.attach(target);
+		target.arrange(100.0, 50.0, 120.0, 80.0);
+		window.show();
+		turns.settle();
+		var pointers = PointerLog();
+		var wheels = WheelLog();
+		var scope = CallbackScope();
+		target.onPointer(pointers, scope);
+		target.onScroll(wheels, scope);
+		var probe = Probe(window);
+		probe.click(130.0, 70.0);
+		turns.settle();
+		bool pressed = false;
+		bool released = false;
+		for event in pointers.events {
+			if (event.action == APP_POINTER_PRESSED) {
+				pressed = true;
+				Expect.isTrue(event.button == APP_POINTER_BUTTON_PRIMARY);
+				Expect.isTrue(Frame.close(event.logicalX, 30.0, 1.0) && Frame.close(event.logicalY, 20.0, 1.0), "a press is reported in the view's own points");
+			}
+			if (event.action == APP_POINTER_RELEASED) { released = true; }
+		}
+		Expect.isTrue(pressed && released, "a click is a press and a release");
+		probe.wheel(130.0, 70.0, 0.0, -2.0);
+		turns.settle();
+		Expect.isTrue(wheels.events.length >= 1 && wheels.events.get(0).deltaY != 0.0, "a wheel turn over the view reaches it");
+		int presses = pointers.presses();
+		probe.click(20.0, 20.0);
+		turns.settle();
+		Expect.intEq((long long)pointers.presses(), (long long)presses, "a press outside the view is not its own");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		int heard = pointers.events.length;
+		probe.click(130.0, 70.0);
+		turns.settle();
+		Expect.intEq((long long)pointers.events.length, (long long)heard, "a cancelled handler hears nothing more");
+		window.close();
+		turns.settle();
+	}
+}
+
+class InteractionLog implements IViewInteractionStateHandler {
+	public Vector<ViewInteractionState> states = [];
+
+	public void interactionChanged(ViewInteractionState state) { self.states.push(state); }
+}
+
+/* Whether a view can be interacted with follows from its own flags and from
+ * where it is: hidden, detached or under a hidden ancestor, it cannot. */
+class ViewInteraction implements IConformanceCase {
+	public string name() { return "view.interaction"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance view.interaction", 240.0, 160.0);
+		var root = GUI.createContainer();
+		var button = GUI.createButton("Go");
+		window.attachRoot(root);
+		root.attach(button);
+		button.arrange(20.0, 20.0, 100.0, 40.0);
+		window.show();
+		turns.settle();
+		var log = InteractionLog();
+		var scope = CallbackScope();
+		button.onInteractionStateChanged(log, scope);
+		turns.settle();
+		Expect.intEq((long long)log.states.length, 0LL, "subscribing reports nothing");
+		var shown = button.interactionState();
+		Expect.isTrue(shown.localVisible && shown.localEnabled && shown.effectiveEligible && shown.layoutParticipating);
+		button.setVisible(false);
+		turns.settle();
+		Expect.isTrue(log.states.length >= 1 && !log.states.get(log.states.length - 1).localVisible, "hiding a view is reported");
+		Expect.isFalse(button.interactionState().effectiveEligible, "a hidden view cannot be interacted with");
+		button.setVisible(true);
+		root.setVisible(false);
+		turns.settle();
+		var inherited = button.interactionState();
+		Expect.isTrue(inherited.localVisible && !inherited.inheritedEligible && !inherited.effectiveEligible, "a view under a hidden ancestor cannot be interacted with");
+		root.setVisible(true);
+		turns.settle();
+		Expect.isTrue(button.interactionState().effectiveEligible);
+		Expect.isTrue(button.interactionState().stateRevision > shown.stateRevision, "every change advances the revision");
+		var detached = root.detach(button);
+		Expect.isFalse(detached.interactionState().effectiveEligible, "a detached view cannot be interacted with");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isTrue(detached.close() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+	}
+}
+
+/* Every control has a size of its own to offer a layout. */
+class ViewFitting implements IConformanceCase {
+	public string name() { return "view.fitting"; }
+
+	public void run(Turns turns) {
+		var button = GUI.createButton("OK");
+		var wide = GUI.createButton("A much longer button title");
+		Expect.isTrue(button.fittingWidth() > 0.0 && button.fittingHeight() > 0.0, "a button has a size");
+		Expect.isTrue(wide.fittingWidth() > button.fittingWidth(), "a longer title is wider");
+		var slider = GUI.createSlider(0.0, 1.0, 0);
+		var select = GUI.createSelect();
+		var progress = GUI.createProgressIndicator();
+		var level = GUI.createLevelIndicator(0.7, 0.9);
+		Expect.isTrue(slider.fittingHeight() > 0.0 && select.fittingHeight() > 0.0 && progress.fittingHeight() > 0.0 && level.fittingHeight() > 0.0, "every control has a height");
+		var row = GUI.createRow(10.0);
+		row.attach(button);
+		row.attach(wide);
+		Expect.isTrue(row.fittingWidth() >= button.fittingWidth() + wide.fittingWidth() + 10.0, "a row is at least its children and its spacing wide");
+		Expect.isTrue(row.close() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isTrue(slider.close() == CALLBACK_CANCELLATION_COMPLETE && select.close() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isTrue(progress.close() == CALLBACK_CANCELLATION_COMPLETE && level.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}

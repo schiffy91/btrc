@@ -383,6 +383,18 @@
       "note": "CX-UIA-09 shell requires its host provider; both frontends and sanitizer modes run on the named stand-in."
     },
     {
+      "id": "ui-conformance-linux-only",
+      "files": [
+        "src/tests/python/test_native_ui_conformance.py"
+      ],
+      "reason": "^requires Linux: the GUI conformance suite's Linux rows$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "docs/design/native-ui-surfaces-and-hosts.md: the suite's Linux rows build its SDL probe and run on a Linux display; both frontends and sanitizer modes run on the named stand-in."
+    },
+    {
       "id": "sdl-clipboard-requestor-linux-only",
       "files": [
         "src/tests/python/test_native_ui_sdl_clipboard_requestor.py"

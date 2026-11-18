@@ -1,0 +1,46 @@
+import Library.GUI.IWindow;
+
+enum ProbeKey {
+	PROBE_KEY_RETURN = 1,
+	PROBE_KEY_ESCAPE = 2,
+	PROBE_KEY_TAB = 3,
+	PROBE_KEY_LEFT = 4,
+	PROBE_KEY_RIGHT = 5,
+	PROBE_KEY_UP = 6,
+	PROBE_KEY_DOWN = 7,
+	PROBE_KEY_BACKSPACE = 8,
+	PROBE_KEY_SELECT_ALL = 9
+};
+
+/* What a person does to one window: the suite's only way around the public
+ * facade (probes/ConformanceProbe.h). Coordinates are the window's content
+ * points from the top left. Input is queued; the next turns deliver it. */
+class Probe {
+	private string title;
+
+	public Probe(IWindow window) { self.title = window.title(); }
+
+	private void queued(int result, string input) {
+		if (result != 1) { throw f"the probe could not queue {input} for the window \"{self.title}\""; }
+	}
+
+	public void move(double x, double y) { self.queued(conformanceProbeMove(self.title, x, y), "a pointer move"); }
+
+	public void down(double x, double y) { self.queued(conformanceProbePress(self.title, x, y), "a press"); }
+
+	public void up(double x, double y) { self.queued(conformanceProbeRelease(self.title, x, y), "a release"); }
+
+	public void click(double x, double y) {
+		self.move(x, y);
+		self.down(x, y);
+		self.up(x, y);
+	}
+
+	public void wheel(double x, double y, double deltaX, double deltaY) { self.queued(conformanceProbeWheel(self.title, x, y, deltaX, deltaY), "a wheel turn"); }
+
+	public void key(ProbeKey key) { self.queued(conformanceProbeKey(self.title, (int)key), "a key"); }
+
+	public void text(string text) { self.queued(conformanceProbeText(self.title, text), "text"); }
+
+	public void close() { self.queued(conformanceProbeClose(self.title), "a close request"); }
+}

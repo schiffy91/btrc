@@ -99,7 +99,9 @@ better on this desktop's display. Try the routes in this order:
 1. A Wayland subsurface placed below the GTK surface, with GTK transparent
    over that rectangle. wgpu already renders to a `wl_surface`. **Unverified.**
 2. A dmabuf texture handed to `GtkGraphicsOffload` (GTK 4.14 or newer), if a
-   newer wgpu-native release exports one. No fork of wgpu-native.
+   newer wgpu-native release exports one. No fork of wgpu-native. Checked
+   2026-11-18: v29.0.1.1, the newest release, has no such export in its C
+   API, so this route is closed.
 3. CPU readback, as the spike proved, for X11 and as the correctness fallback.
 
 If route 1 or 2 passes on Wayland, Linux moves to GTK4: X11 uses a child
@@ -127,17 +129,25 @@ issues (#140 to #145).
 | Android x86_64 | Emulator on this desktop under KVM (`.#platforms`) | Hosted emulator (`host-android.yml`), and the local one | Physical devices |
 | macOS, iOS, Android arm64 | Deferred with the Mac | Deferred | Everything |
 
-How a test drives a platform: the fixture is one portable BTRC program that
-runs its own checks. Each host adds a thin driver for the three things only
-the OS can do.
+How the shared suite drives a platform
+(`src/tests/native/gui/conformance`): it is one portable BTRC program over
+the public facade only. A fresh application runs each case, driven one
+bounded turn at a time through the host attachment. Geometry is read back
+through `GUI.capture`, as the bounding box of a flat colour, because views
+have no frame getter. The one thing the facade cannot do is give a window
+input, so each platform supplies a probe, in C, behind one header
+(`probes/ConformanceProbe.h`): move, press, release, wheel, key, text and the
+window manager's close, queued for the window with a given title.
 
-| Platform | Real input | Accessibility tree | Screen capture |
-| --- | --- | --- | --- |
-| Linux | Compositor test input under Weston, XTest under Xvfb | AT-SPI over the session bus | Compositor screenshot |
-| Windows | `SendInput` in the interactive session | UI Automation (a probe exists) | `PrintWindow` |
-| macOS | `NSApplication.sendEvent` in process; `CGEventPost` where a test needs the real route | `NSAccessibility` in process | In-process view capture |
-| iOS | An XCUITest runner built for the simulator | The XCUITest snapshot | `simctl io screenshot` |
-| Android | `adb shell input` | `uiautomator dump` | `adb exec-out screencap` |
+| Platform | Probe | Status |
+| --- | --- | --- |
+| Linux, SDL provider | Synthetic SDL events queued for the window | Written; 35 cases pass |
+| Linux, GTK4 | XTest under Xvfb; Wayland route to be chosen with the provider | Waits for the gate |
+| Windows | Messages posted to the hit-tested window, as the shell fixture does | Not written |
+| Android | Motion and key events dispatched to the window through JNI | Not written |
+
+Accessibility trees are not part of this suite: the bridges are outside this
+plan.
 
 Notes that shape the work:
 
@@ -238,8 +248,15 @@ Each step ends with something that runs.
    and Wayland (both compilers), on the Deck's Game Mode X server, and in the
    Windows guest's desktop session; the Android host fixtures ran on the local
    emulator.
-2. **Main is green**, and the portable UI2 checks, which nothing calls today,
-   run on macOS and Linux through one shared suite.
+2. **Main is green**, and the portable checks run on Linux through one
+   shared suite. **Suite done 2026-11-18:** 35 cases exercise 227 of the
+   catalog's 231 operations on the SDL provider, through both compilers,
+   plain and sanitized, on X11 and Wayland; the four not yet exercised are
+   the alert and the directory picker (modal) and `IApplication.pollClose`
+   (the facade never calls it). Writing it found that `Library.GUI` did not
+   export the control event types. **Windows:** `Platform.programName` was
+   empty there (two corpus programs failed), fixed; issue #126 was the test's
+   own UI Automation client, and the census now runs without it.
 3. **The GTK4 gate** (section 3). Exit: a decision recorded with frame timings.
 4. **`IWebView` and the mixing rules** on Linux first, as the reference.
 5. **Linux**: the GTK4 provider, or the SDL fallback, passes the suite.

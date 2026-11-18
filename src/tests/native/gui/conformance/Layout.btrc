@@ -1,0 +1,93 @@
+import Library.GUI;
+import Library.GUI.IGrid;
+import Library.GUI.IStack;
+import Library.GUI.IView;
+import Library.Image;
+import Library.Testing;
+
+import ./Picture.btrc;
+import ./Suite.btrc;
+
+/* A flat colour of a fixed size: a one-cell grid whose column and row are set,
+ * holding a panel. The suite's unit of layout, findable in a picture. */
+class Swatch {
+	class IView sized(RGBA color, double width, double height) {
+		var cell = GUI.createGrid(1, 1);
+		cell.setColumnWidth(0, width);
+		cell.setRowHeight(0, height);
+		cell.setChild(0, 0, GUI.createPanel(color));
+		return cell;
+	}
+}
+
+class Palette {
+	class RGBA red() { return RGBA(200, 30, 30); }
+
+	class RGBA green() { return RGBA(30, 160, 60); }
+
+	class RGBA blue() { return RGBA(30, 30, 200); }
+}
+
+/* A row lays its children out left to right at their own sizes, with its
+ * spacing between them and its padding around them. */
+class StackRow implements IConformanceCase {
+	public string name() { return "stack.row"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance stack.row", 400.0, 200.0);
+		var row = GUI.createRow(10.0);
+		Expect.isTrue(row.spacing() == 10.0);
+		Expect.isTrue(row.alignment() == STACK_ALIGN_START, "a new stack aligns its children to the start");
+		row.setPadding(12.0, 16.0, 8.0, 20.0);
+		row.attach(Swatch.sized(Palette.red(), 60.0, 40.0));
+		row.attach(Swatch.sized(Palette.green(), 30.0, 80.0));
+		row.attach(Swatch.sized(Palette.blue(), 90.0, 20.0));
+		window.attachRoot(row);
+		window.show();
+		turns.settle();
+		var start = Picture(window);
+		start.expect(Palette.red(), Frame(20.0, 12.0, 60.0, 40.0), "the first child");
+		start.expect(Palette.green(), Frame(90.0, 12.0, 30.0, 80.0), "the second child");
+		start.expect(Palette.blue(), Frame(130.0, 12.0, 90.0, 20.0), "the third child");
+		row.setSpacing(0.0);
+		row.layout();
+		turns.settle();
+		Expect.isTrue(row.spacing() == 0.0);
+		Picture(window).expect(Palette.blue(), Frame(110.0, 12.0, 90.0, 20.0), "the third child with no spacing");
+		row.setAlignment(STACK_ALIGN_END);
+		row.layout();
+		turns.settle();
+		Expect.isTrue(row.alignment() == STACK_ALIGN_END);
+		/* The row fills the window: 200 points tall, less 12 above and 8 below. */
+		var end = Picture(window);
+		end.expect(Palette.red(), Frame(20.0, 152.0, 60.0, 40.0), "the first child aligned to the end");
+		end.expect(Palette.green(), Frame(80.0, 112.0, 30.0, 80.0), "the second child aligned to the end");
+		row.setAlignment(STACK_ALIGN_CENTER);
+		row.layout();
+		turns.settle();
+		Picture(window).expect(Palette.blue(), Frame(110.0, 92.0, 90.0, 20.0), "the third child centred");
+		window.close();
+		turns.settle();
+	}
+}
+
+/* A column is a row turned on its side. */
+class StackColumn implements IConformanceCase {
+	public string name() { return "stack.column"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance stack.column", 300.0, 300.0);
+		var column = GUI.createColumn(6.0);
+		column.setPadding(10.0, 10.0, 10.0, 10.0);
+		column.attach(Swatch.sized(Palette.red(), 60.0, 40.0));
+		column.attach(Swatch.sized(Palette.green(), 30.0, 80.0));
+		window.attachRoot(column);
+		window.show();
+		turns.settle();
+		var picture = Picture(window);
+		picture.expect(Palette.red(), Frame(10.0, 10.0, 60.0, 40.0), "the first child");
+		picture.expect(Palette.green(), Frame(10.0, 56.0, 30.0, 80.0), "the second child");
+		window.close();
+		turns.settle();
+	}
+}

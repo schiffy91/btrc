@@ -1,0 +1,58 @@
+import Library.Vector;
+
+import ./Buttons.btrc;
+import ./Containers.btrc;
+import ./Controls.btrc;
+import ./Editing.btrc;
+import ./Executor.btrc;
+import ./Layout.btrc;
+import ./Suite.btrc;
+import ./Surfaces.btrc;
+import ./Text.btrc;
+import ./Views.btrc;
+import ./Windows.btrc;
+
+/* conformance [--list | CASE]: every case, or the one named. */
+int main(Vector<string> args) {
+	var suite = Suite();
+	suite.add(ButtonState());
+	suite.add(ButtonClick());
+	suite.add(ViewArrange());
+	suite.add(StackRow());
+	suite.add(StackColumn());
+	suite.add(ContainerTree());
+	suite.add(GridCells());
+	suite.add(ScrollOffsets());
+	suite.add(LabelText());
+	suite.add(TextFieldState());
+	suite.add(SelectItems());
+	suite.add(SelectOptions());
+	suite.add(SliderState());
+	suite.add(Indicators());
+	suite.add(PanelFill());
+	suite.add(ImagePixels());
+	suite.add(AppPost());
+	suite.add(AppPostAfter());
+	suite.add(AppSchedule());
+	suite.add(AppHost());
+	suite.add(AppPublisher());
+	suite.addLoop(AppRun());
+	suite.add(WindowStateCase());
+	suite.add(WindowClose());
+	suite.add(WindowKey());
+	suite.add(ViewPointer());
+	suite.add(ViewInteraction());
+	suite.add(TextFieldEditing());
+	suite.add(SelectChoosing());
+	suite.add(SliderDragging());
+	suite.add(ButtonActivate());
+	suite.add(ViewFitting());
+	suite.add(GPUFrame());
+	suite.add(TextRaster());
+	suite.add(FontFace());
+	if (args.length == 1 && args.get(0) == "--list") {
+		suite.list();
+		return 0;
+	}
+	return suite.run(args.length == 1 ? args.get(0) : "");
+}

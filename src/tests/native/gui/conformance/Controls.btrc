@@ -1,0 +1,255 @@
+import Library.GUI;
+import Library.GUI.ControlEvents;
+import Library.GUI.ILabel;
+import Library.GUI.ISelect;
+import Library.GUI.ISlider;
+import Library.GUI.ITextField;
+import Library.Callback;
+import Library.Image;
+import Library.Testing;
+import Library.Vector;
+
+import ./Layout.btrc;
+import ./Picture.btrc;
+import ./Suite.btrc;
+
+/* A label shows its text and sizes itself to it. */
+class LabelText implements IConformanceCase {
+	public string name() { return "label.text"; }
+
+	public void run(Turns turns) {
+		var label = GUI.createLabel("Name");
+		Expect.strEq(label.text(), "Name");
+		double narrow = label.fittingWidth();
+		Expect.isTrue(narrow > 0.0 && label.fittingHeight() > 0.0, "a label with text has a size of its own");
+		label.setText("A considerably longer name");
+		Expect.strEq(label.text(), "A considerably longer name");
+		Expect.isTrue(label.fittingWidth() > narrow, "longer text is wider");
+		double regular = label.fittingHeight();
+		label.setFont(28.0, true);
+		Expect.isTrue(label.fittingHeight() > regular, "a larger font is taller");
+		label.setSecondary(true);
+		label.setCentered(true);
+		label.setWrapping(true);
+		Expect.strEq(label.text(), "A considerably longer name", "appearance never changes the text");
+		Expect.isTrue(label.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+/* A text field holds its text; setting it from the program is not an edit. */
+class TextFieldState implements IConformanceCase {
+	public string name() { return "textfield.state"; }
+
+	public void run(Turns turns) {
+		var field = GUI.createTextField("draft", "Title");
+		Expect.strEq(field.text(), "draft");
+		field.setText("final");
+		Expect.strEq(field.text(), "final");
+		field.setPlaceholder("Document title");
+		Expect.strEq(field.text(), "final", "a placeholder is not text");
+		Expect.isTrue(field.isEnabled(), "a new field is enabled");
+		field.setEnabled(false);
+		Expect.isFalse(field.isEnabled());
+		field.setEnabled(true);
+		double regular = field.fittingHeight();
+		Expect.isTrue(regular > 0.0);
+		field.setFont(24.0);
+		Expect.isTrue(field.fittingHeight() > regular, "a larger font is taller");
+		Expect.isTrue(field.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+/* A select's items by position: the index API. */
+class SelectItems implements IConformanceCase {
+	public string name() { return "select.items"; }
+
+	public void run(Turns turns) {
+		var select = GUI.createSelect();
+		Expect.intEq((long long)select.itemCount(), 0LL);
+		Vector<string> titles = ["Guitar", "Bass", "Vocals"];
+		select.setItems(titles, 1);
+		Expect.intEq((long long)select.itemCount(), 3LL);
+		Expect.intEq((long long)select.selectedIndex(), 1LL);
+		Expect.strEq(select.selectedTitle(), "Bass");
+		select.setSelectedIndex(2);
+		Expect.strEq(select.selectedTitle(), "Vocals");
+		Expect.isTrue(select.isItemEnabled(0));
+		select.setItemEnabled(0, false);
+		Expect.isFalse(select.isItemEnabled(0));
+		Expect.isTrue(select.isEnabled(), "a new select is enabled");
+		select.setEnabled(false);
+		Expect.isFalse(select.isEnabled());
+		select.setEnabled(true);
+		select.setFont(18.0);
+		Expect.strEq(select.selectedTitle(), "Vocals", "appearance never changes the selection");
+		Expect.isTrue(select.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+/* A select's options by key: two options may share a title, and the selected
+ * key survives a reorder. The select keeps its own copy of the model. */
+class SelectOptions implements IConformanceCase {
+	public string name() { return "select.options"; }
+
+	class SelectOption option(string key, string title) {
+		var option = SelectOption();
+		option.key = key;
+		option.title = title;
+		option.enabled = true;
+		return option;
+	}
+
+	class SelectModel model(Vector<SelectOption> options, string? selected) {
+		var model = SelectModel();
+		model.options = options;
+		model.selectedKey = selected;
+		model.availability = SELECT_AVAILABILITY_READY;
+		model.statusText = "";
+		return model;
+	}
+
+	public void run(Turns turns) {
+		var select = GUI.createSelect();
+		var first = SelectOptions.option("in-1", "Input");
+		var second = SelectOptions.option("in-2", "Input");
+		Vector<SelectOption> options = [first, second];
+		select.setOptions(SelectOptions.model(options, "in-1"));
+		first.title = "changed by the caller";
+		Expect.strEq(select.selectedTitle(), "Input", "the select copied the model it was given");
+		var selected = select.selectedKey();
+		Expect.isTrue(selected != null && selected == "in-1");
+		select.setSelectedKey("in-2");
+		Expect.intEq((long long)select.selectedIndex(), 1LL);
+		Vector<SelectOption> reordered = [SelectOptions.option("in-2", "Input"), SelectOptions.option("in-1", "Input")];
+		select.setOptions(SelectOptions.model(reordered, "in-2"));
+		selected = select.selectedKey();
+		Expect.isTrue(selected != null && selected == "in-2" && select.selectedIndex() == 0, "the key, not the position, is the selection");
+		var state = select.optionsState();
+		Expect.intEq((long long)state.options.length, 2LL);
+		Expect.strEq(state.options.get(0).key, "in-2");
+		select.setSelectedKey(null);
+		Expect.isTrue(select.selectedKey() == null, "no key, no selection");
+		Expect.isTrue(select.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+/* A slider's value stays inside its range and on its steps. */
+class SliderState implements IConformanceCase {
+	public string name() { return "slider.state"; }
+
+	public void run(Turns turns) {
+		var slider = GUI.createSlider(0.0, 10.0, 10);
+		var range = slider.range();
+		Expect.isTrue(range.minimum == 0.0 && range.maximum == 10.0);
+		slider.setValue(4.0);
+		Expect.isTrue(slider.value() == 4.0);
+		bool refused = false;
+		try { slider.setValue(25.0); } catch (string error) { refused = true; }
+		Expect.isTrue(refused && slider.value() == 4.0, "a value outside the range is refused and changes nothing");
+		slider.setValue(10.0);
+		slider.setRange(2.0, 6.0, 2.0);
+		Expect.isTrue(slider.value() == 6.0, "narrowing the range keeps the value inside it");
+		Expect.isTrue(slider.range().minimum == 2.0 && slider.range().maximum == 6.0 && slider.range().step == 2.0);
+		slider.setValue(3.1);
+		Expect.isTrue(slider.value() == 4.0, "a value snaps to the nearest step");
+		var wide = SliderRange();
+		wide.minimum = -1.0;
+		wide.maximum = 1.0;
+		wide.step = 0.0;
+		slider.setRangeValue(wide, 0.25);
+		Expect.isTrue(slider.value() == 0.25 && slider.range().minimum == -1.0);
+		Expect.isTrue(slider.isEnabled(), "a new slider is enabled");
+		slider.setEnabled(false);
+		Expect.isFalse(slider.isEnabled());
+		slider.setToolTip("Playback speed");
+		Expect.strEq(slider.toolTip(), "Playback speed");
+		Expect.isTrue(slider.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+/* The two indicators hold what they are given. */
+class Indicators implements IConformanceCase {
+	public string name() { return "indicator.state"; }
+
+	public void run(Turns turns) {
+		var progress = GUI.createProgressIndicator();
+		Expect.isFalse(progress.isRunning(), "a new progress indicator is still");
+		progress.setRunning(true);
+		Expect.isTrue(progress.isRunning());
+		progress.setRunning(false);
+		Expect.isFalse(progress.isRunning());
+		var level = GUI.createLevelIndicator(0.7, 0.9);
+		level.setValue(0.5);
+		Expect.isTrue(level.value() == 0.5);
+		bool refused = false;
+		try { level.setValue(4.0); } catch (string error) { refused = true; }
+		Expect.isTrue(refused && level.value() == 0.5, "a level outside zero to one is refused and changes nothing");
+		level.setValue(1.0);
+		Expect.isTrue(level.value() == 1.0);
+		Expect.isTrue(progress.close() == CALLBACK_CANCELLATION_COMPLETE && level.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+/* A panel is its fill: the colour it was made with, then the colour it is set to. */
+class PanelFill implements IConformanceCase {
+	public string name() { return "panel.fill"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance panel.fill", 200.0, 120.0);
+		var panel = GUI.createPanel(Palette.red(), 0.0);
+		window.attachRoot(panel);
+		window.show();
+		turns.settle();
+		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 200.0, 120.0), "a root panel");
+		panel.setFill(Palette.green());
+		turns.settle();
+		var refilled = Picture(window);
+		Expect.isTrue(refilled.find(Palette.red()) == null, "the old fill is gone");
+		refilled.expect(Palette.green(), Frame(0.0, 0.0, 200.0, 120.0), "the panel in its new fill");
+		panel.setCornerRadius(24.0);
+		turns.settle();
+		var rounded = Picture(window);
+		Expect.isFalse(Picture.same(rounded.at(1.0, 1.0), Palette.green()), "a rounded corner is cut away");
+		Expect.isTrue(Picture.same(rounded.at(100.0, 60.0), Palette.green()), "the middle keeps the fill");
+		panel.setDarkAppearance(true);
+		panel.inheritAppearance();
+		turns.settle();
+		Expect.isTrue(Picture.same(Picture(window).at(100.0, 60.0), Palette.green()), "appearance never changes the fill");
+		window.close();
+		turns.settle();
+	}
+}
+
+/* An image view shows the pixels it is given, from an image or from a handle
+ * made anywhere; a closed handle stays shown. */
+class ImagePixels implements IConformanceCase {
+	public string name() { return "image.pixels"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance image.pixels", 160.0, 160.0);
+		var view = GUI.createImageView();
+		window.attachRoot(view);
+		window.show();
+		var pixels = Image(32, 32);
+		pixels.fill(Palette.blue());
+		view.setImage(pixels);
+		turns.settle();
+		Expect.isTrue(Picture.same(Picture(window).at(80.0, 80.0), Palette.blue()), "an image fills its view");
+		var other = Image(32, 32);
+		other.fill(Palette.red());
+		var handle = GUI.createImageHandle(other);
+		Expect.isTrue(handle.isOpen() && handle.width() == 32 && handle.height() == 32);
+		view.setImageHandle(handle);
+		turns.settle();
+		Expect.isTrue(Picture.same(Picture(window).at(80.0, 80.0), Palette.red()), "a handle's image replaces the last one");
+		handle.close();
+		Expect.isFalse(handle.isOpen());
+		turns.settle();
+		Expect.isTrue(Picture.same(Picture(window).at(80.0, 80.0), Palette.red()), "closing a handle leaves what it published on screen");
+		view.setImageHandle(null);
+		turns.settle();
+		Expect.isFalse(Picture.same(Picture(window).at(80.0, 80.0), Palette.red()), "no handle, no image");
+		window.close();
+		turns.settle();
+	}
+}

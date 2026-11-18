@@ -1,0 +1,159 @@
+import Library.App;
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.Testing;
+import Library.Timer;
+import Library.Vector;
+
+import ./Layout.btrc;
+import ./Picture.btrc;
+import ./Probe.btrc;
+import ./Suite.btrc;
+
+class StateLog implements IWindowStateHandler {
+	public Vector<WindowState> states = [];
+
+	public void stateChanged(WindowState state) { self.states.push(state); }
+}
+
+/* A window's own state: its title, its content size, its root, and whether
+ * it is shown, each read back as set and reported when it changes. */
+class WindowStateCase implements IConformanceCase {
+	public string name() { return "window.state"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance window.state", 300.0, 200.0);
+		Expect.strEq(window.title(), "conformance window.state");
+		window.setTitle("conformance window.state renamed");
+		Expect.strEq(window.title(), "conformance window.state renamed");
+		Expect.isTrue(window.isOpen());
+		Expect.isFalse(window.isVisible(), "a new window is not shown");
+		Expect.isTrue(window.contentWidth() == 300.0 && window.contentHeight() == 200.0);
+		Expect.isTrue(window.root() == null, "a new window has no root");
+		var panel = GUI.createPanel(Palette.red());
+		window.attachRoot(panel);
+		Expect.isTrue(window.root() == panel);
+		var log = StateLog();
+		var scope = CallbackScope();
+		window.onStateChanged(log, scope);
+		window.show();
+		turns.settle();
+		Expect.isTrue(window.isVisible());
+		var shown = window.state();
+		Expect.isTrue(shown.requestedVisible && shown.width == 300.0 && shown.height == 200.0 && shown.backingScale > 0.0);
+		Expect.isTrue(log.states.length > 0, "showing a window is a state change");
+		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 300.0, 200.0), "the root, which fills the content");
+		int reported = log.states.length;
+		window.setContentSize(360.0, 240.0);
+		turns.settle();
+		Expect.isTrue(window.contentWidth() == 360.0 && window.contentHeight() == 240.0);
+		Expect.isTrue(log.states.length > reported && log.states.get(log.states.length - 1).width == 360.0, "a new size is a state change");
+		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 360.0, 240.0), "the root after the window grew");
+		window.setMinimumContentSize(200.0, 150.0);
+		var detached = window.detachRoot();
+		Expect.isTrue(detached == panel && panel.isOpen() && window.root() == null, "detaching returns the same open root");
+		window.hide();
+		turns.settle();
+		Expect.isFalse(window.isVisible());
+		Expect.isFalse(window.state().requestedVisible);
+		/* The window system takes the focus away in its own time. */
+		long long hidden = MonotonicClock.milliseconds();
+		while (window.isFocused() && MonotonicClock.milliseconds() - hidden < 2000LL) { turns.turn(); }
+		Expect.isFalse(window.isFocused(), "a hidden window does not have the focus");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+		Expect.isTrue(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isFalse(window.isOpen() || window.isVisible(), "a closed window answers, and is neither open nor visible");
+		Expect.isTrue(panel.isOpen(), "a detached root outlives its window");
+		Expect.isTrue(panel.close() == CALLBACK_CANCELLATION_COMPLETE);
+	}
+}
+
+class CloseLog implements IWindowCloseRequestHandler {
+	public Vector<IWindowCloseTransaction> transactions = [];
+
+	public void closeRequested(IWindowCloseTransaction transaction) { self.transactions.push(transaction); }
+}
+
+/* A window with unsaved work decides its own closing: the request waits for
+ * Save, Discard or Cancel, a save that finishes late or for an older revision
+ * closes nothing, and a window nobody answers for simply closes. */
+class WindowClose implements IConformanceCase {
+	public string name() { return "window.close"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance window.close", 240.0, 120.0);
+		window.show();
+		turns.settle();
+		var log = CloseLog();
+		var scope = CallbackScope();
+		window.onCloseRequested(log, scope);
+		Probe(window).close();
+		turns.settle();
+		Expect.intEq((long long)log.transactions.length, 1LL, "the window manager's close asks the handler once");
+		var native = log.transactions.get(0);
+		Expect.isTrue(window.isOpen() && native.state() == WINDOW_CLOSE_AWAITING_DECISION, "the window stays open while the decision is pending");
+		Expect.isTrue(native.decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL).state == WINDOW_CLOSE_CANCELLED);
+		turns.settle();
+		Expect.isTrue(window.isOpen(), "Cancel keeps the window");
+		var requested = window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST);
+		turns.settle();
+		var transaction = requested.transaction;
+		if (requested.kind != WINDOW_CLOSE_REQUEST_PENDING || transaction == null) { throw "a program's close request did not open a transaction"; }
+		Expect.isTrue(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).transaction == transaction, "a second request joins the pending one");
+		var saving = transaction.decide(WINDOW_CLOSE_DECISION_SAVE, 1LL);
+		Expect.isTrue(saving.state == WINDOW_CLOSE_SAVING && saving.attempt > 0LL);
+		transaction.decide(WINDOW_CLOSE_DECISION_SAVE, 2LL);
+		Expect.isTrue(transaction.completeSave(saving.attempt + 1LL, 2LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_ATTEMPT);
+		Expect.isTrue(transaction.completeSave(saving.attempt, 1LL, true, "").kind == WINDOW_CLOSE_OUTCOME_STALE_REVISION, "a save of an older revision closes nothing");
+		Expect.isTrue(transaction.state() == WINDOW_CLOSE_AWAITING_DECISION && window.isOpen());
+		Expect.isTrue(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 2LL).state == WINDOW_CLOSE_CANCELLED);
+		Expect.isTrue(transaction.completeSave(saving.attempt, 2LL, true, "").kind == WINDOW_CLOSE_OUTCOME_NOT_PENDING);
+		Expect.isTrue(window.isOpen());
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isTrue(window.requestClose(WINDOW_CLOSE_PROGRAM_REQUEST).kind == WINDOW_CLOSE_REQUEST_AUTHORIZED_NO_HANDLER, "with nobody to ask, the request is granted");
+		turns.settle();
+		Expect.isTrue(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isFalse(window.isOpen());
+	}
+}
+
+class KeyLog implements IWindowKeyHandler {
+	public Vector<AppKeyboardEvent> events = [];
+	public bool consume = true;
+
+	public bool key(AppKeyboardEvent event) {
+		self.events.push(event);
+		return self.consume;
+	}
+}
+
+/* A window's key handler sees a key before any control does. */
+class WindowKey implements IConformanceCase {
+	public string name() { return "window.key"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance window.key", 240.0, 120.0);
+		window.attachRoot(GUI.createPanel(Palette.blue()));
+		window.show();
+		turns.settle();
+		var log = KeyLog();
+		var scope = CallbackScope();
+		window.onKey(log, scope);
+		var probe = Probe(window);
+		probe.key(PROBE_KEY_ESCAPE);
+		turns.settle();
+		Expect.isTrue(log.events.length >= 1, "a key reaches the window's handler");
+		Expect.isTrue(log.events.get(0).key == APP_KEY_ESCAPE && log.events.get(0).action == APP_KEY_PRESSED);
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		int seen = log.events.length;
+		probe.key(PROBE_KEY_ESCAPE);
+		turns.settle();
+		Expect.intEq((long long)log.events.length, (long long)seen, "a cancelled handler hears nothing more");
+		window.close();
+		turns.settle();
+	}
+}

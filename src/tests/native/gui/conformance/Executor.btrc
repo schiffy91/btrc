@@ -1,0 +1,193 @@
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.Testing;
+import Library.Timer;
+import Library.Vector;
+
+import ./Suite.btrc;
+
+/* Work that records the order it ran in. */
+class Step implements IApplicationWork {
+	private Vector<int> order;
+	private int number;
+	public int calls = 0;
+
+	public Step(Vector<int> order, int number) {
+		self.order = order;
+		self.number = number;
+	}
+
+	public void run() {
+		self.calls++;
+		self.order.push(self.number);
+	}
+}
+
+/* Posted work runs on a later turn, once, in the order it was posted. */
+class AppPost implements IConformanceCase {
+	public string name() { return "app.post"; }
+
+	public void run(Turns turns) {
+		Vector<int> order = [];
+		var first = Step(order, 1);
+		var second = Step(order, 2);
+		GUI.post(first);
+		GUI.post(second);
+		Expect.intEq((long long)order.length, 0LL, "posting never runs the work inline");
+		turns.settle();
+		Expect.isTrue(order.length == 2 && order.get(0) == 1 && order.get(1) == 2, "posted work runs in the order it was posted");
+		turns.settle();
+		Expect.isTrue(first.calls == 1 && second.calls == 1, "posted work runs once");
+		Expect.isTrue(turns.host().requests > 0, "the application asked its host for a turn");
+	}
+}
+
+/* Delayed work runs after its delay and not before; cancelled, it never runs. */
+class AppPostAfter implements IConformanceCase {
+	public string name() { return "app.postAfter"; }
+
+	public void run(Turns turns) {
+		Vector<int> order = [];
+		var late = Step(order, 1);
+		var dropped = Step(order, 2);
+		long long started = MonotonicClock.milliseconds();
+		GUI.postAfter(0.15, late);
+		var registration = GUI.postAfter(0.15, dropped);
+		turns.settle(3);
+		Expect.isTrue(late.calls == 0 || MonotonicClock.milliseconds() - started >= 150LL, "delayed work does not run early");
+		Expect.isTrue(registration.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		while (late.calls == 0 && MonotonicClock.milliseconds() - started < 5000LL) { turns.turn(); }
+		Expect.intEq((long long)late.calls, 1LL, "delayed work runs once its delay has passed");
+		Expect.isTrue(MonotonicClock.milliseconds() - started >= 150LL, "and not before");
+		long long waited = MonotonicClock.milliseconds();
+		while (MonotonicClock.milliseconds() - waited < 300LL) { turns.turn(); }
+		Expect.intEq((long long)dropped.calls, 0LL, "cancelled work never runs");
+		Expect.isTrue(turns.host().deadlines > 0, "the application told its host when the delayed work was due");
+	}
+}
+
+/* Scheduled work carries a policy for a suspended application and a key that
+ * lets newer work replace older work of the same kind. */
+class AppSchedule implements IConformanceCase {
+	public string name() { return "app.schedule"; }
+
+	public void run(Turns turns) {
+		Vector<int> order = [];
+		var plain = Step(order, 1);
+		var stale = Step(order, 2);
+		var latest = Step(order, 3);
+		Expect.isTrue(GUI.schedule(plain, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_ACCEPTED);
+		Expect.isTrue(GUI.schedule(stale, 0.0, WORK_SUSPENSION_REPLACE, 7LL).kind == SCHEDULE_ACCEPTED);
+		Expect.isTrue(GUI.schedule(latest, 0.0, WORK_SUSPENSION_REPLACE, 7LL).kind == SCHEDULE_REPLACED, "the same key replaces the waiting work");
+		Expect.intEq((long long)order.length, 0LL, "scheduling never runs the work inline");
+		turns.settle();
+		Expect.isTrue(plain.calls == 1 && stale.calls == 0 && latest.calls == 1, "replaced work never runs");
+	}
+}
+
+/* A host tells the application when it is suspended and resumed: suspended,
+ * no work runs; resumed, deferred work runs once and cancelled work never. */
+class AppHost implements IConformanceCase {
+	public string name() { return "app.host"; }
+
+	public void run(Turns turns) {
+		var other = CallbackScope();
+		Expect.isTrue(GUI.attachHost(SuiteHost(), other).kind == APPLICATION_HOST_ALREADY_ATTACHED, "an application has one host");
+		Expect.isTrue(other.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		Vector<int> order = [];
+		var cancelled = Step(order, 1);
+		var deferred = Step(order, 2);
+		var stale = Step(order, 3);
+		var latest = Step(order, 4);
+		turns.transition(APPLICATION_ACTIVITY_SUSPENDED);
+		Expect.isTrue(GUI.schedule(cancelled, 0.0, WORK_SUSPENSION_CANCEL, 0LL).kind == SCHEDULE_CANCELLED);
+		Expect.isTrue(GUI.schedule(deferred, 0.0, WORK_SUSPENSION_DEFER, 0LL).kind == SCHEDULE_ACCEPTED);
+		Expect.isTrue(GUI.schedule(stale, 0.0, WORK_SUSPENSION_REPLACE, 1LL).kind == SCHEDULE_ACCEPTED);
+		Expect.isTrue(GUI.schedule(latest, 0.0, WORK_SUSPENSION_REPLACE, 1LL).kind == SCHEDULE_REPLACED);
+		turns.settle();
+		Expect.intEq((long long)order.length, 0LL, "a suspended application runs no work");
+		turns.transition(APPLICATION_ACTIVITY_ACTIVE);
+		turns.settle();
+		Expect.isTrue(cancelled.calls == 0 && deferred.calls == 1 && stale.calls == 0 && latest.calls == 1, "resuming runs what was deferred, once");
+		turns.transition(APPLICATION_ACTIVITY_ACTIVE);
+		turns.settle();
+		Expect.isTrue(deferred.calls == 1 && latest.calls == 1, "resuming again replays nothing");
+	}
+}
+
+class Deliveries implements IApplicationPublicationHandler {
+	public Vector<long long> payloads = [];
+
+	public void deliver(ApplicationPublication publication) { self.payloads.push(publication.payload); }
+}
+
+/* A publisher carries values to the UI thread: every accepted one arrives
+ * once and in order however many are sent, a full publisher says so instead
+ * of losing one, and a closed one accepts nothing. */
+class AppPublisher implements IConformanceCase {
+	public string name() { return "app.publisher"; }
+
+	public void run(Turns turns) {
+		var deliveries = Deliveries();
+		var scope = CallbackScope();
+		var created = GUI.createPublisher(16, deliveries, scope);
+		var publisher = created.publisher;
+		if (created.kind != APPLICATION_PUBLISHER_CREATED || publisher == null) { throw "the publisher was not created"; }
+		int burst = 4097;
+		bool full = false;
+		for (int index = 1; index <= burst; index++) {
+			var outcome = publisher.tryPublish(1LL, (long long)index, WORK_SUSPENSION_DEFER, 0LL, (long long)index * 10LL);
+			for (int turn = 0; outcome == PUBLISH_FULL && turn < 10000; turn++) {
+				full = true;
+				turns.turn();
+				outcome = publisher.tryPublish(1LL, (long long)index, WORK_SUSPENSION_DEFER, 0LL, (long long)index * 10LL);
+			}
+			Expect.isTrue(outcome == PUBLISH_ACCEPTED, f"publication {index} was not accepted");
+		}
+		Expect.isTrue(full, "a publisher of sixteen says it is full rather than growing");
+		for (int turn = 0; turn < 10000 && deliveries.payloads.length < burst; turn++) { turns.turn(); }
+		Expect.intEq((long long)deliveries.payloads.length, (long long)burst, "every accepted publication is delivered");
+		for (int index = 0; index < burst; index++) {
+			if (deliveries.payloads.get(index) != ((long long)index + 1LL) * 10LL) { throw f"publication {index + 1} arrived out of order"; }
+		}
+		Expect.isTrue(publisher.requestCancel(1LL, (long long)burst) == PUBLISH_CANCEL_ALREADY_TERMINAL, "a delivered publication is past cancelling");
+		Expect.isTrue(publisher.tryPublish(1LL, (long long)burst + 1LL, WORK_SUSPENSION_DEFER, 0LL, 1LL) == PUBLISH_ACCEPTED);
+		Expect.isTrue(publisher.requestCancel(1LL, (long long)burst + 1LL) == PUBLISH_CANCEL_REQUESTED, "a waiting publication can be cancelled");
+		turns.settle();
+		Expect.intEq((long long)deliveries.payloads.length, (long long)burst, "a cancelled publication is never delivered");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		Expect.isTrue(publisher.tryPublish(1LL, (long long)burst + 2LL, WORK_SUSPENSION_DEFER, 0LL, 1LL) == PUBLISH_CLOSED, "a closed publisher accepts nothing");
+	}
+}
+
+/* Work that asks the application to quit, from inside its loop. */
+class QuitWork implements IApplicationWork {
+	public bool wasRunning = false;
+
+	public void run() {
+		self.wasRunning = true;
+		GUI.requestQuit();
+	}
+}
+
+/* The application's own loop: run returns after a quit is requested, having
+ * closed the windows it owned, and the application can be started again. */
+class AppRun implements ILoopCase {
+	public string name() { return "app.run"; }
+
+	public void run() {
+		GUI.initialize();
+		var window = GUI.createWindow("conformance app.run", 160.0, 100.0);
+		window.show();
+		var quit = QuitWork();
+		GUI.post(quit);
+		GUI.run();
+		Expect.isTrue(quit.wasRunning, "posted work ran inside the loop");
+		Expect.isFalse(window.isOpen(), "run closes the application's windows before it returns");
+		Expect.isTrue(GUI.close() == CALLBACK_CANCELLATION_COMPLETE, "closing a finished application is complete");
+		GUI.initialize();
+		Expect.isTrue(GUI.close() == CALLBACK_CANCELLATION_COMPLETE, "an application can be started again after it has run");
+	}
+}

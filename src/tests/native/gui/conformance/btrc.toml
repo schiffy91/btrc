@@ -1,0 +1,42 @@
+manifest-version = 1
+
+[package]
+name = "guiConformance"
+exports = ["Main"]
+
+[[native.bindings]]
+module = "Probe"
+header = "probes/ConformanceProbe.h"
+language = "c"
+standard = "c11"
+symbols = [
+  "conformanceProbeMove",
+  "conformanceProbePress",
+  "conformanceProbeRelease",
+  "conformanceProbeWheel",
+  "conformanceProbeKey",
+  "conformanceProbeText",
+  "conformanceProbeClose",
+]
+read-only-borrows = [
+  "conformanceProbeMove.title",
+  "conformanceProbePress.title",
+  "conformanceProbeRelease.title",
+  "conformanceProbeWheel.title",
+  "conformanceProbeKey.title",
+  "conformanceProbeText.title",
+  "conformanceProbeText.text",
+  "conformanceProbeClose.title",
+]
+
+[[native.sources]]
+path = "probes/linux/SdlProbe.c"
+language = "c"
+standard = "c11"
+modules = ["Probe"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "sdl3"
+modules = ["Probe"]
+os = ["linux"]

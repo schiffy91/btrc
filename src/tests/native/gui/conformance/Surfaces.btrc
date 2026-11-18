@@ -1,0 +1,74 @@
+import Library.Callback;
+import Library.GPU.GPUProgram;
+import Library.GPU.GPUReadback;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GUI;
+import Library.GUI.GUICaptureLayer;
+import Library.GUI.IGPUView;
+import Library.Image;
+import Library.Testing;
+import Library.Timer;
+import Library.Vector;
+
+import ./Layout.btrc;
+import ./Picture.btrc;
+import ./Suite.btrc;
+
+/* A GPU view is an ordinary child whose content the program draws: its device
+ * arrives over turns, a frame clears to the colour asked for, a readback
+ * returns those pixels, and a capture shows them in the window's picture. */
+class GPUFrame implements IConformanceCase {
+	public string name() { return "gpu.frame"; }
+
+	class string shader() { return "struct Tint { color: vec4<f32> };\n" + "@group(0) @binding(0) var<uniform> tint: Tint;\n" + "@vertex fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {\n" + "  var corners = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));\n" + "  return vec4<f32>(corners[index], 0.0, 1.0);\n" + "}\n" + "@fragment fn fs_main() -> @location(0) vec4<f32> { return tint.color; }\n"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance gpu.frame", 240.0, 160.0);
+		var root = GUI.createContainer();
+		var view = GUI.createGPUView(true);
+		window.attachRoot(root);
+		root.attach(view);
+		view.arrange(40.0, 20.0, 120.0, 80.0);
+		window.show();
+		long long started = MonotonicClock.milliseconds();
+		while (!view.poll() && view.error().isEmpty() && MonotonicClock.milliseconds() - started < 15000LL) { turns.turn(); }
+		Expect.isTrue(view.error().isEmpty(), f"the GPU device failed: {view.error()}");
+		Expect.isTrue(view.poll(), "the GPU device did not arrive within fifteen seconds");
+		Expect.isTrue(view.backingScale() > 0.0);
+		view.setVisible(false);
+		Expect.isTrue(view.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_EMPTY, "a hidden view has no frame to draw");
+		view.setVisible(true);
+		turns.settle();
+		Expect.isTrue(view.beginFrame(0.0, 0.5, 1.0) == GPU_SURFACE_FRAME_READY);
+		Expect.isTrue(Frame.close((double)view.pixelWidth(), 120.0 * view.backingScale(), 1.0), "the frame is the view's size in device pixels");
+		Expect.isTrue(Frame.close((double)view.pixelHeight(), 80.0 * view.backingScale(), 1.0));
+		var renderer = view.frameRenderer();
+		Expect.isTrue(renderer.width() == view.pixelWidth() && renderer.height() == view.pixelHeight());
+		var readback = view.readback();
+		Expect.isTrue(readback.submit());
+		while (readback.poll() != GPU_READBACK_READY && readback.error().isEmpty() && MonotonicClock.milliseconds() - started < 30000LL) { turns.turn(); }
+		Expect.isTrue(readback.state() == GPU_READBACK_READY, f"the readback did not arrive: {readback.error()}");
+		var pixels = readback.takeImage();
+		Expect.isTrue(pixels.width == view.pixelWidth() && pixels.height == view.pixelHeight());
+		var middle = pixels.pixel(pixels.width / 2, pixels.height / 2);
+		Expect.isTrue(middle.red == 0 && middle.green >= 127 && middle.green <= 128 && middle.blue == 255, "the frame is the colour it was cleared to");
+		Vector<GUICaptureLayer> layers = [GUICaptureLayer(view, pixels)];
+		var picture = GUI.capture(root, layers);
+		double scale = (double)picture.width / 240.0;
+		var shown = picture.pixel((int)(100.0 * scale), (int)(60.0 * scale));
+		Expect.isTrue(shown.red == 0 && shown.blue == 255, "a capture shows the GPU view's pixels where the view is");
+		var outside = picture.pixel((int)(220.0 * scale), (int)(140.0 * scale));
+		Expect.isFalse(outside.red == 0 && outside.blue == 255, "and nowhere else");
+		view.requestCapture();
+		var program = view.createProgram(GPUFrame.shader(), 4, false);
+		while (program.poll() != GPU_PROGRAM_READY && program.state() != GPU_PROGRAM_FAILED && MonotonicClock.milliseconds() - started < 45000LL) { turns.turn(); }
+		Expect.isTrue(program.state() == GPU_PROGRAM_READY, f"the program did not validate: {program.error()}");
+		var broken = view.createProgram("not a shader", 4, false);
+		while (broken.poll() != GPU_PROGRAM_READY && broken.state() != GPU_PROGRAM_FAILED && MonotonicClock.milliseconds() - started < 60000LL) { turns.turn(); }
+		Expect.isTrue(broken.state() == GPU_PROGRAM_FAILED && !broken.error().isEmpty(), "an invalid shader fails with its reason and does not break the view");
+		window.close();
+		for (int turn = 0; turn < 2000 && window.pollClose() != CALLBACK_CANCELLATION_COMPLETE; turn++) { turns.turn(); }
+		Expect.isTrue(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE, "closing the window finishes the GPU view's pending work");
+		Expect.isFalse(view.isOpen());
+	}
+}

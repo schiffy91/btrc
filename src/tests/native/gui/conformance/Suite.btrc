@@ -1,0 +1,133 @@
+import Library.Callback;
+import Library.Console;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.Vector;
+
+/* One named check of the portable contract. It builds what it needs through
+ * the GUI facade, lets turns pass, and throws what it found wrong. */
+interface IConformanceCase {
+	string name();
+	void run(Turns turns);
+}
+
+/* A check of the application's own loop, which therefore cannot run inside
+ * the suite's host: it initializes, runs and closes the application itself. */
+interface ILoopCase {
+	string name();
+	void run();
+}
+
+/* The suite drives the application the way a host does (IApplicationHost):
+ * one bounded turn at a time, never GUI.run's loop. */
+class SuiteHost implements IApplicationHost {
+	public int requests = 0;
+	public int deadlines = 0;
+
+	public bool requestTurn() {
+		self.requests++;
+		return true;
+	}
+
+	public void scheduleTurn(unsigned long long monotonicDeadlineNs) { self.deadlines++; }
+}
+
+class Turns {
+	private IApplicationHostAttachment attachment;
+	private SuiteHost suiteHost;
+
+	public Turns(IApplicationHostAttachment attachment, SuiteHost host) {
+		self.attachment = attachment;
+		self.suiteHost = host;
+	}
+
+	public SuiteHost host() { return self.suiteHost; }
+
+	public void turn() { self.attachment.serviceTurn(); }
+
+	/* Enough turns for queued input, layout and a first frame to land. */
+	public void settle(int turns = 20) {
+		for (int turn = 0; turn < turns; turn++) { self.attachment.serviceTurn(); }
+	}
+
+	/* The host tells the application what the system did to it. */
+	public void transition(ApplicationActivity activity) { self.attachment.transition(activity); }
+}
+
+class SuiteEntry {
+	public IConformanceCase? hosted;
+	public ILoopCase? loop;
+
+	public SuiteEntry(IConformanceCase? hosted, ILoopCase? loop) {
+		self.hosted = hosted;
+		self.loop = loop;
+	}
+
+	public string name() {
+		if (self.hosted != null) { return self.hosted.name(); }
+		if (self.loop != null) { return self.loop.name(); }
+		return "";
+	}
+}
+
+class Suite {
+	private Vector<SuiteEntry> entries = [];
+
+	public Suite add(IConformanceCase check) {
+		self.entries.push(SuiteEntry(check, null));
+		return self;
+	}
+
+	public Suite addLoop(ILoopCase check) {
+		self.entries.push(SuiteEntry(null, check));
+		return self;
+	}
+
+	/* A fresh application for every case, so one case's windows, registrations
+	 * and failures never reach the next. */
+	private void runHosted(IConformanceCase check) {
+		GUI.initialize();
+		var scope = CallbackScope();
+		var host = SuiteHost();
+		var attached = GUI.attachHost(host, scope);
+		if (attached.kind != APPLICATION_HOST_ATTACHED || attached.attachment == null) {
+			GUI.close();
+			throw f"the host could not attach: {attached.error}";
+		}
+		var attachment = attached.attachment;
+		string failure = "";
+		try { check.run(Turns(attachment, host)); } catch (string error) { failure = error; }
+		attachment.cancel();
+		for (int turn = 0; turn < 1000 && attachment.pollCompletion() == CALLBACK_CANCELLATION_PENDING; turn++) {
+			attachment.serviceTurn();
+		}
+		bool released = attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE;
+		if (!failure.isEmpty()) { throw failure; }
+		if (!released) { throw "the application did not finish closing after the case"; }
+	}
+
+	/* One line per case and a summary, which the driver reads. */
+	public int run(string only = "") {
+		int ran = 0;
+		int failed = 0;
+		for entry in self.entries {
+			if (!only.isEmpty() && entry.name() != only) { continue; }
+			ran++;
+			try {
+				if (entry.hosted != null) { self.runHosted(entry.hosted); }
+				if (entry.loop != null) { entry.loop.run(); }
+				Console.log(f"CASE {entry.name()} PASS");
+			} catch (string error) {
+				failed++;
+				Console.log(f"CASE {entry.name()} FAIL {error}");
+			}
+		}
+		Console.log(f"CONFORMANCE ran={ran} failed={failed}");
+		return failed == 0 && ran > 0 ? 0 : 1;
+	}
+
+	public void list() {
+		for entry in self.entries { Console.log(entry.name()); }
+	}
+}

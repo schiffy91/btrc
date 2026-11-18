@@ -1,0 +1,253 @@
+# The suite's cases, in the order the program runs them, and the catalog
+# operations each one exercises (docs/design/native-ui-catalog/operations).
+# The driver runs one process per case and holds this list to the program's
+# own `--list`, and the operations to the catalog.
+
+[[case]]
+name = "button.state"
+operations = [
+  "IButton.title", "IButton.setTitle", "IButton.isEnabled", "IButton.setEnabled",
+  "IButton.isSelected", "IButton.setSelected", "IButton.toolTip", "IButton.setToolTip",
+  "GUI.createButton", "IApplication.createButton"
+]
+
+[[case]]
+name = "button.click"
+operations = [
+  "IButton.onAction", "IButtonAction.invoke"
+]
+
+[[case]]
+name = "view.arrange"
+operations = [
+  "IView.arrange", "IView.isVisible", "IView.setVisible", "IView.isOpen", "IView.pollClose",
+  "GUI.createContainer", "IApplication.createContainer", "GUI.createPanel",
+  "IApplication.createPanel", "GUI.capture", "IContainer.attach"
+]
+
+[[case]]
+name = "stack.row"
+operations = [
+  "GUI.createRow", "IApplication.createRow", "IStack.spacing", "IStack.setSpacing",
+  "IStack.alignment", "IStack.setAlignment", "IStack.setPadding", "IStack.layout"
+]
+
+[[case]]
+name = "stack.column"
+operations = [
+  "GUI.createColumn", "IApplication.createColumn"
+]
+
+[[case]]
+name = "container.tree"
+operations = [
+  "IContainer.childAt", "IContainer.childCount", "IContainer.detach", "IContainer.insert",
+  "IContainer.move", "IContainer.applyBatch", "IContainer.treeRevision", "IView.close"
+]
+
+[[case]]
+name = "grid.cells"
+operations = [
+  "GUI.createGrid", "IApplication.createGrid", "IGrid.childAt", "IGrid.columnCount",
+  "IGrid.fitColumn", "IGrid.fitRow", "IGrid.layout", "IGrid.rowCount", "IGrid.setChild",
+  "IGrid.setColumnHidden", "IGrid.setColumnWidth", "IGrid.setRowHeight", "IGrid.setRowHidden",
+  "IGrid.setSpacing"
+]
+
+[[case]]
+name = "scroll.offsets"
+operations = [
+  "GUI.createScrollView", "IApplication.createScrollView", "IScrollView.scrollOffset",
+  "IScrollView.scrollTo", "IScrollView.setContentSize", "IScrollView.offset",
+  "IScrollView.visibleRect", "IScrollView.scrollToOffset", "IScrollView.onOffsetChanged",
+  "IScrollControlEventHandler.scrollEvent"
+]
+
+[[case]]
+name = "label.text"
+operations = [
+  "GUI.createLabel", "IApplication.createLabel", "ILabel.setCentered", "ILabel.setFont",
+  "ILabel.setSecondary", "ILabel.setText", "ILabel.setWrapping", "ILabel.text"
+]
+
+[[case]]
+name = "textfield.state"
+operations = [
+  "GUI.createTextField", "IApplication.createTextField", "ITextField.text", "ITextField.setText",
+  "ITextField.setPlaceholder", "ITextField.isEnabled", "ITextField.setEnabled", "ITextField.setFont"
+]
+
+[[case]]
+name = "select.items"
+operations = [
+  "GUI.createSelect", "IApplication.createSelect", "ISelect.setItems", "ISelect.itemCount",
+  "ISelect.selectedIndex", "ISelect.setSelectedIndex", "ISelect.selectedTitle",
+  "ISelect.setItemEnabled", "ISelect.isItemEnabled", "ISelect.setEnabled", "ISelect.isEnabled",
+  "ISelect.setFont"
+]
+
+[[case]]
+name = "select.options"
+operations = [
+  "ISelect.setOptions", "ISelect.optionsState", "ISelect.selectedKey", "ISelect.setSelectedKey"
+]
+
+[[case]]
+name = "slider.state"
+operations = [
+  "GUI.createSlider", "IApplication.createSlider", "ISlider.value", "ISlider.setValue",
+  "ISlider.range", "ISlider.setRange", "ISlider.setRangeValue", "ISlider.isEnabled",
+  "ISlider.setEnabled", "ISlider.toolTip", "ISlider.setToolTip"
+]
+
+[[case]]
+name = "indicator.state"
+operations = [
+  "GUI.createProgressIndicator", "IApplication.createProgressIndicator",
+  "IProgressIndicator.isRunning", "IProgressIndicator.setRunning", "GUI.createLevelIndicator",
+  "IApplication.createLevelIndicator", "ILevelIndicator.value", "ILevelIndicator.setValue"
+]
+
+[[case]]
+name = "panel.fill"
+operations = [
+  "IPanel.setFill", "IPanel.setCornerRadius", "IPanel.setDarkAppearance", "IPanel.inheritAppearance"
+]
+
+[[case]]
+name = "image.pixels"
+operations = [
+  "GUI.createImageView", "IApplication.createImageView", "GUI.createImageHandle",
+  "IImageView.setImage", "IImageView.setImageHandle", "IImageHandle.width", "IImageHandle.height",
+  "IImageHandle.isOpen", "IImageHandle.close"
+]
+
+[[case]]
+name = "app.post"
+operations = [
+  "GUI.initialize", "GUI.post", "IApplication.post", "IApplicationWork.run", "GUI.attachHost",
+  "IApplication.attachHost", "IApplicationHost.requestTurn", "IApplicationHostAttachment.serviceTurn"
+]
+
+[[case]]
+name = "app.postAfter"
+operations = [
+  "GUI.postAfter", "IApplication.postAfter", "IApplicationHost.scheduleTurn"
+]
+
+[[case]]
+name = "app.schedule"
+operations = [
+  "GUI.schedule", "IApplication.schedule"
+]
+
+[[case]]
+name = "app.host"
+operations = [
+  "IApplicationHostAttachment.transition"
+]
+
+[[case]]
+name = "app.publisher"
+operations = [
+  "GUI.createPublisher", "IApplication.createPublisher", "IApplicationPublisher.tryPublish",
+  "IApplicationPublisher.requestCancel", "IApplicationPublicationHandler.deliver"
+]
+
+[[case]]
+name = "app.run"
+operations = [
+  "GUI.run", "GUI.requestQuit", "GUI.close", "IApplication.run", "IApplication.requestQuit",
+  "IApplication.isRunning", "IApplication.close"
+]
+
+[[case]]
+name = "window.state"
+operations = [
+  "GUI.createWindow", "IApplication.createWindow", "IWindow.title", "IWindow.setTitle",
+  "IWindow.isOpen", "IWindow.isVisible", "IWindow.contentWidth", "IWindow.contentHeight",
+  "IWindow.setContentSize", "IWindow.setMinimumContentSize", "IWindow.root", "IWindow.attachRoot",
+  "IWindow.detachRoot", "IWindow.show", "IWindow.hide", "IWindow.isFocused", "IWindow.state",
+  "IWindow.onStateChanged", "IWindow.close", "IWindow.pollClose", "IWindowStateHandler.stateChanged"
+]
+
+[[case]]
+name = "window.close"
+operations = [
+  "IWindow.requestClose", "IWindow.onCloseRequested", "IWindowCloseRequestHandler.closeRequested",
+  "IWindowCloseTransaction.decide", "IWindowCloseTransaction.completeSave",
+  "IWindowCloseTransaction.state"
+]
+
+[[case]]
+name = "window.key"
+operations = [
+  "IWindow.onKey", "IWindowKeyHandler.key"
+]
+
+[[case]]
+name = "view.pointer"
+operations = [
+  "IView.onPointer", "IView.onScroll", "IViewPointerHandler.pointer", "IViewScrollHandler.scroll"
+]
+
+[[case]]
+name = "view.interaction"
+operations = [
+  "IView.interactionState", "IView.onInteractionStateChanged",
+  "IViewInteractionStateHandler.interactionChanged"
+]
+
+[[case]]
+name = "textfield.editing"
+operations = [
+  "ITextField.onDraftChanged", "ITextField.onCommit", "ITextField.onCancel",
+  "ITextControlEventHandler.textEvent"
+]
+
+[[case]]
+name = "select.choosing"
+operations = [
+  "ISelect.onChanged", "ISelect.onCommit", "ISelect.onCancel",
+  "ISelectionControlEventHandler.selectionEvent"
+]
+
+[[case]]
+name = "slider.dragging"
+operations = [
+  "ISlider.onPreview", "ISlider.onCommit", "ISlider.onCancel",
+  "ISliderControlEventHandler.sliderEvent"
+]
+
+[[case]]
+name = "button.activate"
+operations = [
+  "IButton.activate", "IButton.cancelPendingActions", "IButton.setFont", "IButton.setCentered",
+  "IButton.setSystemSymbol", "IButton.setBordered", "IButton.setTransparent"
+]
+
+[[case]]
+name = "view.fitting"
+operations = [
+  "IView.fittingWidth", "IView.fittingHeight"
+]
+
+[[case]]
+name = "gpu.frame"
+operations = [
+  "GUI.createGPUView", "IApplication.createGPUView", "IGPUView.poll", "IGPUView.error",
+  "IGPUView.backingScale", "IGPUView.pixelWidth", "IGPUView.pixelHeight", "IGPUView.frameRenderer",
+  "IGPUView.beginFrame", "IGPUView.createProgram", "IGPUView.readback", "IGPUView.requestCapture"
+]
+
+[[case]]
+name = "text.raster"
+operations = [
+  "GUI.rasterizeText"
+]
+
+[[case]]
+name = "font.face"
+operations = [
+  "IFontFace.glyph", "IFontFace.metrics"
+]

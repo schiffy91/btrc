@@ -1,0 +1,206 @@
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.ControlEvents;
+import Library.GUI.ISelect;
+import Library.GUI.ISlider;
+import Library.GUI.ITextField;
+import Library.Testing;
+import Library.Vector;
+
+import ./Controls.btrc;
+import ./Probe.btrc;
+import ./Suite.btrc;
+
+class TextLog implements ITextControlEventHandler {
+	public Vector<TextControlEvent> events = [];
+
+	public void textEvent(TextControlEvent event) { self.events.push(event); }
+
+	public int count(ControlPhase phase) {
+		int found = 0;
+		for event in self.events { if (event.phase == phase) { found++; } }
+		return found;
+	}
+
+	public TextControlEvent last() { return self.events.get(self.events.length - 1); }
+}
+
+/* Typing into a text field is a draft until Return commits it or Escape
+ * cancels it; the program's own setText is neither. */
+class TextFieldEditing implements IConformanceCase {
+	public string name() { return "textfield.editing"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance textfield.editing", 240.0, 60.0);
+		var field = GUI.createTextField("saved", "");
+		window.attachRoot(field);
+		window.show();
+		turns.settle();
+		var log = TextLog();
+		var scope = CallbackScope();
+		field.onDraftChanged(log, scope);
+		field.onCommit(log, scope);
+		field.onCancel(log, scope);
+		turns.settle();
+		Expect.intEq((long long)log.events.length, 0LL, "subscribing reports nothing");
+		field.setText("saved");
+		turns.settle();
+		Expect.intEq((long long)log.events.length, 0LL, "setting the same text from the program is not an edit");
+		var probe = Probe(window);
+		probe.click(120.0, 30.0);
+		probe.key(PROBE_KEY_SELECT_ALL);
+		probe.text("draft");
+		turns.settle();
+		Expect.strEq(field.text(), "draft");
+		Expect.isTrue(log.count(CONTROL_PHASE_DRAFT) >= 1 && log.count(CONTROL_PHASE_COMMIT) == 0, "typing is a draft, not a commit");
+		Expect.isTrue(log.last().text == "draft" && log.last().context.origin == CONTROL_ORIGIN_USER);
+		probe.key(PROBE_KEY_RETURN);
+		turns.settle();
+		Expect.intEq((long long)log.count(CONTROL_PHASE_COMMIT), 1LL, "Return commits once");
+		Expect.isTrue(log.last().phase == CONTROL_PHASE_COMMIT && log.last().text == "draft");
+		probe.key(PROBE_KEY_SELECT_ALL);
+		probe.text("abandoned");
+		turns.settle();
+		probe.key(PROBE_KEY_ESCAPE);
+		turns.settle();
+		Expect.intEq((long long)log.count(CONTROL_PHASE_CANCEL), 1LL, "Escape cancels once");
+		Expect.isTrue(log.last().phase == CONTROL_PHASE_CANCEL && log.last().cancelReason == CONTROL_CANCEL_ESCAPE);
+		Expect.strEq(field.text(), "draft", "a cancelled draft gives the committed text back");
+		Expect.intEq((long long)log.count(CONTROL_PHASE_COMMIT), 1LL, "and commits nothing");
+		probe.key(PROBE_KEY_SELECT_ALL);
+		probe.text("replaced");
+		turns.settle();
+		field.setText("model");
+		turns.settle();
+		Expect.isTrue(log.last().phase == CONTROL_PHASE_CANCEL && log.last().cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT, "the program replacing the text cancels a draft in progress");
+		Expect.strEq(field.text(), "model");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+	}
+}
+
+class SelectionLog implements ISelectionControlEventHandler {
+	public Vector<SelectionControlEvent> events = [];
+
+	public void selectionEvent(SelectionControlEvent event) { self.events.push(event); }
+
+	public int count(ControlPhase phase) {
+		int found = 0;
+		for event in self.events { if (event.phase == phase) { found++; } }
+		return found;
+	}
+
+	public SelectionControlEvent last() { return self.events.get(self.events.length - 1); }
+}
+
+/* Choosing in a select is a change until it is committed; Escape puts the
+ * selection back. The program's own selection is neither. */
+class SelectChoosing implements IConformanceCase {
+	public string name() { return "select.choosing"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance select.choosing", 240.0, 60.0);
+		var select = GUI.createSelect();
+		Vector<SelectOption> options = [SelectOptions.option("a", "Alpha"), SelectOptions.option("b", "Beta"), SelectOptions.option("c", "Gamma")];
+		select.setOptions(SelectOptions.model(options, "a"));
+		window.attachRoot(select);
+		window.show();
+		turns.settle();
+		var log = SelectionLog();
+		var scope = CallbackScope();
+		select.onChanged(log, scope);
+		select.onCommit(log, scope);
+		select.onCancel(log, scope);
+		select.setSelectedKey("a");
+		turns.settle();
+		Expect.intEq((long long)log.events.length, 0LL, "the program's own selection is not a choice");
+		var probe = Probe(window);
+		probe.click(120.0, 30.0);
+		turns.settle();
+		probe.key(PROBE_KEY_DOWN);
+		turns.settle();
+		probe.key(PROBE_KEY_RETURN);
+		turns.settle();
+		Expect.intEq((long long)log.count(CONTROL_PHASE_COMMIT), 1LL, "one choice, one commit");
+		var chosen = select.selectedKey();
+		Expect.isTrue(chosen != null && chosen == "b", "the next option down was chosen");
+		var accepted = log.last().acceptedKey;
+		Expect.isTrue(log.last().phase == CONTROL_PHASE_COMMIT && accepted != null && accepted == "b" && log.last().context.origin == CONTROL_ORIGIN_USER);
+		probe.click(120.0, 30.0);
+		turns.settle();
+		probe.key(PROBE_KEY_DOWN);
+		turns.settle();
+		probe.key(PROBE_KEY_ESCAPE);
+		turns.settle();
+		Expect.intEq((long long)log.count(CONTROL_PHASE_CANCEL), 1LL, "Escape cancels once");
+		chosen = select.selectedKey();
+		Expect.isTrue(chosen != null && chosen == "b", "a cancelled choice leaves the selection as it was");
+		Expect.intEq((long long)log.count(CONTROL_PHASE_COMMIT), 1LL);
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+	}
+}
+
+class SliderLog implements ISliderControlEventHandler {
+	public Vector<SliderControlEvent> events = [];
+
+	public void sliderEvent(SliderControlEvent event) { self.events.push(event); }
+
+	public int count(ControlPhase phase) {
+		int found = 0;
+		for event in self.events { if (event.phase == phase) { found++; } }
+		return found;
+	}
+
+	public SliderControlEvent last() { return self.events.get(self.events.length - 1); }
+}
+
+/* Dragging a slider previews values and commits the one it is let go at;
+ * Escape during the drag puts the value back. */
+class SliderDragging implements IConformanceCase {
+	public string name() { return "slider.dragging"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance slider.dragging", 300.0, 60.0);
+		var slider = GUI.createSlider(0.0, 10.0, 0);
+		slider.setValue(5.0);
+		window.attachRoot(slider);
+		window.show();
+		turns.settle();
+		var log = SliderLog();
+		var scope = CallbackScope();
+		slider.onPreview(log, scope);
+		slider.onCommit(log, scope);
+		slider.onCancel(log, scope);
+		slider.setValue(5.0);
+		turns.settle();
+		Expect.intEq((long long)log.events.length, 0LL, "the program's own value is not a drag");
+		var probe = Probe(window);
+		probe.move(150.0, 30.0);
+		probe.down(150.0, 30.0);
+		probe.move(200.0, 30.0);
+		probe.move(240.0, 30.0);
+		turns.settle();
+		Expect.isTrue(log.count(CONTROL_PHASE_PREVIEW) >= 1 && log.count(CONTROL_PHASE_COMMIT) == 0, "a drag in progress previews and commits nothing");
+		probe.up(240.0, 30.0);
+		turns.settle();
+		Expect.intEq((long long)log.count(CONTROL_PHASE_COMMIT), 1LL, "letting go commits once");
+		double committed = slider.value();
+		Expect.isTrue(committed > 5.0 && log.last().value == committed && log.last().context.origin == CONTROL_ORIGIN_USER, "dragging right raised the value");
+		probe.down(240.0, 30.0);
+		probe.move(100.0, 30.0);
+		turns.settle();
+		probe.key(PROBE_KEY_ESCAPE);
+		turns.settle();
+		probe.up(100.0, 30.0);
+		turns.settle();
+		Expect.intEq((long long)log.count(CONTROL_PHASE_CANCEL), 1LL, "Escape cancels the drag once");
+		Expect.isTrue(slider.value() == committed, "a cancelled drag puts the value back");
+		Expect.intEq((long long)log.count(CONTROL_PHASE_COMMIT), 1LL);
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+	}
+}
