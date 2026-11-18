@@ -33,6 +33,7 @@ class MacOSRunLoopState {
 		if (self._source == null) { free(context); throw "Cannot create native run-loop source"; }
 		MacOSRunLoopState retained = self; keep retained; context->state = retained;
 		self._context = context;
+		btrcRunLoopServiceMoveAnimations();
 		CFRunLoopAddSource(CFRunLoopGetMain(), self._source, kCFRunLoopCommonModes);
 	}
 

@@ -386,6 +386,7 @@ symbols = [
 	"CFRunLoopSourceRef", "CFRunLoopTimerRef", "CFStringRef", "CFTypeRef", "CFRetain", "CFRelease", "CFGetTypeID", "CFStringGetTypeID",
 	"CFRunLoopSourceContext", "CFRunLoopGetMain", "CFRunLoopSourceCreate", "CFRunLoopAddSource", "CFRunLoopSourceSignal", "CFRunLoopWakeUp", "CFRunLoopSourceInvalidate", "kCFRunLoopCommonModes",
 	"CFRunLoopTimerContext", "CFAbsoluteTimeGetCurrent", "CFRunLoopTimerCreate", "CFRunLoopAddTimer", "CFRunLoopTimerInvalidate", "CFRunLoopTimerIsValid",
+	"btrcRunLoopServiceMoveAnimations",
 ]
 borrowed-parameters = ["CFRunLoopAddSource.mode", "CFRunLoopAddTimer.mode", "CFGetTypeID.cf"]
 static-globals = ["kCFRunLoopCommonModes"]
