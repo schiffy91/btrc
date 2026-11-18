@@ -9,8 +9,17 @@ import Library.GUI.IView;
 import Library.GUI.MacOS.MacOSContainer;
 import Library.GUI.MacOS.MacOSView;
 
+/* NSStackView applies its edge insets on the near side of the cross axis
+ * only: under end or centre alignment the far inset is ignored. Padding is
+ * therefore the host's: the stack is pinned inside a plain view by four
+ * constraints whose constants are the padding. */
 class MacOSStackLayout implements IMacOSContainerLayout {
+	private NSView? _host;
 	private NSStackView? _stack;
+	private NSLayoutConstraint? _top;
+	private NSLayoutConstraint? _right;
+	private NSLayoutConstraint? _bottom;
+	private NSLayoutConstraint? _left;
 	private bool _vertical;
 	private StackAlignment _alignment = STACK_ALIGN_START;
 
@@ -18,9 +27,18 @@ class MacOSStackLayout implements IMacOSContainerLayout {
 		if (!NSThread.isMainThread()) { throw "Native stacks require the main thread"; }
 		self.validateLength(spacing);
 		self._vertical = vertical;
+		self._host = NSView.new();
 		self._stack = NSStackView.new();
-		if (self._stack == null) { throw "Cannot create native stack"; }
+		if (self._host == null || self._stack == null) { throw "Cannot create native stack"; }
+		var host = self.nativeView();
 		var stack = self.control();
+		NSView pinned = stack;
+		pinned.setTranslatesAutoresizingMaskIntoConstraints(false);
+		host.addSubview(pinned, NSWindowAbove, null);
+		self._top = self.pin(pinned, NSLayoutAttributeTop, host, NSLayoutAttributeTop);
+		self._left = self.pin(pinned, NSLayoutAttributeLeft, host, NSLayoutAttributeLeft);
+		self._bottom = self.pin(host, NSLayoutAttributeBottom, pinned, NSLayoutAttributeBottom);
+		self._right = self.pin(host, NSLayoutAttributeRight, pinned, NSLayoutAttributeRight);
 		stack.setOrientation(vertical ? NSUserInterfaceLayoutOrientationVertical : NSUserInterfaceLayoutOrientationHorizontal);
 		stack.setDetachesHiddenViews(false);
 		stack.setSpacing(spacing);
@@ -33,9 +51,21 @@ class MacOSStackLayout implements IMacOSContainerLayout {
 		return self._stack;
 	}
 
+	/* first.attribute == second.attribute + constant, the constant set later. */
+	private NSLayoutConstraint pin(NSView first, long firstAttribute, NSView second, long secondAttribute) {
+		var constraint = NSLayoutConstraint.constraintWithItem(first, firstAttribute, NSLayoutRelationEqual, second, secondAttribute, 1.0, 0.0);
+		if (constraint == null) { throw "Cannot pin native stack"; }
+		constraint.setActive(true);
+		return constraint;
+	}
+
 	private void validateLength(double value) { if (!Math.isFinite(value) || value < 0.0) { throw "Stack spacing and padding must be finite and nonnegative"; } }
 
-	public NSView nativeView() { return self.control(); }
+	public NSView nativeView() {
+		if (!NSThread.isMainThread()) { throw "Native stacks require the main thread"; }
+		if (self._host == null) { throw "Native stack is closed"; }
+		return self._host;
+	}
 
 	public NSView childParent() { return self.control(); }
 
@@ -68,17 +98,18 @@ class MacOSStackLayout implements IMacOSContainerLayout {
 	public void setPadding(double top, double right, double bottom, double left) {
 		self.validateLength(top); self.validateLength(right); self.validateLength(bottom); self.validateLength(left);
 		self.validateLength(top + bottom); self.validateLength(left + right);
-		var stack = self.control();
-		var insets = stack.edgeInsets();
-		insets.top = top; insets.right = right; insets.bottom = bottom; insets.left = left;
-		stack.setEdgeInsets(insets);
+		self.control();
+		var pinTop = self._top; var pinRight = self._right; var pinBottom = self._bottom; var pinLeft = self._left;
+		if (pinTop == null || pinRight == null || pinBottom == null || pinLeft == null) { throw "Native stack is closed"; }
+		pinTop.setConstant(top); pinRight.setConstant(right); pinBottom.setConstant(bottom); pinLeft.setConstant(left);
 	}
 
 	public void layout() { self.nativeView().layoutSubtreeIfNeeded(); }
 
 	public void close() {
 		if (!NSThread.isMainThread()) { throw "Native stacks require the main thread"; }
-		self._stack = null;
+		self._top = null; self._right = null; self._bottom = null; self._left = null;
+		self._stack = null; self._host = null;
 	}
 }
 

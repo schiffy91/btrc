@@ -509,11 +509,14 @@ language = "objective-c"
 standard = "c11"
 symbols = [
 	"+[NSThread isMainThread]", "+[NSStackView new]", "-[NSStackView setOrientation:]",
+	"+[NSView new]", "-[NSView addSubview:positioned:relativeTo:]", "NSWindowAbove", "-[NSView setTranslatesAutoresizingMaskIntoConstraints:]",
+	"+[NSLayoutConstraint constraintWithItem:attribute:relatedBy:toItem:attribute:multiplier:constant:]",
+	"-[NSLayoutConstraint setActive:]", "-[NSLayoutConstraint setConstant:]", "NSLayoutRelationEqual",
+	"NSLayoutAttributeLeft", "NSLayoutAttributeRight",
 	"NSUserInterfaceLayoutOrientationVertical", "NSUserInterfaceLayoutOrientationHorizontal",
 	"-[NSStackView setDetachesHiddenViews:]", "-[NSStackView spacing]", "-[NSStackView setSpacing:]",
 	"-[NSStackView setAlignment:]", "NSLayoutAttributeLeading", "NSLayoutAttributeTop",
 	"NSLayoutAttributeCenterX", "NSLayoutAttributeCenterY", "NSLayoutAttributeTrailing", "NSLayoutAttributeBottom",
-	"-[NSStackView edgeInsets]", "-[NSStackView setEdgeInsets:]",
 	"-[NSStackView addArrangedSubview:]", "-[NSStackView removeArrangedSubview:]", "-[NSStackView arrangedSubviews]", "-[NSStackView insertArrangedSubview:atIndex:]", "-[NSArray count]", "-[NSArray indexOfObjectIdenticalTo:]", "-[NSView layoutSubtreeIfNeeded]"
 ]
 os = ["macos"]
