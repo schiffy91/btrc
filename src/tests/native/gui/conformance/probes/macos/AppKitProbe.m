@@ -328,6 +328,10 @@ static void dispatch(NSEvent *event) {
     if (survived) { [event.window sendEvent:event]; }
 }
 
+/* A macOS window has the size it asks for (CONFORMANCE_WINDOW_SIZING_ASKED). */
+int conformanceProbeWindowSizing(void);
+int conformanceProbeWindowSizing(void) { return 0; }
+
 void conformanceProbeService(void) {
     if (!NSThread.isMainThread || !NSApp) { return; }
     @autoreleasepool {
