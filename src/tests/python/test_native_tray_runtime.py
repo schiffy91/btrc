@@ -1,5 +1,6 @@
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -518,3 +519,132 @@ int main() {{
     finally:
         process.terminate()
         process.communicate(timeout=10)
+
+
+def test_linux_tray_survives_a_watcher_replaced_during_registration(tmp_path):
+    """A watcher takes the registration and is replaced, with nothing registered, before the item reads the
+    reply: a desktop does this when it reloads its tray host during login. The item listens for a new watcher
+    before it registers, so it hears of this one and registers again."""
+    if sys.platform != "linux" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("requires Linux and the explicitly built native header reader")
+    if error := linux_tray_backend_error():
+        pytest.skip(error)
+    daemon_program = shutil.which("dbus-daemon")
+    if daemon_program is None:
+        pytest.skip("native tray backend is unavailable: no session bus (dbus-daemon is not installed)")
+    from gi.repository import Gio, GLib
+
+    from tools.ui.status_notifier_watcher import INTERFACE, PATH, WATCHER
+
+    source = tmp_path / "ReplacedWatcher.btrc"
+    source.write_text("""import Library.Tray;
+int main() {
+    var tray = SystemTray("Replaced").item("Quit", TraySignal.quit());
+    tray.show();
+    for (int i = 0; i < 3000; i++) { if (!tray.pump(10)) { break; } }
+    tray.close();
+    return 0;
+}
+""")
+    generated = tmp_path / "ReplacedWatcher.c"
+    plan = tmp_path / "ReplacedWatcher.json"
+    compiled = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src.compiler.python.main",
+            "--no-cache",
+            str(source),
+            "-o",
+            str(generated),
+            "--emit-link-plan",
+            str(plan),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "BTRC_HOME": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    executable = tmp_path / "ReplacedWatcher"
+    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+
+    # A bus of the test's own: the session's watcher must not be the one that answers.
+    daemon = subprocess.Popen(
+        [daemon_program, "--session", "--nofork", "--nopidfile", "--print-address=1"], stdout=subprocess.PIPE, text=True
+    )
+    process = None
+    try:
+        address = daemon.stdout.readline().strip()
+        assert address, "dbus-daemon printed no address"
+        bus = Gio.DBusConnection.new_for_address_sync(
+            address,
+            Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
+            None,
+            None,
+        )
+
+        def name(member):
+            arguments = GLib.Variant("(su)", (WATCHER, 0)) if member == "RequestName" else GLib.Variant("(s)", (WATCHER,))
+            return bus.call_sync(
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+                member,
+                arguments,
+                None,
+                Gio.DBusCallFlags.NONE,
+                2000,
+                None,
+            ).unpack()[0]
+
+        registrations = []
+        replaced = []
+        items = []
+
+        def call(_connection, _sender, _path, _interface, method, parameters, invocation):
+            (service,) = parameters.unpack()
+            if method == "RegisterStatusNotifierItem":
+                registrations.append(service)
+                if len(registrations) == 1:
+                    # This watcher goes and a new one, holding nothing, takes the name; then the old reply arrives.
+                    replaced.extend((name("ReleaseName"), name("RequestName")))
+                else:
+                    items.append(service)
+            invocation.return_value(None)
+
+        def read(_connection, _sender, _path, _interface, wanted):
+            return {
+                "RegisteredStatusNotifierItems": GLib.Variant("as", items),
+                "IsStatusNotifierHostRegistered": GLib.Variant("b", True),
+                "ProtocolVersion": GLib.Variant("i", 0),
+            }.get(wanted)
+
+        info = Gio.DBusNodeInfo.new_for_xml(INTERFACE).interfaces[0]
+        register = getattr(bus, "register_object_with_closures2", None) or bus.register_object
+        register(PATH, info, call, read, None)
+        assert name("RequestName") == 1  # the primary owner
+
+        process = subprocess.Popen(
+            [str(executable)],
+            env={**os.environ, "DBUS_SESSION_BUS_ADDRESS": address},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        expected = f"org.kde.StatusNotifierItem-{process.pid}-"
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not items:
+            GLib.MainContext.default().iteration(False)
+            assert process.poll() is None, process.communicate()
+            time.sleep(0.01)
+        assert replaced == [1, 1], replaced  # released, and owned again as primary
+        assert len(registrations) == 2 and items == [registrations[0]], (registrations, items)
+        assert items[0].startswith(expected)
+    finally:
+        if process is not None:
+            process.terminate()
+            process.communicate(timeout=10)
+        daemon.terminate()
+        daemon.wait(timeout=10)

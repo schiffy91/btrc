@@ -165,8 +165,10 @@ class LinuxTray implements ITray {
 			self.probeCheckItems();
 			self._attention = self.probeAttention();
 			self._attentionDeadline = self.nextAttention();
-			if (!self.registerWithWatcher()) { throw "No StatusNotifierWatcher on the session bus"; }
+			/* Listen first: a watcher that is replaced between the registration and this would never be heard of,
+			 * and the item would stay off the tray while the process runs on. */
 			self.watchWatcher();
+			if (!self.registerWithWatcher()) { throw "No StatusNotifierWatcher on the session bus"; }
 		} catch (string error) { self.close(); throw error; }
 	}
 

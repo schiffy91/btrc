@@ -111,7 +111,9 @@ activation; a changed mark bumps the dbusmenu revision and emits
 `LayoutUpdated`. The item re-registers when `org.kde.StatusNotifierWatcher`
 changes owner, so a restarted host (kded/plasmashell crash recovery) shows it
 again; a failed re-registration, like losing the session bus, is terminal and
-thrown from `pump()`/`run()`. `IconName` is the icon path resolved to an
+thrown from `pump()`/`run()`. It listens for the
+change before it registers, so a host that is replaced while the registration
+is on its way is not missed. `IconName` is the icon path resolved to an
 existing absolute file, else the theme icon `application-x-executable` (the
 macOS tray likewise falls back to its title). `show()` throws when there is no
 session bus or no watcher. `setIcon` and `setTip` emit `NewIcon` and
