@@ -586,7 +586,9 @@ int main() {
         )
 
         def name(member):
-            arguments = GLib.Variant("(su)", (WATCHER, 0)) if member == "RequestName" else GLib.Variant("(s)", (WATCHER,))
+            arguments = (
+                GLib.Variant("(su)", (WATCHER, 0)) if member == "RequestName" else GLib.Variant("(s)", (WATCHER,))
+            )
             return bus.call_sync(
                 "org.freedesktop.DBus",
                 "/org/freedesktop/DBus",
