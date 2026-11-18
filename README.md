@@ -623,6 +623,7 @@ The current groups are:
 | `HID` | The contract a human interface device implements, apart from the bus that carries it |
 | `Bluetooth` | Addresses, the HID protocol and service record; on Linux, L2CAP channels, the adapter (pairing, discoverability, service records) and a HID device served over the HID profile |
 | `Crypto` | Base64; Ed25519 identities in OpenSSH's formats, a trusted-key file and an encrypted, mutually authenticated channel over a TCP stream (libsodium, Linux) |
+| `Steam` | A profile's non-Steam shortcuts: read, change and write `shortcuts.vdf` with every other byte kept, the number and picture names Steam uses |
 
 The everyday surfaces are intentionally practical:
 
@@ -1893,7 +1894,7 @@ src/
     IO.btrc Console.btrc CLI.btrc Process.btrc Platform.btrc
     Result.btrc Callback.btrc OwnedBuffer.btrc SPSC.btrc
     App/ Audio/ BackgroundJobs/ Bluetooth/ Crypto/ Daemon/ Digest/ FileSystem/ GPU/ GUI/
-    Graph/ HID/ HTTP/ Image/ LocalApplicationChannel/ Network/ Realtime/ Terminal/ Tray/ UI/ USB/
+    Graph/ HID/ HTTP/ Image/ LocalApplicationChannel/ Network/ Realtime/ Steam/ Terminal/ Tray/ UI/ USB/
 
   tests/                       # One framework for both compilers
     runner.py                  # Unified runner: each .btrc test through BOTH compilers

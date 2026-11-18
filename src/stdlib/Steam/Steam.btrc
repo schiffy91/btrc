@@ -1,0 +1,5 @@
+/* Steam: what a program needs to appear in a person's Steam library.
+ *
+ * `import Library.Steam;` brings in the whole group. */
+
+import Library.Steam.SteamShortcuts;

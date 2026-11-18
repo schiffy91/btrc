@@ -1408,6 +1408,32 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.Steam"
+group = "stdlib/Steam"
+title = "Steam library facade"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "import-only facade over SteamShortcuts; no OS includes" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "import-only facade over SteamShortcuts; no OS includes" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "import-only facade over SteamShortcuts; no OS includes" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "import-only facade over SteamShortcuts; no OS includes" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "import-only facade over SteamShortcuts; no OS includes" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "import-only facade over SteamShortcuts; no OS includes" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Steam.SteamShortcuts"
+group = "stdlib/Steam"
+title = "Steam non-Steam shortcut file"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes, Strings and FileSystem; no OS includes (SteamShortcuts.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes, Strings and FileSystem; no OS includes (SteamShortcuts.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes, Strings and FileSystem; no OS includes (SteamShortcuts.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes, Strings and FileSystem; no OS includes (SteamShortcuts.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes, Strings and FileSystem; no OS includes (SteamShortcuts.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes, Strings and FileSystem; no OS includes (SteamShortcuts.btrc)" }
+
+[[rows]]
+kind = "operation"
 id = "Library.Strings"
 group = "stdlib"
 title = "String helpers and conversions"

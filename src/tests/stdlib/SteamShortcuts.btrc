@@ -1,0 +1,247 @@
+/* Steam's shortcut file: numbers, entries kept byte for byte, the one entry a program asks for, and
+ * what is refused. Bytes and files only, so every target runs it. */
+
+import Library.Bytes;
+import Library.FileSystem;
+import Library.Steam.SteamShortcuts;
+import Library.Testing;
+import Library.Vector;
+
+void text(Bytes out, string value) {
+	out.appendBytes(Bytes.fromString(value));
+	out.append(0);
+}
+
+/* An entry as an older Steam and other tools leave one: no icon, mixed-case keys, a tag, play time,
+ * and the float, colour and 64-bit fields this module only steps over. */
+Bytes foreign(string name, string program, long long id) {
+	Bytes body = Bytes();
+	SteamShortcut.appendField(body, "appname", name);
+	SteamShortcut.appendField(body, "exe", SteamShortcut.quoted(program));
+	SteamShortcut.appendField(body, "StartDir", "\"/somewhere\"");
+	if (id != 0LL) { SteamShortcut.appendNumber(body, "AppId", id); }
+	SteamShortcut.appendNumber(body, "LastPlayTime", 1731900000LL);
+	body.append(3);
+	text(body, "Scale");
+	body.appendU32LE(0x3F800000);
+	body.append(6);
+	text(body, "Tint");
+	body.appendU32LE(0x11223344);
+	body.append(7);
+	text(body, "Size");
+	body.appendU64LE(0x1122334455667788ULL);
+	body.append(0);
+	text(body, "tags");
+	SteamShortcut.appendField(body, "0", "favorite");
+	SteamShortcut.appendField(body, "icon", "a tag's own field, not the entry's");
+	body.append(8);
+	body.append(8);
+	return body;
+}
+
+Bytes file(Vector<Bytes> bodies) {
+	Bytes out = Bytes();
+	out.append(0);
+	text(out, "shortcuts");
+	for (int index = 0; index < bodies.length; index++) {
+		out.append(0);
+		text(out, f"{index}");
+		out.appendBytes(bodies.get(index));
+	}
+	out.append(8);
+	out.append(8);
+	return out;
+}
+
+bool holds(Bytes whole, Bytes part) {
+	for (int start = 0; start + part.length() <= whole.length(); start++) {
+		if (whole.slice(start, start + part.length()).equals(part)) { return true; }
+	}
+	return false;
+}
+
+void testNumbers() {
+	Expect.intEq(SteamShortcut.crc32("123456789"), 0xCBF43926LL, "the standard check value");
+	Expect.intEq(SteamShortcut.idOf("Chrome", "/bin/chrome"), 3978799283LL, "the number Steam itself gives");
+	Expect.intEq(SteamShortcut.idOf("Chrome", "/bin/chrome", "DECK"), 3360922031LL);
+	Expect.intEq(SteamShortcut.idOf("Chrome", "/bin/chrome", "DESKTOP"), 3898335690LL);
+}
+
+void testANewShortcut() {
+	SteamShortcuts shortcuts = SteamShortcuts.parse(Bytes());
+	Expect.intEq((long long)shortcuts.entries.length, 0LL, "no file yet, no shortcuts");
+	SteamShortcut made = shortcuts.ensure("Chrome", "/bin/chrome");
+	Expect.strEq(made.name, "Chrome");
+	Expect.strEq(made.executable, "\"/bin/chrome\"");
+	Expect.strEq(made.startDirectory, "\"/bin\"", "the program's own folder");
+	Expect.intEq(made.id, 3978799283LL);
+	Expect.strEq(made.launchUrl(), "steam://rungameid/17088812797866803200");
+	Expect.strEq(made.picture("grid", STEAM_PICTURE_PORTRAIT), PathTools.join("grid", "3978799283p"));
+	Expect.strEq(made.picture("grid", STEAM_PICTURE_LANDSCAPE), PathTools.join("grid", "3978799283"));
+	Expect.strEq(made.picture("grid", STEAM_PICTURE_HERO), PathTools.join("grid", "3978799283_hero"));
+	Expect.strEq(made.picture("grid", STEAM_PICTURE_LOGO), PathTools.join("grid", "3978799283_logo"));
+
+	SteamShortcuts again = SteamShortcuts.parse(shortcuts.render());
+	Expect.intEq((long long)again.entries.length, 1LL);
+	SteamShortcut? found = again.find("Chrome");
+	if (found == null) { Expect.fail("the shortcut is found by its name"); }
+	SteamShortcut read = found;
+	Expect.isTrue(read.runs("/bin/chrome") && read.id == made.id && read.icon.isEmpty(), "read back as written");
+	Expect.isTrue(again.find("chrome") == null, "names are compared exactly");
+	Expect.strEq(SteamShortcut.create("Semu", "/opt/semu/semu", "/home/deck").startDirectory, "\"/home/deck\"");
+}
+
+void testEntriesStayAsTheyAre() {
+	Bytes game = foreign("An Old Game", "/games/old", 0LL);
+	Bytes other = foreign("Another", "/games/another", 2147483649LL);
+	Bytes before = file([game, other]);
+	SteamShortcuts shortcuts = SteamShortcuts.parse(before);
+	Expect.bytesEq(shortcuts.render(), before, "a file that is only read is written back the same");
+	SteamShortcut old = shortcuts.entries.get(0);
+	Expect.isTrue(old.name == "An Old Game" && old.runs("/games/old") && old.startDirectory == "\"/somewhere\"", "keys in any case");
+	Expect.isTrue(old.id == 0LL && old.icon.isEmpty(), "a tag's field is not the entry's");
+	Expect.intEq(shortcuts.entries.get(1).id, 2147483649LL);
+
+	shortcuts.ensure("Chrome", "/bin/chrome");
+	Bytes after = shortcuts.render();
+	Expect.isTrue(holds(after, game) && holds(after, other), "other entries keep every byte");
+	Expect.intEq((long long)SteamShortcuts.parse(after).entries.length, 3LL);
+}
+
+void testTheOneEntryAsked() {
+	Bytes exact = foreign("Chrome", "/bin/chrome", 3978799283LL);
+	Bytes renamed = foreign("Chrome Old", "/bin/chrome", 5LL);
+	Bytes moved = foreign("Chrome", "/old/chrome", 6LL);
+	Bytes kept = foreign("Game", "/games/game", 7LL);
+	SteamShortcuts shortcuts = SteamShortcuts.parse(file([renamed, kept, exact, moved, exact]));
+	SteamShortcut chrome = shortcuts.ensure("Chrome", "/bin/chrome");
+	Expect.intEq((long long)shortcuts.entries.length, 2LL, "stale entries and the second copy go");
+	Expect.isTrue(shortcuts.entries.get(0).name == "Game" && shortcuts.entries.get(1).name == "Chrome", "the order of what stays");
+	Expect.isTrue(holds(shortcuts.render(), exact), "the entry that was right keeps its play time and tags");
+	Expect.intEq(chrome.id, 3978799283LL, "without a machine the number stays");
+
+	Bytes once = shortcuts.render();
+	shortcuts.ensure("Chrome", "/bin/chrome");
+	Expect.bytesEq(shortcuts.render(), once, "asking again changes nothing");
+
+	Expect.intEq(shortcuts.ensure("Chrome", "/bin/chrome", "", "DECK").id, 3360922031LL, "the common number becomes the machine's own");
+	Expect.intEq(shortcuts.ensure("Chrome", "/bin/chrome", "", "DESKTOP").id, 3360922031LL, "a number that is not the common one stays");
+	Expect.intEq(SteamShortcuts.parse(shortcuts.render()).entries.get(1).id, 3360922031LL, "and is what the file holds");
+	Expect.isTrue(holds(shortcuts.render(), Bytes.fromString("favorite")), "renumbering keeps the rest of the entry");
+	Expect.intEq(shortcuts.ensure("New", "/bin/new", "", "DECK").id, SteamShortcut.idOf("New", "/bin/new", "DECK"), "a new entry starts under the machine's number");
+
+	Expect.strEq(shortcuts.ensure("Game", "/games/game", "/somewhere").startDirectory, "\"/somewhere\"");
+	Expect.isTrue(holds(shortcuts.render(), kept), "a start directory that matches keeps the entry");
+	Expect.strEq(shortcuts.ensure("Game", "/games/game", "/elsewhere").startDirectory, "\"/elsewhere\"");
+	Expect.isFalse(holds(shortcuts.render(), kept), "one that differs replaces it");
+}
+
+void testChangedFields() {
+	SteamShortcuts shortcuts = SteamShortcuts.parse(file([foreign("An Old Game", "/games/old", 0LL)]));
+	SteamShortcut old = shortcuts.entries.get(0);
+	old.setIcon("/icons/old.png");
+	old.setId(4000000000LL);
+	old.setIcon("/icons/older.png");
+	old.setId(4000000001LL);
+	SteamShortcut read = SteamShortcuts.parse(shortcuts.render()).entries.get(0);
+	Expect.isTrue(read.icon == "/icons/older.png" && read.id == 4000000001LL, "an entry gains the icon and the number it lacked");
+	Expect.isTrue(holds(shortcuts.render(), Bytes.fromString("a tag's own field, not the entry's")), "its tags are untouched");
+	Expect.intEq((long long)read.body().length(), (long long)old.body().length());
+
+	/* A number that follows the icon moves when the icon grows. */
+	Bytes body = Bytes();
+	SteamShortcut.appendField(body, "AppName", "Late");
+	SteamShortcut.appendField(body, "Exe", "\"/bin/late\"");
+	SteamShortcut.appendField(body, "icon", "");
+	SteamShortcut.appendNumber(body, "appid", 9LL);
+	SteamShortcut.appendNumber(body, "LastPlayTime", 77LL);
+	body.append(8);
+	SteamShortcut late = SteamShortcuts.parse(file([body])).entries.get(0);
+	late.setIcon("/a/long/path/to/an/icon.png");
+	late.setId(4000000002LL);
+	late.setIcon("");
+	late.setId(4000000003LL);
+	Bytes expected = Bytes();
+	SteamShortcut.appendField(expected, "AppName", "Late");
+	SteamShortcut.appendField(expected, "Exe", "\"/bin/late\"");
+	SteamShortcut.appendField(expected, "icon", "");
+	SteamShortcut.appendNumber(expected, "appid", 4000000003LL);
+	SteamShortcut.appendNumber(expected, "LastPlayTime", 77LL);
+	expected.append(8);
+	Expect.bytesEq(late.body(), expected);
+}
+
+Bytes broken(int which) {
+	Bytes whole = file([foreign("Game", "/games/game", 7LL)]);
+	if (which == 0) { return whole.slice(0, whole.length() - 1); }
+	if (which == 1) { whole.append(0); return whole; }
+	if (which == 2) { return Bytes.fromString("\"shortcuts\"\n{\n}\n"); }
+	Bytes body = Bytes();
+	body.append(which == 3 ? 5 : 1);
+	text(body, "wide");
+	text(body, "value");
+	body.append(8);
+	if (which == 3) { return file([body]); }
+	Bytes out = Bytes();
+	out.append(0);
+	text(out, "shortcuts");
+	out.appendBytes(body);
+	out.append(8);
+	return out;
+}
+
+void parseTruncated() { SteamShortcuts.parse(broken(0)); }
+
+void parseTrailing() { SteamShortcuts.parse(broken(1)); }
+
+void parseText() { SteamShortcuts.parse(broken(2)); }
+
+void parseUnknownType() { SteamShortcuts.parse(broken(3)); }
+
+void parseLooseField() { SteamShortcuts.parse(broken(4)); }
+
+void testWhatIsRefused() {
+	Expect.throws(parseTruncated, "Truncated");
+	Expect.throws(parseTrailing, "Trailing bytes");
+	Expect.throws(parseText, "Not a shortcuts.vdf");
+	Expect.throws(parseUnknownType, "Unknown shortcuts.vdf field type 5");
+	Expect.throws(parseLooseField, "not a list of fields");
+}
+
+void testFiles() {
+	TestDir dir = TestDir("btrc-steam-");
+	string root = dir.path;
+	for folder in ["userdata/0/config", "userdata/anonymous/config", "userdata/77/config", "userdata/42/config", "userdata/99"] {
+		Expect.intEq((long long)FileSystem.mkdirp(PathTools.join(root, folder)), 0LL);
+	}
+	Vector<string> files = SteamShortcuts.files(root);
+	Expect.intEq((long long)files.length, 2LL, "one file for each profile that has settings");
+	string settings = PathTools.join(PathTools.join(PathTools.join(root, "userdata"), "42"), "config");
+	Expect.strEq(files.get(0), PathTools.join(settings, "shortcuts.vdf"));
+	Expect.endsWith(files.get(1), "shortcuts.vdf");
+	Expect.contains(files.get(1), "77");
+	Expect.strEq(SteamShortcuts.pictures(files.get(0)), PathTools.join(settings, "grid"));
+	Expect.intEq((long long)SteamShortcuts.files(PathTools.join(root, "nowhere")).length, 0LL);
+
+	SteamShortcuts shortcuts = SteamShortcuts.read(files.get(0));
+	Expect.intEq((long long)shortcuts.entries.length, 0LL, "a profile without a file has no shortcuts");
+	shortcuts.ensure("Chrome", "/bin/chrome").setIcon("/icons/chrome.png");
+	shortcuts.write(files.get(0));
+	SteamShortcut? read = SteamShortcuts.read(files.get(0)).find("Chrome");
+	if (read == null) { Expect.fail("written and read back"); }
+	SteamShortcut chrome = read;
+	Expect.strEq(chrome.icon, "/icons/chrome.png");
+	Expect.bytesEq(FileSystem.readBytes(files.get(0)), shortcuts.render());
+}
+
+int main() {
+	TestSuite suite = TestSuite("steam_shortcuts");
+	suite.add("numbers", testNumbers);
+	suite.add("a new shortcut", testANewShortcut);
+	suite.add("entries stay as they are", testEntriesStayAsTheyAre);
+	suite.add("the one entry asked", testTheOneEntryAsked);
+	suite.add("changed fields", testChangedFields);
+	suite.add("what is refused", testWhatIsRefused);
+	suite.add("files", testFiles);
+	return suite.run();
+}

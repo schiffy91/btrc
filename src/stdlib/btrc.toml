@@ -49,6 +49,7 @@ Java = { path = "Java" }
 LocalApplicationChannel = { path = "LocalApplicationChannel" }
 Network = { path = "Network" }
 Realtime = { path = "Realtime" }
+Steam = { path = "Steam" }
 Terminal = { path = "Terminal" }
 Testing = { path = "Testing" }
 Tray = { path = "Tray" }

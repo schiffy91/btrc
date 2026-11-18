@@ -1,0 +1,332 @@
+/* Steam's non-Steam shortcuts: the entries of a profile's `shortcuts.vdf`.
+ *
+ * The file is binary VDF. An entry is read for its name, program, start
+ * directory, icon and number. Every byte of it that is not changed through
+ * this module is written back as it was read, so tags, play time and fields
+ * a newer Steam adds survive. A file with content the reader cannot walk is
+ * refused with a thrown message, never rewritten. */
+
+import Library.Bytes;
+import Library.FileSystem;
+import Library.Strings;
+import Library.Vector;
+
+/* The four pictures Steam shows for a shortcut. */
+enum SteamPicture {
+	STEAM_PICTURE_PORTRAIT,
+	STEAM_PICTURE_LANDSCAPE,
+	STEAM_PICTURE_HERO,
+	STEAM_PICTURE_LOGO
+};
+
+class SteamBinaryCursor {
+	public Bytes data;
+	public int offset;
+
+	public SteamBinaryCursor(Bytes data) {
+		self.data = data;
+		self.offset = 0;
+	}
+
+	public int next() {
+		if (self.offset >= self.data.length()) { throw "Truncated shortcuts.vdf"; }
+		self.offset++;
+		return self.data.get(self.offset - 1);
+	}
+
+	public string text() {
+		int start = self.offset;
+		while (self.next() != 0) {}
+		return self.data.slice(start, self.offset - 1).toStringLossy();
+	}
+
+	public void skip(int count) {
+		if (self.offset + count > self.data.length()) { throw "Truncated shortcuts.vdf"; }
+		self.offset += count;
+	}
+}
+
+class SteamShortcut {
+	public string name;
+	public string executable; /* as Steam keeps it: the program in double quotes */
+	public string startDirectory; /* quoted like the program */
+	public string icon;
+	public long long id; /* 0 when the entry carries no number */
+	private Bytes _body;
+	private int idStart; /* offsets into body; -1 without the field */
+	private int iconStart;
+	private int iconEnd;
+
+	private SteamShortcut() {
+		self.name = "";
+		self.executable = "";
+		self.startDirectory = "";
+		self.icon = "";
+		self.id = 0LL;
+		self._body = Bytes();
+		self.idStart = -1;
+		self.iconStart = -1;
+		self.iconEnd = -1;
+	}
+
+	class string quoted(string value) { return f"\"{value}\""; }
+
+	class long long crc32(string text) {
+		Bytes bytes = Bytes.fromString(text);
+		long long crc = 0xFFFFFFFFLL;
+		for (int index = 0; index < bytes.length(); index++) {
+			crc = crc ^ (long long)bytes.get(index);
+			for (int bit = 0; bit < 8; bit++) { crc = (crc & 1LL) != 0LL ? ((crc >> 1) ^ 0xEDB88320LL) : (crc >> 1); }
+		}
+		return (crc ^ 0xFFFFFFFFLL) & 0xFFFFFFFFLL;
+	}
+
+	/* The number Steam gives a shortcut it makes itself for this name and program. Steam also lists the
+	 * shortcuts of a person's other machines, for Remote Play, under their numbers, and gives a local shortcut
+	 * that has the number of one of them a new number at every start, away from its pictures and its controller
+	 * layout. With `machine`, the number is that machine's own. */
+	class long long idOf(string name, string program, string machine = "") { return SteamShortcut.crc32(SteamShortcut.quoted(program) + name + machine) | 0x80000000LL; }
+
+	private void fields(SteamBinaryCursor cursor, int base, int depth) {
+		while (true) {
+			int start = cursor.offset;
+			int type = cursor.next();
+			if (type == 8) { return; }
+			string key = cursor.text().toLower();
+			if (type == 0) {
+				self.fields(cursor, base, depth + 1);
+			} else if (type == 1) {
+				string value = cursor.text();
+				if (depth > 0) { continue; }
+				if (key == "appname") { self.name = value; }
+				if (key == "exe") { self.executable = value; }
+				if (key == "startdir") { self.startDirectory = value; }
+				if (key == "icon") {
+					self.icon = value;
+					self.iconStart = start - base;
+					self.iconEnd = cursor.offset - base;
+				}
+			} else if (type == 2) {
+				int at = cursor.offset;
+				cursor.skip(4);
+				if (depth == 0 && key == "appid") {
+					self.id = (long long)cursor.data.readU32LE(at);
+					self.idStart = at - base;
+				}
+			} else if (type == 3 || type == 6) {
+				cursor.skip(4);
+			} else if (type == 7) {
+				cursor.skip(8);
+			} else {
+				throw f"Unknown shortcuts.vdf field type {type}";
+			}
+		}
+	}
+
+	class SteamShortcut read(SteamBinaryCursor cursor) {
+		SteamShortcut shortcut = SteamShortcut();
+		int start = cursor.offset;
+		shortcut.fields(cursor, start, 0);
+		shortcut._body = cursor.data.slice(start, cursor.offset);
+		return shortcut;
+	}
+
+	class void appendText(Bytes out, string value) {
+		out.appendBytes(Bytes.fromString(value));
+		out.append(0);
+	}
+
+	class void appendField(Bytes out, string key, string value) {
+		out.append(1);
+		SteamShortcut.appendText(out, key);
+		SteamShortcut.appendText(out, value);
+	}
+
+	class void appendNumber(Bytes out, string key, long long value) {
+		out.append(2);
+		SteamShortcut.appendText(out, key);
+		out.appendU32LE((unsigned int)(value & 0xFFFFFFFFLL));
+	}
+
+	/* A new entry as Steam writes one. Without a start directory the program's own folder is it. */
+	class SteamShortcut create(string name, string program, string startDirectory = "", string machine = "") {
+		Bytes body = Bytes();
+		SteamShortcut.appendNumber(body, "appid", SteamShortcut.idOf(name, program, machine));
+		SteamShortcut.appendField(body, "AppName", name);
+		SteamShortcut.appendField(body, "Exe", SteamShortcut.quoted(program));
+		SteamShortcut.appendField(body, "StartDir", SteamShortcut.quoted(startDirectory.isEmpty() ? PathTools.dirname(program) : startDirectory));
+		SteamShortcut.appendField(body, "icon", "");
+		SteamShortcut.appendField(body, "ShortcutPath", "");
+		SteamShortcut.appendField(body, "LaunchOptions", "");
+		SteamShortcut.appendNumber(body, "IsHidden", 0LL);
+		SteamShortcut.appendNumber(body, "AllowDesktopConfig", 1LL);
+		SteamShortcut.appendNumber(body, "AllowOverlay", 1LL);
+		SteamShortcut.appendNumber(body, "OpenVR", 0LL);
+		SteamShortcut.appendNumber(body, "Devkit", 0LL);
+		SteamShortcut.appendField(body, "DevkitGameID", "");
+		SteamShortcut.appendNumber(body, "DevkitOverrideAppID", 0LL);
+		SteamShortcut.appendNumber(body, "LastPlayTime", 0LL);
+		SteamShortcut.appendField(body, "FlatpakAppID", "");
+		body.append(0);
+		SteamShortcut.appendText(body, "tags");
+		body.append(8);
+		body.append(8);
+		return SteamShortcut.read(SteamBinaryCursor(body));
+	}
+
+	public bool runs(string program) { return self.executable == SteamShortcut.quoted(program); }
+
+	/* Only the icon field changes; an entry without one gains it before its closing byte. */
+	public void setIcon(string icon) {
+		int start = self.iconStart >= 0 ? self.iconStart : self._body.length() - 1;
+		int end = self.iconEnd >= 0 ? self.iconEnd : start;
+		Bytes body = self._body.slice(0, start);
+		SteamShortcut.appendField(body, "icon", icon);
+		int grown = body.length() - end;
+		body.appendBytes(self._body.slice(end, self._body.length()));
+		if (self.idStart >= end) { self.idStart += grown; }
+		self.iconStart = start;
+		self.iconEnd = end + grown;
+		self._body = body;
+		self.icon = icon;
+	}
+
+	/* Only the number's four bytes change; an entry without one gains it as its first field. */
+	public void setId(long long id) {
+		if (self.idStart < 0) {
+			Bytes body = Bytes();
+			SteamShortcut.appendNumber(body, "appid", id);
+			int grown = body.length();
+			body.appendBytes(self._body);
+			self._body = body;
+			self.idStart = grown - 4;
+			if (self.iconStart >= 0) {
+				self.iconStart += grown;
+				self.iconEnd += grown;
+			}
+		}
+		for (int index = 0; index < 4; index++) { self._body.set(self.idStart + index, (int)((id >> (8 * index)) & 255LL)); }
+		self.id = id;
+	}
+
+	/* The entry as the file holds it: its fields through its closing byte. */
+	public Bytes body() { return self._body.slice(0, self._body.length()); }
+
+	public void appendTo(Bytes out) { out.appendBytes(self._body); }
+
+	/* What `steam <url>` starts this shortcut with: the number in the high half and the non-Steam mark. */
+	public string launchUrl() {
+		unsigned long long game = ((unsigned long long)self.id << 32) | 0x02000000ULL;
+		return f"steam://rungameid/{game}";
+	}
+
+	/* Where Steam looks for one of this shortcut's pictures in a profile's picture folder, less the
+	 * extension: Steam takes png, jpg, jpeg and webp. */
+	public string picture(string folder, SteamPicture kind) {
+		string suffix = "";
+		if (kind == STEAM_PICTURE_PORTRAIT) { suffix = "p"; }
+		if (kind == STEAM_PICTURE_HERO) { suffix = "_hero"; }
+		if (kind == STEAM_PICTURE_LOGO) { suffix = "_logo"; }
+		return PathTools.join(folder, f"{self.id}{suffix}");
+	}
+}
+
+class SteamShortcuts {
+	public Vector<SteamShortcut> entries;
+
+	public SteamShortcuts() { self.entries = []; }
+
+	class SteamShortcuts parse(Bytes data) {
+		SteamShortcuts shortcuts = SteamShortcuts();
+		if (data.isEmpty()) { return shortcuts; }
+		SteamBinaryCursor cursor = SteamBinaryCursor(data);
+		if (cursor.next() != 0 || cursor.text().toLower() != "shortcuts") { throw "Not a shortcuts.vdf"; }
+		while (true) {
+			int type = cursor.next();
+			if (type == 8) { break; }
+			if (type != 0) { throw "A shortcuts.vdf entry that is not a list of fields"; }
+			cursor.text();
+			shortcuts.entries.push(SteamShortcut.read(cursor));
+		}
+		if (cursor.next() != 8 || cursor.offset != data.length()) { throw "Trailing bytes in shortcuts.vdf"; }
+		return shortcuts;
+	}
+
+	/* A profile that has no file yet has no shortcuts. A file that cannot be read is not an empty one. */
+	class SteamShortcuts read(string path) {
+		if (!FileSystem.exists(path)) { return SteamShortcuts(); }
+		Bytes data = FileSystem.readBytes(path);
+		if (data.isEmpty() && FileSystem.stat(path).size != 0LL) { throw f"Cannot read {path}"; }
+		return SteamShortcuts.parse(data);
+	}
+
+	public Bytes render() {
+		Bytes out = Bytes();
+		out.append(0);
+		SteamShortcut.appendText(out, "shortcuts");
+		for (int index = 0; index < self.entries.length; index++) {
+			out.append(0);
+			SteamShortcut.appendText(out, f"{index}");
+			self.entries.get(index).appendTo(out);
+		}
+		out.append(8);
+		out.append(8);
+		return out;
+	}
+
+	/* Steam writes the file it holds in memory when it exits: write only while Steam is not running. */
+	public void write(string path) {
+		if (FileSystem.mkdirp(PathTools.dirname(path)) != 0 || !FileSystem.writeAtomicBytes(path, self.render())) { throw f"Cannot write {path}"; }
+	}
+
+	public SteamShortcut? find(string name) {
+		for entry in self.entries {
+			if (entry.name == name) { return entry; }
+		}
+		return null;
+	}
+
+	/* The one shortcut called `name` that runs `program`, made if it is not there yet. An entry that is
+	 * there already stays as it is, with its tags and play time. An entry that has only the name or only
+	 * the program is stale and goes, as does a second copy; a start directory that is named must match
+	 * too. With `machine`, an entry still under the number every machine would give it moves to that
+	 * machine's own (see `SteamShortcut.idOf`); a number Steam chose itself stays. */
+	public SteamShortcut ensure(string name, string program, string startDirectory = "", string machine = "") {
+		SteamShortcut? kept = null;
+		Vector<SteamShortcut> entries = [];
+		for entry in self.entries {
+			if (entry.name != name && !entry.runs(program)) {
+				entries.push(entry);
+				continue;
+			}
+			bool exact = entry.name == name && entry.runs(program) && (startDirectory.isEmpty() || entry.startDirectory == SteamShortcut.quoted(startDirectory));
+			if (!exact || kept != null) { continue; }
+			kept = entry;
+			entries.push(entry);
+		}
+		self.entries = entries;
+		if (kept == null) {
+			SteamShortcut made = SteamShortcut.create(name, program, startDirectory, machine);
+			self.entries.push(made);
+			return made;
+		}
+		SteamShortcut shortcut = kept;
+		if (!machine.isEmpty() && shortcut.id == SteamShortcut.idOf(name, program)) { shortcut.setId(SteamShortcut.idOf(name, program, machine)); }
+		return shortcut;
+	}
+
+	/* Every profile's shortcuts file under a Steam installation, whether or not the file exists yet. */
+	class Vector<string> files(string steamRoot) {
+		Vector<string> files = [];
+		string profiles = PathTools.join(steamRoot, "userdata");
+		for profile in FileSystem.listDir(profiles).sorted() {
+			string config = PathTools.join(PathTools.join(profiles, profile), "config");
+			if (profile == "0" || profile == "anonymous" || !FileSystem.isDir(config)) { continue; }
+			files.push(PathTools.join(config, "shortcuts.vdf"));
+		}
+		return files;
+	}
+
+	/* The picture folder of the profile a shortcuts file belongs to. */
+	class string pictures(string file) { return PathTools.join(PathTools.dirname(file), "grid"); }
+}
