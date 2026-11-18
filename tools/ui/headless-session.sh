@@ -98,6 +98,16 @@ teardown() {
       tail -n 200 "$log" >&2 || true
     done
   fi
+  # A desktop portal the session bus activated mounts its document store at
+  # <runtime>/doc and unmounts it as it exits with the bus. A mount point
+  # cannot be removed, so wait for that, and detach it if it never happens.
+  for ((index = 0; index < 50; index++)); do
+    grep -qsF " $XDG_RUNTIME_DIR/doc " /proc/mounts || break
+    sleep 0.1
+  done
+  if grep -qsF " $XDG_RUNTIME_DIR/doc " /proc/mounts; then
+    fusermount3 -u -z "$XDG_RUNTIME_DIR/doc" 2>/dev/null || fusermount -u -z "$XDG_RUNTIME_DIR/doc" 2>/dev/null || true
+  fi
   rm -rf -- "$session"
 }
 trap teardown EXIT
