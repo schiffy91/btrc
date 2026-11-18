@@ -563,7 +563,6 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     # not the provider's, so the tree is read in a run of its own further down.
     environment.pop("BTRC_UI_SHELL_UIA_PROBE", None)
     client = directory / f"uia-probe-{FRONTENDS[frontend]}-{target}.exe"
-    assert client.is_file(), client
     artifacts = REPO / "build/ui-shell" / shell_name(frontend, target, sanitized).removesuffix(".exe")
     if diagnostic_mode:
         artifacts = artifacts / diagnostic_mode
@@ -625,6 +624,7 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     # The accessibility run: the same journey with a UI Automation client reading
     # the tree in every cycle. Provider windows and registrations still reach
     # zero after each teardown; the process's object counts are the census's.
+    assert client.is_file(), client
     observed_state = tmp_path / "observed-state"
     observed_state.mkdir()
     walked = run_shell(
