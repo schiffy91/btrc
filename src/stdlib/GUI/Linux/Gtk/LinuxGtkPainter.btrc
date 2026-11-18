@@ -9,6 +9,8 @@ import Library.GPU.GPUSurfaceRenderer;
 import Library.GPU.WebGPU;
 import Library.GUI.Linux.Gtk.LinuxGtkFonts;
 import Library.GUI.Linux.Gtk.LinuxGtkContext;
+import Library.GUI.Linux.Gtk.GtkControls;
+import Library.GUI.Linux.Gtk.LinuxGtkSymbols;
 
 /* One sampled texture with its bind group; images, glyph atlases and GPU-view
  * targets all bind through the same layout. Views borrow it per frame. */
@@ -219,11 +221,26 @@ class LinuxGtkClip {
 	public LinuxGtkClip(double x, double y, double width, double height) { self.x = x; self.y = y; self.width = width; self.height = height; }
 }
 
+/* Where one native control goes this frame: its frame and the clip of the
+ * views around it, in logical points from the window's top-left. */
+class LinuxGtkPlacement {
+	public BtrcGtkControl* control;
+	public double x;
+	public double y;
+	public double width;
+	public double height;
+	public LinuxGtkClip clip;
+
+	public LinuxGtkPlacement(BtrcGtkControl* control, double x, double y, double width, double height, LinuxGtkClip clip) {
+		self.control = control; self.x = x; self.y = y; self.width = width; self.height = height; self.clip = clip;
+	}
+}
+
 /* The per-window 2D painter. Everything records into one vertex stream in
  * backing pixels and replays inside the window's render pass: solid and
  * rounded rectangles, rings, images, glyphs and sampled GPU-view targets.
  * Coordinates arrive in logical points from the window's top-left. */
-class LinuxGtkPainter {
+class LinuxGtkPainter implements ILinuxGtkStrokes {
 	private GPUDevice _device;
 	private WGPUTextureFormat _format;
 	private LinuxGtkFonts _fonts;
@@ -240,6 +257,7 @@ class LinuxGtkPainter {
 	private int _vertexCount = 0;
 	private Vector<LinuxGtkDrawRun> _runs = [];
 	private Vector<LinuxGtkClip> _clips = [];
+	private Vector<LinuxGtkPlacement> _placements = [];
 	private Vector<LinuxGtkTheme> _themes = [];
 	private LinuxGtkTheme _defaultTheme;
 	private LinuxGtkGlyphAtlas _atlas;
@@ -429,6 +447,7 @@ class LinuxGtkPainter {
 		self._runs.clear();
 		self._clips.clear();
 		self._clips.push(LinuxGtkClip(0.0, 0.0, (double)pixelWidth / scale, (double)pixelHeight / scale));
+		self._placements.clear();
 		self._themes.clear();
 		self._themes.push(self._defaultTheme);
 	}
@@ -455,6 +474,16 @@ class LinuxGtkPainter {
 	}
 
 	public void popClip() { if (self._clips.len > 1) { self._clips.pop(); } }
+
+	/* A native control is not drawn here: GTK draws it. Painting it records
+	 * where it goes, in the order the views paint, which is back to front. */
+	public void place(BtrcGtkControl* control, double x, double y, double width, double height) {
+		var clip = self._clips.last();
+		self._placements.push(LinuxGtkPlacement(control, x, y, width, height, LinuxGtkClip(clip.x, clip.y, clip.width, clip.height)));
+	}
+
+	/* The native controls this frame painted, back to front. */
+	public Vector<LinuxGtkPlacement> placements() { return self._placements; }
 
 	private LinuxGtkDrawRun run(LinuxGtkTexture texture) {
 		var clip = self._clips.last();

@@ -30,7 +30,10 @@ class LabelText implements IConformanceCase {
 		Expect.isTrue(label.fittingHeight() > regular, "a larger font is taller");
 		label.setSecondary(true);
 		label.setCentered(true);
+		double single = label.fittingHeight();
 		label.setWrapping(true);
+		label.arrange(0.0, 0.0, 120.0, 40.0);
+		Expect.isTrue(label.fittingHeight() > single, "wrapped text is taller in a frame too narrow for one line");
 		Expect.strEq(label.text(), "A considerably longer name", "appearance never changes the text");
 		Expect.isTrue(label.close() == CALLBACK_CANCELLATION_COMPLETE);
 	}

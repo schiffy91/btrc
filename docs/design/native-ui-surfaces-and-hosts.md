@@ -175,6 +175,31 @@ and resume at any of them:
    control event queues and the layout stay as they are; only what a control
    shows and how it hears input changes. Each replacement deletes that
    control's drawing code.
+   **How controls are placed (done 2026-11-18).** The window's content is a
+   canvas (`GtkCanvas.c`) that asks for no size and gives each child exactly
+   the frame it is told. A native control's `paint` draws nothing: it tells
+   the painter where the control is, with the clip of the views around it,
+   and after each frame the window hands GTK that list, back to front. Each
+   control sits in a slot that clips it, so a control scrolled half out of
+   view is cut where its scroll view ends. What a person does to a control
+   comes back as an event carrying the id of the view it belongs to. A
+   capture is the drawn content with GTK's own rendering of the controls
+   over it (GTK's software renderer, so it is the same picture everywhere).
+   **X11 cannot put the drawn content below the window:** a child window
+   covers whatever its parent draws, the controls included. There each frame
+   is drawn off screen and handed to GTK as a picture under the controls.
+   That is the readback route the gate named for X11, in use from the start.
+   **Controls done:** button (a `GtkButton`; its symbols are the same
+   renderings, drawn into a small widget in the title's colour), label
+   (`GtkLabel`), the two indicators (`GtkSpinner`, `GtkLevelBar`) and the
+   slider (`GtkScale`). The slider keeps the shared slider model as the
+   authority: the scale never changes its own value, it queues what the
+   person asked for and is then shown the model's answer. GTK ends a drag
+   itself on Escape and keeps the key, so the shim hears it first and
+   reports the drag given up. A control that can have the keyboard reports
+   gaining and losing it, and the provider's own focus follows. GTK has one
+   colour scheme per application, not per window: the last window to set a
+   dark or light appearance decides it. All 35 cases pass on X11 and labwc.
 4. **GPU views get their own surfaces**, the web view arrives as
    `WebKitWebView`, and the window's own painter, with its fonts and symbols,
    is deleted.

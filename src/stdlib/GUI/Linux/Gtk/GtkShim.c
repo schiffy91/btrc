@@ -3,12 +3,9 @@
  * Signals and controller events are flattened into one queue of plain
  * events. BTRC polls it each turn, so the provider's own dispatch runs
  * between GTK's callbacks and never inside one. */
-#include "GtkShim.h"
-/* GTK's headers are not pedantic C11 (a stray semicolon after a type
- * declaration), and this unit is compiled with -pedantic-errors. */
+#include "GtkShimPrivate.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
-#include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 #ifdef GDK_WINDOWING_WAYLAND
 #include <gdk/wayland/gdkwayland.h>
@@ -18,11 +15,8 @@
 #ifdef GDK_WINDOWING_X11
 #include <gdk/x11/gdkx.h>
 #include <X11/Xlib.h>
-#include <X11/extensions/shape.h>
 #endif
 #pragma GCC diagnostic pop
-#include <stdlib.h>
-#include <string.h>
 
 #define BTRC_GTK_QUEUE 16384u
 
@@ -77,7 +71,7 @@ static unsigned long btrcGtkArrivals;
 
 /* The queue. A push may come from any thread (btrcGtkPushWake); when the
  * queue is full the newest event is refused, never an older one dropped. */
-static bool btrcGtkPush(const BtrcGtkEvent* event, const char* text) {
+bool btrcGtkPush(const BtrcGtkEvent* event, const char* text) {
 	char* copy = text == NULL ? NULL : g_strdup(text);
 	g_mutex_lock(&btrcGtkQueueLock);
 	bool accepted = btrcGtkQueueCount < BTRC_GTK_QUEUE;
@@ -161,12 +155,6 @@ static void btrcGtkPlaceSurface(BtrcGtkWindow* window) {
 		gtk_widget_queue_draw(window->window);
 	}
 #endif
-#ifdef GDK_WINDOWING_X11
-	if (window->xChild != 0) {
-		int scale = gtk_widget_get_scale_factor(window->window);
-		XMoveResizeWindow(window->xDisplay, window->xChild, (int)x * scale, (int)y * scale, (unsigned int)(width * scale), (unsigned int)(height * scale));
-	}
-#endif
 }
 
 #ifdef GDK_WINDOWING_WAYLAND
@@ -218,8 +206,12 @@ static bool btrcGtkWaylandGlobalsFor(struct wl_display* display) {
 }
 #endif
 
-/* The GPU surface: a subsurface placed below the toplevel on Wayland, a
- * child window on X11. Either takes no input, so the pointer reaches GTK. */
+/* The GPU surface. On Wayland it is a subsurface placed below the toplevel,
+ * which takes no input, so the pointer reaches GTK. X11 has no below: a
+ * child window covers whatever its parent draws, the window's own controls
+ * included. There the surface is a child window that is never shown, which
+ * the GPU device is made for, and the provider's frames reach the screen as
+ * pictures GTK draws under the controls (btrcGtkWindowShowPicture). */
 static bool btrcGtkCreateSurface(BtrcGtkWindow* window) {
 	GdkSurface* surface = gtk_native_get_surface(GTK_NATIVE(window->window));
 	GdkDisplay* display = gdk_surface_get_display(surface);
@@ -252,8 +244,6 @@ static bool btrcGtkCreateSurface(BtrcGtkWindow* window) {
 		int scale = gtk_widget_get_scale_factor(window->window);
 		window->xDisplay = xDisplay;
 		window->xChild = XCreateSimpleWindow(xDisplay, xParent, 0, 0, (unsigned int)(window->width * scale), (unsigned int)(window->height * scale), 0, 0, 0);
-		XShapeCombineRectangles(window->xDisplay, window->xChild, ShapeInput, 0, 0, NULL, 0, ShapeSet, Unsorted);
-		XMapWindow(window->xDisplay, window->xChild);
 		XFlush(window->xDisplay);
 		return true;
 	}
@@ -322,21 +312,7 @@ static void btrcGtkOnUnmap(GtkWidget* content, gpointer data) {
 	btrcGtkPushWindow(window, BTRC_GTK_EVENT_WINDOW_HIDDEN);
 }
 
-/* GTK presents nothing for a window whose picture is empty, and a window
- * that has presented nothing is never put on the screen. Where the desktop
- * draws the title bar this window's picture is empty: its content is the GPU
- * surface below it. One pixel, a 255th opaque, is a picture. */
-static void btrcGtkOnDraw(GtkDrawingArea* content, cairo_t* context, int width, int height, gpointer data) {
-	(void)content;
-	(void)width;
-	(void)height;
-	(void)data;
-	cairo_set_source_rgba(context, 0.0, 0.0, 0.0, 1.0 / 255.0);
-	cairo_rectangle(context, 0.0, 0.0, 1.0, 1.0);
-	cairo_fill(context);
-}
-
-static void btrcGtkOnResize(GtkDrawingArea* content, int width, int height, gpointer data) {
+static void btrcGtkOnResize(GtkWidget* content, int width, int height, gpointer data) {
 	BtrcGtkWindow* window = data;
 	(void)content;
 	if (width <= 0 || height <= 0) { return; }
@@ -541,7 +517,14 @@ bool btrcGtkInit(void) {
 	}
 	btrcGtkThread = g_thread_self();
 	GtkCssProvider* style = gtk_css_provider_new();
-	gtk_css_provider_load_from_string(style, "window.btrc-surface, window.btrc-surface > * { background: transparent; }");
+	/* The window is clear where no control covers the drawn content. A level
+	 * bar is a capacity: green, then amber from its warning level, then red
+	 * from its critical one. */
+	gtk_css_provider_load_from_string(style,
+		"window.btrc-surface, window.btrc-surface > * { background: transparent; }"
+		"levelbar block.btrc-normal { background-color: rgb(80, 190, 110); border-color: rgb(80, 190, 110); }"
+		"levelbar block.btrc-warning { background-color: rgb(235, 180, 50); border-color: rgb(235, 180, 50); }"
+		"levelbar block.btrc-critical { background-color: rgb(220, 70, 70); border-color: rgb(220, 70, 70); }");
 	gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(style), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 	g_object_unref(style);
 	btrcGtkReady = true;
@@ -549,6 +532,17 @@ bool btrcGtkInit(void) {
 }
 
 const char* btrcGtkError(void) { return btrcGtkFailure; }
+
+/* GTK has one colour scheme for the whole application, not one per window. */
+void btrcGtkSetDarkAppearance(bool dark) {
+	GtkSettings* settings = gtk_settings_get_default();
+	if (settings == NULL) { return; }
+#if GTK_CHECK_VERSION(4, 20, 0)
+	g_object_set(settings, "gtk-interface-color-scheme", dark ? GTK_INTERFACE_COLOR_SCHEME_DARK : GTK_INTERFACE_COLOR_SCHEME_LIGHT, NULL);
+#else
+	g_object_set(settings, "gtk-application-prefer-dark-theme", dark ? TRUE : FALSE, NULL);
+#endif
+}
 
 bool btrcGtkIsMainThread(void) { return btrcGtkThread == NULL || g_thread_self() == btrcGtkThread; }
 
@@ -563,8 +557,7 @@ BtrcGtkWindow* btrcGtkWindowCreate(const char* title, int width, int height) {
 	window->window = gtk_window_new();
 	gtk_widget_add_css_class(window->window, "btrc-surface");
 	gtk_window_set_title(GTK_WINDOW(window->window), title);
-	window->content = gtk_drawing_area_new();
-	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(window->content), btrcGtkOnDraw, NULL, NULL);
+	window->content = btrcGtkCanvasNew();
 	gtk_widget_set_hexpand(window->content, TRUE);
 	gtk_widget_set_vexpand(window->content, TRUE);
 	gtk_widget_set_focusable(window->content, TRUE);
@@ -574,7 +567,7 @@ BtrcGtkWindow* btrcGtkWindowCreate(const char* title, int width, int height) {
 	g_signal_connect(window->window, "notify::scale-factor", G_CALLBACK(btrcGtkOnScale), window);
 	g_signal_connect(window->content, "map", G_CALLBACK(btrcGtkOnMap), window);
 	g_signal_connect(window->content, "unmap", G_CALLBACK(btrcGtkOnUnmap), window);
-	g_signal_connect(window->content, "resize", G_CALLBACK(btrcGtkOnResize), window);
+	g_signal_connect(window->content, "resized", G_CALLBACK(btrcGtkOnResize), window);
 	GtkEventController* motion = gtk_event_controller_motion_new();
 	g_signal_connect(motion, "enter", G_CALLBACK(btrcGtkOnEnter), window);
 	g_signal_connect(motion, "leave", G_CALLBACK(btrcGtkOnLeave), window);
@@ -634,6 +627,8 @@ void btrcGtkWindowDestroy(BtrcGtkWindow* window) {
 }
 
 unsigned int btrcGtkWindowId(BtrcGtkWindow* window) { return window->id; }
+
+GtkWidget* btrcGtkWindowCanvas(BtrcGtkWindow* window) { return window->content; }
 
 bool btrcGtkWindowShow(BtrcGtkWindow* window) {
 	gtk_window_present(GTK_WINDOW(window->window));
@@ -738,6 +733,17 @@ unsigned long btrcGtkWindowX11Window(BtrcGtkWindow* window) {
 	return 0;
 #endif
 }
+
+bool btrcGtkWindowShowsPictures(BtrcGtkWindow* window) {
+#ifdef GDK_WINDOWING_X11
+	return window->xChild != 0;
+#else
+	(void)window;
+	return false;
+#endif
+}
+
+void btrcGtkWindowShowPicture(BtrcGtkWindow* window, const unsigned char* pixels, int pixelWidth, int pixelHeight) { btrcGtkCanvasSetPicture(window->content, pixels, pixelWidth, pixelHeight); }
 
 /* While text is being entered the input method is told so: it may then
  * compose, and show what it composes with, at the text input area. */

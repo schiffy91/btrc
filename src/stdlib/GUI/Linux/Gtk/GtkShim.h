@@ -5,10 +5,10 @@
  * handles and input as plain events it polls each turn. No GTK callback
  * enters BTRC.
  *
- * A window's content is drawn by the provider on one GPU surface that lies
- * below the GTK toplevel, which is transparent where nothing native covers
- * it (docs/design/native-ui-gtk4-gate): a Wayland subsurface, or on X11 a
- * child window. btrcGtkWindowWayland* and btrcGtkWindowX11* name it.
+ * A window's content is drawn by the provider under the window's native
+ * controls: on Wayland on a GPU surface that lies below the GTK toplevel,
+ * which is transparent where no control covers it
+ * (docs/design/native-ui-gtk4-gate); on X11 as pictures GTK draws.
  *
  * Every function but btrcGtkPushWake belongs to the thread that called
  * btrcGtkInit. Coordinates and sizes are the content's logical points. */
@@ -19,6 +19,8 @@ typedef struct BtrcGtkWindow BtrcGtkWindow;
 typedef struct BtrcGtkEvent {
 	unsigned int type;
 	unsigned int window;
+	/* For BTRC_GTK_EVENT_CONTROL_*: the id the control was made with. */
+	unsigned int control;
 	float x;
 	float y;
 	float wheelX;
@@ -32,6 +34,8 @@ typedef struct BtrcGtkEvent {
 	int data2;
 	int down;
 	int repeat;
+	/* For BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED: the value asked for. */
+	double value;
 	const char* text;
 } BtrcGtkEvent;
 
@@ -59,7 +63,28 @@ enum BtrcGtkEventType {
 	BTRC_GTK_EVENT_MOUSE_MOTION,
 	BTRC_GTK_EVENT_MOUSE_BUTTON_DOWN,
 	BTRC_GTK_EVENT_MOUSE_BUTTON_UP,
-	BTRC_GTK_EVENT_MOUSE_WHEEL
+	BTRC_GTK_EVENT_MOUSE_WHEEL,
+	/* What a person did to a native control (GtkControls.h). */
+	BTRC_GTK_EVENT_CONTROL_ACTIVATED,
+	BTRC_GTK_EVENT_CONTROL_FOCUS_GAINED,
+	BTRC_GTK_EVENT_CONTROL_FOCUS_LOST,
+	BTRC_GTK_EVENT_CONTROL_SLIDER_PRESSED,
+	BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED,
+	BTRC_GTK_EVENT_CONTROL_SLIDER_RELEASED,
+	BTRC_GTK_EVENT_CONTROL_SLIDER_CANCELLED
+};
+
+/* A BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED event's data1: how the person
+ * asked for another value. A jump names the value (a drag, a click on the
+ * track); the others are relative to the value the slider has. */
+enum BtrcGtkSliderChange {
+	BTRC_GTK_SLIDER_JUMP = 0,
+	BTRC_GTK_SLIDER_STEP_BACKWARD,
+	BTRC_GTK_SLIDER_STEP_FORWARD,
+	BTRC_GTK_SLIDER_PAGE_BACKWARD,
+	BTRC_GTK_SLIDER_PAGE_FORWARD,
+	BTRC_GTK_SLIDER_START,
+	BTRC_GTK_SLIDER_END
 };
 
 /* An event's `key`: the keys the provider acts on. Letters and brackets
@@ -120,6 +145,9 @@ enum BtrcGtkCursor {
 /* Start GTK once for the process; false when no display can be opened. */
 bool btrcGtkInit(void);
 const char* btrcGtkError(void);
+/* Whether the controls GTK draws are dark or light: one setting for the
+ * whole application, which the last window to ask decides. */
+void btrcGtkSetDarkAppearance(bool dark);
 bool btrcGtkIsMainThread(void);
 unsigned long long btrcGtkTicksNS(void);
 
@@ -143,11 +171,19 @@ void btrcGtkWindowSetCursor(BtrcGtkWindow* window, int cursor);
 /* A modal message with one button; returns when it is dismissed. */
 void btrcGtkWindowShowMessage(BtrcGtkWindow* window, const char* title, const char* message);
 
-/* The GPU surface below the window. Exactly one pair is non-null/non-zero. */
+/* The surface the provider's GPU device is made for. Exactly one pair is
+ * non-null/non-zero. The Wayland one lies below the window and is where
+ * frames are presented. The X11 one is never shown: there a frame is drawn
+ * off screen and handed over as a picture, which GTK draws under the
+ * window's controls. */
 void* btrcGtkWindowWaylandDisplay(BtrcGtkWindow* window);
 void* btrcGtkWindowWaylandSurface(BtrcGtkWindow* window);
 void* btrcGtkWindowX11Display(BtrcGtkWindow* window);
 unsigned long btrcGtkWindowX11Window(BtrcGtkWindow* window);
+/* Whether frames reach the screen as pictures and not on the surface. */
+bool btrcGtkWindowShowsPictures(BtrcGtkWindow* window);
+/* One frame: `pixelWidth` by `pixelHeight` RGBA, row after row, copied. */
+void btrcGtkWindowShowPicture(BtrcGtkWindow* window, const unsigned char* pixels, int pixelWidth, int pixelHeight);
 
 /* Text entry for the provider's own editor. Text a key types always follows
  * that key as a TEXT_INPUT event; while text input is active the input method

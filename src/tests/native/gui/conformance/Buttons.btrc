@@ -102,7 +102,9 @@ class ButtonActivate implements IConformanceCase {
 		try { button.setFont(ButtonTypography.borderedMaximumSize() + 1.0); } catch (string error) { refused = true; }
 		Expect.isTrue(refused, "a bordered button refuses a font that would overflow its border");
 		button.setCentered(true);
+		double titled = button.fittingWidth();
 		button.setSystemSymbol("play.fill");
+		Expect.isTrue(button.fittingWidth() > titled, "a symbol takes room beside the title");
 		button.setBordered(false);
 		button.setFont(ButtonTypography.borderedMaximumSize() + 1.0);
 		button.setTransparent(true);

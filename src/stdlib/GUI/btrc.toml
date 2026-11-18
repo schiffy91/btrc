@@ -67,29 +67,51 @@ header = "Linux/Gtk/GtkShim.h"
 language = "c"
 standard = "c11"
 symbols = [
-	"BtrcGtkWindow", "BtrcGtkEvent", "BtrcGtkFolderDialog", "btrcGtkInit", "btrcGtkError", "btrcGtkIsMainThread", "btrcGtkTicksNS",
-	"btrcGtkWindowCreate", "btrcGtkWindowDestroy", "btrcGtkWindowId", "btrcGtkWindowShow", "btrcGtkWindowHide", "btrcGtkWindowIsHidden",
-	"btrcGtkWindowIsMinimized", "btrcGtkWindowSetTitle", "btrcGtkWindowSetSize", "btrcGtkWindowSetMinimumSize", "btrcGtkWindowWidth",
-	"btrcGtkWindowHeight", "btrcGtkWindowPixelWidth", "btrcGtkWindowPixelHeight", "btrcGtkWindowPixelDensity", "btrcGtkWindowSetCursor",
-	"btrcGtkWindowShowMessage", "btrcGtkWindowWaylandDisplay", "btrcGtkWindowWaylandSurface", "btrcGtkWindowX11Display", "btrcGtkWindowX11Window",
-	"btrcGtkWindowStartTextInput", "btrcGtkWindowStopTextInput", "btrcGtkWindowTextInputActive", "btrcGtkWindowClearComposition",
-	"btrcGtkWindowSetTextInputArea", "btrcGtkModState", "btrcGtkSetClipboardText", "btrcGtkHasClipboardText", "btrcGtkGetClipboardText", "btrcGtkFree",
-	"btrcGtkPollEvent", "btrcGtkWaitEvent", "btrcGtkPushWake", "btrcGtkFolderDialogOpen", "btrcGtkFolderDialogState", "btrcGtkFolderDialogPath",
-	"btrcGtkFolderDialogRelease", "BTRC_GTK_EVENT_NONE", "BTRC_GTK_EVENT_QUIT", "BTRC_GTK_EVENT_USER", "BTRC_GTK_EVENT_WINDOW_SHOWN",
-	"BTRC_GTK_EVENT_WINDOW_HIDDEN", "BTRC_GTK_EVENT_WINDOW_EXPOSED", "BTRC_GTK_EVENT_WINDOW_RESIZED", "BTRC_GTK_EVENT_WINDOW_PIXEL_SIZE_CHANGED",
-	"BTRC_GTK_EVENT_WINDOW_DISPLAY_SCALE_CHANGED", "BTRC_GTK_EVENT_WINDOW_MINIMIZED", "BTRC_GTK_EVENT_WINDOW_RESTORED",
-	"BTRC_GTK_EVENT_WINDOW_MOUSE_ENTER", "BTRC_GTK_EVENT_WINDOW_MOUSE_LEAVE", "BTRC_GTK_EVENT_WINDOW_FOCUS_GAINED", "BTRC_GTK_EVENT_WINDOW_FOCUS_LOST",
-	"BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED", "BTRC_GTK_EVENT_KEY_DOWN", "BTRC_GTK_EVENT_KEY_UP", "BTRC_GTK_EVENT_TEXT_EDITING",
-	"BTRC_GTK_EVENT_TEXT_INPUT", "BTRC_GTK_EVENT_MOUSE_MOTION", "BTRC_GTK_EVENT_MOUSE_BUTTON_DOWN", "BTRC_GTK_EVENT_MOUSE_BUTTON_UP",
-	"BTRC_GTK_EVENT_MOUSE_WHEEL", "BTRC_GTK_KEY_UNKNOWN", "BTRC_GTK_KEY_ESCAPE", "BTRC_GTK_KEY_RETURN", "BTRC_GTK_KEY_KP_ENTER", "BTRC_GTK_KEY_SPACE",
-	"BTRC_GTK_KEY_LEFT", "BTRC_GTK_KEY_RIGHT", "BTRC_GTK_KEY_UP", "BTRC_GTK_KEY_DOWN", "BTRC_GTK_KEY_TAB", "BTRC_GTK_KEY_BACKSPACE",
-	"BTRC_GTK_KEY_DELETE", "BTRC_GTK_KEY_HOME", "BTRC_GTK_KEY_END", "BTRC_GTK_KEY_LSHIFT", "BTRC_GTK_KEY_RSHIFT", "BTRC_GTK_KEY_LALT",
-	"BTRC_GTK_KEY_RALT", "BTRC_GTK_KEY_A", "BTRC_GTK_KEY_C", "BTRC_GTK_KEY_V", "BTRC_GTK_SCANCODE_A", "BTRC_GTK_SCANCODE_C", "BTRC_GTK_SCANCODE_D",
-	"BTRC_GTK_SCANCODE_Q", "BTRC_GTK_SCANCODE_S", "BTRC_GTK_SCANCODE_V", "BTRC_GTK_SCANCODE_W", "BTRC_GTK_SCANCODE_X", "BTRC_GTK_SCANCODE_Z",
-	"BTRC_GTK_SCANCODE_LEFTBRACKET", "BTRC_GTK_SCANCODE_RIGHTBRACKET", "BTRC_GTK_SCANCODE_BACKSPACE", "BTRC_GTK_SCANCODE_LEFT", "BTRC_GTK_SCANCODE_END",
-	"BTRC_GTK_MOD_SHIFT", "BTRC_GTK_MOD_CTRL", "BTRC_GTK_MOD_ALT", "BTRC_GTK_MOD_GUI", "BTRC_GTK_CURSOR_DEFAULT", "BTRC_GTK_CURSOR_TEXT"
+	"BtrcGtkWindow", "BtrcGtkEvent", "BtrcGtkFolderDialog", "btrcGtkInit", "btrcGtkError", "btrcGtkSetDarkAppearance", "btrcGtkIsMainThread",
+	"btrcGtkTicksNS", "btrcGtkWindowCreate", "btrcGtkWindowDestroy", "btrcGtkWindowId", "btrcGtkWindowShow", "btrcGtkWindowHide",
+	"btrcGtkWindowIsHidden", "btrcGtkWindowIsMinimized", "btrcGtkWindowSetTitle", "btrcGtkWindowSetSize", "btrcGtkWindowSetMinimumSize",
+	"btrcGtkWindowWidth", "btrcGtkWindowHeight", "btrcGtkWindowPixelWidth", "btrcGtkWindowPixelHeight", "btrcGtkWindowPixelDensity",
+	"btrcGtkWindowSetCursor", "btrcGtkWindowShowMessage", "btrcGtkWindowWaylandDisplay", "btrcGtkWindowWaylandSurface", "btrcGtkWindowX11Display",
+	"btrcGtkWindowX11Window", "btrcGtkWindowShowsPictures", "btrcGtkWindowShowPicture", "btrcGtkWindowStartTextInput", "btrcGtkWindowStopTextInput",
+	"btrcGtkWindowTextInputActive", "btrcGtkWindowClearComposition", "btrcGtkWindowSetTextInputArea", "btrcGtkModState", "btrcGtkSetClipboardText",
+	"btrcGtkHasClipboardText", "btrcGtkGetClipboardText", "btrcGtkFree", "btrcGtkPollEvent", "btrcGtkWaitEvent", "btrcGtkPushWake",
+	"btrcGtkFolderDialogOpen", "btrcGtkFolderDialogState", "btrcGtkFolderDialogPath", "btrcGtkFolderDialogRelease", "BTRC_GTK_EVENT_NONE",
+	"BTRC_GTK_EVENT_QUIT", "BTRC_GTK_EVENT_USER", "BTRC_GTK_EVENT_WINDOW_SHOWN", "BTRC_GTK_EVENT_WINDOW_HIDDEN", "BTRC_GTK_EVENT_WINDOW_EXPOSED",
+	"BTRC_GTK_EVENT_WINDOW_RESIZED", "BTRC_GTK_EVENT_WINDOW_PIXEL_SIZE_CHANGED", "BTRC_GTK_EVENT_WINDOW_DISPLAY_SCALE_CHANGED",
+	"BTRC_GTK_EVENT_WINDOW_MINIMIZED", "BTRC_GTK_EVENT_WINDOW_RESTORED", "BTRC_GTK_EVENT_WINDOW_MOUSE_ENTER", "BTRC_GTK_EVENT_WINDOW_MOUSE_LEAVE",
+	"BTRC_GTK_EVENT_WINDOW_FOCUS_GAINED", "BTRC_GTK_EVENT_WINDOW_FOCUS_LOST", "BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED", "BTRC_GTK_EVENT_KEY_DOWN",
+	"BTRC_GTK_EVENT_KEY_UP", "BTRC_GTK_EVENT_TEXT_EDITING", "BTRC_GTK_EVENT_TEXT_INPUT", "BTRC_GTK_EVENT_MOUSE_MOTION",
+	"BTRC_GTK_EVENT_MOUSE_BUTTON_DOWN", "BTRC_GTK_EVENT_MOUSE_BUTTON_UP", "BTRC_GTK_EVENT_MOUSE_WHEEL", "BTRC_GTK_EVENT_CONTROL_ACTIVATED",
+	"BTRC_GTK_EVENT_CONTROL_FOCUS_GAINED", "BTRC_GTK_EVENT_CONTROL_FOCUS_LOST", "BTRC_GTK_EVENT_CONTROL_SLIDER_PRESSED",
+	"BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED", "BTRC_GTK_EVENT_CONTROL_SLIDER_RELEASED", "BTRC_GTK_EVENT_CONTROL_SLIDER_CANCELLED",
+	"BTRC_GTK_SLIDER_JUMP", "BTRC_GTK_SLIDER_STEP_BACKWARD", "BTRC_GTK_SLIDER_STEP_FORWARD", "BTRC_GTK_SLIDER_PAGE_BACKWARD",
+	"BTRC_GTK_SLIDER_PAGE_FORWARD", "BTRC_GTK_SLIDER_START", "BTRC_GTK_SLIDER_END", "BTRC_GTK_KEY_UNKNOWN", "BTRC_GTK_KEY_ESCAPE",
+	"BTRC_GTK_KEY_RETURN", "BTRC_GTK_KEY_KP_ENTER", "BTRC_GTK_KEY_SPACE", "BTRC_GTK_KEY_LEFT", "BTRC_GTK_KEY_RIGHT", "BTRC_GTK_KEY_UP",
+	"BTRC_GTK_KEY_DOWN", "BTRC_GTK_KEY_TAB", "BTRC_GTK_KEY_BACKSPACE", "BTRC_GTK_KEY_DELETE", "BTRC_GTK_KEY_HOME", "BTRC_GTK_KEY_END",
+	"BTRC_GTK_KEY_LSHIFT", "BTRC_GTK_KEY_RSHIFT", "BTRC_GTK_KEY_LALT", "BTRC_GTK_KEY_RALT", "BTRC_GTK_KEY_A", "BTRC_GTK_KEY_C", "BTRC_GTK_KEY_V",
+	"BTRC_GTK_SCANCODE_A", "BTRC_GTK_SCANCODE_C", "BTRC_GTK_SCANCODE_D", "BTRC_GTK_SCANCODE_Q", "BTRC_GTK_SCANCODE_S", "BTRC_GTK_SCANCODE_V",
+	"BTRC_GTK_SCANCODE_W", "BTRC_GTK_SCANCODE_X", "BTRC_GTK_SCANCODE_Z", "BTRC_GTK_SCANCODE_LEFTBRACKET", "BTRC_GTK_SCANCODE_RIGHTBRACKET",
+	"BTRC_GTK_SCANCODE_BACKSPACE", "BTRC_GTK_SCANCODE_LEFT", "BTRC_GTK_SCANCODE_END", "BTRC_GTK_MOD_SHIFT", "BTRC_GTK_MOD_CTRL", "BTRC_GTK_MOD_ALT",
+	"BTRC_GTK_MOD_GUI", "BTRC_GTK_CURSOR_DEFAULT", "BTRC_GTK_CURSOR_TEXT"
 ]
-read-only-borrows = ["btrcGtkWindowCreate.title", "btrcGtkWindowSetTitle.title", "btrcGtkWindowShowMessage.title", "btrcGtkWindowShowMessage.message", "btrcGtkSetClipboardText.text", "btrcGtkFolderDialogOpen.initialDirectory", "btrcGtkFolderDialogOpen.title"]
+read-only-borrows = ["btrcGtkWindowCreate.title", "btrcGtkWindowSetTitle.title", "btrcGtkWindowShowMessage.title", "btrcGtkWindowShowMessage.message", "btrcGtkWindowShowPicture.pixels", "btrcGtkSetClipboardText.text", "btrcGtkFolderDialogOpen.initialDirectory", "btrcGtkFolderDialogOpen.title"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.Gtk.GtkControls"
+header = "Linux/Gtk/GtkControls.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"BtrcGtkControl", "btrcGtkControlDestroy", "btrcGtkControlSetEnabled", "btrcGtkControlSetToolTip", "btrcGtkControlSetFont",
+	"btrcGtkControlNaturalWidth", "btrcGtkControlNaturalHeight", "btrcGtkControlNaturalHeightFor", "btrcGtkWindowBeginPlacement", "btrcGtkWindowPlace",
+	"btrcGtkWindowEndPlacement", "btrcGtkWindowDrawControls", "btrcGtkButtonCreate", "btrcGtkButtonSetTitle", "btrcGtkButtonSetCentered",
+	"btrcGtkButtonBeginSymbol", "btrcGtkButtonSymbolLine", "btrcGtkButtonSymbolTriangle", "btrcGtkButtonSymbolRectangle", "btrcGtkButtonSymbolCircle",
+	"btrcGtkButtonSetBordered", "btrcGtkButtonSetSelected", "btrcGtkButtonSetTransparent", "btrcGtkLabelCreate", "btrcGtkLabelSetText",
+	"btrcGtkLabelSetSecondary", "btrcGtkLabelSetCentered", "btrcGtkLabelSetWrapping", "btrcGtkSpinnerCreate", "btrcGtkSpinnerSetRunning",
+	"btrcGtkLevelCreate", "btrcGtkLevelSetValue", "btrcGtkSliderCreate", "btrcGtkSliderSet"
+]
+read-only-borrows = ["btrcGtkControlSetToolTip.text", "btrcGtkButtonCreate.title", "btrcGtkButtonSetTitle.title", "btrcGtkLabelCreate.text", "btrcGtkLabelSetText.text"]
 os = ["linux"]
 
 [[native.sources]]
@@ -101,6 +123,20 @@ os = ["linux"]
 
 [[native.sources]]
 path = "Linux/Gtk/wayland/viewporter-protocol.c"
+language = "c"
+standard = "c11"
+modules = ["Linux.Gtk.GtkShim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Gtk/GtkCanvas.c"
+language = "c"
+standard = "c11"
+modules = ["Linux.Gtk.GtkShim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Gtk/GtkControls.c"
 language = "c"
 standard = "c11"
 modules = ["Linux.Gtk.GtkShim"]
@@ -128,11 +164,6 @@ os = ["linux"]
 
 [[native.pkg-config]]
 name = "x11"
-modules = ["Linux.Gtk.GtkShim"]
-os = ["linux"]
-
-[[native.pkg-config]]
-name = "xext"
 modules = ["Linux.Gtk.GtkShim"]
 os = ["linux"]
 
