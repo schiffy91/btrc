@@ -8,8 +8,9 @@ record they write. With BTRC_WIN32_EVIDENCE_DIR set, each row's executables
 and DLL are copied into its own directory there. windows.yml's win32-native
 job runs the execution tests on Windows x64 and ARM64 against that directory:
 100 measured shell cycles after two initialization cycles, with window counts
-and GDI/USER objects after every teardown, 100 fresh-process restores, and the UI Automation tree a separate COM
-client process reads. The execution tests skip off Windows; the build tests
+and GDI/USER objects after every teardown, 100 fresh-process restores, and
+then a ten-cycle run in which a separate COM client process reads the UI
+Automation tree. The execution tests skip off Windows; the build tests
 skip on Windows, which has no dev shell. Hosted GPU frames are correctness
 evidence from Windows' software adapter, never a pacing or hardware result.
 """
@@ -49,6 +50,8 @@ TARGETS = {
     "windows-arm64": ("windows-aarch64", "aarch64-w64-windows-gnu", "aarch64", "windows-arm64"),
 }
 FRONTENDS = {"python": "reference", "selfhost": "selfhost"}
+# Cycles of the accessibility run, apart from the 100-cycle resource census.
+ACCESSIBILITY_CYCLES = 10
 # zig's MinGW rows have UBSan (its runtime links statically) but no ASan runtime.
 UBSAN = ["-fsanitize=undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"]
 
@@ -553,9 +556,14 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     environment = {**os.environ}
     for flag_name in ("BTRC_UI_SHELL_NO_AX", "BTRC_UI_SHELL_NO_SCROLL"):
         environment.pop(flag_name, None)
+    # The census below runs unobserved. Serving a UI Automation client leaves the
+    # served process one USER object it keeps until it exits (issue #126): with a
+    # client walking every cycle that object appeared in about half of all runs,
+    # at any cycle, and in none of 510 cycles without one. It is the walk's cost,
+    # not the provider's, so the tree is read in a run of its own further down.
+    environment.pop("BTRC_UI_SHELL_UIA_PROBE", None)
     client = directory / f"uia-probe-{FRONTENDS[frontend]}-{target}.exe"
-    if client.is_file():
-        environment["BTRC_UI_SHELL_UIA_PROBE"] = str(client)
+    assert client.is_file(), client
     artifacts = REPO / "build/ui-shell" / shell_name(frontend, target, sanitized).removesuffix(".exe")
     if diagnostic_mode:
         artifacts = artifacts / diagnostic_mode
@@ -608,11 +616,32 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
     baseline = resources[warmup_cycles - 1][1:3]
     assert {row[1:3] for row in resources[warmup_cycles:]} == {baseline}, resources
     probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
-    trees = [probe["accessibility"] for probe in probes]
-    (artifacts / "uia-trees.json").write_text(json.dumps(trees, indent=1), encoding="utf-8")
     assert len(probes) == cycles, message
     assert all(probe["probe"] == "windows-win32" for probe in probes)
     assert all(probe["dpi_awareness_v2"] and probe["comctl32_v6_cue_banner"] for probe in probes), probes[0]
+    assert {probe["accessibility"] for probe in probes} == {
+        "unavailable: BTRC_UI_SHELL_UIA_PROBE names no UI Automation client"
+    }, probes[0]
+    # The accessibility run: the same journey with a UI Automation client reading
+    # the tree in every cycle. Provider windows and registrations still reach
+    # zero after each teardown; the process's object counts are the census's.
+    observed_state = tmp_path / "observed-state"
+    observed_state.mkdir()
+    walked = run_shell(
+        [str(executable), str(ACCESSIBILITY_CYCLES), str(observed_state)],
+        {**environment, "BTRC_UI_SHELL_UIA_PROBE": str(client)},
+        600,
+    )
+    (artifacts / "accessibility.stdout").write_text(walked.stdout, encoding="utf-8")
+    (artifacts / "accessibility.stderr").write_text(walked.stderr, encoding="utf-8")
+    walked_message = f"Shell returncode={walked.returncode}\n{walked.stderr[-6000:]}\n{walked.stdout[-6000:]}"
+    assert walked.returncode == 0, walked_message
+    walked_teardown = re.findall(r"SHELL teardown provider=(\d+) private=(\d+) registrations=(\d+)", walked.stdout)
+    assert len(walked_teardown) == ACCESSIBILITY_CYCLES, walked_message
+    assert all(int(row[0]) == int(row[2]) == 0 for row in walked_teardown), walked_message
+    trees = [json.loads(line)["accessibility"] for line in walked.stdout.splitlines() if line.startswith("{")]
+    (artifacts / "uia-trees.json").write_text(json.dumps(trees, indent=1), encoding="utf-8")
+    assert len(trees) == ACCESSIBILITY_CYCLES, walked_message
     for tree in trees:
         assert_shell_tree(tree)
     frames = int(summary[2])
@@ -654,6 +683,7 @@ def test_windows_native_shell_runs(tmp_path, monkeypatch, frontend, target, sani
             "teardown": teardown,
             "resources": resources,
             "fresh_process_restores": 100,
+            "accessibility_cycles": ACCESSIBILITY_CYCLES,
             "e46": "missing",
             "e47": "fixture-only; stdlib missing",
             "accessibility": uia_summary(trees),
