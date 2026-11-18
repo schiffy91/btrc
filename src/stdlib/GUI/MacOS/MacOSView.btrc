@@ -149,7 +149,15 @@ class MacOSView implements IMacOSView, IMacOSViewEligibility {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
 		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native view frame"; }
 		var parent = view.superview();
-		if (parent == null) { throw "Attach a native view before arranging it"; }
+		if (parent == null) {
+			/* A view with no parent has nothing to be placed in, but it can
+			 * still be given a size to measure itself at: a wrapping label is
+			 * as tall as the width it is given makes it. */
+			var detached = view.frame();
+			detached.origin.x = x; detached.origin.y = y; detached.size.width = width; detached.size.height = height;
+			view.setFrame(detached);
+			return;
+		}
 		var bounds = parent.bounds();
 		double nativeX = bounds.origin.x + x;
 		double nativeY = parent.isFlipped() ? bounds.origin.y + y : bounds.origin.y + bounds.size.height - y - height;

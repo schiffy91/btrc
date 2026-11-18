@@ -8,6 +8,7 @@ import Library.GUI.MacOS.MacOSView;
 class MacOSLabel implements ILabel, IMacOSView {
 	private NSTextField? _label;
 	private MacOSView _view;
+	private bool _wrapping = false;
 
 	public MacOSLabel(string text = "") {
 		if (!NSThread.isMainThread()) { throw "Native labels require the main thread"; }
@@ -36,7 +37,11 @@ class MacOSLabel implements ILabel, IMacOSView {
 
 	public double fittingHeight() { return self._view.fittingHeight(); }
 
-	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+	/* A wrapping label measures itself at the width it was last given. */
+	public void arrange(double x, double y, double width, double height) {
+		self._view.arrange(x, y, width, height);
+		if (self._wrapping) { self.control().setPreferredMaxLayoutWidth(width); }
+	}
 
 	public bool isVisible() { return self._view.isVisible(); }
 
@@ -75,6 +80,8 @@ class MacOSLabel implements ILabel, IMacOSView {
 		label.setUsesSingleLineMode(!wrapping);
 		label.setMaximumNumberOfLines(wrapping ? 0 : 1);
 		label.setLineBreakMode(wrapping ? NSLineBreakByWordWrapping : NSLineBreakByTruncatingTail);
+		self._wrapping = wrapping;
+		label.setPreferredMaxLayoutWidth(wrapping ? self.nativeView().frame().size.width : 0.0);
 	}
 
 	public CallbackCancellation close() { var state = self._view.close(); self._label = null; return state; }
