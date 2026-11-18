@@ -6,16 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.python.linux_provider_fixtures import (
-    build_observed_provider_program,
-    build_provider_program,
-    provider_environment,
-    require_linux_reader,
-)
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
-from src.tests.runner_capabilities import linux_display_error
 from tools.native_plan import NativePlanBuilder
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -139,76 +132,6 @@ def _macos_image_publication(native_project, native_compile, gui_provider_root, 
     assert ran.returncode == 0, ran.stdout + ran.stderr
     assert "PASS: UI2 macOS image capture close and independent presentation" in ran.stdout
     _image_lifetime_evidence(ran.stdout, package, "macos")
-
-
-@pytest.mark.linux_gui
-@pytest.mark.parametrize("frontend", ["python", "selfhost"])
-@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
-def test_linux_image_publication(tmp_path, request, gui_provider_root, frontend, sanitized):
-    require_linux_reader()
-    if error := linux_display_error():
-        pytest.skip(error)
-    executable = build_provider_program(
-        FIXTURES / "probes/linux/UI2LinuxImages.btrc",
-        tmp_path,
-        frontend,
-        sanitized,
-        request,
-        data_root=gui_provider_root,
-    )
-    ran = subprocess.run(
-        [str(executable)],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env=provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1"),
-    )
-    (tmp_path / "stdout.txt").write_text(ran.stdout)
-    (tmp_path / "stderr.txt").write_text(ran.stderr)
-    assert ran.returncode == 0, ran.stdout + ran.stderr
-    assert "PASS: UI2 Linux image capture close and independent presentation" in ran.stdout
-
-
-@pytest.mark.linux_gui
-@pytest.mark.parametrize("frontend", ["python", "selfhost"])
-@pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
-def test_linux_image_lifetime(tmp_path_factory, request, frontend, sanitized):
-    fixture = "src/tests/native/gui/ui2/probes/linux/UI2LinuxImageLifetime"
-    wrappers = (
-        "SDL_CreateWindow",
-        "SDL_DestroyWindow",
-        "wgpuDeviceCreateTexture",
-        "wgpuTextureCreateView",
-        "wgpuDeviceCreateBindGroup",
-        "wgpuSurfaceGetCurrentTexture",
-        *(
-            f"wgpu{kind}{operation}"
-            for kind in ("Texture", "TextureView", "BindGroup")
-            for operation in ("AddRef", "Release")
-        ),
-    )
-    executable = build_observed_provider_program(
-        tmp_path_factory,
-        request,
-        frontend,
-        sanitized,
-        fixture + ".btrc",
-        fixture,
-        ("ui2ImageBegin", "ui2ImageWorker", "ui2ImageEnd"),
-        wrappers,
-    )
-    ran = subprocess.run(
-        [str(executable)],
-        capture_output=True,
-        text=True,
-        timeout=600,
-        env=provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1"),
-    )
-    (executable.parent / "stdout.txt").write_text(ran.stdout)
-    (executable.parent / "stderr.txt").write_text(ran.stderr)
-    assert ran.returncode == 0, ran.stdout + ran.stderr
-    assert "PASS: UI2 Linux image lifetime cycles=100" in ran.stdout
-    _image_lifetime_evidence(ran.stdout, executable.parent, "linux")
 
 
 def _image_lifetime_evidence(output, directory, provider):

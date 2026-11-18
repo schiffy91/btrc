@@ -62,7 +62,7 @@ MACOS_SKIPS = [
         "requires Linux and the explicitly built native header reader",
     ),
     (
-        "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]",
+        "src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[False-python]",
         "requires Linux and the explicitly built native header reader",
     ),
     # macOS run 36905763175 (962c7dc) failed its gate on the Linux FreeType case,
@@ -542,11 +542,12 @@ def test_the_native_linux_manifest_qualifies_the_headless_gate_and_leaves_the_de
 
     # Without a display the Linux GUI suites skip here; the container runs every one of them under Xvfb.
     no_display = "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY"
-    gui = native.classify("src/tests/python/test_native_ui_core_linux.py::test_case[plain-python]", no_display)
+    gui = native.classify("src/tests/python/test_native_ui_linux_spike.py::test_case[plain-python]", no_display)
     assert gui is rules["native-gui-no-display"] and gui.category == "capability"
     assert gui.covered_by == ("linux-devcontainer",) and gui.gating_env == ("DISPLAY", "WAYLAND_DISPLAY")
     assert (
-        container.classify("src/tests/python/test_native_ui_core_linux.py::test_case[plain-python]", no_display) is None
+        container.classify("src/tests/python/test_native_ui_linux_spike.py::test_case[plain-python]", no_display)
+        is None
     )
 
     # Nor does it have a sound device; the container's Linux GUI and audio shard has the null PCM.
@@ -635,7 +636,7 @@ def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
     # so a missing display or compute adapter is a broken runner, not an expected skip.
     assert (
         manifest.classify(
-            "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]",
+            "src/tests/python/test_native_linux_providers.py::test_linux_gui_shutdown_deadline[True-python]",
             "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY",
         )
         is None
@@ -1653,16 +1654,9 @@ def test_wait(name, hold):
 @pytest.mark.parametrize(
     "node",
     [
-        "src/tests/python/test_native_ui2_capture_linux.py::test_linux_capture_admission",
         "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_repeated_bursts",
         "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_sustained_load",
         "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_diagnostic",
-        "src/tests/python/test_native_ui2_images.py::test_linux_image_publication",
-        "src/tests/python/test_native_ui2_images.py::test_linux_image_lifetime",
-        "src/tests/python/test_native_ui2_linux_resource_lifetime.py::test_linux_ui2_native_resource_lifetime",
-        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_executor_and_lifecycle",
-        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_callback_scope_release_requires_executor",
-        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_final_release_requires_executor",
     ],
 )
 def test_macos_classifies_linux_ui2_provider_skips(runner, node):
@@ -1685,7 +1679,7 @@ def test_linux_ui2_platform_skip_does_not_cover_other_tests(runner):
     reason = "requires Linux and the explicitly built native header reader"
     for node in (
         "src/tests/python/test_native_ui2_images.py::test_macos_image_publication[case]",
-        "src/tests/python/test_native_ui_core_linux.py::test_new_unreviewed_case[case]",
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_new_unreviewed_case[case]",
         "src/tests/python/test_native_tray_runtime.py::test_linux_capture_admission[case]",
     ):
         rule = manifest.classify(node, reason)

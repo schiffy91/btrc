@@ -4,7 +4,7 @@ Products import ``Library.GUI`` and the portable contracts; the GUI manifest
 exports no provider module beyond the AppKit seam ``Library.Tray`` uses. The
 providers' own conformance fixtures still assert native state through their
 modules: on macOS the action queue, view capture, the GPU surface and AppKit
-readback through ``IMacOSView``; on Linux synthetic SDL input and a drawn
+readback through ``IMacOSView``; on Linux the provider's own event queue and a
 ``LinuxNodeView`` whose shutdown stalls. They compile against this copy of
 ``src/``, which differs only in that manifest's export list. Shared semantic and numeric owners are also exposed solely for these
 white-box fixtures.
@@ -24,13 +24,10 @@ REPO = Path(__file__).resolve().parents[2]
 class GUIProviderRoot:
     """Build and use the white-box data root for native provider fixtures."""
 
-    PROVIDERS = ("MacOS", "Linux", "Linux.Gtk")
+    PROVIDERS = ("MacOS", "Linux")
 
     @classmethod
-    def create(cls, root: Path, *, linux: str = "Linux") -> Path:
-        """`linux` names the provider package Linux builds select: the shipped
-        one, or `Linux.Gtk` while the GTK provider is built beside it
-        (docs/design/native-ui-surfaces-and-hosts.md, section 3)."""
+    def create(cls, root: Path) -> Path:
         root.mkdir(parents=True, exist_ok=True)
         shutil.copytree(REPO / "src/language", root / "language")
         shutil.copytree(REPO / "src/stdlib", root / "stdlib")
@@ -42,7 +39,7 @@ class GUIProviderRoot:
         provider = [
             f"{platform}.{path.stem}"
             for platform in cls.PROVIDERS
-            for path in sorted((root / "stdlib/GUI" / platform.replace(".", "/")).glob("*.btrc"))
+            for path in sorted((root / "stdlib/GUI" / platform).glob("*.btrc"))
             if path.stem not in ("GUIProvider", "WebViewProvider") and f"{platform}.{path.stem}" not in exported
         ]
         # White-box fixtures inspect these private owners.
@@ -59,13 +56,9 @@ class GUIProviderRoot:
             if name not in exported:
                 provider.append(name)
         assert text.count("exports = [") == 1, "the GUI manifest declares one export list"
-        text = text.replace("exports = [", "exports = [" + "".join(f'"{name}", ' for name in provider))
-        # The GUI facade and the web view facade each name one Linux provider.
-        for facade in ("GUIProvider", "WebViewProvider"):
-            shipped = f'implementation = "Linux.{facade}"'
-            assert text.count(shipped) == 1, f"the GUI manifest names one Linux {facade}"
-            text = text.replace(shipped, f'implementation = "{linux}.{facade}"')
-        manifest.write_text(text, encoding="utf-8")
+        manifest.write_text(
+            text.replace("exports = [", "exports = [" + "".join(f'"{name}", ' for name in provider)), encoding="utf-8"
+        )
         return root
 
     @classmethod

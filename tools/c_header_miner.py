@@ -61,7 +61,7 @@ LIBRARIES = {
         ),
     ),
     "ALSA": ("alsa", ("alsa/asoundlib.h",)),
-    "SDL3": ("sdl3", ("SDL3/SDL.h",)),
+    "GTK4": ("gtk4", ("gtk/gtk.h",)),
     "FreeType": ("freetype2", ("ft2build.h", "freetype/freetype.h")),
     "libpng": ("libpng", ("png.h",)),
     "libjpeg": ("libjpeg", ("stdio.h", "jpeglib.h")),

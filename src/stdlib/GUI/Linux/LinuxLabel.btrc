@@ -1,76 +1,36 @@
+import Library.Callback;
 import Library.Math;
-import Library.Strings;
-import Library.Vector;
 import Library.GUI.ILabel;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
-import Library.GUI.Linux.LinuxFonts;
 import Library.GUI.Linux.LinuxPainter;
+import Library.GUI.Linux.GtkControls;
 
-/* Greedy word wrapping over logical points using the shared font metrics. */
-class LinuxTextLines {
-	class Vector<string> wrap(LinuxFonts fonts, string text, double size, double scale, bool bold, double width) {
-		Vector<string> lines = [];
-		if (text.isEmpty()) { lines.push(""); return lines; }
-		for paragraph in Strings.split(text, "\n") {
-			if (width <= 0.0) { lines.push(paragraph); continue; }
-			string line = "";
-			for word in Strings.split(paragraph, " ") {
-				string candidate = line.isEmpty() ? word : line + " " + word;
-				if (!line.isEmpty() && fonts.textWidth(candidate, size, scale, bold) > width) { lines.push(line); line = word; }
-				else { line = candidate; }
-			}
-			lines.push(line);
-		}
-		return lines;
-	}
-}
-
+/* A GTK label: GTK lays the text out, wraps it and draws it. */
 class LinuxLabel extends LinuxNodeView implements ILabel {
+	private BtrcGtkControl* _control;
 	private string _text;
-	private double _size = 13.0;
-	private bool _bold = false;
-	private bool _secondary = false;
-	private bool _centered = false;
 	private bool _wrapping = false;
 
-	public LinuxLabel(LinuxContext context, string text) { self.adoptNode(LinuxViewNode(context)); self._text = text; }
-
-	private LinuxFonts fonts() { return self.node().context.fonts; }
-
-	public void paint(LinuxPainter painter, double x, double y) {
-		var theme = painter.theme();
-		var color = self._secondary ? theme.secondaryText : theme.text;
-		double lineHeight = painter.lineHeight(self._size, self._bold);
-		painter.pushClip(x, y, self.node().width, self.node().height);
-		if (self._wrapping) {
-			var lines = LinuxTextLines.wrap(self.fonts(), self._text, self._size, self.node().scale(), self._bold, self.node().width);
-			double top = y;
-			for line in lines {
-				double lineWidth = painter.textWidth(line, self._size, self._bold);
-				painter.text(line, self._centered ? x + (self.node().width - lineWidth) * 0.5 : x, top, self._size, self._bold, color);
-				top += lineHeight;
-			}
-		} else {
-			painter.textInBox(self._text, x, y, self.node().width, self.node().height, self._size, self._bold, color, self._centered ? 1 : 0);
-		}
-		painter.popClip();
+	public LinuxLabel(LinuxContext context, string text) {
+		self.adoptNode(LinuxViewNode(context));
+		self._text = text;
+		self._control = btrcGtkLabelCreate((unsigned int)self.node().id, text);
+		if (self._control == null) { throw "Cannot create native label"; }
+		btrcGtkControlSetFont(self._control, 13.0, false);
 	}
 
-	public double fittingWidth() {
-		self.node().requireOpen();
-		double widest = 0.0;
-		for line in Strings.split(self._text, "\n") { widest = Math.maxDouble(widest, self.fonts().textWidth(line, self._size, self.node().scale(), self._bold)); }
-		return Math.ceilDouble(widest) + 4.0;
-	}
+	private BtrcGtkControl* control() { if (self._control == null) { throw "Native label is closed"; } return self._control; }
 
+	public void paint(LinuxPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
+
+	public double fittingWidth() { self.node().requireOpen(); return (double)btrcGtkControlNaturalWidth(self.control()); }
+
+	/* Wrapped text is as tall as the width it has been given makes it. */
 	public double fittingHeight() {
 		self.node().requireOpen();
-		double lineHeight = self.fonts().lineHeight(self._size, self.node().scale(), self._bold);
-		int lines = 1;
-		if (self._wrapping) { lines = LinuxTextLines.wrap(self.fonts(), self._text, self._size, self.node().scale(), self._bold, self.node().width).len; }
-		else { lines = Strings.split(self._text, "\n").len; }
-		return Math.ceilDouble(lineHeight * (double)(lines < 1 ? 1 : lines)) + 2.0;
+		if (self._wrapping && self.node().width > 0.0) { return (double)btrcGtkControlNaturalHeightFor(self.control(), (int)self.node().width); }
+		return (double)btrcGtkControlNaturalHeight(self.control());
 	}
 
 	public void setText(string text) {
@@ -78,6 +38,7 @@ class LinuxLabel extends LinuxNodeView implements ILabel {
 		if (text == null) { throw "Native label text is missing"; }
 		if (self._text.equals(text)) { return; }
 		self._text = text;
+		btrcGtkLabelSetText(self.control(), text);
 		self.node().invalidate();
 	}
 
@@ -86,14 +47,29 @@ class LinuxLabel extends LinuxNodeView implements ILabel {
 	public void setFont(double size, bool bold = false) {
 		self.node().requireOpen();
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native label font size"; }
-		self._size = size;
-		self._bold = bold;
+		btrcGtkControlSetFont(self.control(), size, bold);
 		self.node().invalidate();
 	}
 
-	public void setSecondary(bool secondary) { self.node().requireOpen(); self._secondary = secondary; self.node().invalidate(); }
+	public void setSecondary(bool secondary) { self.node().requireOpen(); btrcGtkLabelSetSecondary(self.control(), secondary); }
 
-	public void setCentered(bool centered) { self.node().requireOpen(); self._centered = centered; self.node().invalidate(); }
+	public void setCentered(bool centered) { self.node().requireOpen(); btrcGtkLabelSetCentered(self.control(), centered); }
 
-	public void setWrapping(bool wrapping) { self.node().requireOpen(); self._wrapping = wrapping; self.node().invalidate(); }
+	public void setWrapping(bool wrapping) { self.node().requireOpen(); self._wrapping = wrapping; btrcGtkLabelSetWrapping(self.control(), wrapping); self.node().invalidate(); }
+
+	private void releaseNative() { if (self._control != null) { btrcGtkControlDestroy(self._control); self._control = null; } }
+
+	public CallbackCancellation close() {
+		var state = self.node().close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self.node().pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public void __del__() { self.releaseNative(); }
 }

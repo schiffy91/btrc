@@ -45,21 +45,24 @@ class LinuxGPUView extends LinuxNodeView implements IGPUView {
 		return host != null;
 	}
 
-	public void paint(LinuxPainter painter, double x, double y) {
+	public void paint(LinuxPlacer painter, double x, double y) {
 		/* A reparented view keeps its old window's target until the next poll()
 		 * rebuilds it: never sample a texture from another window's device. */
 		var host = self.node().host;
-		if (host == null || host.device == null || host.device != self._targetDevice) { return; }
+		var gpu = painter.gpu;
+		if (gpu == null || host == null || host.device == null || host.device != self._targetDevice) { return; }
 		var target = self._target;
 		var renderer = self._renderer;
 		if (target == null || renderer == null || !target.hasTexture() || renderer.presentedCount() == 0ULL) { return; }
 		var sampled = self._sampled;
 		if (sampled == null || self._sampledGeneration != target.generation()) {
-			sampled = painter.borrowTexture(target.nativeView(), target.width(), target.height());
+			sampled = gpu.borrowTexture(target.nativeView(), target.width(), target.height());
 			self._sampled = sampled;
 			self._sampledGeneration = target.generation();
 		}
-		painter.texture(sampled, x, y, self.node().width, self.node().height, RGBA(255, 255, 255, 255));
+		gpu.texture(sampled, x, y, self.node().width, self.node().height, RGBA(255, 255, 255, 255));
+		/* Its pixels are drawn content: they show through the controls behind it. */
+		painter.hole(x, y, self.node().width, self.node().height);
 	}
 
 	private void requireOpen() { if (self._closing || self.node().closed) { throw "GPU view is closing or closed"; } }

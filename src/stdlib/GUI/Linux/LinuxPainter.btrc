@@ -9,6 +9,8 @@ import Library.GPU.GPUSurfaceRenderer;
 import Library.GPU.WebGPU;
 import Library.GUI.Linux.LinuxFonts;
 import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.GtkControls;
+import Library.GUI.Linux.LinuxSymbols;
 
 /* One sampled texture with its bind group; images, glyph atlases and GPU-view
  * targets all bind through the same layout. Views borrow it per frame. */
@@ -219,11 +221,28 @@ class LinuxClip {
 	public LinuxClip(double x, double y, double width, double height) { self.x = x; self.y = y; self.width = width; self.height = height; }
 }
 
+/* Where one native control goes this frame: its frame and the clip of the
+ * views around it, in logical points from the window's top-left. With no
+ * control it is a hole: a rectangle of drawn content (a GPU view) that shows
+ * through the controls placed before it. */
+class LinuxPlacement {
+	public BtrcGtkControl* control;
+	public double x;
+	public double y;
+	public double width;
+	public double height;
+	public LinuxClip clip;
+
+	public LinuxPlacement(BtrcGtkControl* control, double x, double y, double width, double height, LinuxClip clip) {
+		self.control = control; self.x = x; self.y = y; self.width = width; self.height = height; self.clip = clip;
+	}
+}
+
 /* The per-window 2D painter. Everything records into one vertex stream in
  * backing pixels and replays inside the window's render pass: solid and
  * rounded rectangles, rings, images, glyphs and sampled GPU-view targets.
  * Coordinates arrive in logical points from the window's top-left. */
-class LinuxPainter {
+class LinuxPainter implements ILinuxStrokes {
 	private GPUDevice _device;
 	private WGPUTextureFormat _format;
 	private LinuxFonts _fonts;
@@ -675,4 +694,51 @@ class LinuxPainter {
 	}
 
 	public void __del__() { self.close(); }
+}
+
+/* One pass over a window's views, back to front. Each view says where it
+ * is: a native control records its frame, with the clip of the views around
+ * it, for GTK to place it; a view with drawn content (a GPU view) draws it
+ * through `gpu` and records a hole, the rectangle where that content shows
+ * among the controls. The pass needs no GPU: without one, `gpu` is null and
+ * only the controls are placed. */
+class LinuxPlacer {
+	private Vector<LinuxClip> _clips = [];
+	private Vector<LinuxPlacement> _placements = [];
+	public LinuxPainter? gpu;
+
+	public LinuxPlacer(double width, double height, LinuxPainter? gpu) {
+		self.gpu = gpu;
+		self._clips.push(LinuxClip(0.0, 0.0, width, height));
+	}
+
+	public void pushClip(double x, double y, double width, double height) {
+		var current = self._clips.last();
+		double left = Math.maxDouble(current.x, x);
+		double top = Math.maxDouble(current.y, y);
+		double right = Math.minDouble(current.x + current.width, x + width);
+		double bottom = Math.minDouble(current.y + current.height, y + height);
+		self._clips.push(LinuxClip(left, top, Math.maxDouble(0.0, right - left), Math.maxDouble(0.0, bottom - top)));
+		var gpu = self.gpu;
+		if (gpu != null) { gpu.pushClip(x, y, width, height); }
+	}
+
+	public void popClip() {
+		if (self._clips.len > 1) { self._clips.pop(); }
+		var gpu = self.gpu;
+		if (gpu != null) { gpu.popClip(); }
+	}
+
+	/* A native control is not drawn here: GTK draws it, where this says. */
+	public void place(BtrcGtkControl* control, double x, double y, double width, double height) {
+		var clip = self._clips.last();
+		self._placements.push(LinuxPlacement(control, x, y, width, height, LinuxClip(clip.x, clip.y, clip.width, clip.height)));
+	}
+
+	/* Drawn content that must show among the native controls: what was placed
+	 * before it lies under it, what is placed after lies over it. */
+	public void hole(double x, double y, double width, double height) { self.place(null, x, y, width, height); }
+
+	/* The native controls and holes of this pass, back to front. */
+	public Vector<LinuxPlacement> placements() { return self._placements; }
 }

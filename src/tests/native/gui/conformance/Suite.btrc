@@ -5,6 +5,8 @@ import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.Vector;
 
+import ./Probe.btrc;
+
 /* One named check of the portable contract. It builds what it needs through
  * the GUI facade, lets turns pass, and throws what it found wrong. */
 interface IConformanceCase {
@@ -44,11 +46,11 @@ class Turns {
 
 	public SuiteHost host() { return self.suiteHost; }
 
-	public void turn() { self.attachment.serviceTurn(); }
+	public void turn() { Probe.service(); self.attachment.serviceTurn(); }
 
 	/* Enough turns for queued input, layout and a first frame to land. */
 	public void settle(int turns = 20) {
-		for (int turn = 0; turn < turns; turn++) { self.attachment.serviceTurn(); }
+		for (int turn = 0; turn < turns; turn++) { self.turn(); }
 	}
 
 	/* The host tells the application what the system did to it. */
@@ -100,6 +102,7 @@ class Suite {
 		try { check.run(Turns(attachment, host)); } catch (string error) { failure = error; }
 		attachment.cancel();
 		for (int turn = 0; turn < 1000 && attachment.pollCompletion() == CALLBACK_CANCELLATION_PENDING; turn++) {
+			Probe.service();
 			attachment.serviceTurn();
 		}
 		bool released = attachment.pollCompletion() == CALLBACK_CANCELLATION_COMPLETE && scope.cancel() == CALLBACK_CANCELLATION_COMPLETE;

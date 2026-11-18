@@ -1,5 +1,7 @@
-"""The Linux stdlib providers on real SDKs: the drawn GUI over SDL3 and
-WebGPU, libpng/libjpeg-turbo decoding, and ALSA duplex sessions.
+"""The Linux stdlib providers on real SDKs: the GTK4 GUI with WebGPU,
+libpng/libjpeg-turbo decoding, and ALSA duplex sessions. The GUI's portable
+contract is held by the conformance suite (test_native_ui_conformance.py);
+here are the provider's own boundaries.
 
 Each program compiles through both frontends against the Linux target, links
 through the native plan, and runs optimized and under ASan/UBSan. Display and
@@ -163,27 +165,6 @@ def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 @pytest.mark.linux_gui
-def test_linux_gui_controls(tmp_path, request, frontend, sanitized):
-    """A live window: synthetic input drives every control kind and the composed frame reads back.
-    The fixture pushes SDL events at the provider's window, so it compiles against gui_provider_root."""
-    require_linux_reader()
-    if error := linux_display_error():
-        pytest.skip(error)
-    _build_and_run(
-        ROOT / "src/tests/native/gui/linux/LinuxGUIControls.btrc",
-        tmp_path,
-        frontend,
-        sanitized,
-        request,
-        "PASS: linux gui controls",
-        timeout=180,
-        data_root=request.getfixturevalue("gui_provider_root"),
-    )
-
-
-@pytest.mark.parametrize("frontend", ["python", "selfhost"])
-@pytest.mark.parametrize("sanitized", [False, True])
-@pytest.mark.linux_gui
 def test_linux_gui_shutdown_deadline(tmp_path, request, frontend, sanitized):
     """A subtree that never finishes closing fails run() after one deadline instead of hanging quit.
     The stalled view extends the provider's LinuxNodeView, so it compiles against gui_provider_root."""
@@ -225,8 +206,10 @@ def test_linux_gui_gpu_view_reparent(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize(
     "declaration, body, diagnostic",
     [
-        ("import Library.GUI.Linux.SDL;", "return 0;", "private to package"),
-        ('#include "GUI/Linux/SDL.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI.Linux.GtkShim;", "return 0;", "private to package"),
+        ('#include "GUI/Linux/GtkShim.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI.Linux.GtkControls;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.GtkWeb;", "return 0;", "private to package"),
         ("import Library.GUI.Linux.WebGPUSurface;", "return 0;", "private to package"),
         ("import Library.GUI.Linux.LinuxApplication;", "return 0;", "private to package"),
         ("import Library.GUI.Linux.LinuxWindow;", "return 0;", "private to package"),
@@ -236,6 +219,7 @@ def test_linux_gui_gpu_view_reparent(tmp_path, request, frontend, sanitized):
         ("import Library.GUI.Linux.LinuxActionQueue;", "return 0;", "private to package"),
         ("import Library.GUI.Linux.LinuxSystemText;", "return 0;", "private to package"),
         ("import Library.GUI.Linux.GUIProvider;", "return 0;", "private to package"),
+        ("import Library.GUI.Linux.WebViewProvider;", "return 0;", "private to package"),
         # A provider type reached by name through Library.GUI: the provider
         # analyzes with the program, so this case needs the header reader.
         (
@@ -265,11 +249,12 @@ def test_linux_gui_keeps_provider_modules_private(tmp_path, request, frontend, d
 
 
 def test_gui_provider_root_exports_the_linux_provider(gui_provider_root):
-    """The white-box root re-exports every Linux provider module but the factory's own."""
+    """The white-box root re-exports every Linux provider module but the two facades' own."""
     exported = set(tomllib.loads((gui_provider_root / "stdlib/GUI/btrc.toml").read_text())["package"]["exports"])
     modules = {f"Linux.{path.stem}" for path in (ROOT / "src/stdlib/GUI/Linux").glob("*.btrc")}
-    assert modules - {"Linux.GUIProvider"} <= exported
-    assert "Linux.GUIProvider" not in exported
+    factories = {"Linux.GUIProvider", "Linux.WebViewProvider"}
+    assert modules - factories <= exported
+    assert not factories & exported
     public = set(tomllib.loads((ROOT / "src/stdlib/GUI/btrc.toml").read_text())["package"]["exports"])
     assert not {name for name in public if name.startswith("Linux.")}
 
@@ -297,22 +282,3 @@ def test_gui_unsupported_target(target, tmp_path):
     )
     assert result.returncode != 0
     assert "provider" in result.stderr.lower()
-
-
-@pytest.mark.parametrize("frontend", ["python", "selfhost"])
-@pytest.mark.parametrize("sanitized", [False, True])
-@pytest.mark.linux_gui
-def test_linux_muted_speaker(tmp_path, request, frontend, sanitized):
-    require_linux_reader()
-    if error := linux_display_error():
-        pytest.skip(error)
-    _build_and_run(
-        ROOT / "src/tests/native/gui/linux/LinuxMutedSpeaker.btrc",
-        tmp_path,
-        frontend,
-        sanitized,
-        request,
-        "PASS: linux muted speaker",
-        timeout=180,
-        data_root=request.getfixturevalue("gui_provider_root"),
-    )

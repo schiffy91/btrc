@@ -2,6 +2,10 @@
  * keyboard, and its foreign-toplevel list for the window manager's part
  * (raise, close). The probe is a second client on its own connection, as any
  * input tool is; the window it drives never sees where the input came from. */
+/* memfd_create and open_memstream; the suite's own build already defines it. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "RealInput.h"
 #include "../ConformanceProbe.h"
 #include "wayland/wlr-virtual-pointer-unstable-v1-client-protocol.h"

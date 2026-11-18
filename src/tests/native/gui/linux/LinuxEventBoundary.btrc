@@ -7,8 +7,9 @@ import Library.Vector;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.ITextField;
-import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.GtkShim;
 import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxWindow;
 
 #include <assert.h>
@@ -42,34 +43,35 @@ class BoundaryTrial {
 		var field = application.createTextField("", "");
 		window.attachRoot(field);
 		unsigned int id = native == null ? 0u : native.nativeId();
-		btrcSdlPushPointerMotion(id, 10.0f, 10.0f);
-		btrcSdlPushPointerButton(id, 10.0f, 10.0f, 1u, 1, 1u);
-		btrcSdlPushPointerButton(id, 10.0f, 10.0f, 1u, 0, 1u);
+		ILinuxView? fieldView = (ILinuxView?)field;
+		assert(fieldView != null);
+		unsigned int fieldControl = fieldView == null ? 0u : (unsigned int)fieldView.node().id;
 		var keys = BoundaryKeys();
 		var scope = CallbackScope();
 		window.onKey(keys, scope);
 		int setupFrames = eventBoundaryFrames();
 		window.show();
-		unsigned long long readyDeadline = SDL_GetTicksNS() + 10000000000ULL;
-		while (eventBoundaryFrames() == setupFrames && SDL_GetTicksNS() < readyDeadline) { owner.pumpOnce(10); }
+		unsigned long long readyDeadline = btrcGtkTicksNS() + 10000000000ULL;
+		while (eventBoundaryFrames() == setupFrames && btrcGtkTicksNS() < readyDeadline) { owner.pumpOnce(10); }
 		assert(eventBoundaryFrames() > setupFrames);
 		eventBoundaryArm(id);
-		Vector<unsigned int> scans = [(unsigned int)SDL_SCANCODE_A, (unsigned int)SDL_SCANCODE_D, (unsigned int)SDL_SCANCODE_S, (unsigned int)SDL_SCANCODE_W];
 		Vector<int> expected = [];
 		int boundary = count < 4097 ? count : 4097;
 		for (int position = 1; position <= count; position++) {
-			if (position == boundary && terminal == 2) { int pushed = btrcSdlPushText(id, "committed"); assert(pushed == 1); }
+			/* The text terminal is the field's own control reporting its edited text. */
+			if (position == boundary && terminal == 2) { eventBoundaryText(id, fieldControl, "committed"); }
 			else if (position == boundary && terminal == 3) { eventBoundaryClose(id); }
 			else {
-				int index = (position - 1) % 4;
-				btrcSdlPushKey(id, scans.get(index), (unsigned int)(65536 + position), 0u, position == boundary && terminal == 1 ? 0 : 1, 0);
+				eventBoundaryKey(id, position, position == boundary && terminal == 1 ? 0 : 1);
 				expected.push(position);
 			}
 		}
 		assert(eventBoundaryQueued() == count);
 		var work = BoundaryWork();
 		application.post(work);
-		field.setPlaceholder("frame progress");
+		/* A change the provider needs a new frame for: GTK redraws a field's
+		 * placeholder on its own, and its font changes the field's size. */
+		field.setFont(14.0);
 		int framesBefore = eventBoundaryFrames();
 		owner.pumpOnce(0);
 		int remaining = eventBoundaryQueued();
@@ -82,8 +84,8 @@ class BoundaryTrial {
 		bool frameProgress;
 		if (terminal == 3 && !window.isOpen()) { frameProgress = true; }
 		else { frameProgress = eventBoundaryFrames() > framesBefore; }
-		unsigned long long drainDeadline = SDL_GetTicksNS() + 10000000000ULL;
-		while (eventBoundaryQueued() > 0 && SDL_GetTicksNS() < drainDeadline) { owner.pumpOnce(0); }
+		unsigned long long drainDeadline = btrcGtkTicksNS() + 10000000000ULL;
+		while (eventBoundaryQueued() > 0 && btrcGtkTicksNS() < drainDeadline) { owner.pumpOnce(0); }
 		int mismatch = 0;
 		for (int index = 0; index < keys.codes.len; index++) {
 			if (index >= expected.len || keys.codes.get(index) != expected.get(index)) { mismatch = index + 1; break; }
@@ -105,8 +107,8 @@ class BoundaryTrial {
 		eventBoundaryDisarm();
 		scope.cancel();
 		var closing = application.close();
-		unsigned long long deadline = SDL_GetTicksNS() + 10000000000ULL;
-		while (closing == CALLBACK_CANCELLATION_PENDING && SDL_GetTicksNS() < deadline) { owner.pumpOnce(10); closing = application.pollClose(); }
+		unsigned long long deadline = btrcGtkTicksNS() + 10000000000ULL;
+		while (closing == CALLBACK_CANCELLATION_PENDING && btrcGtkTicksNS() < deadline) { owner.pumpOnce(10); closing = application.pollClose(); }
 		assert(closing == CALLBACK_CANCELLATION_COMPLETE);
 		return passed ? 0 : 1;
 	}
@@ -116,7 +118,7 @@ int main(int argc, char** argv) {
 	assert(argc == 3 || argc == 4);
 	int repetitions = argc == 4 ? atoi(argv[3]) : 1;
 	assert(repetitions >= 1 && repetitions <= 100);  // 100 qualifies; a gate may repeat less often
-	assert(SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS));
+	assert(btrcGtkInit());
 	for (int iteration = 0; iteration < repetitions; iteration++) { assert(BoundaryTrial.run(atoi(argv[1]), atoi(argv[2])) == 0); }
-	SDL_Quit(); return 0;
+	return 0;
 }

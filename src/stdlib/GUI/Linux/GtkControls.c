@@ -737,7 +737,9 @@ BtrcGtkControl* btrcGtkScrollbarCreate(unsigned int id, bool vertical) {
  * `viewport` shows. The program's own position is not reported back. */
 void btrcGtkScrollbarSet(BtrcGtkControl* bar, double offset, double viewport, double content) {
 	GtkAdjustment* adjustment = gtk_scrollbar_get_adjustment(GTK_SCROLLBAR(bar->widget));
+	/* A document shorter than the view fills it: there is nowhere to scroll to. */
+	double page = viewport < content ? viewport : content;
 	bar->silent = true;
-	gtk_adjustment_configure(adjustment, offset, 0.0, content, 48.0, viewport > 48.0 ? viewport - 48.0 : viewport, viewport);
+	gtk_adjustment_configure(adjustment, offset, 0.0, content, 48.0, page > 48.0 ? page - 48.0 : page, page);
 	bar->silent = false;
 }

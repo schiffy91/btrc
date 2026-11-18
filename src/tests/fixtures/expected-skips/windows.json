@@ -63,7 +63,7 @@
       "nodes": [
         "*::test_linux_real_desktop_session"
       ],
-      "reason": "^requires Linux SDL native shell$",
+      "reason": "^requires the Linux native shell$",
       "category": "platform",
       "covered_by": [
         "linux"
@@ -75,7 +75,7 @@
       "files": [
         "src/tests/python/test_native_ui_shell_linux.py"
       ],
-      "reason": "^requires Linux SDL native shell$",
+      "reason": "^requires the Linux native shell$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
@@ -92,19 +92,7 @@
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "docs/design/native-ui-surfaces-and-hosts.md: the suite's Linux rows build its SDL probe and run on a Linux display; both frontends and sanitizer modes run on the named stand-in."
-    },
-    {
-      "id": "sdl-clipboard-requestor-linux-only",
-      "files": [
-        "src/tests/python/test_native_ui_sdl_clipboard_requestor.py"
-      ],
-      "reason": "^requires Linux X11 SDL$",
-      "category": "platform",
-      "covered_by": [
-        "linux-devcontainer"
-      ],
-      "note": "The patched SDL's X11 clipboard path (nix/sdl3-x11-selection-requestor.patch) exists only on Linux; the probe runs under the Linux virtual display."
+      "note": "docs/design/native-ui-surfaces-and-hosts.md: the suite's Linux rows build its real-input probe and run on a private Linux display; both frontends and sanitizer modes run on the named stand-in."
     },
     {
       "id": "android-activity-lifecycle-posix",

@@ -1,0 +1,50 @@
+/* A shown window has its controls. They are handed to GTK at show(), before
+ * the GPU device is ready and before any frame, so that what a person can
+ * see they can also click; later frames keep them placed, and a control
+ * that leaves the tree leaves the window. */
+import Library.Callback;
+import Library.GUI.IApplication;
+import Library.GUI.IButton;
+import Library.GUI.IContainer;
+import Library.GUI.IWindow;
+import Library.GUI.Linux.GtkShim;
+import Library.GUI.Linux.LinuxApplication;
+
+#include <assert.h>
+#include <stdio.h>
+
+int main() {
+	assert(btrcGtkInit());
+	var owner = LinuxApplication(16);
+	IApplication application = owner;
+	var window = application.createWindow("Linux placement", 320.0, 160.0);
+	var root = application.createContainer();
+	var first = application.createButton("First");
+	var second = application.createButton("Second");
+	window.attachRoot(root);
+	root.attach(first);
+	root.attach(second);
+	first.arrange(20.0, 20.0, 120.0, 40.0);
+	second.arrange(160.0, 20.0, 120.0, 40.0);
+	assert(placementPasses() == 0);
+	window.show();
+	int placedAtShow = placementPlaced();
+	int framesAtShow = placementFrames();
+	assert(placementPasses() == 1 && placedAtShow == 2 && framesAtShow == 0);
+	unsigned long long deadline = btrcGtkTicksNS() + 10000000000ULL;
+	while (placementFrames() == 0 && btrcGtkTicksNS() < deadline) { owner.pumpOnce(10); }
+	assert(placementFrames() > 0 && placementPlaced() == 2);
+	var detached = root.detach(second);
+	int passes = placementPasses();
+	deadline = btrcGtkTicksNS() + 10000000000ULL;
+	while (placementPasses() == passes && btrcGtkTicksNS() < deadline) { owner.pumpOnce(10); }
+	assert(placementPlaced() == 1);
+	printf("PASS: Linux placement at_show=%d frames_at_show=%d after_detach=%d\n", placedAtShow, framesAtShow, placementPlaced());
+	fflush(stdout);
+	assert(detached.close() == CALLBACK_CANCELLATION_COMPLETE);
+	var closing = application.close();
+	deadline = btrcGtkTicksNS() + 10000000000ULL;
+	while (closing == CALLBACK_CANCELLATION_PENDING && btrcGtkTicksNS() < deadline) { owner.pumpOnce(10); closing = application.pollClose(); }
+	assert(closing == CALLBACK_CANCELLATION_COMPLETE);
+	return 0;
+}

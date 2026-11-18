@@ -93,27 +93,16 @@
       "id": "linux-native-reader-covered",
       "files": [
         "src/tests/python/test_native_linux_providers.py",
-        "src/tests/python/test_native_font_runtime.py",
-        "src/tests/python/test_native_ui_scroll_thumb.py",
-        "src/tests/python/test_native_ui_linux_spike.py",
-        "src/tests/python/test_native_ui_layout_resize.py",
-        "src/tests/python/test_native_ui_grid_replacement.py"
+        "src/tests/python/test_native_font_runtime.py"
       ],
       "nodes": [
         "*::test_linux_image_decoding*",
         "*::test_linux_audio_faults*",
         "*::test_linux_audio_session*",
         "*::test_linux_freetype_draws_into_owned_pixels*",
-        "*::test_linux_gui_controls*",
-        "*::test_linux_muted_speaker*",
         "*::test_linux_gui_shutdown_deadline*",
         "*::test_linux_gui_gpu_view_reparent*",
-        "*::test_linux_gui_keeps_provider_modules_private*",
-        "*::test_linux_scroll_thumb_bounds*",
-        "src/tests/python/test_native_ui_linux_spike.py::test_linux_event_boundary[[]*]",
-        "src/tests/python/test_native_ui_linux_spike.py::test_linux_input_repair[[]*]",
-        "src/tests/python/test_native_ui_layout_resize.py::test_linux_layout_resize[[]*]",
-        "src/tests/python/test_native_ui_grid_replacement.py::test_linux_grid_replacement[[]*]"
+        "*::test_linux_gui_keeps_provider_modules_private*"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
@@ -125,23 +114,12 @@
     {
       "id": "linux-ui2-native-reader",
       "files": [
-        "src/tests/python/test_native_ui2_capture_linux.py",
-        "src/tests/python/test_native_ui2_fairness_linux.py",
-        "src/tests/python/test_native_ui2_images.py",
-        "src/tests/python/test_native_ui2_linux_resource_lifetime.py",
-        "src/tests/python/test_native_ui_core_linux.py"
+        "src/tests/python/test_native_ui2_fairness_linux.py"
       ],
       "nodes": [
-        "src/tests/python/test_native_ui2_capture_linux.py::test_linux_capture_admission[[]*]",
         "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_repeated_bursts[[]*]",
         "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_sustained_load[[]*]",
-        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_diagnostic[[]*]",
-        "src/tests/python/test_native_ui2_images.py::test_linux_image_publication[[]*]",
-        "src/tests/python/test_native_ui2_images.py::test_linux_image_lifetime[[]*]",
-        "src/tests/python/test_native_ui2_linux_resource_lifetime.py::test_linux_ui2_native_resource_lifetime[[]*]",
-        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_executor_and_lifecycle[[]*]",
-        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_callback_scope_release_requires_executor[[]*]",
-        "src/tests/python/test_native_ui_core_linux.py::test_linux_ui2_final_release_requires_executor[[]*]"
+        "src/tests/python/test_native_ui2_fairness_linux.py::test_linux_e40_diagnostic[[]*]"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
@@ -187,7 +165,7 @@
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "tools/ui/headless-session.sh starts Xvfb or weston with the AT-SPI bus from the Linux dev shell; the devcontainer's unit shard runs every case."
+      "note": "tools/ui/headless-session.sh starts Xvfb or labwc with the AT-SPI bus from the Linux dev shell; the devcontainer's unit shard runs every case."
     },
     {
       "id": "linux-freetype-macro-constants",
@@ -348,7 +326,7 @@
       "nodes": [
         "*::test_linux_real_desktop_session"
       ],
-      "reason": "^requires Linux SDL native shell$",
+      "reason": "^requires the Linux native shell$",
       "category": "platform",
       "covered_by": [
         "linux"
@@ -375,7 +353,7 @@
       "files": [
         "src/tests/python/test_native_ui_shell_linux.py"
       ],
-      "reason": "^requires Linux SDL native shell$",
+      "reason": "^requires the Linux native shell$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
@@ -392,19 +370,7 @@
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "docs/design/native-ui-surfaces-and-hosts.md: the suite's Linux rows build its SDL probe and run on a Linux display; both frontends and sanitizer modes run on the named stand-in."
-    },
-    {
-      "id": "sdl-clipboard-requestor-linux-only",
-      "files": [
-        "src/tests/python/test_native_ui_sdl_clipboard_requestor.py"
-      ],
-      "reason": "^requires Linux X11 SDL$",
-      "category": "platform",
-      "covered_by": [
-        "linux-devcontainer"
-      ],
-      "note": "The patched SDL's X11 clipboard path (nix/sdl3-x11-selection-requestor.patch) exists only on Linux; the probe runs under the Linux virtual display."
+      "note": "docs/design/native-ui-surfaces-and-hosts.md: the suite's Linux rows build its real-input probe and run on a private Linux display; both frontends and sanitizer modes run on the named stand-in."
     },
     {
       "id": "linux-child-subreaper",

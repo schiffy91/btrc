@@ -440,16 +440,12 @@ def test_native_gui_unmarked_orchestrator_waits_without_owning_child_lease(gui_p
 
 LINUX_GUI_TESTS = {
     "test_native_linux_providers.py": [
-        "test_linux_gui_controls",
         "test_linux_gui_shutdown_deadline",
         "test_linux_gui_gpu_view_reparent",
     ],
-    "test_native_ui_linux_spike.py": ["test_linux_event_boundary", "test_linux_input_repair"],
-    "test_native_ui_layout_resize.py": ["test_linux_layout_resize"],
-    "test_native_ui_grid_replacement.py": ["test_linux_grid_replacement"],
-    "test_native_ui_scroll_thumb.py": ["test_linux_scroll_thumb_bounds"],
+    "test_native_ui_linux_spike.py": ["test_linux_event_boundary", "test_linux_controls_are_placed_at_show"],
     "test_native_ui_shell_linux.py": ["test_linux_native_shell"],
-    "test_native_ui_sdl_clipboard_requestor.py": ["test_sdl_clipboard_owner_survives_its_requestor"],
+    "test_native_ui_conformance.py": ["test_linux_conformance_case"],
 }
 
 
@@ -502,12 +498,6 @@ def test_all_known_linux_display_tests_claim_the_gui_session(tmp_path):
         if file == "test_native_ui_shell_linux.py" and function == "test_linux_real_desktop_session"
     ]
     assert delegated == [False], "desktop collector must delegate the GUI lease to child pytest"
-    compile_only = [
-        marked
-        for file, function, marked in observed
-        if file == "test_native_ui_shell_linux.py" and function == "test_linux_clipboard_probe_compiles"
-    ]
-    assert compile_only and not any(compile_only), "compile-only clipboard probe must remain parallel"
 
 
 def test_macos_gui_loadgroup_keeps_one_worker_and_cross_session_exclusion(tmp_path):
@@ -632,7 +622,7 @@ def lifecycle(request):
 @pytest.mark.parametrize("action", ["pass", "skip", "call-error", "setup-error", "teardown-error"],
                          ids=lambda action: action + "@macos_gui")
 def test_linux_native_shell(action, lifecycle):
-    reason = "requires Linux SDL native shell" if action == "skip" else None
+    reason = "requires the Linux native shell" if action == "skip" else None
     CapabilityGateLog.record("grouped-fixture", reason)
     original = os.environ["PYTEST_CURRENT_TEST"]
     try:
@@ -920,7 +910,7 @@ from src.tests.python import test_native_ui_linux_spike as provider
 frontend = provider.frontend
 sanitized = provider.sanitized
 boundary = provider.event_boundary_program
-repair = provider.input_repair_program
+repair = provider.placement_program
 worker = os.environ['PYTEST_XDIST_WORKER']
 original_flock = fcntl.flock
 
@@ -986,7 +976,7 @@ def test_repair(repair, repeat, request):
     runtime(request, repair)
 
 test_boundary.pytestmark += [m for m in provider.test_linux_event_boundary.pytestmark if m.name == 'xdist_group']
-test_repair.pytestmark += [m for m in provider.test_linux_input_repair.pytestmark if m.name == 'xdist_group']
+test_repair.pytestmark += [m for m in provider.test_linux_controls_are_placed_at_show.pytestmark if m.name == 'xdist_group']
 """
     )
     result = subprocess.run(

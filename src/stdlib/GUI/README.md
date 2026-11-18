@@ -2,7 +2,7 @@
 
 `import Library.GUI;` selects the native provider for the compilation target
 through the `[[package.providers]]` entries in `btrc.toml`: `MacOS.GUIProvider`
-(AppKit) for `macos`, `Linux.GUIProvider` (SDL3 windows drawn with WebGPU)
+(AppKit) for `macos`, `Linux.GUIProvider` (GTK4)
 for `linux` and `Windows.GUIProvider` (Win32 windows with Common Controls 6
 controls) for `windows`. The Windows provider implements the UI1 shell
 surface: windows, containers, the scroll view, text fields, buttons, labels
@@ -245,7 +245,7 @@ AppKit seam for `Library.Tray`: `MacOS.AppKitText` and `MacOS.MacOSRunLoop`.
 Every other `MacOS.*` module and every `Linux.*` module is private to the
 package; the Linux Tray talks to the StatusNotifierItem bus itself and needs no
 GUI seam. The providers' own conformance fixtures, which assert native state
-through their modules (AppKit readback on macOS; synthetic SDL input and a
+through their modules (AppKit readback on macOS; the provider's own event queue and a
 stalled `LinuxNodeView` on Linux), compile against a test data root whose copy
 of this manifest re-exports them (`src/tests/gui_provider_root.py`); products
 cannot. Inside the provider,
@@ -258,56 +258,53 @@ document children while its public offsets count down from the top.
 
 ## Linux provider
 
-`Linux/GUIProvider` is selected for `linux` targets. There is no single native
-toolkit to inherit, so the provider draws every control itself: each `IWindow`
-is one SDL3 window whose whole content is a WebGPU surface, the view tree is
-composed over one `LinuxViewNode` per control, and `LinuxPainter` records
-rounded rectangles, rings, glyph runs, images and clips into one vertex
-stream that replays inside the window's render pass. Text comes from the
-fontconfig `sans-serif` match rendered through FreeType at the window's
-backing scale, so measurement and drawing agree at fractional scales.
+`Linux/GUIProvider` is selected for `linux` targets. Its windows and controls
+are GTK4's: a button is a `GtkButton`, a text field a `GtkEntry`, a select a
+`GtkDropDown`, a slider a `GtkScale`, and they look, focus, type and speak to
+assistive technology as GTK makes them. One provider runs on X11, Wayland and
+the Deck's Gamescope session.
 
-- `LinuxApplication.run()` pumps SDL events, delivers posted and delayed
-  work, dispatches queued button actions in click order, and renders every
-  window whose own invalidation revision moved. Blinking carets and spinners ask
-  the host for a wake instead of redrawing continuously.
-- Pointer input is routed by hit-testing the tree: subscriptions along the
-  path see the event first, leaf to root, then the controls' own behavior. A
-  consumed press captures its drag and release. Keyboard input goes to
-  window `onKey` handlers, then the focused control; SDL text input reaches
-  the focused text field, which owns caret, selection and clipboard editing.
-- `IGPUView` renders into a `GPUOffscreenTarget` on the window's device and
-  is composited by the window frame; `poll()` asks the window to advance its
-  device request, so a child polled before the first loop turn still becomes
-  ready. `GUI.capture` paints the whole window into an offscreen target and
-  reads it back, so a window captures before it is shown and presentation is
-  never reconfigured. It fails at once if the window's device is not ready
-  yet rather than waiting on the UI thread, and it checks that every layer
-  names a GPU view inside the capture root; the layer pixels are unused
-  because the frame already composes every GPU child.
+- A C shim owns every GTK object (`GtkShim.c` windows and events,
+  `GtkCanvas.c` the window's content, `GtkControls.c` the controls,
+  `GtkWeb.c` the web view). No GTK callback enters BTRC: a signal becomes an
+  event in a bounded queue the shim owns, and `LinuxApplication.run()` polls
+  it, iterating GLib's main context between events. A control's event names
+  the view that owns it, and the window routes it there.
+- Layout stays portable. The window's content is one canvas that measures
+  nothing and puts each control exactly where the view tree says; every
+  control sits in a slot that clips it, so a scroll view clips its children
+  like any other. A frame walks the tree and hands GTK the controls back to
+  front. This happens at `show()` too, before the GPU device is ready, so
+  what a person sees they can click.
+- `IGPUView` content is drawn by the window's WebGPU device. On Wayland it
+  goes to a subsurface below the window, and the canvas leaves a hole where
+  each GPU view is. On X11 each frame is read back and handed to GTK as a
+  picture drawn at the view's place in the order. Either way a control placed
+  over a GPU view is over it, and one placed under is under.
+- `GUI.capture` is the GPU frame read back with GTK's own rendering of the
+  controls laid over it, so a capture is what the window shows. It fails at
+  once if the window's device is not ready rather than waiting on the UI
+  thread.
+- `WebView.create()` is a WebKitGTK view placed like any control; see
+  `IWebView.btrc` for the contract (one private origin serving a bundle,
+  JSON messages both ways, navigation by rule). WebKitGTK is linked only by
+  programs that import `WebView`.
 - Every provider and application entry point except `createImageHandle`
-  requires SDL's main thread, the one that called `GUI.initialize`.
-- `ISelect` opens a window overlay that receives pointer and keyboard input
-  first; `IWindow.showAlert` is SDL's message box; `GUI.chooseDirectory` is
-  the desktop folder dialog (portal or zenity) pumped like a modal.
-- The manifest binds SDL and fontconfig functions directly. `SDL.h` keeps
-  only what the typed importer cannot express: flattening the `SDL_Event`
-  union, the folder dialog's cross-thread transaction, and `btrcSdlPush*`
-  synthetic input so automation and the native tests drive windows through
-  SDL's own queue.
-- SDL is initialized once, by the first `GUI.initialize`, and stays
-  initialized for the process: a later `GUI.initialize` reuses it, the main
-  thread SDL reports stays fixed, and an abandoned folder dialog's callback
-  may still run after close. Process exit reclaims it; `SDL_Quit` is not
-  bound.
+  requires the thread that called `GUI.initialize`.
+- `IWindow.showAlert` is a GTK alert; `GUI.chooseDirectory` is GTK's folder
+  dialog (the desktop portal's, where there is one), pumped like a modal.
+- GTK is initialized once, by the first `GUI.initialize`, and stays
+  initialized for the process.
 
-`src/tests/native/gui/linux/LinuxGUIControls.btrc` is the live regression:
-clicks, typing, clipboard paste, a select choice, a slider drag, wheel
-scrolling, subscription capture, worker-made image handles, contract errors
-and readback pixel checks on a real window. `LinuxGUIShutdown.btrc` proves a
-subtree that never finishes closing fails `run()` after the drain deadline.
-Linux CI runs every shard under `tools/virtual-display.sh`, which starts Xvfb
-with Mesa's lavapipe Vulkan driver, so both run there as they do locally.
+The shared conformance suite (`src/tests/native/gui/conformance`) is the
+regression: each case runs through both compilers on X11 and on Wayland with
+real input (XTEST; a wlroots compositor's virtual pointer and keyboard) in a
+private session from `tools/ui/headless-session.sh`. `LinuxGUIShutdown.btrc`
+proves a subtree that never finishes closing fails `run()` after the drain
+deadline, `LinuxEventBoundary.btrc` that a burst of input is delivered
+losslessly in bounded turns, and `LinuxPlacement.btrc` that controls are
+placed at `show()`. Linux CI runs every shard in such a session with Mesa's
+lavapipe Vulkan driver, so they run there as they do locally.
 
 ## Raster surfaces
 
@@ -349,7 +346,7 @@ destruction; there is no opaque `Surface.handle` or native surface destructor.
 | `Font.btrc` / `IFontFace.btrc` | Managed per-surface selection, the `IFontFace` contract and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
 | `FreeType.btrc` / `FreeType/FreeTypeFace.btrc` | Optional `FreeType.load` factory and the private FreeType face (unique SDK owners, admitted glyph snapshots). |
 | `MacOS/` | AppKit provider: `GUIProvider`, `MacOS*` views and application, run-loop signal, composed capture, SDK headers. |
-| `Linux/` | SDL3/WebGPU provider: `GUIProvider`, `Linux*` views and application, painter, fonts, SDL and surface bindings. |
+| `Linux/` | GTK4 provider: `GUIProvider`, `WebViewProvider`, `Linux*` views and application, the C shim that owns every GTK object (`GtkShim`, `GtkCanvas`, `GtkControls`, `GtkWeb`), fonts and the WebGPU surface binding. |
 
 ## Quick start
 

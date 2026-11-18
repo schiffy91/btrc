@@ -1,7 +1,17 @@
 #include "EventBoundary.h"
-#include <SDL3/SDL.h>
+#include "GUI/Linux/GtkShim.h"
 #include <webgpu.h>
 #include <stdlib.h>
+#include <string.h>
+
+/* The provider shim's queue, as its own sources see it (GtkShimPrivate.h). */
+bool btrcGtkPush(const BtrcGtkEvent *event, const char *text);
+int btrcGtkQueued(unsigned int firstType, unsigned int lastType);
+void btrcGtkQueueFlush(void);
+void btrcGtkQueueFilter(bool (*accept)(const BtrcGtkEvent *event));
+
+/* A key this observer queued says so, and carries its ordinal. */
+enum { ORDINAL_MARK = 0x45343021 };
 
 static unsigned int target;
 static int latest;
@@ -10,7 +20,8 @@ static int admitted;
 static int rejected;
 static bool armed;
 
-/* Observe successful native presentation without changing the GPU result. */
+/* Observe successful native presentation without changing the result: a
+ * frame presented on the surface, or handed to GTK as a picture. */
 WGPUStatus __real_wgpuSurfacePresent(WGPUSurface surface);
 WGPUStatus __wrap_wgpuSurfacePresent(WGPUSurface surface) {
     WGPUStatus result = __real_wgpuSurfacePresent(surface);
@@ -18,46 +29,45 @@ WGPUStatus __wrap_wgpuSurfacePresent(WGPUSurface surface) {
     return result;
 }
 
+void __real_btrcGtkWindowShowPicture(BtrcGtkWindow *window, const unsigned char *pixels, int pixelWidth, int pixelHeight);
+void __wrap_btrcGtkWindowShowPicture(BtrcGtkWindow *window, const unsigned char *pixels, int pixelWidth, int pixelHeight) {
+    __real_btrcGtkWindowShowPicture(window, pixels, pixelWidth, pixelHeight);
+    frames++;
+}
+
 int eventBoundaryFrames(void) { return frames; }
 
 /* Link-only observation: delegate every poll unchanged, preserving its result.
- * The synthetic keycode carries a unique ordinal before the provider maps it
- * into the portable key vocabulary. Delivery callbacks read that ordinal. */
-bool __real_SDL_PollEvent(SDL_Event *event);
-bool __wrap_SDL_PollEvent(SDL_Event *event) {
-    bool result = __real_SDL_PollEvent(event);
-    latest = result && event != NULL && (event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP)
-                 ? (int)event->key.key - 65536 : 0;
+ * Delivery callbacks read the ordinal of the key that was last polled. */
+int __real_btrcGtkPollEvent(BtrcGtkEvent *event);
+int __wrap_btrcGtkPollEvent(BtrcGtkEvent *event) {
+    int result = __real_btrcGtkPollEvent(event);
+    bool key = result && event != NULL && (event->type == BTRC_GTK_EVENT_KEY_DOWN || event->type == BTRC_GTK_EVENT_KEY_UP);
+    latest = key && event->data2 == ORDINAL_MARK ? event->data1 : 0;
     return result;
 }
 
 int eventBoundaryLatest(void) { return latest; }
 
 /* After flushing setup traffic, isolate newly submitted target input from
- * asynchronous compositor notifications. Admitted test events are not
- * synthesized, reordered, removed or modified by the observer. */
-static bool testInput(const SDL_Event *event) {
-    if (event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP)
-        return event->key.windowID == target;
-    if (event->type == SDL_EVENT_TEXT_INPUT)
-        return event->text.windowID == target;
-    return event->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event->window.windowID == target;
+ * what the display server sends in its own time. Admitted test events are
+ * not synthesized, reordered, removed or modified by the observer. */
+static bool testInput(const BtrcGtkEvent *event) {
+    bool kind = event->type == BTRC_GTK_EVENT_KEY_DOWN || event->type == BTRC_GTK_EVENT_KEY_UP ||
+                event->type == BTRC_GTK_EVENT_CONTROL_TEXT_CHANGED || event->type == BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED;
+    return kind && event->window == target;
 }
 
-static bool accepted(void *unused, SDL_Event *event) {
-    (void)unused;
-    /* The production scheduler and sliced input loop both need real SDL wakes.
-     * Refusing their user events would inject an unrelated native-source failure. */
-    return event->type == SDL_EVENT_USER || testInput(event);
-}
+/* The production scheduler and sliced input loop both need their wakes.
+ * Refusing those would inject an unrelated native-source failure. */
+static bool accepted(const BtrcGtkEvent *event) { return event->type == BTRC_GTK_EVENT_USER || testInput(event); }
 
-bool __real_SDL_PushEvent(SDL_Event *event);
-bool __wrap_SDL_PushEvent(SDL_Event *event) {
+static void push(const BtrcGtkEvent *event, const char *text) {
     bool relevant = armed && testInput(event);
-    bool result = __real_SDL_PushEvent(event);
+    bool result = btrcGtkPush(event, text);
     if (relevant) { if (result) { admitted++; } else { rejected++; } }
-    return result;
 }
+
 int eventBoundaryAccepted(void) { return admitted; }
 int eventBoundaryRejected(void) { return rejected; }
 
@@ -65,25 +75,47 @@ void eventBoundaryArm(unsigned int window) {
     target = window;
     admitted = rejected = 0;
     armed = true;
-    SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
-    SDL_SetEventFilter(accepted, NULL);
+    btrcGtkQueueFlush();
+    btrcGtkQueueFilter(accepted);
+}
+
+void eventBoundaryKey(unsigned int window, int ordinal, int down) {
+    static const unsigned int scancodes[4] = {BTRC_GTK_SCANCODE_A, BTRC_GTK_SCANCODE_D, BTRC_GTK_SCANCODE_S, BTRC_GTK_SCANCODE_W};
+    BtrcGtkEvent event;
+    memset(&event, 0, sizeof event);
+    event.type = down ? BTRC_GTK_EVENT_KEY_DOWN : BTRC_GTK_EVENT_KEY_UP;
+    event.window = window;
+    event.scancode = scancodes[(ordinal - 1) % 4];
+    event.down = down ? 1 : 0;
+    event.data1 = ordinal;
+    event.data2 = ORDINAL_MARK;
+    push(&event, NULL);
+}
+
+void eventBoundaryText(unsigned int window, unsigned int control, const char *text) {
+    BtrcGtkEvent event;
+    memset(&event, 0, sizeof event);
+    event.type = BTRC_GTK_EVENT_CONTROL_TEXT_CHANGED;
+    event.window = window;
+    event.control = control;
+    push(&event, text);
 }
 
 int eventBoundaryQueued(void) {
-    /* Peek the injected classes without counting or removing permitted wakes. */
-    int keys = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP);
-    int text = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_TEXT_INPUT, SDL_EVENT_TEXT_INPUT);
-    int close = SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_EVENT_WINDOW_CLOSE_REQUESTED, SDL_EVENT_WINDOW_CLOSE_REQUESTED);
-    if (keys < 0 || text < 0 || close < 0) { abort(); }
-    return keys + text + close;
+    /* Count the injected classes without counting or removing permitted wakes. */
+    return btrcGtkQueued(BTRC_GTK_EVENT_KEY_DOWN, BTRC_GTK_EVENT_KEY_UP) +
+           btrcGtkQueued(BTRC_GTK_EVENT_CONTROL_TEXT_CHANGED, BTRC_GTK_EVENT_CONTROL_TEXT_CHANGED) +
+           btrcGtkQueued(BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED, BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED);
 }
 
 void eventBoundaryClose(unsigned int window) {
-    SDL_Event event = {0};
-    event.type = SDL_EVENT_WINDOW_CLOSE_REQUESTED;
-    event.window.windowID = window;
-    bool pushed = SDL_PushEvent(&event);
-    if (!pushed) { abort(); }
+    BtrcGtkEvent event;
+    memset(&event, 0, sizeof event);
+    event.type = BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED;
+    event.window = window;
+    int before = admitted;
+    push(&event, NULL);
+    if (armed && admitted == before) { abort(); }
 }
 
-void eventBoundaryDisarm(void) { armed = false; SDL_SetEventFilter(NULL, NULL); }
+void eventBoundaryDisarm(void) { armed = false; btrcGtkQueueFilter(NULL); }

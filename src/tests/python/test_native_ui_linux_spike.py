@@ -1,4 +1,4 @@
-"""Existing Linux provider regressions, using real SDL event dispatch."""
+"""Linux provider regressions that watch the provider from underneath: its queue being drained, its controls being placed."""
 
 import subprocess
 
@@ -44,6 +44,8 @@ def event_boundary_program(tmp_path_factory, request, frontend, sanitized):
         "src/tests/native/gui/shell/probes/linux/EventBoundary",
         (
             "eventBoundaryArm",
+            "eventBoundaryKey",
+            "eventBoundaryText",
             "eventBoundaryQueued",
             "eventBoundaryLatest",
             "eventBoundaryFrames",
@@ -52,21 +54,22 @@ def event_boundary_program(tmp_path_factory, request, frontend, sanitized):
             "eventBoundaryAccepted",
             "eventBoundaryRejected",
         ),
-        ("SDL_PollEvent", "SDL_PushEvent", "wgpuSurfacePresent"),
+        ("btrcGtkPollEvent", "wgpuSurfacePresent", "btrcGtkWindowShowPicture"),
     )
 
 
 @pytest.fixture(scope="module")
-def input_repair_program(tmp_path_factory, request, frontend, sanitized):
+def placement_program(tmp_path_factory, request, frontend, sanitized):
+    """The observer counts what the provider hands to GTK and the frames it presents."""
     return build_observed_provider_program(
         tmp_path_factory,
         request,
         frontend,
         sanitized,
-        "src/tests/native/gui/ui2/probes/linux/LinuxInputRepair.btrc",
-        "src/tests/native/gui/ui2/probes/linux/InputRepair",
-        ("inputFailClipboard", "inputClipboardWrites", "inputClipboardMatches", "inputFrames", "inputVisibility"),
-        ("SDL_SetClipboardText", "wgpuSurfacePresent"),
+        "src/tests/native/gui/linux/LinuxPlacement.btrc",
+        "src/tests/native/gui/linux/Placement",
+        ("placementPlaced", "placementPasses", "placementFrames"),
+        ("btrcGtkWindowBeginPlacement", "btrcGtkWindowPlace", "wgpuSurfacePresent", "btrcGtkWindowShowPicture"),
     )
 
 
@@ -90,12 +93,13 @@ def test_linux_event_boundary(event_boundary_program, sanitized, count, terminal
     assert "bounded=1 work=1 frame=1 lossless=1" in result.stdout, result.stdout
 
 
-@pytest.mark.parametrize("mode", [0, 1, 2, 3], ids=["failed-cut", "popup-below", "popup-above", "external-visibility"])
 @pytest.mark.linux_gui
-@pytest.mark.xdist_group(name="linux_input_repair")
-def test_linux_input_repair(input_repair_program, sanitized, mode, tmp_path):
+@pytest.mark.xdist_group(name="linux_placement")
+def test_linux_controls_are_placed_at_show(placement_program, sanitized, tmp_path):
+    """A window's controls are handed to GTK when it is shown, before the GPU
+    device is ready and before any frame; a control that leaves the tree leaves the window."""
     result = subprocess.run(
-        [str(input_repair_program), str(mode)],
+        [str(placement_program)],
         capture_output=True,
         text=True,
         timeout=45,
@@ -104,4 +108,4 @@ def test_linux_input_repair(input_repair_program, sanitized, mode, tmp_path):
     (tmp_path / "stdout.txt").write_text(result.stdout)
     (tmp_path / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert f"PASS: Linux input repair {mode}" in result.stdout, result.stdout
+    assert "PASS: Linux placement at_show=2 frames_at_show=0 after_detach=1" in result.stdout, result.stdout

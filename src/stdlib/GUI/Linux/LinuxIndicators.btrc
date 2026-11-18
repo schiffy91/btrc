@@ -1,75 +1,96 @@
+import Library.Callback;
 import Library.Math;
-import Library.Image;
 import Library.GUI.IProgressIndicator;
 import Library.GUI.ILevelIndicator;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
-import Library.GUI.Linux.LinuxSymbols;
-import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.GtkControls;
 
-/* An indeterminate spinner: a rotating arc redrawn while running. */
+/* An indeterminate spinner: GTK's, which turns while it is running. */
 class LinuxProgressIndicator extends LinuxNodeView implements IProgressIndicator {
+	private BtrcGtkControl* _control;
 	private bool _running = false;
 
-	public LinuxProgressIndicator(LinuxContext context) { self.adoptNode(LinuxViewNode(context)); }
-
-	public void paint(LinuxPainter painter, double x, double y) {
-		if (!self._running) { return; }
-		var theme = painter.theme();
-		double size = Math.minDouble(self.node().width, self.node().height);
-		double cx = x + self.node().width * 0.5;
-		double cy = y + self.node().height * 0.5;
-		double radius = Math.maxDouble(4.0, size * 0.4);
-		double phase = (double)(SDL_GetTicksNS() / 4000000ULL % 1000ULL) / 1000.0 * 6.283185307179586;
-		painter.strokeCircle(cx, cy, radius, RGBA(theme.text.red, theme.text.green, theme.text.blue, 40), Math.maxDouble(2.0, size * 0.12));
-		LinuxSymbols.arc(painter, cx, cy, radius, phase, phase + 1.9, Math.maxDouble(2.0, size * 0.12), theme.accent);
-		var host = self.node().host;
-		if (host != null) { host.requestWake(0.016); }
+	public LinuxProgressIndicator(LinuxContext context) {
+		self.adoptNode(LinuxViewNode(context));
+		self._control = btrcGtkSpinnerCreate((unsigned int)self.node().id);
+		if (self._control == null) { throw "Cannot create native progress indicator"; }
 	}
 
-	public double fittingWidth() { self.node().requireOpen(); return LinuxMetrics.spinnerSize(); }
+	private BtrcGtkControl* control() { if (self._control == null) { throw "Native progress indicator is closed"; } return self._control; }
 
-	public double fittingHeight() { self.node().requireOpen(); return LinuxMetrics.spinnerSize(); }
+	public void paint(LinuxPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
+
+	public double fittingWidth() { self.node().requireOpen(); return (double)btrcGtkControlNaturalWidth(self.control()); }
+
+	public double fittingHeight() { self.node().requireOpen(); return (double)btrcGtkControlNaturalHeight(self.control()); }
 
 	public bool isRunning() { self.node().requireOpen(); return self._running; }
 
-	public void setRunning(bool running) { self.node().requireOpen(); if (running != self._running) { self._running = running; self.node().invalidate(); } }
+	public void setRunning(bool running) { self.node().requireOpen(); if (running != self._running) { self._running = running; btrcGtkSpinnerSetRunning(self.control(), running); } }
+
+	private void releaseNative() { if (self._control != null) { btrcGtkControlDestroy(self._control); self._control = null; } }
+
+	public CallbackCancellation close() {
+		var state = self.node().close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self.node().pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public void __del__() { self.releaseNative(); }
 }
 
-/* A read-only capacity bar with warning and critical thresholds. */
+/* A read-only capacity bar with warning and critical thresholds: GTK's level bar. */
 class LinuxLevelIndicator extends LinuxNodeView implements ILevelIndicator {
-	private double _warning;
-	private double _critical;
+	private BtrcGtkControl* _control;
 	private double _value = 0.0;
 
 	public LinuxLevelIndicator(LinuxContext context, double warning, double critical) {
 		self.adoptNode(LinuxViewNode(context));
 		if (!Math.isFinite(warning) || !Math.isFinite(critical) || warning < 0.0 || critical > 1.0 || warning > critical) { throw "Invalid native level thresholds"; }
-		self._warning = warning;
-		self._critical = critical;
+		self._control = btrcGtkLevelCreate((unsigned int)self.node().id, warning, critical);
+		if (self._control == null) { throw "Cannot create native level indicator"; }
 	}
 
-	public void paint(LinuxPainter painter, double x, double y) {
-		var theme = painter.theme();
-		double height = Math.minDouble(self.node().height, 10.0);
-		double top = y + (self.node().height - height) * 0.5;
-		painter.fillRect(x, top, self.node().width, height, theme.track, height * 0.5);
-		RGBA color = self._value >= self._critical ? RGBA(220, 70, 70, 255) : (self._value >= self._warning ? RGBA(235, 180, 50, 255) : RGBA(80, 190, 110, 255));
-		painter.fillRect(x, top, self.node().width * self._value, height, color, height * 0.5);
-	}
+	private BtrcGtkControl* control() { if (self._control == null) { throw "Native level indicator is closed"; } return self._control; }
 
-	public double fittingWidth() { self.node().requireOpen(); return LinuxMetrics.levelWidth(); }
+	public void paint(LinuxPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
 
-	public double fittingHeight() { self.node().requireOpen(); return LinuxMetrics.levelHeight(); }
+	/* GTK's level bar asks for almost no width of its own: a bar is as long as it is given. */
+	public double fittingWidth() { self.node().requireOpen(); return Math.maxDouble(LinuxMetrics.levelWidth(), (double)btrcGtkControlNaturalWidth(self.control())); }
+
+	public double fittingHeight() { self.node().requireOpen(); return (double)btrcGtkControlNaturalHeight(self.control()); }
 
 	public void setValue(double value) {
 		self.node().requireOpen();
 		if (!Math.isFinite(value) || value < 0.0 || value > 1.0) { throw "Native level must be between zero and one"; }
 		if (value == self._value) { return; }
 		self._value = value;
-		self.node().invalidate();
+		btrcGtkLevelSetValue(self.control(), value);
 	}
 
 	public double value() { self.node().requireOpen(); return self._value; }
+
+	private void releaseNative() { if (self._control != null) { btrcGtkControlDestroy(self._control); self._control = null; } }
+
+	public CallbackCancellation close() {
+		var state = self.node().close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self.node().pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public void __del__() { self.releaseNative(); }
 }

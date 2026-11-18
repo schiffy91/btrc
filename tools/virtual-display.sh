@@ -9,9 +9,9 @@
 # too, and a host GPU vendor's EGL can abort on a display it does not drive.
 # The display is tools/ui/headless-session.sh
 # in X11 mode: a private Xvfb started with -noreset, inside its own D-Bus
-# session bus with the AT-SPI accessibility bus, and SDL and GDK pinned to X11
+# session bus with the AT-SPI accessibility bus, and GDK pinned to X11
 # so neither probes a missing Wayland compositor. BTRC_VIRTUAL_DISPLAY=wayland
-# selects that script's weston session instead. A shell without the session's
+# selects that script's labwc session instead. A shell without the session's
 # tools falls back to xvfb-run, which gives an X display alone. A
 # session that already has a display keeps it and its own GPU driver. Where the
 # tools are missing (macOS, a shell without them) the command runs without
@@ -32,7 +32,7 @@ fi
 session="${BTRC_VIRTUAL_DISPLAY:-x11}"
 case "$session" in
   x11) server=Xvfb ;;
-  wayland) server=weston ;;
+  wayland) server=labwc ;;
   *)
     echo "virtual-display: BTRC_VIRTUAL_DISPLAY must be x11 or wayland, not $session" >&2
     exit 2
@@ -49,5 +49,5 @@ fi
 if ! command -v xvfb-run >/dev/null; then
   exec "$@"
 fi
-export SDL_VIDEODRIVER=x11
+export GDK_BACKEND=x11
 exec xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24 -nolisten tcp -noreset" "$@"

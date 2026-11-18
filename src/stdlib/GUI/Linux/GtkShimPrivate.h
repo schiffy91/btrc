@@ -13,8 +13,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Queue one event for BTRC's next poll; false when the queue is full. */
+/* Queue one event for BTRC's next poll; false when the queue is full, or a
+ * filter refuses it. Any thread may call it. */
 bool btrcGtkPush(const BtrcGtkEvent* event, const char* text);
+/* For the provider's own load fixtures, which flood the queue to hold its
+ * dispatch to its bounds: how many queued events have a type in a range,
+ * drop what is queued, and let only the events a filter accepts enter (NULL
+ * lets everything in again). */
+int btrcGtkQueued(unsigned int firstType, unsigned int lastType);
+void btrcGtkQueueFlush(void);
+void btrcGtkQueueFilter(bool (*accept)(const BtrcGtkEvent* event));
 /* The canvas that is the window's content. */
 GtkWidget* btrcGtkWindowCanvas(BtrcGtkWindow* window);
 

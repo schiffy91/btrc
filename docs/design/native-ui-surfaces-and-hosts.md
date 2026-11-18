@@ -17,7 +17,7 @@ unsupported error there. Linux is the reference provider in macOS's place.
 | Topic | Current plan | This proposal |
 | --- | --- | --- |
 | Web content | N54, extended scope (UI11), not started | Core: `IWebView` beside `IGPUView` and the native controls |
-| Linux toolkit | D23 open; SDL3 with drawn controls ships | GTK4 with WebKitGTK 6.0, behind one GPU gate (section 3) |
+| Linux toolkit | D23 open; SDL3 with drawn controls ships | GTK4 with WebKitGTK 6.0, behind one GPU gate (section 3). The gate passed, GTK4 is the Linux provider and the SDL provider is deleted |
 | Windows testing | D8: hosted runners only, no local VM | Wine for the inner loop, hosted runners for evidence, one local Windows 11 VM that the agent provisions alone (allowed by the owner 2026-11-18, amending D8) |
 | Mac testing | Hosted runners plus `ci-local` on the Mac | The same, with every root-only step declared in nix-darwin so no test run needs sudo (section 5) |
 | Finish line | 60 families, screen readers, physical devices | Section 6: one contract, one suite, five providers, hosted and local evidence |
@@ -121,17 +121,17 @@ better on this desktop's display. Try the routes in this order:
 not show: the real display (the session was locked), a btrc-hosted window (it
 is C), X11, and input through the surface.
 
-If route 1 or 2 passes on Wayland, Linux moves to GTK4: X11 uses a child
-window when nothing overlaps the GPU surface and readback when something does.
-The SDL provider stays until GTK passes the shared suite, then it is deleted;
-there is one Linux provider at a time. If neither passes, Linux stays on SDL,
-web content comes from an offscreen engine drawn into the frame, and that
-fallback gets its own note before any work.
+Route 1 passed on Wayland, so Linux moved to GTK4. On X11 each frame is
+read back and handed to GTK as a picture; a child window was tried first and
+dropped, because it cannot lie under a control. The SDL provider stayed
+until GTK passed the shared suite and is now deleted: there is one Linux
+provider. The fallback (stay on SDL, with web content from an offscreen
+engine) was not needed and has no note.
 
-The provider is planned as a C shim that owns the GTK objects and queues
-their signals as events BTRC polls each turn, as the SDL provider does: no
-callbacks into BTRC, so no GObject binding. That it works is **unverified**
-until the first provider commit opens the gate's window from a BTRC program.
+The provider is a C shim that owns the GTK objects and queues their signals
+as events BTRC polls each turn: no callbacks into BTRC, so no GObject
+binding. It works: the first provider commit opened the gate's window from a
+BTRC program, and every control since goes through the same queue.
 
 ### How the GTK4 provider is built
 
@@ -233,19 +233,34 @@ and resume at any of them:
    through. Where it arrives as a picture (X11), GTK draws the hole's part
    of the picture at the hole's place in the stack. A capture cuts the
    holes the same way before it lays the controls over the drawn content.
-4. **GPU views get their own surfaces**, the web view arrives as
-   `WebKitWebView`, and the window's own painter, with its fonts and symbols,
-   is deleted.
-5. **The switch.** The GUI manifest names `Gtk.GUIProvider` for Linux, the
-   SDL provider and the tests that reach into it go, and Drive, Deck Pad and
-   BTRSmith are rebuilt against it.
+4. **The web view arrives as `WebKitWebView`** (**done**, section 6 step
+   4). GPU views did not get surfaces of their own: one device and one
+   surface per window composes them, which is what lets a capture and the
+   X11 picture hold every GPU view in one readback. What is left of the
+   window's painter is that composition; its text, shapes and glyph atlas
+   have no caller any more and are deleted in the commit after the switch.
+5. **The switch. Done 2026-11-18.** The provider is `GUI/Linux` again
+   (classes `Linux*`), the SDL provider is deleted, and the GUI manifest
+   links GTK4 for Linux and WebKitGTK only for a program that imports the web
+   view. Placing a window's controls no longer waits for its GPU device:
+   they are handed to GTK at `show()`, so a click that follows `show()` at
+   once finds its control (`LinuxPlacement.btrc`). The tests that reached
+   into the SDL provider went with it: its control, layout, scroll, capture
+   and clipboard fixtures, whose behaviour is now GTK's own or is checked by
+   the shared suite. Three were ported because what they prove is the
+   provider's and not SDL's: the shell journey (now with real input), the
+   lossless burst fixture and the E40 load fixture, which queue events in
+   the shim's own queue through four private seams and watch it being
+   drained. Weston is gone from the dev shell with its patch, as are the
+   patched SDL and libdecor; the only Wayland session is labwc. Drive, Deck
+   Pad and BTRSmith are rebuilt against it in section 6 step 8.
 
 Input for the suite's probe, since GTK4 offers no way to synthesize events:
 on X11, XTest; on Wayland, the `wlr-virtual-pointer` and `virtual-keyboard`
-protocols of a headless wlroots compositor (sway or labwc), which Weston does
-not offer. Both are real input delivered by the display server. Until a
-control is native the probe can keep queueing events into the shim, as the
-SDL probe queues SDL events.
+protocols of labwc's headless backend, which Weston does not offer. Both are
+real input delivered by the display server, so the probe runs only in a
+private session (`BTRC_UI_PRIVATE_SESSION=1`, set by
+`tools/ui/headless-session.sh`) or on a dedicated test host.
 
 The layout the provider computes (stacks, grids, explicit frames) is the same
 arithmetic Windows and Android need, where child windows and views are placed
@@ -260,7 +275,7 @@ issues (#140 to #145).
 
 | Platform | Inner loop | Recorded evidence | Not covered |
 | --- | --- | --- | --- |
-| Linux | This desktop: headless Weston and Xvfb through `tools/ui/headless-session.sh`, then the real KWin session | The same through `ci-local`; hosted `ubuntu-24.04` | Orca journeys |
+| Linux | This desktop: headless labwc and Xvfb through `tools/ui/headless-session.sh` | The same through `ci-local`; hosted `ubuntu-24.04` | Orca journeys |
 | Linux, Gamescope | The Steam Deck over SSH (`steam-deck-oled.local`): programs built here, their Nix closure copied over, run on Game Mode's X server (`DISPLAY=:1`) | The same | Touch input until a fixture uses it |
 | Windows x64 | The Windows 11 guest on this desktop (`tools/target_hosts/windows/vm.py`); Wine for a crash-only smoke | Hosted `windows-latest`, and the guest | Physical hardware |
 | Windows ARM64 | Cross-build only | Hosted `windows-11-arm` | Physical hardware |
@@ -279,8 +294,7 @@ window manager's close, queued for the window with a given title.
 
 | Platform | Probe | Status |
 | --- | --- | --- |
-| Linux, SDL provider | Synthetic SDL events queued for the window | Written; 35 cases pass |
-| Linux, GTK4 | XTest under Xvfb; Wayland route to be chosen with the provider | Waits for the gate |
+| Linux | XTest under Xvfb; a virtual pointer and keyboard under headless labwc | Written; 39 cases pass on both |
 | Windows | Messages posted to the hit-tested window, as the shell fixture does | Not written |
 | Android | Motion and key events dispatched to the window through JNI | Not written |
 
@@ -413,6 +427,9 @@ Each step ends with something that runs.
    right for a state and wrong for messages, so a web view keeps its own
    inbox in order and the queued delivery drains it.
 5. **Linux**: the GTK4 provider, or the SDL fallback, passes the suite.
+   **Done 2026-11-18:** GTK4 is the one Linux provider (section 3, step 5)
+   and passes all 39 cases through both compilers, plain and sanitized, on
+   X11 and on Wayland.
 6. **Windows**: the 40 unsupported operations, WebView2, the tray.
 7. **Android**: a new provider on the approved UI2 host attachment, not a
    second run loop. iOS waits with macOS.

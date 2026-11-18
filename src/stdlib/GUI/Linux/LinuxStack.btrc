@@ -28,7 +28,7 @@ class LinuxStack extends LinuxContainerView implements IStack {
 
 	private void validateLength(double value) { if (!Math.isFinite(value) || value < 0.0) { throw "Stack spacing and padding must be finite and nonnegative"; } }
 
-	public void paint(LinuxPainter painter, double x, double y) { self.relayout(); LinuxComposite.paintChildren(self.node(), painter, x, y); }
+	public void paint(LinuxPlacer painter, double x, double y) { self.relayout(); LinuxComposite.paintChildren(self.node(), painter, x, y); }
 
 	public double fittingWidth() {
 		self.node().requireOpen();

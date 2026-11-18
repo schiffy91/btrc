@@ -8,94 +8,47 @@ import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxPainter;
 import Library.GUI.Linux.LinuxSymbols;
 import Library.GUI.Linux.LinuxActionQueue;
+import Library.GUI.Linux.GtkShim;
+import Library.GUI.Linux.GtkControls;
 
-/* A drawn push button. Pressing inside and releasing inside queues one
- * action; the application delivers it after native dispatch. Setters only
- * change model state. */
+/* A GTK push button. GTK tracks the pointer and draws the button; a click
+ * arrives as an event and queues one action, which the application delivers
+ * after native dispatch. Setters only change model state. */
 class LinuxButton extends LinuxNodeView implements IButton {
+	private BtrcGtkControl* _control;
 	private string _title;
 	private LinuxAction? _action;
 	private double _size = 13.0;
 	private bool _enabled = true;
-	private bool _centered = true;
 	private bool _selectable = false;
 	private bool _selected = false;
-	private bool _transparent = false;
 	private bool _bordered = true;
 	private int _symbol = -1;
-	private bool _hovered = false;
-	private bool _pressed = false;
 
 	public LinuxButton(LinuxContext context, string title) {
 		self.adoptNode(LinuxViewNode(context));
 		if (title == null) { throw "Native button title is missing"; }
 		self._title = title;
+		self._control = btrcGtkButtonCreate((unsigned int)self.node().id, title);
+		if (self._control == null) { throw "Cannot create native button"; }
+		btrcGtkControlSetFont(self._control, self._size, false);
 		self._action = context.actions.bind(self.node());
 	}
 
-	private double symbolSize() { return Math.ceilDouble(self._size * 1.15); }
+	private BtrcGtkControl* control() { if (self._control == null) { throw "Native button is closed"; } return self._control; }
 
-	public void paint(LinuxPainter painter, double x, double y) {
-		var theme = painter.theme();
-		double width = self.node().width;
-		double height = self.node().height;
-		double radius = LinuxMetrics.cornerRadius();
-		bool active = self._selectable && self._selected;
-		/* A transparent button is pure tracking over its parent's content, as AppKit draws none. */
-		if (self._transparent) { return; }
-		if (self._bordered) {
-			RGBA fill = active ? theme.accent : (self._pressed ? theme.controlPressed : (self._hovered && self._enabled ? theme.controlHover : theme.controlFill));
-			painter.fillRect(x, y, width, height, fill, radius);
-			painter.strokeRect(x, y, width, height, active ? theme.accent : theme.controlBorder, radius, 1.0);
-		} else if (self._hovered && self._enabled || self._pressed || active) {
-			int alpha = self._pressed ? 40 : (active ? 50 : 22);
-			painter.fillRect(x, y, width, height, RGBA(theme.text.red, theme.text.green, theme.text.blue, alpha), radius);
-		}
-		RGBA color = !self._enabled ? theme.disabledText : (active && self._bordered ? theme.accentText : theme.text);
-		double symbol = self._symbol < 0 ? 0.0 : self.symbolSize();
-		double titleWidth = self._title.isEmpty() ? 0.0 : painter.textWidth(self._title, self._size, false);
-		double gap = symbol > 0.0 && titleWidth > 0.0 ? 6.0 : 0.0;
-		double contentWidth = symbol + gap + titleWidth;
-		double startX = self._centered ? x + (width - contentWidth) * 0.5 : x + LinuxMetrics.horizontalPadding();
-		painter.pushClip(x, y, width, height);
-		if (symbol > 0.0) { LinuxSymbols.paint(painter, self._symbol, startX, y + (height - symbol) * 0.5, symbol, color); }
-		if (titleWidth > 0.0) { painter.textInBox(self._title, startX + symbol + gap, y, Math.maxDouble(titleWidth, width - (startX - x) - symbol - gap), height, self._size, false, color, 0); }
-		painter.popClip();
-	}
+	public void paint(LinuxPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
 
-	public bool pointer(AppPointerEvent event) {
-		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; self.node().invalidate(); return false; }
-		if (event.action == APP_POINTER_EXITED) { self._hovered = false; self.node().invalidate(); return false; }
-		if (!self._enabled || !self.node().effectiveEligible()) { return false; }
-		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) { self._pressed = true; self.node().invalidate(); return true; }
-		if (event.action == APP_POINTER_DRAGGED && self._pressed) {
-			bool inside = event.logicalX >= 0.0 && event.logicalY >= 0.0 && event.logicalX < self.node().width && event.logicalY < self.node().height;
-			if (inside != self._hovered) { self._hovered = inside; self.node().invalidate(); }
-			return true;
-		}
-		if (event.action == APP_POINTER_RELEASED && self._pressed) {
-			self._pressed = false;
-			bool inside = event.logicalX >= 0.0 && event.logicalY >= 0.0 && event.logicalX < self.node().width && event.logicalY < self.node().height;
-			self.node().invalidate();
-			if (inside) { self.fire(); }
-			return true;
-		}
-		if (event.action == APP_POINTER_CANCELLED && self._pressed) { self._pressed = false; self.node().invalidate(); return true; }
-		return false;
+	public void controlEvent(BtrcGtkEvent* event) {
+		if (event->type != (unsigned int)BTRC_GTK_EVENT_CONTROL_ACTIVATED || !self._enabled || !self.node().effectiveEligible()) { return; }
+		self.fire();
 	}
 
 	private void fire() { var action = self._action; if (action != null) { action.invoke(); } }
 
-	public double fittingWidth() {
-		self.node().requireOpen();
-		double symbol = self._symbol < 0 ? 0.0 : self.symbolSize();
-		double titleWidth = self._title.isEmpty() ? 0.0 : self.node().context.fonts.textWidth(self._title, self._size, self.node().scale(), false);
-		double gap = symbol > 0.0 && titleWidth > 0.0 ? 6.0 : 0.0;
-		double padding = self._bordered ? LinuxMetrics.horizontalPadding() : 6.0;
-		return Math.ceilDouble(symbol + gap + titleWidth + padding * 2.0);
-	}
+	public double fittingWidth() { self.node().requireOpen(); return (double)btrcGtkControlNaturalWidth(self.control()); }
 
-	public double fittingHeight() { self.node().requireOpen(); return LinuxMetrics.controlHeight(self._size); }
+	public double fittingHeight() { self.node().requireOpen(); return (double)btrcGtkControlNaturalHeight(self.control()); }
 
 	public string title() { self.node().requireOpen(); return self._title; }
 
@@ -104,12 +57,13 @@ class LinuxButton extends LinuxNodeView implements IButton {
 		if (title == null) { throw "Native button title is missing"; }
 		if (self._title.equals(title)) { return; }
 		self._title = title;
+		btrcGtkButtonSetTitle(self.control(), title);
 		self.node().invalidate();
 	}
 
 	public bool locallyEnabled() { return self._enabled; }
 
-	public void eligibilityLost() { if (self._action != null) { self._action.eligibilityLost(); } self.node().cancelOwnPointerCapture(); self._pressed = false; self.node().invalidate(); }
+	public void eligibilityLost() { if (self._action != null) { self._action.eligibilityLost(); } self.node().cancelOwnPointerCapture(); }
 
 	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 
@@ -117,8 +71,7 @@ class LinuxButton extends LinuxNodeView implements IButton {
 		self.node().requireOpen();
 		if (enabled == self._enabled) { return; }
 		self._enabled = enabled; self.node().localEligibilityChanged();
-		if (!enabled) { self._pressed = false; }
-		self.node().invalidate();
+		btrcGtkControlSetEnabled(self.control(), enabled);
 	}
 
 	public void setFont(double size) {
@@ -126,20 +79,30 @@ class LinuxButton extends LinuxNodeView implements IButton {
 		if (!Math.isFinite(size) || size <= 0.0 || size > ButtonTypography.maximumSize()) { throw "Invalid native button font size"; }
 		if (self._bordered && size > ButtonTypography.borderedMaximumSize()) { throw "Native bordered buttons support font sizes up to 20 points"; }
 		self._size = size;
+		btrcGtkControlSetFont(self.control(), size, false);
+		self.drawSymbol();
 		self.node().invalidate();
 	}
 
-	public void setCentered(bool centered) { self.node().requireOpen(); self._centered = centered; self.node().invalidate(); }
+	/* The symbol is drawn once per size, a little larger than the title's letters. */
+	private void drawSymbol() {
+		if (self._symbol < 0) { return; }
+		double side = Math.ceilDouble(self._size * 1.15);
+		LinuxSymbols.paint(LinuxButtonSymbol(self.control(), side), self._symbol, 0.0, 0.0, side, RGBA(0, 0, 0, 255));
+	}
+
+	public void setCentered(bool centered) { self.node().requireOpen(); btrcGtkButtonSetCentered(self.control(), centered); }
 
 	public void setSystemSymbol(string name) {
 		self.node().requireOpen();
 		int symbol = LinuxSymbols.symbol(name);
 		if (symbol < 0) { throw "Native button system symbol is unavailable"; }
 		self._symbol = symbol;
+		self.drawSymbol();
 		self.node().invalidate();
 	}
 
-	public void setToolTip(string text) { self.node().requireOpen(); self.node().toolTip = text == null ? "" : text; }
+	public void setToolTip(string text) { self.node().requireOpen(); self.node().toolTip = text == null ? "" : text; btrcGtkControlSetToolTip(self.control(), self.node().toolTip); }
 
 	public string toolTip() { self.node().requireOpen(); return self.node().toolTip; }
 
@@ -148,17 +111,18 @@ class LinuxButton extends LinuxNodeView implements IButton {
 		self._selectable = true;
 		if (selected == self._selected) { return; }
 		self._selected = selected;
-		self.node().invalidate();
+		btrcGtkButtonSetSelected(self.control(), selected);
 	}
 
 	public bool isSelected() { self.node().requireOpen(); return self._selectable && self._selected; }
 
-	public void setTransparent(bool transparent) { self.node().requireOpen(); self._transparent = transparent; self.node().invalidate(); }
+	public void setTransparent(bool transparent) { self.node().requireOpen(); btrcGtkButtonSetTransparent(self.control(), transparent); }
 
 	public void setBordered(bool bordered) {
 		self.node().requireOpen();
 		if (bordered && self._size > ButtonTypography.borderedMaximumSize()) { throw "Native bordered buttons support font sizes up to 20 points"; }
 		self._bordered = bordered;
+		btrcGtkButtonSetBordered(self.control(), bordered);
 		self.node().invalidate();
 	}
 
@@ -180,22 +144,24 @@ class LinuxButton extends LinuxNodeView implements IButton {
 
 	public CallbackCancellation close() {
 		var state = self.node().close();
-		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseAction(); }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
 		return state;
 	}
 
-	private void releaseAction() {
+	private void releaseNative() {
 		var action = self._action;
-		if (action == null) { return; }
-		self._action = null;
-		self.node().context.actions.unbind(action);
+		if (action != null) { self._action = null; self.node().context.actions.unbind(action); }
+		if (self._control != null) { btrcGtkControlDestroy(self._control); self._control = null; }
 	}
 
 	public CallbackCancellation pollClose() {
 		var state = self.node().pollClose();
-		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseAction(); }
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
 		return state;
 	}
 
-	public void __del__() { if (self._action != null && self.node() != null && !self.node().attached) { self.close(); } }
+	public void __del__() {
+		if (self._action != null && self.node() != null && !self.node().attached) { self.close(); }
+		if (self._control != null) { btrcGtkControlDestroy(self._control); self._control = null; }
+	}
 }

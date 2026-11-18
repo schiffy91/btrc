@@ -2,7 +2,7 @@
  * display server (RealInput.h) to wherever that window is on the screen.
  *
  * Two things the display server will not tell an input tool come from the
- * provider's shim instead (GUI/Linux/Gtk/GtkShim.h, "automation"): where the
+ * provider's shim instead (GUI/Linux/GtkShim.h, "automation"): where the
  * pointer is in a window's content, which is how the probe learns where that
  * content is on the screen, and whether input it sent has arrived, which is
  * how it knows when to return. Neither delivers input. */
@@ -12,10 +12,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-int btrcGtkAutomationDisplay(void) __attribute__((weak));
-unsigned long btrcGtkAutomationSerial(void) __attribute__((weak));
-int btrcGtkAutomationAwait(unsigned long serial, int timeoutMilliseconds) __attribute__((weak));
-int btrcGtkAutomationPointer(unsigned int window, double *x, double *y) __attribute__((weak));
+int btrcGtkAutomationDisplay(void);
+unsigned long btrcGtkAutomationSerial(void);
+int btrcGtkAutomationAwait(unsigned long serial, int timeoutMilliseconds);
+int btrcGtkAutomationPointer(unsigned int window, double *x, double *y);
 
 enum { ARRIVAL_MILLISECONDS = 500, SEARCH_MILLISECONDS = 60, APPEARANCE_ATTEMPTS = 60, DISPLAY_X11 = 2 };
 
@@ -32,7 +32,7 @@ static const RealInput *realInput(void) {
     if (!tried) {
         tried = true;
         const char *allowed = getenv("BTRC_UI_PRIVATE_SESSION");
-        if (allowed && strcmp(allowed, "1") == 0 && btrcGtkAutomationDisplay) {
+        if (allowed && strcmp(allowed, "1") == 0) {
             input = btrcGtkAutomationDisplay() == DISPLAY_X11 ? realInputX11() : realInputWayland();
         }
     }

@@ -9,7 +9,6 @@ broken image, not an absent capability."""
 
 import json
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -29,7 +28,7 @@ PROBE = """
 import json, os
 from pathlib import Path
 from src.tests.runner_capabilities import linux_atspi_error, linux_display_error, linux_wayland_display_error
-variables = ("DISPLAY", "WAYLAND_DISPLAY", "SDL_VIDEODRIVER", "GDK_BACKEND", "VK_DRIVER_FILES", "__EGL_VENDOR_LIBRARY_FILENAMES", "XDG_RUNTIME_DIR", "BTRC_UI_SESSION", "BTRC_UI_PRIVATE_SESSION")
+variables = ("DISPLAY", "WAYLAND_DISPLAY", "GDK_BACKEND", "VK_DRIVER_FILES", "__EGL_VENDOR_LIBRARY_FILENAMES", "XDG_RUNTIME_DIR", "BTRC_UI_SESSION", "BTRC_UI_PRIVATE_SESSION")
 wayland = os.environ.get("WAYLAND_DISPLAY")
 display = os.environ.get("DISPLAY")
 if wayland:
@@ -69,7 +68,6 @@ def _session_environment(**overrides: str) -> dict[str, str]:
         "DISPLAY",
         "WAYLAND_DISPLAY",
         "DBUS_SESSION_BUS_ADDRESS",
-        "SDL_VIDEODRIVER",
         "GDK_BACKEND",
         "BTRC_VIRTUAL_DISPLAY",
         "BTRC_UI_SESSION",
@@ -110,7 +108,7 @@ def test_x11_session_offers_a_display_and_the_accessibility_bus():
     assert seen["wayland"] == "native Wayland backend is unavailable: no WAYLAND_DISPLAY"
     assert seen["environ"]["DISPLAY"].startswith(":")
     assert seen["environ"]["WAYLAND_DISPLAY"] is None
-    assert (seen["environ"]["SDL_VIDEODRIVER"], seen["environ"]["GDK_BACKEND"]) == ("x11", "x11")
+    assert seen["environ"]["GDK_BACKEND"] == "x11"
     # A test may drive this display's pointer and keyboard: they are no person's.
     assert (seen["environ"]["BTRC_UI_SESSION"], seen["environ"]["BTRC_UI_PRIVATE_SESSION"]) == ("x11", "1")
     if os.environ.get("BTRC_LAVAPIPE_ICD"):
@@ -122,74 +120,18 @@ def test_x11_session_offers_a_display_and_the_accessibility_bus():
 
 
 def test_wayland_session_offers_a_compositor_and_the_accessibility_bus():
-    _require_session_tools("weston")
+    _require_session_tools("labwc")
     seen = _probe(str(SESSION), "--wayland", "--")
     assert seen["display"] is None
     assert seen["wayland"] is None
     assert seen["atspi"] is None
     assert seen["environ"]["DISPLAY"] is None
     assert seen["environ"]["WAYLAND_DISPLAY"]
-    assert (seen["environ"]["SDL_VIDEODRIVER"], seen["environ"]["GDK_BACKEND"]) == ("wayland", "wayland")
+    assert seen["environ"]["GDK_BACKEND"] == "wayland"
     assert (seen["environ"]["BTRC_UI_SESSION"], seen["environ"]["BTRC_UI_PRIVATE_SESSION"]) == ("wayland", "1")
-    # The session stopped weston and removed its private runtime directory.
-    assert _stopped(seen["socket"], seen["inode"])
-    assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()
-
-
-def test_wlroots_session_offers_a_compositor_that_takes_input():
-    """labwc, for the tests that send real input: weston offers no virtual pointer or keyboard."""
-    _require_session_tools("labwc")
-    seen = _probe(str(SESSION), "--wlroots", "--")
-    assert seen["display"] is None
-    assert seen["wayland"] is None
-    assert seen["atspi"] is None
-    assert seen["environ"]["DISPLAY"] is None
-    assert seen["environ"]["WAYLAND_DISPLAY"] == "wayland-0"
-    assert (seen["environ"]["SDL_VIDEODRIVER"], seen["environ"]["GDK_BACKEND"]) == ("wayland", "wayland")
-    assert (seen["environ"]["BTRC_UI_SESSION"], seen["environ"]["BTRC_UI_PRIVATE_SESSION"]) == ("wlroots", "1")
     # The session stopped labwc and removed its private runtime directory.
     assert _stopped(seen["socket"], seen["inode"])
     assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()
-
-
-def test_wayland_session_survives_unmapped_subsurface_ordering(tmp_path):
-    _require_session_tools("weston", "cc", "pkg-config")
-    source = ROOT / "src/tests/native/gui/shell/probes/linux/UnmappedSubsurface.c"
-    executable = tmp_path / "UnmappedSubsurface"
-    flags = subprocess.run(
-        ["pkg-config", "--cflags", "--libs", "wayland-client"],
-        capture_output=True,
-        text=True,
-        timeout=TIMEOUT,
-    )
-    assert flags.returncode == 0, flags.stderr
-    build = subprocess.run(
-        [
-            "cc",
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            str(source),
-            "-o",
-            str(executable),
-            *shlex.split(flags.stdout),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=TIMEOUT,
-    )
-    assert build.returncode == 0, build.stderr
-    result = subprocess.run(
-        [str(SESSION), "--wayland", "--", str(executable)],
-        cwd=ROOT,
-        env=_session_environment(),
-        capture_output=True,
-        text=True,
-        timeout=TIMEOUT,
-    )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "100 unmapped subsurface cycles passed"
 
 
 def test_sessions_never_share_a_runtime_directory(tmp_path):
@@ -203,9 +145,9 @@ def test_sessions_never_share_a_runtime_directory(tmp_path):
     assert not (shared / "at-spi").exists()
 
 
-@pytest.mark.parametrize(("session", "server"), [(None, "Xvfb"), ("x11", "Xvfb"), ("wayland", "weston")])
+@pytest.mark.parametrize(("session", "server"), [(None, "Xvfb"), ("x11", "Xvfb"), ("wayland", "labwc")])
 def test_virtual_display_delegates_to_the_session(session, server):
-    """CI sets nothing and gets X11; BTRC_VIRTUAL_DISPLAY=wayland selects weston."""
+    """CI sets nothing and gets X11; BTRC_VIRTUAL_DISPLAY=wayland selects labwc."""
     _require_session_tools(server)
     seen = _probe(str(VIRTUAL_DISPLAY), **({"BTRC_VIRTUAL_DISPLAY": session} if session else {}))
     assert seen["display"] is None
@@ -252,7 +194,7 @@ def test_virtual_display_rejects_an_unknown_session():
 
 @pytest.mark.parametrize("mode", ["--x11", "--wayland"])
 def test_session_returns_the_command_status(mode):
-    _require_session_tools("Xvfb" if mode == "--x11" else "weston")
+    _require_session_tools("Xvfb" if mode == "--x11" else "labwc")
     result = subprocess.run(
         [str(SESSION), mode, "--", "sh", "-c", "exit 7"],
         cwd=ROOT,
@@ -266,7 +208,7 @@ def test_session_returns_the_command_status(mode):
 
 @pytest.mark.parametrize("mode", ["--x11", "--wayland"])
 def test_failed_session_preserves_diagnostics_before_removing_its_directory(mode):
-    _require_session_tools("Xvfb" if mode == "--x11" else "weston")
+    _require_session_tools("Xvfb" if mode == "--x11" else "labwc")
     command = """
 import os
 from pathlib import Path
@@ -293,7 +235,7 @@ raise SystemExit(7)
 def test_terminating_the_session_stops_the_command_and_the_servers(tmp_path, mode):
     """A TERM to the PID the caller holds, as subprocess timeouts send, reaches the
     session: the command is stopped and everything the session started with it."""
-    _require_session_tools("Xvfb" if mode == "--x11" else "weston")
+    _require_session_tools("Xvfb" if mode == "--x11" else "labwc")
     report = tmp_path / "runtime"
     session = subprocess.Popen(
         [str(SESSION), mode, "--", "sh", "-c", WAITER, "sh", str(report)],
@@ -322,7 +264,7 @@ def test_terminating_the_session_stops_the_command_and_the_servers(tmp_path, mod
 def test_session_evidence_dumps_the_accessibility_tree_and_keeps_the_status(tmp_path, mode):
     """The GUI shard's wrapper: it samples the session's AT-SPI desktop while the
     command runs and once after, and exits with the command's status."""
-    _require_session_tools("Xvfb" if mode == "--x11" else "weston")
+    _require_session_tools("Xvfb" if mode == "--x11" else "labwc")
     result = subprocess.run(
         [str(SESSION), mode, "--", sys.executable, str(EVIDENCE), "--output", str(tmp_path), "--interval", "0.2"]
         + ["--", "sh", "-c", "sleep 1; exit 5"],
@@ -390,7 +332,7 @@ def test_session_evidence_passes_term_to_the_command(tmp_path):
 @pytest.mark.parametrize("mode", ["--x11", "--wayland"])
 def test_stand_in_watcher_gives_the_tray_provider_a_watcher(mode):
     """The GUI shard runs the Linux tray tests on this watcher instead of skipping them."""
-    _require_session_tools("Xvfb" if mode == "--x11" else "weston")
+    _require_session_tools("Xvfb" if mode == "--x11" else "labwc")
     probe = (
         "import sys\n"
         "from src.tests.runner_capabilities import linux_tray_backend_error\n"

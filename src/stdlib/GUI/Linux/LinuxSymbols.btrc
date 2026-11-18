@@ -1,7 +1,37 @@
 import Library.Math;
 import Library.Image;
 import Library.Vector;
-import Library.GUI.Linux.LinuxPainter;
+import Library.GUI.Linux.GtkControls;
+
+/* What a symbol is drawn with: the few shapes the renderings below use. */
+interface ILinuxStrokes {
+	void line(double x0, double y0, double x1, double y1, double width, RGBA color);
+	void triangle(double x0, double y0, double x1, double y1, double x2, double y2, RGBA color);
+	void fillRect(double x, double y, double width, double height, RGBA color, double radius);
+	void strokeRect(double x, double y, double width, double height, RGBA color, double radius, double thickness);
+	void fillCircle(double centerX, double centerY, double radius, RGBA color);
+	void strokeCircle(double centerX, double centerY, double radius, RGBA color, double thickness);
+}
+
+/* Draws a symbol into a native button, which shows it in its title's colour:
+ * the colours the renderings pass are not used. */
+class LinuxButtonSymbol implements ILinuxStrokes {
+	private BtrcGtkControl* _button;
+
+	public LinuxButtonSymbol(BtrcGtkControl* button, double size) { self._button = button; btrcGtkButtonBeginSymbol(button, size); }
+
+	public void line(double x0, double y0, double x1, double y1, double width, RGBA color) { btrcGtkButtonSymbolLine(self._button, x0, y0, x1, y1, width); }
+
+	public void triangle(double x0, double y0, double x1, double y1, double x2, double y2, RGBA color) { btrcGtkButtonSymbolTriangle(self._button, x0, y0, x1, y1, x2, y2); }
+
+	public void fillRect(double x, double y, double width, double height, RGBA color, double radius) { btrcGtkButtonSymbolRectangle(self._button, x, y, width, height, radius, 0.0); }
+
+	public void strokeRect(double x, double y, double width, double height, RGBA color, double radius, double thickness) { btrcGtkButtonSymbolRectangle(self._button, x, y, width, height, radius, thickness); }
+
+	public void fillCircle(double centerX, double centerY, double radius, RGBA color) { btrcGtkButtonSymbolCircle(self._button, centerX, centerY, radius, 0.0); }
+
+	public void strokeCircle(double centerX, double centerY, double radius, RGBA color, double thickness) { btrcGtkButtonSymbolCircle(self._button, centerX, centerY, radius, thickness); }
+}
 
 /* Vector renderings of the system symbol vocabulary the portable button
  * contract names (IButton). `symbol` is the single name table; a name it does
@@ -16,7 +46,7 @@ class LinuxSymbols {
 	}
 
 	/* `symbol` is an index `symbol(name)` returned. */
-	class void paint(LinuxPainter painter, int symbol, double x, double y, double size, RGBA color) {
+	class void paint(ILinuxStrokes painter, int symbol, double x, double y, double size, RGBA color) {
 		double cx = x + size * 0.5;
 		double cy = y + size * 0.5;
 		double r = size * 0.5;
@@ -102,7 +132,7 @@ class LinuxSymbols {
 		}
 	}
 
-	class void arc(LinuxPainter painter, double cx, double cy, double radius, double from, double to, double stroke, RGBA color) {
+	class void arc(ILinuxStrokes painter, double cx, double cy, double radius, double from, double to, double stroke, RGBA color) {
 		int segments = 12;
 		double previousX = cx + radius * Math.cos((float)from);
 		double previousY = cy + radius * Math.sin((float)from);

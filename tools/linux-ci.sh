@@ -8,7 +8,7 @@
 # As in CI, tools/virtual-display.sh gives the container an X display, a
 # session bus with the AT-SPI bus and Mesa's software Vulkan driver, so the GUI
 # and GPU adapter tests run. BTRC_VIRTUAL_DISPLAY=wayland runs the same targets
-# under weston's headless compositor instead (tools/ui/headless-session.sh).
+# under labwc's headless compositor instead (tools/ui/headless-session.sh).
 #
 # Four things differ from `podman run -v "$PWD:/workspace"`:
 #

@@ -557,10 +557,7 @@ GUI_PARTITIONS ?= 1
 GUI_PYTEST_WORKERS ?= 1
 GUI_CELL := $(GUI_SESSION)-$(GUI_PARTITION)
 GUI_SHARD_DIR := build/linux-gui/$(GUI_CELL)
-# The SDL clipboard-requestor case drives the X11 selection protocol itself, so
-# only the X11 row runs it; under Wayland it would skip for want of a DISPLAY.
-GUI_SHARD_X11_ONLY := src/tests/python/test_native_ui_sdl_clipboard_requestor.py
-GUI_SHARD_TESTS := $(if $(filter wayland,$(GUI_SESSION)),$(filter-out $(GUI_SHARD_X11_ONLY),$(NATIVE_GUI_TESTS)),$(NATIVE_GUI_TESTS)) \
+GUI_SHARD_TESTS := $(NATIVE_GUI_TESTS) \
 	src/tests/python/test_build_safety.py::test_devcontainer_installs_the_null_alsa_pcm
 
 test-shard-gui: generated-check gpu-required $(TEST_BTRCC_BUILD) ## CI shard: native GUI and Linux audio under one headless session (GUI_SESSION=x11|wayland)

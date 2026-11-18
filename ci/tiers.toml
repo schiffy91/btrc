@@ -183,7 +183,7 @@ reports = ["skip-report", "junit"]
 # missing evidence), so it runs nightly (the extended tier), in a release and
 # in the native-gui dispatch, not on every push. The native-shell journey
 # used to assert that a native close lands within one 10 ms tick, which fails
-# under ASan on weston; its final step now waits within the journey's budget
+# under ASan on Wayland; its final step now waits within the journey's budget
 # (batch 50). Flip report_only to "false" once Wayland runs green on main.
 [[jobs]]
 workflow = "ci.yml"

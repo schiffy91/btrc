@@ -16,7 +16,7 @@ btrc is a statically-typed language that transpiles to C. There is no garbage co
 - **Exceptions**, with `try`/`catch`/`finally` that unwinds ARC correctly.
 - **Threads**: `spawn`, typed `Thread<T>`, `Mutex<T>`, background job queues.
 - **GPU acceleration**: Mark a function `@gpu` and btrc compiles it to a WGSL compute shader, automatically orchestrating WebGPU buffer uploads, dispatch, and readback—with a zero-dependency CPU fallback if no GPU is found.
-- **Native UI**: Real platform controls (AppKit on macOS, SDL3/WebGPU on Linux, with eventual support on Windows, Android, and iOS) and a self-drawn declarative toolkit—with the ability to composite hardware-accelerated 3D WebGPU views directly alongside native widgets.
+- **Native UI**: Real platform controls (AppKit on macOS, GTK4 on Linux, with eventual support on Windows, Android, and iOS) and a self-drawn declarative toolkit—with the ability to composite hardware-accelerated 3D WebGPU views directly alongside native widgets.
 - **Package management**: a `btrc.toml` manifest, a real lockfile, path and Git dependencies.
 - **A standard library**: Written in btrc: rich strings, collections (`Vector`, `Map`, `Set`), `JSON`, `TOML`, `HTTP`, audio, and OS abstraction—with a freestanding zero-libc mode for embedded targets.
 - **A module system**: `import` with strict, directed visibility, instead of header order and luck.
@@ -237,7 +237,7 @@ lines of btrc.
 There are two ways to put something on screen, and btrc ships both.
 
 **Real platform controls.** `GUI` creates an actual window with actual native
-widgets -- AppKit views on macOS, controls btrc draws over SDL3 and WebGPU on
+widgets -- AppKit views on macOS, GTK4 widgets on
 Linux -- behind the portable `IWindow`, `IButton`, `ITextField` interfaces, so
 the program never names a platform:
 
@@ -612,7 +612,7 @@ The current groups are:
 
 | Package | What it covers |
 | --- | --- |
-| `App`, `UI`, `GUI`, `Tray` | Application lifecycle, the BTRC-drawn declarative toolkit, native windows/controls/fonts (AppKit on macOS, drawn over SDL3/WebGPU on Linux), system tray |
+| `App`, `UI`, `GUI`, `Tray` | Application lifecycle, the BTRC-drawn declarative toolkit, native windows/controls/fonts (AppKit on macOS, GTK4 on Linux), system tray |
 | `Audio`, `Realtime` | Device enumeration, duplex sessions, realtime clocks, clip transport; `Audio/MacOS` is the CoreAudio provider, `Audio/Linux` the ALSA provider |
 | `GPU` | WebGPU device, programs, uniform buffers, image textures, surface rendering, offscreen targets, readback (`@gpu` compute dispatch is compiler-generated and links the separate runtime in `src/runtime/gpu`, built by `make gpu`) |
 | `Image` | DDS decoding, platform image decoding (ImageIO on macOS, libpng/libjpeg-turbo on Linux), pixel access |

@@ -4,11 +4,8 @@ The suite is one portable BTRC program over the public GUI facade, with a
 per-platform probe for the input a person gives a window. This driver builds
 it through each compiler, plain and sanitized, and runs every case of
 cases.toml in its own process on the session's display. Run it inside
-tools/ui/headless-session.sh --x11, --wlroots or --wayland.
-
-The GTK provider's probe sends real input through the display server, so its
-Wayland rows need a compositor that takes it: the wlroots session. Weston's
-offers none, and its session runs the SDL provider's rows only.
+tools/ui/headless-session.sh --x11 or --wayland: the probe sends real input
+through the display server, and those sessions are private ones that take it.
 """
 
 import fcntl
@@ -20,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.gui_provider_root import GUIProviderRoot
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.linux_provider_fixtures import (
     build_provider_program,
@@ -33,15 +29,12 @@ REPO = Path(__file__).resolve().parents[3]
 SUITE = REPO / "src/tests/native/gui/conformance"
 CASES = tomllib.loads((SUITE / "cases.toml").read_text())["case"]
 NAMES = [case["name"] for case in CASES]
-# What a case needs of a provider beyond the frozen contract, and which have it.
+# What a case needs of a provider beyond the frozen contract, and what this
+# platform's provider has.
 NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
-HAS = {"sdl": set(), "gtk": {"web"}}
+HAS = {"web"}
 LINUX_ONLY = "requires Linux: the GUI conformance suite's Linux rows"
-# The shipped Linux provider, and the GTK provider being built beside it from a
-# copy of it (docs/design/native-ui-surfaces-and-hosts.md, section 3): both must
-# pass every case at every step, until the second replaces the first.
-SESSION = os.environ.get("BTRC_UI_SESSION") or ("wayland" if os.environ.get("SDL_VIDEODRIVER") == "wayland" else "x11")
-PROVIDERS = ["sdl"] if SESSION == "wayland" else ["sdl", "gtk"]
+SESSION = os.environ.get("BTRC_UI_SESSION") or ("wayland" if os.environ.get("GDK_BACKEND") == "wayland" else "x11")
 # Catalog operations no case exercises yet, each with what stands in the way.
 UNCOVERED = {
     "IWindow.showAlert": "modal: the probe cannot yet dismiss the alert it would open",
@@ -52,8 +45,8 @@ UNCOVERED = {
 
 
 class ConformancePrograms:
-    """One build per provider, compiler and sanitizer mode for the whole run:
-    parallel workers share them, and whichever needs one first builds it."""
+    """One build per compiler and sanitizer mode for the whole run: parallel
+    workers share them, and whichever needs one first builds it."""
 
     def __init__(self, directories):
         base = directories.getbasetemp()
@@ -61,41 +54,27 @@ class ConformancePrograms:
         self.shared = (base.parent if os.environ.get("PYTEST_XDIST_WORKER") else base) / "conformance"
         self.font_file = None
 
-    def once(self, name, build):
-        """What `build(directory)` returned for `name`, built by one worker only."""
-        directory = self.shared / name
+    def program(self, request, frontend, sanitized):
+        """The suite's program for this compiler and mode, built by one worker only."""
+        directory = self.shared / f"{frontend}-{'sanitized' if sanitized else 'plain'}"
         directory.mkdir(parents=True, exist_ok=True)
         result = directory / "result"
         with open(directory / "lock", "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             if not result.exists():
-                result.write_text(str(build(directory)))
+                result.write_text(
+                    str(build_provider_program(SUITE / "Main.btrc", directory, frontend, sanitized, request))
+                )
         return Path(result.read_text())
 
-    def root(self, provider):
-        """The data root a provider is built from: the tree itself for the shipped
-        one, a copy whose GUI manifest names the provider under construction for the other."""
-        if provider == "sdl":
-            return None
-        return self.once("gtk-root", lambda directory: GUIProviderRoot.create(directory / "src", linux="Linux.Gtk"))
-
-    def program(self, request, provider, frontend, sanitized):
-        mode = "sanitized" if sanitized else "plain"
-        return self.once(
-            f"{provider}-{frontend}-{mode}",
-            lambda directory: build_provider_program(
-                SUITE / "Main.btrc", directory, frontend, sanitized, request, data_root=self.root(provider)
-            ),
-        )
-
-    def run(self, request, provider, frontend, sanitized, argument):
+    def run(self, request, frontend, sanitized, argument):
         if sys.platform != "linux":
             pytest.skip(LINUX_ONLY)
         require_linux_reader()
         if error := linux_display_error():
             pytest.skip(error)
         return subprocess.run(
-            [str(self.program(request, provider, frontend, sanitized)), argument],
+            [str(self.program(request, frontend, sanitized)), argument],
             capture_output=True,
             text=True,
             timeout=120,
@@ -123,21 +102,13 @@ def programs(tmp_path_factory):
     return ConformancePrograms(tmp_path_factory)
 
 
-ROWS = [
-    pytest.param(name, provider, id=f"{name}-{provider}")
-    for name in NAMES
-    for provider in PROVIDERS
-    if name not in NEEDS or NEEDS[name] in HAS[provider]
-]
-
-
 @pytest.mark.linux_gui
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
-@pytest.mark.parametrize(("name", "provider"), ROWS)
-def test_linux_conformance_case(programs, request, name, provider, frontend, sanitized):
-    result = programs.run(request, provider, frontend, sanitized, name)
-    report = f"{name} on linux-{SESSION} ({provider}, {frontend}, {'sanitized' if sanitized else 'plain'})\n"
+@pytest.mark.parametrize("name", [name for name in NAMES if name not in NEEDS or NEEDS[name] in HAS])
+def test_linux_conformance_case(programs, request, name, frontend, sanitized):
+    result = programs.run(request, frontend, sanitized, name)
+    report = f"{name} on linux-{SESSION} ({frontend}, {'sanitized' if sanitized else 'plain'})\n"
     report += result.stdout + result.stderr
     assert result.returncode == 0, report
     assert "ERROR: AddressSanitizer" not in result.stderr and "runtime error:" not in result.stderr, report
@@ -145,9 +116,8 @@ def test_linux_conformance_case(programs, request, name, provider, frontend, san
 
 
 @pytest.mark.linux_gui
-@pytest.mark.parametrize("provider", PROVIDERS)
-def test_the_program_lists_exactly_the_recorded_cases(programs, request, provider):
-    listed = programs.run(request, provider, "python", False, "--list")
+def test_the_program_lists_exactly_the_recorded_cases(programs, request):
+    listed = programs.run(request, "python", False, "--list")
     assert listed.returncode == 0, listed.stderr
     assert sorted(listed.stdout.split()) == sorted(NAMES)
     assert len(set(NAMES)) == len(NAMES)

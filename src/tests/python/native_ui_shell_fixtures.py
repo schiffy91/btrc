@@ -108,13 +108,28 @@ def build_shell(tmp_path, frontend, sanitized, request):
     )
     compiler = "/usr/bin/clang" if system == "macos" else "cc"
     environment = shell_environment(sanitized)
+    # The Linux probe sends real input through the conformance suite's probe for the provider.
+    real_input = ROOT / "src/tests/native/gui/conformance/probes/linux"
     sdk_flags = (
         []
         if system == "macos"
-        else subprocess.check_output(["pkg-config", "--cflags", "sdl3"], text=True, timeout=TOOL_TIMEOUT).split()
+        else subprocess.check_output(
+            ["pkg-config", "--cflags", "x11", "xtst", "wayland-client"], text=True, timeout=TOOL_TIMEOUT
+        ).split()
     )
+    sdk_libraries = (
+        []
+        if system == "macos"
+        else subprocess.check_output(
+            ["pkg-config", "--libs", "x11", "xtst", "wayland-client"], text=True, timeout=TOOL_TIMEOUT
+        ).split()
+    )
+    units = [probe.with_suffix(".m" if system == "macos" else ".c"), SHELL / "ShellState.c"]
+    if system == "linux":
+        units += [real_input / name for name in ("GtkProbe.c", "X11Input.c", "WaylandInput.c")]
+        units += sorted((real_input / "wayland").glob("*.c"))
     objects = []
-    for unit in [probe.with_suffix(".m" if system == "macos" else ".c"), SHELL / "ShellState.c"]:
+    for unit in units:
         output = tmp_path / f"{unit.stem}.o"
         command = [
             compiler,
@@ -141,7 +156,7 @@ def build_shell(tmp_path, frontend, sanitized, request):
         if "-c" in command:
             command[1:1] = flags
         elif "-o" in command:
-            command.extend([*objects, *flags])
+            command.extend([*objects, *flags, *sdk_libraries])
         return subprocess.run(command, env=environment, **kwargs)
 
     executable = tmp_path / "NativeShell"
@@ -240,7 +255,7 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
     probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
     assert len(probes) == cycles
     if provider.startswith("linux"):
-        assert all(probe["accessibility"] == "no bridge" for probe in probes)
+        assert all(probe["accessibility"] == "not observed" for probe in probes)
     else:
         assert all(isinstance(probe["accessibility"], dict) for probe in probes)
     frames = int(summary[2])

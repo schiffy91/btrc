@@ -637,7 +637,7 @@ jobs:
 
   # The Linux GUI and audio shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
   # `make test-shard-gui` in four disjoint partitions per protocol, each in its own
-  # tools/ui/headless-session.sh session (Xvfb, or weston's headless backend)
+  # tools/ui/headless-session.sh session (Xvfb, or labwc's headless backend)
   # with lavapipe as the GPU adapter and the null ALSA PCM as the sound card.
   # Unlike the native-gui job its X11 rows run on every push; the report-only
   # Wayland rows run nightly (the extended tier), in a release and in the

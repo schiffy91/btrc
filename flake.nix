@@ -14,24 +14,6 @@
           if lib.hasPrefix "-Ddbus_daemon=" flag then "-Ddbus_daemon=${pkgs.dbus}/bin/dbus-daemon" else flag
         ) (lib.filter (flag: !lib.hasPrefix "-Ddbus_broker=" flag) old.mesonFlags);
       });
-      # GTK decorations must clear seat references before freeing a frame.
-      # Match libdecor's existing Cairo cleanup and its upstream leave ordering.
-      libdecorPatched = pkgs: pkgs.libdecor.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [ ./nix/libdecor-gtk-pointer-focus.patch ];
-      });
-      # SDL 3.4.10 exits on BadWindow when a clipboard requestor destroys its
-      # window before SDL answers (X_ChangeProperty); the patch absorbs only
-      # that requestor's errors. Reproducer and regression test:
-      # src/tests/native/gui/shell/probes/linux/ClipboardRequestor.c and
-      # test_native_ui_sdl_clipboard_requestor.py.
-      sdl3Patched = pkgs: (pkgs.sdl3.override { libdecor = libdecorPatched pkgs; }).overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [ ./nix/sdl3-x11-selection-requestor.patch ];
-      });
-      # Weston 15.0.1 aborts when an unmapped subsurface has no views to
-      # invalidate. Backport the upstream fix without disabling assertions.
-      westonPatched = pkgs: pkgs.weston.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [ ./nix/weston-unmapped-subsurface.patch ];
-      });
       # The libcurl Library.HTTP's Linux transport links through
       # `pkg-config libcurl` (docs/design/http-transport.md, Native providers
       # and the Linux resolver, TLS and revocation profiles): OpenSSL 3.x for
@@ -92,26 +74,20 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
-            (libdecorPatched pkgs).dev   # libdecor-0.pc: the Wayland decoration probe (src/tests/native/gui/shell/probes/linux/LibdecorPending.c)
-            (sdl3Patched pkgs).dev fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux GUI, image and audio providers
+            fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux font, image and audio providers
             (curlHttpTransport pkgs).dev   # libcurl.pc: the Linux HTTP transport (OpenSSL 3, c-ares)
             libsodium.dev   # libsodium.pc: the Linux provider of Library.Crypto
             openssh   # ssh-keygen: writes the key files the Library.Crypto driver reads back
             xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
             # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
-            # (weston's headless backend) display inside its own session bus,
-            # with the AT-SPI accessibility bus, for GTK4 and SDL windows.
-            # Only weston's compositor goes on PATH, not its demo clients.
-            xvfb dbus (atSpiCore pkgs) gtk4.dev glib.dev
-            (runCommand "weston-${weston.version}" { meta.mainProgram = "weston"; } ''
-              mkdir -p "$out/bin"
-              ln -s ${westonPatched pkgs}/bin/weston "$out/bin/weston"
-            '')
-            # The GUI conformance probe sends real input: XTEST on X11, and on
-            # Wayland a wlroots compositor's virtual pointer and keyboard, which
-            # weston does not offer (headless-session.sh --wlroots runs labwc).
-            libxtst labwc
-            # webkitgtk-6.0.pc: the web engine behind the GTK provider's IWebView.
+            # (labwc's headless backend) display inside its own session bus,
+            # with the AT-SPI accessibility bus. The GUI conformance probe
+            # sends real input in it: XTEST on X11, and on Wayland a wlroots
+            # compositor's virtual pointer and keyboard.
+            xvfb dbus (atSpiCore pkgs) libxtst labwc
+            # gtk4.pc: the Linux GUI provider's windows and controls.
+            gtk4.dev glib.dev
+            # webkitgtk-6.0.pc: the web engine behind the provider's IWebView.
             webkitgtk_6_0.dev
           ];
       };

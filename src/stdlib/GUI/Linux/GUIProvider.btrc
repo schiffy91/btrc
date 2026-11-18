@@ -6,7 +6,7 @@ import Library.GUI.IApplication;
 import Library.GUI.IImageHandle;
 import Library.GUI.IDirectoryPicker;
 import Library.GUI.GUICaptureLayer;
-import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.GtkShim;
 import Library.GUI.Linux.LinuxApplication;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxImageView;
@@ -14,25 +14,24 @@ import Library.GUI.Linux.LinuxDirectoryPicker;
 import Library.GUI.Linux.LinuxSystemText;
 
 /* Private package implementation for Linux: the native services behind the
- * GUI facade. The facade validates requests and owns the application. SDL is
- * initialized once and kept for the process: a later initialize reuses it,
- * SDL's main thread stays fixed, and an abandoned folder dialog's callback
- * may still run after close, so SDL_Quit is deliberately never called. */
+ * GUI facade. The facade validates requests and owns the application. GTK is
+ * started once and kept for the process: a later initialize reuses it and
+ * its thread stays fixed, since GTK cannot be started a second time. */
 class GUIProvider {
-	class bool sdlReady = false;
+	class bool gtkReady = false;
 
-	/* SDL's main thread is the one that first initialized it: GUI.initialize. */
-	class void requireUIThread() { if (!SDL_IsMainThread()) { throw "GUI requires the main thread"; } }
+	/* GTK's thread is the one that first started it: GUI.initialize. */
+	class void requireUIThread() { if (!btrcGtkIsMainThread()) { throw "GUI requires the main thread"; } }
 
 	class IApplication createApplication(int workCapacity) {
-		if (!GUIProvider.sdlReady) {
-			if (!SDL_Init((unsigned int)SDL_INIT_VIDEO | (unsigned int)SDL_INIT_EVENTS)) { throw "Cannot initialize native windowing: " + Strings.copy((char*)SDL_GetError()); }
-			GUIProvider.sdlReady = true;
+		if (!GUIProvider.gtkReady) {
+			if (!btrcGtkInit()) { throw "Cannot initialize native windowing: " + Strings.copy((char*)btrcGtkError()); }
+			GUIProvider.gtkReady = true;
 		}
 		return LinuxApplication(workCapacity);
 	}
 
-	class ILinuxApplication linuxApplication(IApplication? application) {
+	class ILinuxApplication linuxGtkApplication(IApplication? application) {
 		var linux = (ILinuxApplication?)application;
 		if (linux == null) { throw "GUI application belongs to another provider"; }
 		return linux;
@@ -42,7 +41,7 @@ class GUIProvider {
 	class IImageHandle createImageHandle(Image pixels, int maximumPixels) { return LinuxImageHandle.create(pixels, maximumPixels); }
 
 	class DirectoryPickerOutcome chooseDirectory(IApplication application, DirectoryPickerRequest request) {
-		var linux = GUIProvider.linuxApplication(application);
+		var linux = GUIProvider.linuxGtkApplication(application);
 		linux.context().requireNoCloseDecision();
 		var window = linux.firstWindow();
 		var pump = (ILinuxDialogPump?)linux;
@@ -52,7 +51,7 @@ class GUIProvider {
 
 	class void rasterizeText(IApplication? application, TextRasterization request) {
 		if (application == null) { throw "Initialize GUI before creating views or running work"; }
-		LinuxSystemText.rasterize(GUIProvider.linuxApplication(application).context().fonts, request);
+		LinuxSystemText.rasterize(GUIProvider.linuxGtkApplication(application).context().fonts, request);
 	}
 
 	/* The window composites every GPU child itself, so the readback is the
@@ -62,7 +61,7 @@ class GUIProvider {
 	class Image capture(IApplication application, IView root, Vector<GUICaptureLayer> layers) {
 		var native = (ILinuxView?)root;
 		if (native == null) { throw "Capture root belongs to another GUI provider"; }
-		var window = GUIProvider.linuxApplication(application).windowOwning(native);
+		var window = GUIProvider.linuxGtkApplication(application).windowOwning(native);
 		if (window == null) { throw "Capture root is not attached to a window"; }
 		if (layers == null) { throw "Capture layers are missing"; }
 		for layer in layers {

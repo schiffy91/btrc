@@ -7,11 +7,11 @@ import Library.GUI.ControlEventQueue;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.LinuxActionQueue;
 import Library.GUI.Linux.LinuxPainter;
-import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.GtkShim;
 import Library.GPU.GPUDevice;
 import Library.GPU.WebGPU;
 
-/* SDL's monotonic clock in nanoseconds. Delays are clamped to a billion
+/* The monotonic clock in nanoseconds. Delays are clamped to a billion
  * seconds so the conversion and the deadline sum stay in range; a longer
  * delay never fires either way. */
 class LinuxClock {
@@ -21,7 +21,7 @@ class LinuxClock {
 		return (unsigned long long)(seconds * 1000000000.0);
 	}
 
-	class unsigned long long after(double seconds) { return SDL_GetTicksNS() + LinuxClock.nanoseconds(seconds); }
+	class unsigned long long after(double seconds) { return btrcGtkTicksNS() + LinuxClock.nanoseconds(seconds); }
 }
 
 /* The window behind a host: advances its asynchronous device request on demand. */
@@ -34,7 +34,7 @@ interface ILinuxDevicePoller {
  * window's own invalidation, so a change repaints only its window.
  * Owned by the window, referenced by attached nodes, referencing no view. */
 class LinuxViewHost {
-	public SDL_Window* window;
+	public BtrcGtkWindow* window;
 	public ControlEventQueue events;
 	public bool eligible = false;
 	public WindowExposure exposure = WINDOW_EXPOSURE_UNKNOWN;
@@ -57,7 +57,7 @@ class LinuxViewHost {
 	public double height = 0.0;
 	public double wakeSeconds = -1.0;
 
-	public LinuxViewHost(SDL_Window* window, LinuxContext context) { self.window = window; self.context = context; self.invalidation = LinuxInvalidation(); self.events = context.createSemanticQueue(); }
+	public LinuxViewHost(BtrcGtkWindow* window, LinuxContext context) { self.window = window; self.context = context; self.invalidation = LinuxInvalidation(); self.events = context.createSemanticQueue(); }
 
 	/* Ask the window to repaint after at most `seconds`, for blinking or spinning. */
 	public void requestWake(double seconds) {
@@ -114,13 +114,14 @@ interface ILinuxView extends IView {
 	bool locallyEnabled();
 	void eligibilityLost();
 	void attachTo(LinuxViewHost? host);
-	void paint(LinuxPainter painter, double x, double y);
-	void paintOverlay(LinuxPainter painter, double x, double y);
+	void paint(LinuxPlacer painter, double x, double y);
 	bool pointer(AppPointerEvent event);
 	bool scroll(AppScrollEvent event);
 	bool key(AppKeyboardEvent event);
 	void textInput(string value);
 	void focus(bool focused);
+	/* What a person did to this view's native control: a BTRC_GTK_EVENT_CONTROL_* event. */
+	void controlEvent(BtrcGtkEvent* event);
 }
 
 /* Route reservations cover a complete affected forest before attachment or
@@ -602,9 +603,7 @@ class LinuxNodeView implements ILinuxView {
 
 	public void attachTo(LinuxViewHost? host) { self._node.setHost(host); }
 
-	public void paint(LinuxPainter painter, double x, double y) {}
-
-	public void paintOverlay(LinuxPainter painter, double x, double y) {}
+	public void paint(LinuxPlacer painter, double x, double y) {}
 
 	public bool pointer(AppPointerEvent event) { return false; }
 
@@ -615,6 +614,8 @@ class LinuxNodeView implements ILinuxView {
 	public void textInput(string value) {}
 
 	public void focus(bool focused) {}
+
+	public void controlEvent(BtrcGtkEvent* event) {}
 
 	public bool isOpen() { return self._node.isOpen(); }
 

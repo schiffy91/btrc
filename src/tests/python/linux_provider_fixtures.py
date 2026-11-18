@@ -160,9 +160,13 @@ def _build_observed_provider_program(
     source = NativeBindingPackage.write(root / program, directory / "package", probe.with_suffix(".h"), symbols)
     generated, plan = directory / "Program.c", directory / "Program.json"
     transpile_provider_program(source, generated, plan, frontend, request, data_root=data_root)
-    flags = shlex.split(
-        subprocess.check_output(["pkg-config", "--cflags", "sdl3", "wgpu-native"], text=True, timeout=TOOL_TIMEOUT)
-    )
+    # An observer sees the provider's shim through its header, from the same data root.
+    flags = [
+        f"-I{data_root / 'stdlib'}",
+        *shlex.split(
+            subprocess.check_output(["pkg-config", "--cflags", "wgpu-native"], text=True, timeout=TOOL_TIMEOUT)
+        ),
+    ]
     sanitizers = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
     observer = directory / f"{probe.name}.o"
     subprocess.run(

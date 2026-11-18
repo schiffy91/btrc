@@ -338,7 +338,7 @@ class E40Run:
             compiler=self.command_line([self.native_compiler, "--version"]).splitlines()[0],
             native_reader=self.digest(os.environ.get("BTRC_NATIVE_HEADER_READER")),
             selfhost_compiler=self.digest(os.environ.get("BTRC_TEST_BTRCC")),
-            display={name: os.environ.get(name) for name in ("SDL_VIDEODRIVER", "DISPLAY", "WAYLAND_DISPLAY")},
+            display={name: os.environ.get(name) for name in ("GDK_BACKEND", "DISPLAY", "WAYLAND_DISPLAY")},
             graphics={
                 name: os.environ.get(name)
                 for name in (
@@ -441,7 +441,7 @@ def main() -> int:
     if args.provider == "linux":
         if sys.platform != "linux" or args.frontend not in ("python", "selfhost"):
             parser.error("Linux E40 requires Linux and the python or selfhost frontend")
-        if args.session is None or os.environ.get("SDL_VIDEODRIVER") != args.session:
+        if args.session is None or os.environ.get("GDK_BACKEND") != args.session:
             parser.error("Run inside the explicitly selected native display session")
         cases = LinuxE40Cases
     else:

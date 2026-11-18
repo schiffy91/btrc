@@ -1,4 +1,4 @@
-"""E40 native SDL bursts and declared load; headless timings are not physical latency."""
+"""E40 bursts and declared load through the Linux provider's own queue; headless timings are not physical latency."""
 
 import csv
 import json
@@ -52,6 +52,8 @@ def burst_program(tmp_path_factory, request, frontend, sanitized):
         "src/tests/native/gui/shell/probes/linux/EventBoundary",
         (
             "eventBoundaryArm",
+            "eventBoundaryKey",
+            "eventBoundaryText",
             "eventBoundaryQueued",
             "eventBoundaryLatest",
             "eventBoundaryFrames",
@@ -60,7 +62,7 @@ def burst_program(tmp_path_factory, request, frontend, sanitized):
             "eventBoundaryAccepted",
             "eventBoundaryRejected",
         ),
-        ("SDL_PollEvent", "SDL_PushEvent", "wgpuSurfacePresent"),
+        ("btrcGtkPollEvent", "wgpuSurfacePresent", "btrcGtkWindowShowPicture"),
     )
 
 
@@ -90,7 +92,7 @@ def load_program(tmp_path_factory, request, frontend, sanitized):
             "e40Frame",
             "e40Report",
         ),
-        ("SDL_PollEvent", "SDL_WaitEventTimeout", "SDL_ShowWindow", "wgpuSurfacePresent"),
+        ("btrcGtkPollEvent", "btrcGtkWaitEvent", "btrcGtkWindowShow", "wgpuSurfacePresent", "btrcGtkWindowShowPicture"),
     )
 
 
@@ -106,12 +108,12 @@ def provenance(frontend, sanitized):
         "frontend": frontend,
         "sanitized": sanitized,
         "runner": RunnerIdentity.detect(),
-        "backend": os.environ.get("SDL_VIDEODRIVER", "unspecified"),
+        "backend": os.environ.get("GDK_BACKEND", "unspecified"),
         "platform": platform.platform(),
         "machine": platform.machine(),
-        "session": "headless native SDL; synthetic input; real delegated wgpuSurfacePresent",
+        "session": "headless GTK; input queued in the provider's own queue; real frames, presented or handed to GTK",
         "physical_device_latency": "not measured",
-        "clock": "SDL_GetTicksNS monotonic nanoseconds",
+        "clock": "btrcGtkTicksNS monotonic nanoseconds",
         "compiler": subprocess.check_output(["cc", "--version"], text=True, timeout=30).splitlines()[0],
         "selfhost_binary": os.environ.get("BTRC_TEST_BTRCC") if frontend == "selfhost" else None,
         "limits": {
@@ -230,8 +232,8 @@ def exercise_load(program, frontend, sanitized, seconds, tmp_path):
             "handlers": "bounded, nonblocking; no overload or intentional blocking trial",
         },
         "timestamp_meaning": {
-            "admission": "immediately before SDL_PushEvent, tryPublish or schedule; rollback on refusal",
-            "presentation": "SDL monotonic observation after successful wgpuSurfacePresent; not scanout",
+            "admission": "immediately before the queue push, tryPublish or schedule; rollback on refusal",
+            "presentation": "monotonic observation after a successful wgpuSurfacePresent or a picture handed to GTK; not scanout",
             "runnable": "accepted input/completion/immediate work, due timer deadlines, dirty presentation",
         },
         "depth_meaning": "receipt depth includes in-progress admission; bytes are payload storage, not total allocation",

@@ -8,24 +8,19 @@ import Library.App;
 import Library.GUI.ITextField;
 import Library.GUI.Linux.LinuxView;
 import Library.GUI.Linux.LinuxContext;
-import Library.GUI.Linux.LinuxFonts;
 import Library.GUI.Linux.LinuxPainter;
-import Library.GUI.Linux.SDL;
+import Library.GUI.Linux.GtkShim;
+import Library.GUI.Linux.GtkControls;
 
-/* A drawn single-line editor: caret, selection, clipboard and SDL text
- * input. Text is always an owned BTRC string; offsets are byte offsets on
- * scalar boundaries. */
+/* A GTK entry. GTK owns the editing, the selection, the composition, the
+ * clipboard and undo; this keeps what the contract adds: the accepted text,
+ * and an interaction that ends in one commit or one cancel. */
 class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarget {
+	private BtrcGtkControl* _control;
+	/* The text as the entry reads, with a composition in progress included. */
 	private string _text;
 	private string _acceptedText;
-	private string _preedit = "";
 	private bool _composing = false;
-	private bool _compositionCommitRequested = false;
-	private int _compositionStart = 0;
-	private int _compositionEnd = 0;
-	private int _preeditCaret = 0;
-	private int _preeditSelectionEnd = 0;
-	private LinuxViewHost? _compositionHost;
 	private bool _interacting = false;
 	private bool _focusPrepared = false;
 	private long long _interaction = 0LL;
@@ -37,27 +32,20 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 	private ControlEventPublication<ITextControlEventHandler, TextControlEvent>? _publication;
 	private ControlEventTicket? _commitTicket;
 	private ControlEventTicket? _cancelTicket;
-	private string _placeholder;
-	private double _size = 13.0;
 	private bool _enabled = true;
-	private int _caret = 0;
-	private int _anchor = 0;
-	private double _scroll = 0.0;
 	private bool _focused = false;
-	private bool _dragging = false;
-	private bool _hovered = false;
-	private unsigned long long _blinkStart = 0ULL;
 
 	public LinuxTextField(LinuxContext context, string text, string placeholder) {
 		self.adoptNode(LinuxViewNode(context));
 		self.node().focusable = true;
-		self.node().cursor = 1;
 		if (text == null || placeholder == null) { throw "Native text field text is missing"; }
 		self._text = text; self._acceptedText = text;
-		self._placeholder = placeholder;
-		self._caret = text.len();
-		self._anchor = self._caret;
+		self._control = btrcGtkTextCreate((unsigned int)self.node().id, text, placeholder);
+		if (self._control == null) { throw "Cannot create native text field"; }
+		btrcGtkControlSetFont(self._control, 13.0, false);
 	}
+
+	private BtrcGtkControl* control() { if (self._control == null) { throw "Native text field is closed"; } return self._control; }
 
 	class void deliverText(ITextControlEventHandler receiver, TextControlEvent event) { receiver.textEvent(event); }
 
@@ -129,12 +117,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 			}
 		} catch (string error) { self.releaseTickets(); throw error; }
 		self._focusPrepared = false;
-		self._interaction++; self._interacting = true; self._compositionCommitRequested = false;
-	}
-
-	private string draftText() {
-		if (!self._composing) { return self._text; }
-		return self._text.substring(0, self._compositionStart) + self._preedit + self._text.substring(self._compositionEnd, self._text.len());
+		self._interaction++; self._interacting = true;
 	}
 
 	private TextControlEvent snapshot(ControlPhase phase, ControlOrigin origin, ControlCancelReason reason) {
@@ -142,7 +125,7 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		var context = ControlEventContext(); context.generation = self.node().generation(); context.interaction = self._interaction;
 		context.sequence = ++self._sequence; context.modelRevision = self._modelRevision; context.origin = origin;
 		var event = TextControlEvent(); event.context = context; event.phase = phase; event.cancelReason = reason;
-		event.text = self.draftText(); event.composing = self._composing; return event;
+		event.text = self._text; event.composing = self._composing; return event;
 	}
 
 	private void publishDraft() {
@@ -158,16 +141,9 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		}
 	}
 
-	private void clearComposition() {
-		if (!self._composing) { return; }
-		var host = self._compositionHost;
-		if (host != null && host.window != null && !SDL_ClearComposition(host.window)) { throw "Cannot cancel native text composition"; }
-		self._composing = false; self._preedit = ""; self._compositionHost = null; self._compositionCommitRequested = false; self.changed();
-	}
-
 	private void commitInteraction() {
 		if (!self._interacting || self._composing) { return; }
-		bool dirty = !self._text.equals(self._acceptedText); self._compositionCommitRequested = false;
+		bool dirty = !self._text.equals(self._acceptedText);
 		self._interacting = false;
 		try {
 			if (dirty) {
@@ -181,9 +157,9 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 
 	private void cancelInteraction(ControlOrigin origin, ControlCancelReason reason, bool restore) {
 		if (!self._interacting && !self._composing) { if (self._focusPrepared) { self.releaseTickets(); } return; }
-		self.clearComposition();
-		if (restore) { self._text = self._acceptedText; self._caret = self._text.len(); self._anchor = self._caret; }
-		self._interacting = false; self._compositionCommitRequested = false; self._dragging = false; self.changed();
+		self._composing = false;
+		if (restore) { self._text = self._acceptedText; btrcGtkTextSet(self.control(), self._text); }
+		self._interacting = false;
 		try {
 			var channel = self._cancel; var ticket = self._cancelTicket;
 			if (channel != null && channel.isOpen() && ticket != null) {
@@ -193,243 +169,46 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		} finally { self.releaseTickets(); }
 	}
 
-	/* SDL editing offsets count UTF-8 scalar values, not byte offsets. The
-	 * native preedit stays separate from the accepted/non-composing draft. */
-	public void textEditing(string value, int start, int length) {
-		if (!self._focused || !self.node().effectiveEligible() || value == null || !Bytes.fromString(value).isNulFreeUtf8()) { return; }
-		self.beginInteraction();
-		if (!self._composing) { self._compositionStart = self.selectionStart(); self._compositionEnd = self.selectionEnd(); self._compositionHost = self.node().host; }
-		self._preedit = value; self._composing = !value.isEmpty(); self._preeditCaret = 0;
-		if (start < 0) { self._preeditCaret = value.len(); }
-		else { for (int index = 0; index < start && self._preeditCaret < value.len(); index++) { self._preeditCaret = UTF8.next(value, value.len(), self._preeditCaret); } }
-		self._preeditSelectionEnd = self._preeditCaret;
-		for (int index = 0; index < length && self._preeditSelectionEnd < value.len(); index++) { self._preeditSelectionEnd = UTF8.next(value, value.len(), self._preeditSelectionEnd); }
-		if (!self._composing) { self._compositionHost = null; }
-		self.changed(); self.publishDraft();
-	}
+	public void paint(LinuxPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
 
-	private double padding() { return 8.0; }
-
-	private int selectionStart() { return Math.min(self._caret, self._anchor); }
-
-	private int selectionEnd() { return Math.max(self._caret, self._anchor); }
-
-	private bool hasSelection() { return self._caret != self._anchor; }
-
-	private int previousBoundary(int offset) { return UTF8.previous(self._text, self._text.len(), offset); }
-
-	private int nextBoundary(int offset) { return UTF8.next(self._text, self._text.len(), offset); }
-
-	private int previousWord(int offset) { return UTF8.previousWord(self._text, self._text.len(), offset); }
-
-	private int nextWord(int offset) { return UTF8.nextWord(self._text, self._text.len(), offset); }
-
-	private double advanceTo(int offset) { return self.node().context.fonts.textWidth(self._text.substring(0, offset), self._size, self.node().scale(), false); }
-
-	private int offsetAt(double localX) {
-		double x = localX - self.padding() + self._scroll;
-		int offset = 0;
-		int length = self._text.len();
-		var fonts = self.node().context.fonts;
-		double scale = self.node().scale();
-		while (offset < length) {
-			int next = self.nextBoundary(offset);
-			double left = fonts.textWidth(self._text.substring(0, offset), self._size, scale, false);
-			double right = fonts.textWidth(self._text.substring(0, next), self._size, scale, false);
-			if (x < (left + right) * 0.5) { return offset; }
-			offset = next;
-		}
-		return length;
-	}
-
-	private double caretAdvance() {
-		if (!self._composing) { return self.advanceTo(self._caret); }
-		return self.advanceTo(self._compositionStart) + self.node().context.fonts.textWidth(self._preedit.substring(0, self._preeditCaret), self._size, self.node().scale(), false);
-	}
-
-	private void ensureCaretVisible() {
-		double inner = Math.maxDouble(1.0, self.node().width - self.padding() * 2.0);
-		double caretX = self.caretAdvance();
-		if (caretX - self._scroll > inner) { self._scroll = caretX - inner; }
-		if (caretX - self._scroll < 0.0) { self._scroll = caretX; }
-		double total = self.node().context.fonts.textWidth(self.draftText(), self._size, self.node().scale(), false);
-		if (total - self._scroll < inner) { self._scroll = Math.maxDouble(0.0, total - inner); }
-	}
-
-	private void replaceSelection(string insertion) {
-		int start = self.selectionStart();
-		int end = self.selectionEnd();
-		string next = self._text.substring(0, start) + insertion + self._text.substring(end, self._text.len());
-		if (next.equals(self._text)) { return; }
-		self.beginInteraction(); self._text = next;
-		self._caret = start + insertion.len();
-		self._anchor = self._caret;
-		self.changed(); self.publishDraft();
-	}
-
-	private void changed() {
-		self._blinkStart = SDL_GetTicksNS();
-		self.ensureCaretVisible();
-		self.node().invalidate();
-	}
-
-	private void moveCaret(int offset, bool extend) {
-		self._caret = offset < 0 ? 0 : (offset > self._text.len() ? self._text.len() : offset);
-		if (!extend) { self._anchor = self._caret; }
-		self.changed();
-	}
-
-	private bool copySelection() {
-		if (!self.hasSelection()) { return false; }
-		return SDL_SetClipboardText(self._text.substring(self.selectionStart(), self.selectionEnd()));
-	}
-
-	private void paste() {
-		if (!SDL_HasClipboardText()) { return; }
-		var raw = SDL_GetClipboardText();
-		if (raw == null) { return; }
-		string pasted = "";
-		try { pasted = Strings.copy(raw); } finally { SDL_free((void*)raw); }
-		if (!Bytes.fromString(pasted).isNulFreeUtf8()) { return; }
-		self.replaceSelection(pasted.replace("\n", " ").replace("\r", ""));
-	}
-
-	public void paint(LinuxPainter painter, double x, double y) {
-		var theme = painter.theme();
-		double width = self.node().width;
-		double height = self.node().height;
-		double radius = LinuxMetrics.cornerRadius();
-		painter.fillRect(x, y, width, height, theme.fieldFill, radius);
-		painter.strokeRect(x, y, width, height, self._focused ? theme.accent : theme.controlBorder, radius, self._focused ? 1.5 : 1.0);
-		double pad = self.padding();
-		double lineHeight = painter.lineHeight(self._size, false);
-		double textY = y + (height - lineHeight) * 0.5;
-		double textX = x + pad - self._scroll;
-		painter.pushClip(x + pad - 1.0, y, Math.maxDouble(0.0, width - pad * 2.0 + 2.0), height);
-		string displayed = self.draftText();
-		if (displayed.isEmpty() && !self._placeholder.isEmpty()) { painter.text(self._placeholder, x + pad, textY, self._size, false, theme.secondaryText); }
-		if (self._focused && !self._composing && self.hasSelection()) {
-			double left = self.advanceTo(self.selectionStart());
-			double right = self.advanceTo(self.selectionEnd());
-			painter.fillRect(textX + left, textY, right - left, lineHeight, theme.selection, 2.0);
-		}
-		if (self._composing && self._preeditSelectionEnd > self._preeditCaret) {
-			double left = self.caretAdvance();
-			double width = self.node().context.fonts.textWidth(self._preedit.substring(self._preeditCaret, self._preeditSelectionEnd), self._size, self.node().scale(), false);
-			painter.fillRect(textX + left, textY, width, lineHeight, theme.selection, 2.0);
-		}
-		painter.text(displayed, textX, textY, self._size, false, self._enabled ? theme.text : theme.disabledText);
-		if (self._composing) {
-			double start = self.advanceTo(self._compositionStart);
-			double width = self.node().context.fonts.textWidth(self._preedit, self._size, self.node().scale(), false);
-			painter.fillRect(textX + start, textY + lineHeight - 1.0, width, 1.0, theme.accent, 0.0);
-		}
-		if (self._focused && self._enabled) {
-			unsigned long long elapsed = (SDL_GetTicksNS() - self._blinkStart) / 1000000ULL;
-			bool on = (elapsed / 530ULL) % 2ULL == 0ULL;
-			double caret = self.caretAdvance();
-			if (on) { painter.fillRect(textX + caret, textY + 1.0, 1.5, lineHeight - 2.0, theme.text, 0.0); }
-			var host = self.node().host;
-			if (host != null) { host.requestWake(0.53 - (double)(elapsed % 530ULL) / 1000.0); }
-		}
-		painter.popClip();
-	}
-
-	public bool pointer(AppPointerEvent event) {
-		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; return false; }
-		if (event.action == APP_POINTER_EXITED) { self._hovered = false; return false; }
-		if (!self._enabled) { return false; }
-		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) {
+	public void controlEvent(BtrcGtkEvent* event) {
+		if (!self._enabled || !self.node().effectiveEligible()) { return; }
+		unsigned int type = event->type;
+		if (type == (unsigned int)BTRC_GTK_EVENT_CONTROL_TEXT_CHANGED) {
+			if (event->text == null) { return; }
+			string value = Strings.copy((char*)event->text);
+			bool composing = event->data1 != 0;
+			if (value.equals(self._text) && composing == self._composing) { return; }
 			self.beginInteraction();
-			self.node().requestFocus();
-			int offset = self.offsetAt(event.logicalX);
-			if (event.clickCount >= 3) { self._anchor = 0; self._caret = self._text.len(); }
-			else if (event.clickCount == 2) { self._anchor = self.previousWord(Math.min(self._text.len(), offset + 1)); self._caret = self.nextWord(offset); }
-			else { self._caret = offset; if (!event.modifiers.shift) { self._anchor = offset; } }
-			self._dragging = event.clickCount < 2;
-			self.changed();
-			return true;
+			self._text = value; self._composing = composing;
+			self.publishDraft();
+		} else if (type == (unsigned int)BTRC_GTK_EVENT_CONTROL_TEXT_ACTIVATED) {
+			self.commitInteraction();
+		} else if (type == (unsigned int)BTRC_GTK_EVENT_CONTROL_TEXT_ESCAPED) {
+			self.cancelInteraction(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE, true);
 		}
-		if (event.action == APP_POINTER_DRAGGED && self._dragging) { self._caret = self.offsetAt(event.logicalX); self.changed(); return true; }
-		if ((event.action == APP_POINTER_RELEASED || event.action == APP_POINTER_CANCELLED) && self._dragging) { self._dragging = false; return true; }
-		return false;
 	}
 
-	public bool key(AppKeyboardEvent event) {
-		if (!self._focused || !self._enabled || event.action == APP_KEY_RELEASED) { return false; }
-		if (event.key == APP_KEY_ESCAPE) {
-			if (self._composing) { self.clearComposition(); self.publishDraft(); }
-			else { self.cancelInteraction(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE, true); }
-			return true;
-		}
-		if (event.key == APP_KEY_ENTER) { if (self._composing) { self._compositionCommitRequested = true; } else { self.commitInteraction(); } return true; }
-		if (self._composing) { return true; }
-		bool shift = event.modifiers.shift;
-		bool control = event.modifiers.control || event.modifiers.command;
-		if (event.key == APP_KEY_LEFT) {
-			if (self.hasSelection() && !shift) { self.moveCaret(self.selectionStart(), false); }
-			else { self.moveCaret(control ? self.previousWord(self._caret) : self.previousBoundary(self._caret), shift); }
-			return true;
-		}
-		if (event.key == APP_KEY_RIGHT) {
-			if (self.hasSelection() && !shift) { self.moveCaret(self.selectionEnd(), false); }
-			else { self.moveCaret(control ? self.nextWord(self._caret) : self.nextBoundary(self._caret), shift); }
-			return true;
-		}
-		if (event.key == APP_KEY_HOME) { self.moveCaret(0, shift); return true; }
-		if (event.key == APP_KEY_END) { self.moveCaret(self._text.len(), shift); return true; }
-		if (event.key == APP_KEY_BACKSPACE) {
-			if (!self.hasSelection()) { self._anchor = control ? self.previousWord(self._caret) : self.previousBoundary(self._caret); }
-			self.replaceSelection("");
-			return true;
-		}
-		if (event.key == APP_KEY_DELETE) {
-			if (!self.hasSelection()) { self._anchor = control ? self.nextWord(self._caret) : self.nextBoundary(self._caret); }
-			self.replaceSelection("");
-			return true;
-		}
-		if (control && event.key == APP_KEY_A) { self._anchor = 0; self._caret = self._text.len(); self.changed(); return true; }
-		if (control && event.key == APP_KEY_C) { self.copySelection(); return true; }
-		if (control && event.key == APP_KEY_X) { if (self.copySelection()) { self.replaceSelection(""); } return true; }
-		if (control && event.key == APP_KEY_V) { self.paste(); return true; }
-		return false;
-	}
+	/* GTK's entry composes for itself: the window's own text input stays off. */
+	public void textEditing(string value, int start, int length) {}
 
-	public void textInput(string value) {
-		if (!self._focused || !self._enabled || value == null || value.isEmpty()) { return; }
-		if (!Bytes.fromString(value).isNulFreeUtf8()) { return; }
-		bool composed = self._composing; string previous = self._text;
-		if (composed) { self._anchor = self._compositionStart; self._caret = self._compositionEnd; self._composing = false; self._preedit = ""; self._compositionHost = null; }
-		self.replaceSelection(value);
-		if (composed && self._text.equals(previous)) { self.changed(); self.publishDraft(); }
-		if (self._compositionCommitRequested) { self.commitInteraction(); }
-	}
+	public void textInputArea(LinuxViewHost host, double x, double y) { host.requestTextInput(false, 0.0, 0.0, 0.0, 0.0); }
 
+	/* Taking the keyboard begins an interaction; giving it up commits what
+	 * was typed, unless a composition was still in progress. */
 	public void focus(bool focused) {
 		if (focused == self._focused) { return; }
 		if (focused) { self.beginInteraction(); }
 		else if (self._composing) { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION, false); }
 		else { self.commitInteraction(); }
 		self._focused = focused;
-		self._dragging = false;
-		if (!focused) { self._anchor = self._caret; }
-		self._blinkStart = SDL_GetTicksNS();
-		self.node().invalidate();
 	}
 
-	/* Where the input method should place its composition window. */
-	public void textInputArea(LinuxViewHost host, double x, double y) {
-		double lineHeight = self.node().context.fonts.lineHeight(self._size, self.node().scale(), false);
-		host.requestTextInput(true, x + self.padding() - self._scroll + self.caretAdvance(), y + (self.node().height - lineHeight) * 0.5, 2.0, lineHeight);
-	}
+	public double fittingWidth() { self.node().requireOpen(); return Math.maxDouble(96.0, (double)btrcGtkControlNaturalWidth(self.control())); }
 
-	public double fittingWidth() { self.node().requireOpen(); return Math.maxDouble(96.0, Math.ceilDouble(self.node().context.fonts.textWidth(self._text.isEmpty() ? self._placeholder : self._text, self._size, self.node().scale(), false)) + self.padding() * 2.0); }
+	public double fittingHeight() { self.node().requireOpen(); return (double)btrcGtkControlNaturalHeight(self.control()); }
 
-	public double fittingHeight() { self.node().requireOpen(); return LinuxMetrics.controlHeight(self._size); }
-
-	public void arrange(double x, double y, double width, double height) { self.node().arrange(x, y, width, height); self.ensureCaretVisible(); }
-
-	public string text() { self.node().requireOpen(); return self.draftText(); }
+	public string text() { self.node().requireOpen(); return self._text; }
 
 	/* Re-publishing unchanged state must not disturb caret or selection. */
 	public void setText(string text) {
@@ -439,25 +218,39 @@ class LinuxTextField extends LinuxNodeView implements ITextField, ILinuxTextTarg
 		if (self._modelRevision == 9223372036854775807LL) { throw "Text model revisions exhausted"; }
 		self.cancelInteraction(CONTROL_ORIGIN_MODEL, CONTROL_CANCEL_MODEL_REPLACEMENT, false);
 		self._text = text; self._acceptedText = text; self._modelRevision++;
-		self._caret = text.len();
-		self._anchor = self._caret;
-		self.changed();
+		btrcGtkTextSet(self.control(), text);
 	}
 
-	public void setPlaceholder(string text) { self.node().requireOpen(); self._placeholder = text == null ? "" : text; self.node().invalidate(); }
+	public void setPlaceholder(string text) { self.node().requireOpen(); btrcGtkTextSetPlaceholder(self.control(), text == null ? "" : text); }
 
 	public bool locallyEnabled() { return self._enabled; }
 
-	public void eligibilityLost() { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS, false); self.node().cancelOwnPointerCapture(); self.focus(false); self.node().invalidate(); }
+	public void eligibilityLost() { self.cancelInteraction(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS, false); self.focus(false); }
 
 	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
 
-	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); self.node().invalidate(); } }
+	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); btrcGtkControlSetEnabled(self.control(), enabled); } }
 
 	public void setFont(double size) {
 		self.node().requireOpen();
 		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native text field font size"; }
-		self._size = size;
+		btrcGtkControlSetFont(self.control(), size, false);
 		self.node().invalidate();
 	}
+
+	private void releaseNative() { if (self._control != null) { btrcGtkControlDestroy(self._control); self._control = null; } }
+
+	public CallbackCancellation close() {
+		var state = self.node().close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self.node().pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public void __del__() { self.releaseNative(); }
 }

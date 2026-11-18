@@ -218,7 +218,7 @@ def test_actual_pytest_plugin_retains_exact_parameter_ids_and_setup_skips(tmp_pa
 @pytest.mark.parametrize("failure", [False, True])
 def test_run_records_original_outcome_and_keeps_all_selected_evidence(tmp_path, monkeypatch, failure):
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setenv("SDL_VIDEODRIVER", "x11")
+    monkeypatch.setenv("GDK_BACKEND", "x11")
     monkeypatch.setenv("BTRC_TEST_RUNNER", "linux-devcontainer")
     monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: HEAD + "\n")
     output = tmp_path / "cell"
@@ -348,7 +348,7 @@ def test_linux_provider_groups_build_each_configuration_once_and_preserve_nodes(
         "@pytest.mark.parametrize('repeat', range(8))\n"
         "def test_repair(repair, repeat): assert repair.startswith('repair-')\n"
         "test_boundary.pytestmark += [m for m in provider.test_linux_event_boundary.pytestmark if m.name == 'xdist_group']\n"
-        "test_repair.pytestmark += [m for m in provider.test_linux_input_repair.pytestmark if m.name == 'xdist_group']\n"
+        "test_repair.pytestmark += [m for m in provider.test_linux_controls_are_placed_at_show.pytestmark if m.name == 'xdist_group']\n"
         "@pytest.mark.parametrize('repeat', range(4))\n"
         "def test_unrelated(repeat): assert repeat < 4\n"
     )
@@ -471,7 +471,7 @@ def test_runner_admission_precedes_evidence_or_execution(
 ):
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setenv("BTRC_TEST_RUNNER", runner)
-    monkeypatch.setenv("SDL_VIDEODRIVER", driver)
+    monkeypatch.setenv("GDK_BACKEND", driver)
     output = tmp_path / "cell"
     run = GUIShardRun(session, 0, 2, output, tmp_path / "skip.json", ["test_sample.py"], [])
     monkeypatch.setattr(subprocess, "check_output", lambda *args, **kwargs: HEAD)

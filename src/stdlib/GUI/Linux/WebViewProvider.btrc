@@ -1,7 +1,16 @@
+import Library.GUI.ApplicationSlot;
 import Library.GUI.IWebView;
+import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Linux.LinuxWebView;
 
-/* Private package implementation for Linux (the drawn provider): this provider has no web
- * view yet, and says so with the typed unsupported error. */
+/* Private package implementation for Linux: the web view behind the WebView
+ * facade, a WebKitGTK view among the application's other views. */
 class WebViewProvider {
-	class IWebView create() { throw "unsupported: WebView.create is not implemented by the Linux SDL GUI provider"; }
+	class IWebView create() {
+		var application = (ILinuxApplication?)GUIApplicationSlot.require();
+		if (application == null) { throw "The Linux web view needs the Linux GUI application"; }
+		var view = LinuxWebView(application.context());
+		application.adopt(view);
+		return view;
+	}
 }

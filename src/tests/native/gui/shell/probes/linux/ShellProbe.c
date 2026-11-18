@@ -1,58 +1,68 @@
+/* The shell fixture's probe for Linux: real input through the display server,
+ * by way of the conformance suite's probe for the GTK provider
+ * (../../../conformance/probes/linux/GtkProbe.c), and the provider shim's
+ * automation hooks (GUI/Linux/GtkShim.h) for what it observes. */
 #include "ShellProbe.h"
-#include "GUI/Linux/SDL.h"
+#include "../../../conformance/probes/ConformanceProbe.h"
+#include "../../../conformance/probes/linux/GtkProbe.h"
 #include <assert.h>
 #include <stdio.h>
 
-static SDL_Window *window(void) {
-    int count = 0;
-    SDL_Window **windows = SDL_GetWindows(&count);
-    assert(count == 1);
-    SDL_Window *result = windows[0];
-    SDL_free(windows);
-    return result;
+#define SHELL_TITLE "BTRC native shell"
+
+unsigned int btrcGtkWindowNamed(const char *title);
+int btrcGtkAutomationWindows(void);
+int btrcGtkAutomationTextFocused(unsigned int window);
+
+static unsigned int window(void) {
+    unsigned int id = btrcGtkWindowNamed(SHELL_TITLE);
+    assert(id != 0);
+    return id;
 }
-static unsigned int windowId(void) { return SDL_GetWindowID(window()); }
+
 void shellProbeClick(double x, double y) {
-    unsigned int id = windowId();
-    btrcSdlPushPointerMotion(id, (float)x, (float)y);
-    btrcSdlPushPointerButton(id, (float)x, (float)y, 1u, 1, 1u);
-    btrcSdlPushPointerButton(id, (float)x, (float)y, 1u, 0, 1u);
+    unsigned int id = window();
+    int pressed = gtkProbeButton(id, SHELL_TITLE, x, y, 1);
+    int released = gtkProbeButton(id, SHELL_TITLE, x, y, 0);
+    assert(pressed && released);
+    (void)pressed;
+    (void)released;
 }
-static void key(unsigned int scan, unsigned int code) {
-    unsigned int id = windowId();
-    btrcSdlPushKey(id, scan, code, 0u, 1, 0);
-    btrcSdlPushKey(id, scan, code, 0u, 0, 0);
+
+static void key(int which) {
+    int sent = gtkProbeKey(window(), SHELL_TITLE, which);
+    assert(sent);
+    (void)sent;
 }
-void shellProbeTab(void) { key(SDL_SCANCODE_TAB, SDLK_TAB); }
-void shellProbeEnter(void) { key(SDL_SCANCODE_RETURN, SDLK_RETURN); }
+
+void shellProbeTab(void) { key(CONFORMANCE_KEY_TAB); }
+void shellProbeEnter(void) { key(CONFORMANCE_KEY_RETURN); }
+
 void shellProbeText(void) {
-    /* The provider's header-local text ring belongs to its generated TU.
-     * This separate probe TU instead keeps immutable input alive for the
-     * entire process, without borrowing or resetting the provider's ring. */
-    SDL_Event event = {0};
-    event.type = SDL_EVENT_TEXT_INPUT;
-    event.text.windowID = windowId();
-    event.text.text = "draft";
-    assert(SDL_PushEvent(&event));
+    int sent = gtkProbeText(window(), SHELL_TITLE, "draft");
+    assert(sent);
+    (void)sent;
 }
-void shellProbeScroll(void) { btrcSdlPushWheel(windowId(), 100.0f, 120.0f, 0.0f, -3.0f); }
+
+void shellProbeScroll(void) {
+    int sent = gtkProbeWheel(window(), SHELL_TITLE, 100.0, 120.0, 0.0, -3.0);
+    assert(sent);
+    (void)sent;
+}
+
 void shellProbeClose(void) {
-    SDL_Event event = {0};
-    event.type = SDL_EVENT_WINDOW_CLOSE_REQUESTED;
-    event.window.windowID = windowId();
-    assert(SDL_PushEvent(&event));
+    int sent = gtkProbeClose(window(), SHELL_TITLE);
+    assert(sent);
+    (void)sent;
 }
-int shellProbeFocus(void) { return SDL_TextInputActive(window()) ? 1 : 0; }
-int shellProbeNativeCount(void) {
-    int count = 0;
-    SDL_Window **windows = SDL_GetWindows(&count);
-    SDL_free(windows);
-    return count;
-}
+
+int shellProbeFocus(void) { return btrcGtkAutomationTextFocused(window()) ? 1 : 0; }
+int shellProbeNativeCount(void) { return btrcGtkAutomationWindows(); }
 int shellProbePrivateCount(void) { return 0; }
 void shellProbeDrain(void) {}
 void shellProbeObserve(void) { assert(shellProbeNativeCount() == 1); }
+
 void shellProbeDump(void) {
-    printf("{\"probe\":\"linux-sdl\",\"accessibility\":\"no bridge\",\"native_windows\":%d,\"focused_editor\":%d}\n",
+    printf("{\"probe\":\"linux-gtk\",\"accessibility\":\"not observed\",\"native_windows\":%d,\"focused_editor\":%d}\n",
            shellProbeNativeCount(), shellProbeFocus());
 }

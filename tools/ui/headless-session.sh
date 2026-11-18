@@ -3,7 +3,6 @@
 #
 #   tools/ui/headless-session.sh --x11 -- python -m pytest src/tests/python/test_native_linux_providers.py -k gui
 #   tools/ui/headless-session.sh --wayland -- ./hello-gtk4
-#   tools/ui/headless-session.sh --wlroots -- ./conformance button.click
 #
 # The session is a private D-Bus session bus carrying the AT-SPI accessibility
 # bus, plus one display server:
@@ -11,19 +10,15 @@
 #   --x11      Xvfb on a free display number, started with -noreset: by
 #              default Xvfb resets whenever its last client leaves, and a test
 #              window that connects during that reset fails to open.
-#   --wayland  weston's headless backend with the pixman renderer, on its own
-#              socket, without a panel or an idle timeout. Its fake seat gives
-#              clients a keyboard and pointer: without a seat there is no
-#              Wayland clipboard, so a text field's copy and paste do nothing.
-#   --wlroots  labwc, a wlroots compositor, on its headless backend with the
-#              pixman renderer. It is the Wayland session a test can send
-#              real input in: it offers the virtual pointer, virtual keyboard
-#              and foreign-toplevel protocols, which weston does not. It
-#              centres each new window. Its Xwayland starts only when an X
-#              client connects, and the command is given no DISPLAY.
+#   --wayland  labwc, a wlroots compositor, on its headless backend with the
+#              pixman renderer. A test can send real input in it: it offers
+#              the virtual pointer, virtual keyboard and foreign-toplevel
+#              protocols. It centres each new window. Its Xwayland starts
+#              only when an X client connects, and the command is given no
+#              DISPLAY.
 #
-# The command sees DISPLAY or WAYLAND_DISPLAY (never both), SDL_VIDEODRIVER and
-# GDK_BACKEND pinned to that protocol so neither toolkit probes the other,
+# The command sees DISPLAY or WAYLAND_DISPLAY (never both), GDK_BACKEND pinned
+# to that protocol so GTK does not probe the other,
 # BTRC_UI_SESSION naming the mode and BTRC_UI_PRIVATE_SESSION=1, which tells a
 # test that the display's one pointer and keyboard are its own to drive, and
 # Mesa's software Vulkan driver (lavapipe) when the dev shell names it and the
@@ -38,7 +33,7 @@
 # tools/virtual-display.sh sources it, so it must always end in exit. A
 # server that fails to start has its log printed.
 #
-# The dev shell provides every tool (flake.nix): dbus-daemon, Xvfb, weston, labwc and
+# The dev shell provides every tool (flake.nix): dbus-daemon, Xvfb, labwc and
 # BTRC_ATSPI_LIBEXEC. Without a working AT-SPI launcher the session still runs,
 # without an accessibility bus, and the native-atspi capability gate says why.
 set -euo pipefail
@@ -49,7 +44,7 @@ readonly SCREEN_HEIGHT=1024
 readonly START_TICKS=300
 
 usage() {
-  echo "usage: $0 --x11|--wayland|--wlroots -- <command> [args...]" >&2
+  echo "usage: $0 --x11|--wayland -- <command> [args...]" >&2
   exit 2
 }
 
@@ -61,7 +56,7 @@ fail() {
 mode=""
 while (($#)); do
   case "$1" in
-    --x11 | --wayland | --wlroots)
+    --x11 | --wayland)
       [[ -z "$mode" ]] || usage
       mode="${1#--}"
       shift
@@ -171,23 +166,9 @@ case "$mode" in
     await '[[ -s "$session/display" ]]' "$!" "$session/xvfb.log" || fail "Xvfb did not start"
     unset WAYLAND_DISPLAY
     export DISPLAY=":$(tr -d '[:space:]' <"$session/display")"
-    export SDL_VIDEODRIVER=x11 GDK_BACKEND=x11
+    export GDK_BACKEND=x11
     ;;
   wayland)
-    command -v weston >/dev/null || fail "weston is not installed"
-    socket="btrc-wayland-$$"
-    printf '%s\n' '[core]' 'idle-time=0' '[shell]' 'panel-position=none' 'locking=false' \
-      '[input-method]' 'path=' >"$session/weston.ini"
-    weston --backend=headless --renderer=pixman --fake-seat --width="$SCREEN_WIDTH" --height="$SCREEN_HEIGHT" \
-      --socket="$socket" --config="$session/weston.ini" --log="$session/weston.log" \
-      >"$session/weston.out" 2>&1 &
-    pids+=("$!")
-    await '[[ -S "$XDG_RUNTIME_DIR/$socket" ]]' "$!" "$session/weston.log" || fail "weston did not start"
-    unset DISPLAY
-    export WAYLAND_DISPLAY="$socket"
-    export SDL_VIDEODRIVER=wayland GDK_BACKEND=wayland
-    ;;
-  wlroots)
     command -v labwc >/dev/null || fail "labwc is not installed"
     mkdir "$session/labwc"
     printf '%s\n' '<?xml version="1.0"?>' '<labwc_config>' \
@@ -201,7 +182,7 @@ case "$mode" in
     pids+=("$!")
     await '[[ -S "$XDG_RUNTIME_DIR/wayland-0" ]]' "$!" "$session/labwc.log" || fail "labwc did not start"
     export WAYLAND_DISPLAY=wayland-0
-    export SDL_VIDEODRIVER=wayland GDK_BACKEND=wayland
+    export GDK_BACKEND=wayland
     ;;
 esac
 export BTRC_UI_SESSION="$mode" BTRC_UI_PRIVATE_SESSION=1

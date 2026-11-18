@@ -6,18 +6,18 @@ import Library.Strings;
 import Library.Vector;
 import Library.GUI.IWebView;
 import Library.GUI.ControlEventQueue;
-import Library.GUI.Linux.Gtk.LinuxGtkView;
-import Library.GUI.Linux.Gtk.LinuxGtkContext;
-import Library.GUI.Linux.Gtk.LinuxGtkPainter;
-import Library.GUI.Linux.Gtk.GtkShim;
-import Library.GUI.Linux.Gtk.GtkControls;
-import Library.GUI.Linux.Gtk.GtkWeb;
+import Library.GUI.Linux.LinuxView;
+import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Linux.LinuxPainter;
+import Library.GUI.Linux.GtkShim;
+import Library.GUI.Linux.GtkControls;
+import Library.GUI.Linux.GtkWeb;
 
 /* What the engine reported and the UI executor has not delivered yet, in
  * the order it happened. The window's queue keeps one entry per receiver
  * that says "there is something here"; delivering it hands over everything
  * that has arrived by then, so nothing is merged away and nothing overtakes. */
-class LinuxGtkWebInbox {
+class LinuxWebInbox {
 	public Vector<string> messages = [];
 	public Vector<WebNavigationEvent> navigations = [];
 }
@@ -25,14 +25,14 @@ class LinuxGtkWebInbox {
 /* A WebKitGTK view among the window's controls. The engine draws the page,
  * serves the bundle and decides navigations; what it reports is queued for
  * the receivers here. */
-class LinuxGtkWebView extends LinuxGtkNodeView implements IWebView {
+class LinuxWebView extends LinuxNodeView implements IWebView {
 	private BtrcGtkControl* _control;
-	private ControlEventChannel<IWebMessageHandler, LinuxGtkWebInbox>? _messages = null;
-	private ControlEventChannel<IWebNavigationHandler, LinuxGtkWebInbox>? _navigations = null;
-	private LinuxGtkWebInbox _inbox = LinuxGtkWebInbox();
+	private ControlEventChannel<IWebMessageHandler, LinuxWebInbox>? _messages = null;
+	private ControlEventChannel<IWebNavigationHandler, LinuxWebInbox>? _navigations = null;
+	private LinuxWebInbox _inbox = LinuxWebInbox();
 
-	public LinuxGtkWebView(LinuxGtkContext context) {
-		self.adoptNode(LinuxGtkViewNode(context));
+	public LinuxWebView(LinuxContext context) {
+		self.adoptNode(LinuxViewNode(context));
 		self.node().focusable = true;
 		self._control = btrcGtkWebCreate((unsigned int)self.node().id);
 		if (self._control == null) { throw "Cannot create native web view"; }
@@ -40,7 +40,7 @@ class LinuxGtkWebView extends LinuxGtkNodeView implements IWebView {
 
 	private BtrcGtkControl* control() { if (self._control == null) { throw "Native web view is closed"; } return self._control; }
 
-	public void paint(LinuxGtkPainter painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
+	public void paint(LinuxPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
 
 	public void load(WebBundle bundle, string entryPath) {
 		self.node().requireOpen();
@@ -68,25 +68,25 @@ class LinuxGtkWebView extends LinuxGtkNodeView implements IWebView {
 		btrcGtkWebPost(self.control(), json);
 	}
 
-	class void deliverMessages(IWebMessageHandler receiver, LinuxGtkWebInbox inbox) {
+	class void deliverMessages(IWebMessageHandler receiver, LinuxWebInbox inbox) {
 		while (!inbox.messages.isEmpty()) { string json = inbox.messages.get(0); inbox.messages.remove(0); receiver.webMessage(json); }
 	}
 
-	class void deliverNavigations(IWebNavigationHandler receiver, LinuxGtkWebInbox inbox) {
+	class void deliverNavigations(IWebNavigationHandler receiver, LinuxWebInbox inbox) {
 		while (!inbox.navigations.isEmpty()) { var event = inbox.navigations.get(0); inbox.navigations.remove(0); receiver.webNavigation(event); }
 	}
 
 	public ICallbackRegistration onMessage(IWebMessageHandler receiver, CallbackScope owner) {
 		self.node().context.requireSemanticRegistration(); self.node().requireOpen();
 		if (self._messages != null && self._messages.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing web message handler first"; }
-		var channel = new ControlEventChannel<IWebMessageHandler, LinuxGtkWebInbox>(self.node().events(), LinuxGtkViewObservationTarget(self.node()), receiver, LinuxGtkWebView.deliverMessages, owner, self.node().context.eventRole(CONTROL_CAPTURE_OBSERVER));
+		var channel = new ControlEventChannel<IWebMessageHandler, LinuxWebInbox>(self.node().events(), LinuxViewObservationTarget(self.node()), receiver, LinuxWebView.deliverMessages, owner, self.node().context.eventRole(CONTROL_CAPTURE_OBSERVER));
 		self.node().ownSemantic(channel); self._inbox.messages.clear(); self._messages = channel; return channel;
 	}
 
 	public ICallbackRegistration onNavigation(IWebNavigationHandler receiver, CallbackScope owner) {
 		self.node().context.requireSemanticRegistration(); self.node().requireOpen();
 		if (self._navigations != null && self._navigations.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing web navigation handler first"; }
-		var channel = new ControlEventChannel<IWebNavigationHandler, LinuxGtkWebInbox>(self.node().events(), LinuxGtkViewObservationTarget(self.node()), receiver, LinuxGtkWebView.deliverNavigations, owner, self.node().context.eventRole(CONTROL_CAPTURE_OBSERVER));
+		var channel = new ControlEventChannel<IWebNavigationHandler, LinuxWebInbox>(self.node().events(), LinuxViewObservationTarget(self.node()), receiver, LinuxWebView.deliverNavigations, owner, self.node().context.eventRole(CONTROL_CAPTURE_OBSERVER));
 		self.node().ownSemantic(channel); self._inbox.navigations.clear(); self._navigations = channel; return channel;
 	}
 

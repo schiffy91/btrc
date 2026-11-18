@@ -20,6 +20,9 @@ class Probe {
 
 	public Probe(IWindow window) { self.title = window.title(); }
 
+	/* One bounded step of the host's own native loop, before a turn. */
+	class void service() { conformanceProbeService(); }
+
 	private void queued(int result, string input) {
 		if (result != 1) { throw f"the probe could not queue {input} for the window \"{self.title}\""; }
 	}

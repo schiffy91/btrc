@@ -256,4 +256,8 @@ unsigned long btrcGtkAutomationSerial(void);
 int btrcGtkAutomationAwait(unsigned long serial, int timeoutMilliseconds);
 /* 1 when the pointer is over the window's content, at this content position. */
 int btrcGtkAutomationPointer(unsigned int window, double* x, double* y);
+/* How many windows the provider has open. */
+int btrcGtkAutomationWindows(void);
+/* 1 when the window's keyboard focus is in a text field. */
+int btrcGtkAutomationTextFocused(unsigned int window);
 #endif

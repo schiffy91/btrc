@@ -2155,13 +2155,8 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     assert "--index $(GUI_PARTITION) --count $(GUI_PARTITIONS)" in recipe
     assert "BTRC_TEST_RUNNER=linux-devcontainer" in recipe
     assert "$(SKIP_GATE) build/skip-report-gui-$(GUI_CELL).json" in recipe
-    # The Wayland row leaves out the X11-protocol clipboard case; an explicit
-    # path ignores --ignore, so make drops it from the list.
-    assert "GUI_SHARD_X11_ONLY := src/tests/python/test_native_ui_sdl_clipboard_requestor.py" in makefile
-    assert (
-        "GUI_SHARD_TESTS := $(if $(filter wayland,$(GUI_SESSION)),"
-        "$(filter-out $(GUI_SHARD_X11_ONLY),$(NATIVE_GUI_TESTS)),$(NATIVE_GUI_TESTS))"
-    ) in makefile
+    # Both sessions run the same list: nothing in it is bound to one protocol.
+    assert "GUI_SHARD_TESTS := $(NATIVE_GUI_TESTS) \\" in makefile
     assert "test_native_linux_providers.py" in makefile
 
 

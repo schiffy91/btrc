@@ -29,4 +29,8 @@ int conformanceProbeKey(const char *title, int key);
 int conformanceProbeText(const char *title, const char *text);
 /* The window manager's close request, not IWindow.close. */
 int conformanceProbeClose(const char *title);
+/* The host's own native loop, one bounded step that never waits. The suite
+ * takes it before each turn it gives the application. A platform whose
+ * application drains its own input in its turn needs nothing here. */
+void conformanceProbeService(void);
 #endif

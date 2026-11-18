@@ -63,6 +63,8 @@ static BtrcGtkEvent btrcGtkQueue[BTRC_GTK_QUEUE];
 static char* btrcGtkQueueText[BTRC_GTK_QUEUE];
 static unsigned int btrcGtkQueueHead;
 static unsigned int btrcGtkQueueCount;
+/* A load fixture's filter over what may enter the queue (GtkShimPrivate.h). */
+static bool (*btrcGtkQueueAccept)(const BtrcGtkEvent* event);
 static char* btrcGtkTakenText;
 static unsigned int btrcGtkModifiers;
 static unsigned int btrcGtkNextId = 1;
@@ -73,6 +75,10 @@ static unsigned long btrcGtkArrivals;
 /* The queue. A push may come from any thread (btrcGtkPushWake); when the
  * queue is full the newest event is refused, never an older one dropped. */
 bool btrcGtkPush(const BtrcGtkEvent* event, const char* text) {
+	g_mutex_lock(&btrcGtkQueueLock);
+	bool (*accept)(const BtrcGtkEvent*) = btrcGtkQueueAccept;
+	g_mutex_unlock(&btrcGtkQueueLock);
+	if (accept != NULL && !accept(event)) { return false; }
 	char* copy = text == NULL ? NULL : g_strdup(text);
 	g_mutex_lock(&btrcGtkQueueLock);
 	bool accepted = btrcGtkQueueCount < BTRC_GTK_QUEUE;
@@ -87,6 +93,30 @@ bool btrcGtkPush(const BtrcGtkEvent* event, const char* text) {
 	if (!accepted) { g_free(copy); }
 	g_main_context_wakeup(NULL);
 	return accepted;
+}
+
+void btrcGtkQueueFilter(bool (*accept)(const BtrcGtkEvent* event)) {
+	g_mutex_lock(&btrcGtkQueueLock);
+	btrcGtkQueueAccept = accept;
+	g_mutex_unlock(&btrcGtkQueueLock);
+}
+
+int btrcGtkQueued(unsigned int firstType, unsigned int lastType) {
+	int found = 0;
+	g_mutex_lock(&btrcGtkQueueLock);
+	for (unsigned int index = 0; index < btrcGtkQueueCount; index++) {
+		unsigned int type = btrcGtkQueue[(btrcGtkQueueHead + index) % BTRC_GTK_QUEUE].type;
+		if (type >= firstType && type <= lastType) { found++; }
+	}
+	g_mutex_unlock(&btrcGtkQueueLock);
+	return found;
+}
+
+void btrcGtkQueueFlush(void) {
+	g_mutex_lock(&btrcGtkQueueLock);
+	for (unsigned int index = 0; index < btrcGtkQueueCount; index++) { g_clear_pointer(&btrcGtkQueueText[(btrcGtkQueueHead + index) % BTRC_GTK_QUEUE], g_free); }
+	btrcGtkQueueCount = 0;
+	g_mutex_unlock(&btrcGtkQueueLock);
 }
 
 static int btrcGtkPop(BtrcGtkEvent* out) {
@@ -951,6 +981,18 @@ int btrcGtkAutomationPointer(unsigned int window, double* x, double* y) {
 		*x = candidate->pointerX;
 		*y = candidate->pointerY;
 		return candidate->pointerInside ? 1 : 0;
+	}
+	return 0;
+}
+
+int btrcGtkAutomationWindows(void) { return (int)g_list_length(btrcGtkWindows); }
+
+int btrcGtkAutomationTextFocused(unsigned int window) {
+	for (GList* link = btrcGtkWindows; link != NULL; link = link->next) {
+		BtrcGtkWindow* candidate = link->data;
+		if (candidate->id != window) { continue; }
+		GtkWidget* focus = gtk_window_get_focus(GTK_WINDOW(candidate->window));
+		return focus != NULL && (GTK_IS_TEXT(focus) || gtk_widget_get_ancestor(focus, GTK_TYPE_ENTRY) != NULL) ? 1 : 0;
 	}
 	return 0;
 }

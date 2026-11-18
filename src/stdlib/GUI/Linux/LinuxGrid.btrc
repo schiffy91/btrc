@@ -48,7 +48,7 @@ class LinuxGrid extends LinuxNodeView implements IGrid {
 
 	private void requireRow(int row) { if (row < 0 || row >= self._rows) { throw "Native grid row is out of bounds"; } }
 
-	public void paint(LinuxPainter painter, double x, double y) { self.relayout(); LinuxComposite.paintChildren(self.node(), painter, x, y); }
+	public void paint(LinuxPlacer painter, double x, double y) { self.relayout(); LinuxComposite.paintChildren(self.node(), painter, x, y); }
 
 	private void resolve() {
 		for (int column = 0; column < self._columns; column++) {

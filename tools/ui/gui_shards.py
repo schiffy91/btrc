@@ -207,7 +207,7 @@ class GUIShardRun:
         if self.session == "macos":
             admitted = sys.platform == "darwin"
         else:
-            admitted = sys.platform == "linux" and os.environ.get("SDL_VIDEODRIVER") == self.session
+            admitted = sys.platform == "linux" and os.environ.get("GDK_BACKEND") == self.session
         if not admitted or os.environ.get("BTRC_TEST_RUNNER") != runner:
             raise ValueError(f"GUI partitions require the selected {self.session} session on {runner}")
         self.output.mkdir(parents=True, exist_ok=True)
