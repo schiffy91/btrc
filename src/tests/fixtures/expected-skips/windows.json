@@ -95,6 +95,18 @@
       "note": "docs/design/native-ui-surfaces-and-hosts.md: the suite's Linux rows build its real-input probe and run on a private Linux display; both frontends and sanitizer modes run on the named stand-in."
     },
     {
+      "id": "ui-conformance-macos-only",
+      "files": [
+        "src/tests/python/test_native_ui_conformance_macos.py"
+      ],
+      "reason": "^requires macOS: the GUI conformance suite's macOS rows$",
+      "category": "platform",
+      "covered_by": [
+        "macos-hosted"
+      ],
+      "note": "docs/design/native-ui-surfaces-and-hosts.md: the suite's macOS rows build its AppKit probe and run on a macOS display; both frontends and sanitizer modes run on the named stand-in."
+    },
+    {
       "id": "android-activity-lifecycle-posix",
       "files": [
         "src/tests/python/test_android_host_versions.py"

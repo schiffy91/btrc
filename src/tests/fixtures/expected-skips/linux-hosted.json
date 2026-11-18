@@ -47,6 +47,18 @@
         "windows"
       ],
       "note": "windows.yml win32-native-build publishes the executables; win32-native executes these same nodes on windows-x64 and windows-arm64 and enforces each native skip report. Missing build prerequisites and other nodes remain unexpected."
+    },
+    {
+      "id": "ui-conformance-macos-only",
+      "files": [
+        "src/tests/python/test_native_ui_conformance_macos.py"
+      ],
+      "reason": "^requires macOS: the GUI conformance suite's macOS rows$",
+      "category": "platform",
+      "covered_by": [
+        "macos-hosted"
+      ],
+      "note": "docs/design/native-ui-surfaces-and-hosts.md: the suite's macOS rows build its AppKit probe and run on a macOS display; both frontends and sanitizer modes run on the named stand-in."
     }
   ]
 }
