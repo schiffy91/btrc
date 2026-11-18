@@ -3,6 +3,11 @@
 # the revisions docs/design/platform-toolchain-matrix.md records. The default
 # shell and the CI image never import this file.
 #
+# On x86_64 Linux it also carries what the local Windows hosts need
+# (docs/design/native-ui-surfaces-and-hosts.md, section 4): Wine for the inner
+# loop, and QEMU, a software TPM, UEFI firmware with Secure Boot and an ISO
+# writer for the Windows 11 guest tools/target_hosts/windows/vm.py builds.
+#
 # The Android SDK licences are accepted here, in a nixpkgs import that only this
 # shell evaluates (D8 approves the acceptance). androidenv's packages are
 # unfree, so that import also allows unfree packages; nothing else is drawn
@@ -63,13 +68,19 @@ let
   };
   sdkRoot = "${android.androidsdk}/libexec/android-sdk";
   jdk = pkgs.jdk17;
+  windowsHost = pkgs.stdenv.hostPlatform.isLinux && pkgs.stdenv.hostPlatform.isx86_64;
 in {
-  packages = [ android.androidsdk jdk ];
+  packages = [ android.androidsdk jdk ]
+    ++ lib.optionals windowsHost (with pkgs; [ wineWow64Packages.stable qemu_kvm swtpm xorriso ]);
   environment = {
     ANDROID_HOME = sdkRoot;
     ANDROID_SDK_ROOT = sdkRoot;
     ANDROID_NDK_HOME = "${sdkRoot}/ndk/${ndkVersion}";
     JAVA_HOME = jdk.home;
+  } // lib.optionalAttrs windowsHost {
+    # OVMF_CODE.ms.fd and OVMF_VARS.ms.fd: firmware that enforces Secure Boot
+    # and a variable store with Microsoft's keys enrolled, as Windows 11 asks.
+    BTRC_WINDOWS_VM_FIRMWARE = "${pkgs.OVMFFull.fd}/FV";
   };
   inherit android;
 }

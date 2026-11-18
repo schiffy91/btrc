@@ -176,3 +176,48 @@ nix develop --command python3 -m pytest src/tests/python/test_target_runner.py -
 for the Windows APIs; none of it is native Windows evidence. Native evidence
 comes from `host-windows.yml` (the spike's 16 cases) and `windows.yml`'s
 corpus lane.
+
+## The local Windows 11 guest (`vm.py`)
+
+Hosted runners stay the recorded Windows evidence. `vm.py` builds one Windows
+11 guest on an x86_64 Linux host for the fast loop: a real Windows, with a
+logged-on desktop session, minutes away instead of a hosted run
+(`docs/design/native-ui-surfaces-and-hosts.md`, section 4). It needs the
+`.#platforms` dev shell, which supplies QEMU, the software TPM, the Secure
+Boot firmware and the ISO writer (`nix/platforms.nix`).
+
+```sh
+nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm install
+nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm start
+nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm copy build/win32 guest:C:/btrc/win32
+nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm run -- 'C:\btrc\win32\program.exe'
+nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm stop
+```
+
+- `install` is unattended and takes about a quarter of an hour. It fetches
+  Microsoft's Windows 11 Enterprise evaluation image (the x64 English link on
+  the public evaluation page, admitted only with the pinned SHA-256), writes a
+  setup disc holding the answer file and `vm/Setup.ps1`, and boots the
+  installer. The first-logon script turns on OpenSSH for one generated key,
+  installs the Python the hosted jobs use, excludes `C:\btrc` from Defender
+  scanning, turns automatic updates off and registers the job task. When
+  `C:\btrc\ready` exists the guest is shut down and the images and the setup
+  disc are deleted.
+- The evaluation is licensed for 90 days. `destroy` then `install` rebuilds it.
+- `ssh` runs a PowerShell command without a desktop. `run` hands the command
+  to the `btrc-job` scheduled task (`vm/RunJob.ps1`), which runs it in the
+  logged-on session, elevated; `run` follows it and returns its status and
+  output. A GUI program must go through `run`.
+- `copy` is scp; the guest side is written `guest:C:/path`.
+- `screenshot PATH` saves the guest's screen as a PNG.
+- The guest is reachable only from this host: SSH is forwarded to
+  `127.0.0.1:2222`, and the account's password exists only in the guest.
+- State is one directory, `~/.cache/btrc/windows-vm` (`--state` moves it): the
+  disk, the firmware variables, the TPM's state and the SSH key. QEMU and the
+  TPM run as the transient systemd user units `btrc-windows-vm` and
+  `btrc-windows-vm-tpm`, with a memory limit.
+- The guest has no GPU. Direct3D runs on Windows' software adapter, as on the
+  hosted runners: correctness evidence, never timing.
+
+`src/tests/python/test_windows_vm.py` holds the host side to the machine
+Windows 11 requires without starting one.
