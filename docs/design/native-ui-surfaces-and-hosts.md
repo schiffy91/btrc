@@ -124,6 +124,49 @@ their signals as events BTRC polls each turn, as the SDL provider does: no
 callbacks into BTRC, so no GObject binding. That it works is **unverified**
 until the first provider commit opens the gate's window from a BTRC program.
 
+### How the GTK4 provider is built
+
+In steps that each keep the conformance suite passing, so the work can stop
+and resume at any of them:
+
+1. **A copy that is still drawn.** `GUI/Linux` is copied to `GUI/Gtk` with its
+   classes renamed, and tests select it through an alternate data root whose
+   GUI manifest names it for Linux (as `src/tests/gui_provider_root.py` does
+   for white-box fixtures). The SDL provider stays the shipped one. The suite
+   passes on the copy before anything changes.
+2. **A GTK window under it.** The copy's window becomes a `GtkWindow`. Its
+   drawn content moves to one full-window GPU surface on a subsurface below
+   the window, the gate's route. A C shim (`GUI/Gtk/GtkShim.h`, `.c`) owns
+   every GTK object and turns signals and controller events into a queue of
+   plain events that BTRC polls each turn (`g_main_context_iteration`), as
+   the SDL provider polls SDL: no callback enters BTRC. This is the
+   btrc-hosted window the gate did not show.
+3. **One control at a time.** Each drawn control is replaced by its native
+   widget placed over the surface at the frame the provider's own layout
+   gives it: button, label, text field, select, slider, the two indicators,
+   image view, scroll view, panel. The node tree, its lifetime rules, the
+   control event queues and the layout stay as they are; only what a control
+   shows and how it hears input changes. Each replacement deletes that
+   control's drawing code.
+4. **GPU views get their own surfaces**, the web view arrives as
+   `WebKitWebView`, and the window's own painter, with its fonts and symbols,
+   is deleted.
+5. **The switch.** The GUI manifest names `Gtk.GUIProvider` for Linux, the
+   SDL provider and the tests that reach into it go, and Drive, Deck Pad and
+   BTRSmith are rebuilt against it.
+
+Input for the suite's probe, since GTK4 offers no way to synthesize events:
+on X11, XTest; on Wayland, the `wlr-virtual-pointer` and `virtual-keyboard`
+protocols of a headless wlroots compositor (sway or labwc), which Weston does
+not offer. Both are real input delivered by the display server. Until a
+control is native the probe can keep queueing events into the shim, as the
+SDL probe queues SDL events.
+
+The layout the provider computes (stacks, grids, explicit frames) is the same
+arithmetic Windows and Android need, where child windows and views are placed
+by hand; it moves to a provider-neutral module when the second provider needs
+it.
+
 ## 4. Where each platform is tested
 
 Three tiers. The inner loop is seconds to minutes on a machine we own. Evidence
