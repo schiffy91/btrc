@@ -581,8 +581,11 @@
             runHook postInstall
           '';
         };
-        # wgpu-native dlopens the Vulkan loader; on NixOS that lives under the
-        # driver prefix, which the library's own runpath must name.
+        # wgpu-native dlopens the Vulkan loader. A NixOS host whose driver
+        # package carries one (NVIDIA's) has it under the driver prefix, which
+        # comes first; a Mesa-only host such as the Steam Deck has none there,
+        # so nixpkgs' loader follows. Either loader finds the host's drivers
+        # through /run/opengl-driver/share/vulkan/icd.d.
         wgpuNativeLibrary = if isDarwin then pkgs.wgpu-native else pkgs.runCommand "wgpu-native-driver-runpath" {
           nativeBuildInputs = [ pkgs.patchelf ];
         } ''
@@ -590,7 +593,7 @@
           cp ${pkgs.wgpu-native}/lib/* "$out/lib/"
           chmod u+w "$out/lib/"*
           for library in "$out"/lib/*.so; do
-            patchelf --add-rpath /run/opengl-driver/lib "$library"
+            patchelf --add-rpath /run/opengl-driver/lib:${pkgs.vulkan-loader}/lib "$library"
           done
         '';
         # JNI headers and HotSpot for Library.Java on a host JVM: its JNI.h

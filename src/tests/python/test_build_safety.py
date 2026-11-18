@@ -528,6 +528,12 @@ def test_dev_shell_links_the_patched_webgpu_library_once():
     assert "${pkgs.wgpu-native}/lib" not in shell
 
 
+def test_webgpu_library_finds_a_vulkan_loader_without_a_driver_supplied_one():
+    # A Mesa-only NixOS host (the Steam Deck) has drivers under the driver
+    # prefix and no loader; nixpkgs' loader follows it on the runpath.
+    assert "patchelf --add-rpath /run/opengl-driver/lib:${pkgs.vulkan-loader}/lib" in FLAKE.read_text()
+
+
 def test_flake_exports_no_alias_outputs_or_unused_ports():
     flake = FLAKE.read_text()
     devcontainer = (DEVCONTAINER_CONFIG / "devcontainer.nix").read_text()
