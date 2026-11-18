@@ -97,12 +97,20 @@ above it, inside a scroll view, next to a web view, at frame p95 of 16.7 ms or
 better on this desktop's display. Try the routes in this order:
 
 1. A Wayland subsurface placed below the GTK surface, with GTK transparent
-   over that rectangle. wgpu already renders to a `wl_surface`. **Unverified.**
+   over that rectangle. wgpu already renders to a `wl_surface`. **Passed
+   2026-11-18** ([the record](native-ui-gtk4-gate/README.md)): the button
+   draws over the surface, the scroll view clips it, the web view sits beside
+   it, and thirty seconds at 60 Hz missed no frame on lavapipe or on the RTX
+   4090.
 2. A dmabuf texture handed to `GtkGraphicsOffload` (GTK 4.14 or newer), if a
    newer wgpu-native release exports one. No fork of wgpu-native. Checked
    2026-11-18: v29.0.1.1, the newest release, has no such export in its C
    API, so this route is closed.
 3. CPU readback, as the spike proved, for X11 and as the correctness fallback.
+
+**Decided: Linux moves to GTK4** (D23). The record names what the spike did
+not show: the real display (the session was locked), a btrc-hosted window (it
+is C), X11, and input through the surface.
 
 If route 1 or 2 passes on Wayland, Linux moves to GTK4: X11 uses a child
 window when nothing overlaps the GPU surface and readback when something does.
@@ -111,8 +119,10 @@ there is one Linux provider at a time. If neither passes, Linux stays on SDL,
 web content comes from an offscreen engine drawn into the frame, and that
 fallback gets its own note before any work.
 
-Whether GTK needs the planned GObject binding or works through the plain C
-API with callback scopes is **unverified**; the gate fixture answers it.
+The provider is planned as a C shim that owns the GTK objects and queues
+their signals as events BTRC polls each turn, as the SDL provider does: no
+callbacks into BTRC, so no GObject binding. That it works is **unverified**
+until the first provider commit opens the gate's window from a BTRC program.
 
 ## 4. Where each platform is tested
 
@@ -257,7 +267,8 @@ Each step ends with something that runs.
    export the control event types. **Windows:** `Platform.programName` was
    empty there (two corpus programs failed), fixed; issue #126 was the test's
    own UI Automation client, and the census now runs without it.
-3. **The GTK4 gate** (section 3). Exit: a decision recorded with frame timings.
+3. **The GTK4 gate** (section 3). Exit: a decision recorded with frame
+   timings. **Done 2026-11-18:** route 1 passes, Linux moves to GTK4.
 4. **`IWebView` and the mixing rules** on Linux first, as the reference.
 5. **Linux**: the GTK4 provider, or the SDL fallback, passes the suite.
 6. **Windows**: the 40 unsupported operations, WebView2, the tray.
