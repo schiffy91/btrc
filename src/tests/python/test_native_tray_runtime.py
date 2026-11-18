@@ -570,9 +570,15 @@ int main() {
     executable = tmp_path / "ReplacedWatcher"
     NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
 
-    # A bus of the test's own: the session's watcher must not be the one that answers.
+    # A bus of the test's own: the session's watcher must not be the one that answers. Nix's dbus looks for
+    # its configuration under /etc, which a container lacks, so the one installed beside the daemon is named,
+    # as tools/ui/headless-session.sh does.
+    shipped = Path(os.path.realpath(daemon_program)).parent.parent / "share/dbus-1/session.conf"
+    configuration = f"--config-file={shipped}" if shipped.is_file() else "--session"
     daemon = subprocess.Popen(
-        [daemon_program, "--session", "--nofork", "--nopidfile", "--print-address=1"], stdout=subprocess.PIPE, text=True
+        [daemon_program, configuration, "--nofork", "--nopidfile", "--print-address=1"],
+        stdout=subprocess.PIPE,
+        text=True,
     )
     process = None
     try:
