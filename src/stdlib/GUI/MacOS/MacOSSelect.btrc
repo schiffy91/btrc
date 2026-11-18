@@ -477,7 +477,18 @@ class MacOSSelect implements ISelect, IMacOSView, IMacOSViewEligibility, IAppKit
 
 	public double fittingHeight() { return self._view.fittingHeight(); }
 
-	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+	/* A pop-up button's bezel has one height, and in a taller frame it sits
+	 * at the top: a click lower down would open the menu with the pointer over
+	 * the wrong item. The control keeps its own height, centred in the frame
+	 * it is given, and stays centred when that frame's parent resizes. */
+	public void arrange(double x, double y, double width, double height) {
+		double natural = self._view.fittingHeight();
+		if (natural > 0.0 && height > natural) { y = y + (height - natural) / 2.0; height = natural; }
+		self._view.arrange(x, y, width, height);
+		var button = self.nativeView();
+		unsigned long mask = button.autoresizingMask();
+		if ((mask & NSViewHeightSizable) != 0UL) { button.setAutoresizingMask((mask & ~NSViewHeightSizable) | NSViewMinYMargin | NSViewMaxYMargin); }
+	}
 
 	public bool isVisible() { return self._view.isVisible(); }
 

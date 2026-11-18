@@ -600,6 +600,7 @@ language = "objective-c"
 standard = "c11"
 symbols = [
 	"-[NSPopUpButton initWithFrame:pullsDown:]", "-[NSPopUpButton setCell:]",
+	"-[NSView autoresizingMask]", "-[NSView setAutoresizingMask:]", "NSViewHeightSizable", "NSViewMinYMargin", "NSViewMaxYMargin",
 	"-[NSPopUpButtonCell initTextCell:pullsDown:]", "-[NSPopUpButtonCell performClickWithFrame:inView:]", "-[NSPopUpButtonCell trackMouse:inRect:ofView:untilMouseUp:]",
 	"-[NSMenu initWithTitle:]", "-[NSMenu performActionForItemAtIndex:]", "-[NSMenu performKeyEquivalent:]",
 	"-[NSMenuItem initWithTitle:action:keyEquivalent:]", "-[NSMenuItem accessibilityPerformPress]", "-[NSMenuItem accessibilityPerformPick]", "-[NSMenuItem accessibilityPerformCancel]", "-[NSMenuItem accessibilityPerformAction:]",
