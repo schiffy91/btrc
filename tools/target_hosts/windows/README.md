@@ -189,8 +189,9 @@ Boot firmware and the ISO writer (`nix/platforms.nix`).
 ```sh
 nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm install
 nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm start
-nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm copy build/win32 guest:C:/btrc/win32
-nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm run -- 'C:\btrc\win32\program.exe'
+nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm sync
+nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm copy build/win32 guest:C:/btrc/work
+nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm run -- '$env:BTRC_WIN32_EVIDENCE_DIR = "C:\btrc\work"; cd C:\btrc\src; python -m pytest -q src/tests/python/test_native_ui_shell_windows.py -k "runs and windows-x64"'
 nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm stop
 ```
 
@@ -199,8 +200,9 @@ nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm stop
   the public evaluation page, admitted only with the pinned SHA-256), writes a
   setup disc holding the answer file and `vm/Setup.ps1`, and boots the
   installer. The first-logon script turns on OpenSSH for one generated key,
-  installs the Python the hosted jobs use, excludes `C:\btrc` from Defender
-  scanning, turns automatic updates off and registers the job task. When
+  installs the Python the hosted jobs use and Git (MinGit, both pinned by
+  hash), excludes `C:\btrc` from Defender scanning, turns automatic updates
+  off and registers the job task. When
   `C:\btrc\ready` exists the guest is shut down and the images and the setup
   disc are deleted.
 - The evaluation is licensed for 90 days. `destroy` then `install` rebuilds it.
@@ -208,6 +210,10 @@ nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm stop
   to the `btrc-job` scheduled task (`vm/RunJob.ps1`), which runs it in the
   logged-on session, elevated; `run` follows it and returns its status and
   output. A GUI program must go through `run`.
+- `sync` makes `C:\btrc\src` this checkout: HEAD from a bundle, then the
+  working tree's uncommitted and untracked files laid over it, so the guest
+  runs what the host has and `git rev-parse HEAD` agrees. It installs the
+  test dependencies again whenever `pyproject.toml` has changed.
 - `copy` is scp; the guest side is written `guest:C:/path`.
 - `screenshot PATH` saves the guest's screen as a PNG.
 - The guest is reachable only from this host: SSH is forwarded to

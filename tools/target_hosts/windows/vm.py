@@ -8,12 +8,14 @@ software TPM, the Secure Boot firmware and the ISO writer.
 
     nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm install
     nix develop .#platforms --command python3 -m tools.target_hosts.windows.vm start
-    ... vm run -- 'C:\\btrc\\work\\native-shell.exe'
+    ... vm sync
+    ... vm run -- 'cd C:\\btrc\\src; python -m pytest src/tests/python/test_native_ui_shell_windows.py'
     ... vm stop
 
 `install` is unattended: Microsoft's Windows 11 Enterprise evaluation image, an
 answer file, and a first-logon script (vm/Setup.ps1) that turns on OpenSSH for
-one generated key, installs Python and registers the desktop-session job task.
+one generated key, installs Python and Git, and registers the desktop-session
+job task. `sync` then makes C:\\btrc\\src this checkout.
 The evaluation runs for 90 days; `destroy` and `install` rebuild it.
 
 A program started over SSH has no desktop, so `run` hands its command to a
@@ -85,6 +87,13 @@ class WindowsGuest:
         "python-3.13.17-amd64.exe",
         "https://www.python.org/ftp/python/3.13.17/python-3.13.17-amd64.exe",
         "5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190",
+    )
+
+    # Git for Windows without its shell or editors: the tests record the revision they ran.
+    GIT = PinnedDownload(
+        "MinGit-2.56.1-64-bit.zip",
+        "https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/MinGit-2.56.1-64-bit.zip",
+        "4a92850b6e917da4fd010669b614b55dccf5b0ec333a534cc4be4700dfefdafd",
     )
 
     def __init__(self, state=None, *, firmware=None, port=2222, cpus=8, memory_mib=12288, disk_gib=80):
@@ -208,6 +217,7 @@ class WindowsGuest:
         self.state.chmod(0o700)
         image = self.IMAGE.fetch(self.state)
         python = self.PYTHON.fetch(self.state)
+        git = self.GIT.fetch(self.state)
         subprocess.run(
             ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "btrc-windows-vm", "-f", str(self.key)],
             check=True,
@@ -222,6 +232,7 @@ class WindowsGuest:
             shutil.copy(MEDIA / script, media / script)
         shutil.copy(self.key.with_name(self.key.name + ".pub"), media / "authorized_keys")
         shutil.copy(python, media / "python-installer.exe")
+        shutil.copy(git, media / "mingit.zip")
         subprocess.run(
             [self.tool("xorriso"), "-as", "mkisofs", "-quiet", "-J", "-r", "-V", "BTRC_SETUP", "-o", str(self.setup), str(media)],
             check=True, timeout=300,
@@ -246,7 +257,7 @@ class WindowsGuest:
             raise
         self.stop()
         # Nothing below is needed again: the answers hold the password, and a rebuild fetches the images anew.
-        for spent in (self.setup, image, python):
+        for spent in (self.setup, image, python, git):
             spent.unlink()
 
     def ready(self):
@@ -304,6 +315,49 @@ class WindowsGuest:
         ).stdout
         return int(status[0]), output
 
+    def sync(self, repository=".", *, timeout=1800):
+        """Make C:\\btrc\\src this checkout: its HEAD, then the working tree's changes laid over it,
+        with the test dependencies installed whenever pyproject.toml has changed."""
+        repository = Path(repository).resolve()
+
+        def git(*arguments):
+            return subprocess.run(
+                ["git", "-C", str(repository), *arguments], capture_output=True, text=True, check=True, timeout=300
+            ).stdout
+
+        revision = git("rev-parse", "HEAD").strip()
+        bundle = self.state / "head.bundle"
+        git("bundle", "create", "-q", str(bundle), "HEAD")
+        changed = [name for name in git("ls-files", "-z", "-m", "-o", "--exclude-standard").split("\0") if name]
+        overlay = self.state / "changes.tar"
+        subprocess.run(
+            ["tar", "-C", str(repository), "-cf", str(overlay), "--null", "--files-from=-"],
+            input="\0".join(name for name in changed if (repository / name).is_file()), text=True, check=True, timeout=300,
+        )  # fmt: skip
+        try:
+            self.copy(str(bundle), "guest:C:/btrc/head.bundle", timeout=timeout)
+            self.copy(str(overlay), "guest:C:/btrc/changes.tar", timeout=timeout)
+        finally:
+            bundle.unlink(missing_ok=True)
+            overlay.unlink(missing_ok=True)
+        self.ssh(
+            "$ErrorActionPreference = 'Stop'; "
+            "if (-not (Test-Path C:\\btrc\\src\\.git)) { git init -q C:\\btrc\\src }; "
+            "Set-Location C:\\btrc\\src; "
+            "git fetch -q C:\\btrc\\head.bundle HEAD; "
+            f"git checkout -q -f --detach {revision}; "
+            "git clean -q -fd; "
+            "tar -xf C:\\btrc\\changes.tar; "
+            "Remove-Item C:\\btrc\\head.bundle, C:\\btrc\\changes.tar; "
+            "$wanted = (Get-FileHash pyproject.toml).Hash; "
+            "if (-not (Test-Path C:\\btrc\\dependencies) -or (Get-Content C:\\btrc\\dependencies) -ne $wanted) { "
+            "python -m pip install --quiet --disable-pip-version-check '.[dev]'; "
+            "if ($LASTEXITCODE -ne 0) { throw 'pip could not install the test dependencies' }; "
+            "Set-Content C:\\btrc\\dependencies $wanted }",
+            timeout=timeout,
+        )
+        return revision
+
     def screenshot(self, path):
         self.monitor(f"screendump {path} -f png")
 
@@ -324,6 +378,7 @@ class WindowsGuestCommand:
         copy = commands.add_parser("copy", help="scp; write the guest side as guest:C:/path")
         copy.add_argument("source")
         copy.add_argument("destination")
+        commands.add_parser("sync", help="make C:\\btrc\\src this checkout, uncommitted changes included")
         commands.add_parser("screenshot").add_argument("path")
         self.options = parser.parse_args(arguments)
         self.guest = WindowsGuest(self.options.state)
@@ -343,6 +398,8 @@ class WindowsGuestCommand:
             status, output = guest.run(" ".join(options.line))
             sys.stdout.write(output)
             return status
+        elif options.command == "sync":
+            print(guest.sync())
         elif options.command == "copy":
             guest.copy(options.source, options.destination)
         elif options.command == "screenshot":

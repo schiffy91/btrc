@@ -32,6 +32,10 @@ Start-Service sshd
 $python = Start-Process -Wait -PassThru "$media\python-installer.exe" -ArgumentList '/quiet', 'InstallAllUsers=1', 'PrependPath=1', 'Include_test=0', 'Include_doc=0'
 if ($python.ExitCode -ne 0) { throw "The Python installer exited with $($python.ExitCode)" }
 
+# Git, without its shell or editors: the tests record the revision they ran.
+Expand-Archive "$media\mingit.zip" 'C:\Program Files\MinGit' -Force
+[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';C:\Program Files\MinGit\cmd', 'Machine')
+
 # A task that runs in the logged-on desktop session: a program started over SSH has no desktop.
 Copy-Item "$media\RunJob.ps1" C:\btrc\RunJob.ps1 -Force
 schtasks /create /f /tn btrc-job /sc once /st 00:00 /it /rl highest /ru $env:USERNAME /tr 'powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\btrc\RunJob.ps1'
