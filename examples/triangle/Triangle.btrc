@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
 	Triangle? triangle = null;
 	try {
 		var window = GUI.createWindow("btrc Triangle", 800.0, 600.0);
-		var view = GUI.createGPUView();
+		var view = GUI.createGPUView(verify);
 		window.attachRoot(view);
 		window.show();
 		triangle = Triangle(window, view, verify);

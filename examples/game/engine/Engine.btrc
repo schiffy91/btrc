@@ -22,9 +22,11 @@ class Engine {
 	private CallbackScope _keys = CallbackScope();
 	private bool _closed = false;
 
-	public Engine(string title, int width, int height) {
+	/* `capture` asks for a view whose frames can be read back, as a run that
+	 * checks its own pixels needs. */
+	public Engine(string title, int width, int height, bool capture = false) {
 		self.window = GUI.createWindow(title, (double)width, (double)height);
-		self.view = GUI.createGPUView();
+		self.view = GUI.createGPUView(capture);
 		self.window.attachRoot(self.view);
 		self.input = Input();
 		self.time = Time();

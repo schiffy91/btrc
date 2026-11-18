@@ -24,7 +24,7 @@ class Game implements IApplicationWork {
 
 	public Game(bool verify) {
 		self._verify = verify;
-		self._engine = Engine("btrc 3D Ball", 800, 600);
+		self._engine = Engine("btrc 3D Ball", 800, 600, verify);
 	}
 
 	public void run() {
