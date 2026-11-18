@@ -24,7 +24,8 @@ platform implements it once, in C, beside the suite:
 
 | Platform | Source | How input arrives |
 | --- | --- | --- |
-| Linux, SDL provider | `probes/linux/SdlProbe.c` | Synthetic SDL events queued for the window |
+| Linux, SDL provider | `probes/linux/LinuxProbe.c` | Synthetic SDL events queued for the window |
+| Linux, GTK provider (being built) | `probes/linux/LinuxProbe.c` | Events queued in the provider's GTK shim, until real input replaces them |
 
 A probe is a stand-in for a compositor's or a person's input, as the
 provider's own automation helpers are. It never reaches into a provider.

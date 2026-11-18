@@ -31,7 +31,7 @@ class TextFieldEditing implements IConformanceCase {
 	public string name() { return "textfield.editing"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance textfield.editing", 240.0, 60.0);
+		var window = GUI.createWindow("conformance textfield.editing", 320.0, 60.0);
 		var field = GUI.createTextField("saved", "");
 		window.attachRoot(field);
 		window.show();
@@ -100,7 +100,7 @@ class SelectChoosing implements IConformanceCase {
 	public string name() { return "select.choosing"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance select.choosing", 240.0, 60.0);
+		var window = GUI.createWindow("conformance select.choosing", 320.0, 60.0);
 		var select = GUI.createSelect();
 		Vector<SelectOption> options = [SelectOptions.option("a", "Alpha"), SelectOptions.option("b", "Beta"), SelectOptions.option("c", "Gamma")];
 		select.setOptions(SelectOptions.model(options, "a"));
@@ -163,7 +163,7 @@ class SliderDragging implements IConformanceCase {
 	public string name() { return "slider.dragging"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance slider.dragging", 300.0, 60.0);
+		var window = GUI.createWindow("conformance slider.dragging", 320.0, 60.0);
 		var slider = GUI.createSlider(0.0, 10.0, 0);
 		slider.setValue(5.0);
 		window.attachRoot(slider);
@@ -178,23 +178,24 @@ class SliderDragging implements IConformanceCase {
 		turns.settle();
 		Expect.intEq((long long)log.events.length, 0LL, "the program's own value is not a drag");
 		var probe = Probe(window);
-		probe.move(150.0, 30.0);
-		probe.down(150.0, 30.0);
-		probe.move(200.0, 30.0);
-		probe.move(240.0, 30.0);
+		double width = window.contentWidth();
+		probe.move(width * 0.5, 30.0);
+		probe.down(width * 0.5, 30.0);
+		probe.move(width * 0.65, 30.0);
+		probe.move(width * 0.8, 30.0);
 		turns.settle();
 		Expect.isTrue(log.count(CONTROL_PHASE_PREVIEW) >= 1 && log.count(CONTROL_PHASE_COMMIT) == 0, "a drag in progress previews and commits nothing");
-		probe.up(240.0, 30.0);
+		probe.up(width * 0.8, 30.0);
 		turns.settle();
 		Expect.intEq((long long)log.count(CONTROL_PHASE_COMMIT), 1LL, "letting go commits once");
 		double committed = slider.value();
 		Expect.isTrue(committed > 5.0 && log.last().value == committed && log.last().context.origin == CONTROL_ORIGIN_USER, "dragging right raised the value");
-		probe.down(240.0, 30.0);
-		probe.move(100.0, 30.0);
+		probe.down(width * 0.8, 30.0);
+		probe.move(width * 0.3, 30.0);
 		turns.settle();
 		probe.key(PROBE_KEY_ESCAPE);
 		turns.settle();
-		probe.up(100.0, 30.0);
+		probe.up(width * 0.3, 30.0);
 		turns.settle();
 		Expect.intEq((long long)log.count(CONTROL_PHASE_CANCEL), 1LL, "Escape cancels the drag once");
 		Expect.isTrue(slider.value() == committed, "a cancelled drag puts the value back");

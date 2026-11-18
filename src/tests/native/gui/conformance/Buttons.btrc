@@ -46,7 +46,7 @@ class ButtonClick implements IConformanceCase {
 	public string name() { return "button.click"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance button.click", 240.0, 120.0);
+		var window = GUI.createWindow("conformance button.click", 320.0, 120.0);
 		var button = GUI.createButton("Press");
 		var action = CountedAction();
 		var scope = CallbackScope();
@@ -55,12 +55,12 @@ class ButtonClick implements IConformanceCase {
 		window.show();
 		turns.settle();
 		var probe = Probe(window);
-		probe.click(120.0, 60.0);
+		probe.click(160.0, 60.0);
 		Expect.intEq((long long)action.count, 0LL, "an action is delivered on a later turn, never inside the input");
 		turns.settle();
 		Expect.intEq((long long)action.count, 1LL, "one click, one action");
 		button.setEnabled(false);
-		probe.click(120.0, 60.0);
+		probe.click(160.0, 60.0);
 		turns.settle();
 		Expect.intEq((long long)action.count, 1LL, "a disabled button ignores a click");
 		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
@@ -76,7 +76,7 @@ class ButtonActivate implements IConformanceCase {
 	public string name() { return "button.activate"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance button.activate", 240.0, 120.0);
+		var window = GUI.createWindow("conformance button.activate", 320.0, 120.0);
 		var button = GUI.createButton("Run");
 		var action = CountedAction();
 		var scope = CallbackScope();

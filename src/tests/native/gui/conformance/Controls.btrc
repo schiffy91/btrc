@@ -195,26 +195,27 @@ class PanelFill implements IConformanceCase {
 	public string name() { return "panel.fill"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance panel.fill", 200.0, 120.0);
+		var window = GUI.createWindow("conformance panel.fill", 320.0, 200.0);
 		var panel = GUI.createPanel(Palette.red(), 0.0);
 		window.attachRoot(panel);
 		window.show();
 		turns.settle();
-		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 200.0, 120.0), "a root panel");
+		var whole = Frame(0.0, 0.0, window.contentWidth(), window.contentHeight());
+		Picture(window).expect(Palette.red(), whole, "a root panel");
 		panel.setFill(Palette.green());
 		turns.settle();
 		var refilled = Picture(window);
 		Expect.isTrue(refilled.find(Palette.red()) == null, "the old fill is gone");
-		refilled.expect(Palette.green(), Frame(0.0, 0.0, 200.0, 120.0), "the panel in its new fill");
+		refilled.expect(Palette.green(), whole, "the panel in its new fill");
 		panel.setCornerRadius(24.0);
 		turns.settle();
 		var rounded = Picture(window);
 		Expect.isFalse(Picture.same(rounded.at(1.0, 1.0), Palette.green()), "a rounded corner is cut away");
-		Expect.isTrue(Picture.same(rounded.at(100.0, 60.0), Palette.green()), "the middle keeps the fill");
+		Expect.isTrue(Picture.same(rounded.at(160.0, 100.0), Palette.green()), "the middle keeps the fill");
 		panel.setDarkAppearance(true);
 		panel.inheritAppearance();
 		turns.settle();
-		Expect.isTrue(Picture.same(Picture(window).at(100.0, 60.0), Palette.green()), "appearance never changes the fill");
+		Expect.isTrue(Picture.same(Picture(window).at(160.0, 100.0), Palette.green()), "appearance never changes the fill");
 		window.close();
 		turns.settle();
 	}
@@ -226,7 +227,7 @@ class ImagePixels implements IConformanceCase {
 	public string name() { return "image.pixels"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance image.pixels", 160.0, 160.0);
+		var window = GUI.createWindow("conformance image.pixels", 320.0, 160.0);
 		var view = GUI.createImageView();
 		window.attachRoot(view);
 		window.show();

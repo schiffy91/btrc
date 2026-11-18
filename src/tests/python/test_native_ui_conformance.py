@@ -7,6 +7,7 @@ cases.toml in its own process on the session's display. Run it inside
 tools/ui/headless-session.sh --x11 or --wayland.
 """
 
+import fcntl
 import os
 import subprocess
 import sys
@@ -43,32 +44,41 @@ UNCOVERED = {
 
 
 class ConformancePrograms:
-    """One build per compiler and sanitizer mode, kept for the module."""
+    """One build per provider, compiler and sanitizer mode for the whole run:
+    parallel workers share them, and whichever needs one first builds it."""
 
     def __init__(self, directories):
-        self.directories = directories
-        self.built = {}
+        base = directories.getbasetemp()
+        # Each xdist worker has its own base directory under the run's one.
+        self.shared = (base.parent if os.environ.get("PYTEST_XDIST_WORKER") else base) / "conformance"
         self.font_file = None
-        self.gtk_root = None
+
+    def once(self, name, build):
+        """What `build(directory)` returned for `name`, built by one worker only."""
+        directory = self.shared / name
+        directory.mkdir(parents=True, exist_ok=True)
+        result = directory / "result"
+        with open(directory / "lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if not result.exists():
+                result.write_text(str(build(directory)))
+        return Path(result.read_text())
 
     def root(self, provider):
         """The data root a provider is built from: the tree itself for the shipped
         one, a copy whose GUI manifest names the provider under construction for the other."""
         if provider == "sdl":
             return None
-        if self.gtk_root is None:
-            self.gtk_root = GUIProviderRoot.create(self.directories.mktemp("gtk-root") / "src", linux="Linux.Gtk")
-        return self.gtk_root
+        return self.once("gtk-root", lambda directory: GUIProviderRoot.create(directory / "src", linux="Linux.Gtk"))
 
     def program(self, request, provider, frontend, sanitized):
-        key = (provider, frontend, sanitized)
-        if key not in self.built:
-            mode = "sanitized" if sanitized else "plain"
-            directory = self.directories.mktemp(f"conformance-{provider}-{frontend}-{mode}")
-            self.built[key] = build_provider_program(
+        mode = "sanitized" if sanitized else "plain"
+        return self.once(
+            f"{provider}-{frontend}-{mode}",
+            lambda directory: build_provider_program(
                 SUITE / "Main.btrc", directory, frontend, sanitized, request, data_root=self.root(provider)
-            )
-        return self.built[key]
+            ),
+        )
 
     def run(self, request, provider, frontend, sanitized, argument):
         if sys.platform != "linux":

@@ -9,7 +9,7 @@ import Library.Image;
 import Library.GUI.IWindow;
 import Library.GUI.IView;
 import Library.GUI.ControlEventQueue;
-import Library.GUI.Linux.Gtk.SDL;
+import Library.GUI.Linux.Gtk.GtkShim;
 import Library.GUI.Linux.Gtk.LinuxGtkView;
 import Library.GUI.Linux.Gtk.LinuxGtkContext;
 import Library.GUI.Linux.Gtk.LinuxGtkContainer;
@@ -58,40 +58,40 @@ class LinuxGtkWindowKeys implements ICallbackRegistration {
 	public CallbackCancellation pollCompletion() { var context = self._context; return context == null ? CALLBACK_CANCELLATION_COMPLETE : context.pollCompletion(); }
 }
 
-/* Translates SDL key and modifier codes into portable events. */
+/* Translates the shim's key and modifier codes into portable events. */
 class LinuxGtkKeys {
 	class AppKeyCode keyCode(unsigned int key, unsigned int scancode) {
-		if (key == (unsigned int)SDLK_ESCAPE) { return APP_KEY_ESCAPE; }
-		if (key == (unsigned int)SDLK_RETURN || key == (unsigned int)SDLK_KP_ENTER) { return APP_KEY_ENTER; }
-		if (key == (unsigned int)SDLK_SPACE) { return APP_KEY_SPACE; }
-		if (key == (unsigned int)SDLK_LEFT) { return APP_KEY_LEFT; }
-		if (key == (unsigned int)SDLK_RIGHT) { return APP_KEY_RIGHT; }
-		if (key == (unsigned int)SDLK_UP) { return APP_KEY_UP; }
-		if (key == (unsigned int)SDLK_DOWN) { return APP_KEY_DOWN; }
-		if (key == (unsigned int)SDLK_TAB) { return APP_KEY_TAB; }
-		if (key == (unsigned int)SDLK_BACKSPACE) { return APP_KEY_BACKSPACE; }
-		if (key == (unsigned int)SDLK_DELETE) { return APP_KEY_DELETE; }
-		if (key == (unsigned int)SDLK_HOME) { return APP_KEY_HOME; }
-		if (key == (unsigned int)SDLK_END) { return APP_KEY_END; }
-		if (key == (unsigned int)SDLK_LSHIFT) { return APP_KEY_LEFT_SHIFT; }
-		if (key == (unsigned int)SDLK_RSHIFT) { return APP_KEY_RIGHT_SHIFT; }
-		if (key == (unsigned int)SDLK_LALT) { return APP_KEY_LEFT_ALT; }
-		if (key == (unsigned int)SDLK_RALT) { return APP_KEY_RIGHT_ALT; }
-		if (scancode == (unsigned int)SDL_SCANCODE_A) { return APP_KEY_A; }
-		if (scancode == (unsigned int)SDL_SCANCODE_D) { return APP_KEY_D; }
-		if (scancode == (unsigned int)SDL_SCANCODE_S) { return APP_KEY_S; }
-		if (scancode == (unsigned int)SDL_SCANCODE_W) { return APP_KEY_W; }
-		if (scancode == (unsigned int)SDL_SCANCODE_C) { return APP_KEY_C; }
-		if (scancode == (unsigned int)SDL_SCANCODE_V) { return APP_KEY_V; }
-		if (scancode == (unsigned int)SDL_SCANCODE_X) { return APP_KEY_X; }
-		if (scancode == (unsigned int)SDL_SCANCODE_Z) { return APP_KEY_Z; }
-		if (scancode == (unsigned int)SDL_SCANCODE_Q) { return APP_KEY_Q; }
-		if (scancode == (unsigned int)SDL_SCANCODE_LEFTBRACKET) { return APP_KEY_LEFT_BRACKET; }
-		if (scancode == (unsigned int)SDL_SCANCODE_RIGHTBRACKET) { return APP_KEY_RIGHT_BRACKET; }
+		if (key == (unsigned int)BTRC_GTK_KEY_ESCAPE) { return APP_KEY_ESCAPE; }
+		if (key == (unsigned int)BTRC_GTK_KEY_RETURN || key == (unsigned int)BTRC_GTK_KEY_KP_ENTER) { return APP_KEY_ENTER; }
+		if (key == (unsigned int)BTRC_GTK_KEY_SPACE) { return APP_KEY_SPACE; }
+		if (key == (unsigned int)BTRC_GTK_KEY_LEFT) { return APP_KEY_LEFT; }
+		if (key == (unsigned int)BTRC_GTK_KEY_RIGHT) { return APP_KEY_RIGHT; }
+		if (key == (unsigned int)BTRC_GTK_KEY_UP) { return APP_KEY_UP; }
+		if (key == (unsigned int)BTRC_GTK_KEY_DOWN) { return APP_KEY_DOWN; }
+		if (key == (unsigned int)BTRC_GTK_KEY_TAB) { return APP_KEY_TAB; }
+		if (key == (unsigned int)BTRC_GTK_KEY_BACKSPACE) { return APP_KEY_BACKSPACE; }
+		if (key == (unsigned int)BTRC_GTK_KEY_DELETE) { return APP_KEY_DELETE; }
+		if (key == (unsigned int)BTRC_GTK_KEY_HOME) { return APP_KEY_HOME; }
+		if (key == (unsigned int)BTRC_GTK_KEY_END) { return APP_KEY_END; }
+		if (key == (unsigned int)BTRC_GTK_KEY_LSHIFT) { return APP_KEY_LEFT_SHIFT; }
+		if (key == (unsigned int)BTRC_GTK_KEY_RSHIFT) { return APP_KEY_RIGHT_SHIFT; }
+		if (key == (unsigned int)BTRC_GTK_KEY_LALT) { return APP_KEY_LEFT_ALT; }
+		if (key == (unsigned int)BTRC_GTK_KEY_RALT) { return APP_KEY_RIGHT_ALT; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_A) { return APP_KEY_A; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_D) { return APP_KEY_D; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_S) { return APP_KEY_S; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_W) { return APP_KEY_W; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_C) { return APP_KEY_C; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_V) { return APP_KEY_V; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_X) { return APP_KEY_X; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_Z) { return APP_KEY_Z; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_Q) { return APP_KEY_Q; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_LEFTBRACKET) { return APP_KEY_LEFT_BRACKET; }
+		if (scancode == (unsigned int)BTRC_GTK_SCANCODE_RIGHTBRACKET) { return APP_KEY_RIGHT_BRACKET; }
 		return APP_KEY_UNKNOWN;
 	}
 
-	class AppKeyModifiers modifiers(unsigned int mod) { return AppKeyModifiers((mod & (unsigned int)SDL_KMOD_SHIFT) != 0u, (mod & (unsigned int)SDL_KMOD_CTRL) != 0u, (mod & (unsigned int)SDL_KMOD_ALT) != 0u, (mod & (unsigned int)SDL_KMOD_GUI) != 0u); }
+	class AppKeyModifiers modifiers(unsigned int mod) { return AppKeyModifiers((mod & (unsigned int)BTRC_GTK_MOD_SHIFT) != 0u, (mod & (unsigned int)BTRC_GTK_MOD_CTRL) != 0u, (mod & (unsigned int)BTRC_GTK_MOD_ALT) != 0u, (mod & (unsigned int)BTRC_GTK_MOD_GUI) != 0u); }
 
 	class AppPointerButton button(unsigned int button) {
 		if (button == 1u) { return APP_POINTER_BUTTON_PRIMARY; }
@@ -108,13 +108,13 @@ interface ILinuxGtkWindow extends IWindow {
 	unsigned int nativeId();
 }
 
-/* An SDL window whose whole content is one WebGPU surface. The root view
+/* A GTK window whose whole content is one WebGPU surface below it. The root view
  * tree is painted by the window's painter, pointer input is routed by
  * hit-testing that tree, and keyboard input goes to window subscriptions,
  * then the focused control. Closing drains the subtree, then the GPU
  * resources, then the native window, in that order. */
 class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControlEventTarget {
-	private SDL_Window* _window;
+	private BtrcGtkWindow* _window;
 	private unsigned int _id = 0u;
 	private LinuxGtkContext _context;
 	private LinuxGtkViewHost _host;
@@ -166,17 +166,15 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 	private int _hoverTopId = 0;
 	private unsigned long long _hoverStart = 0ULL;
 	private int _cursorKind = 0;
-	private SDL_Cursor* _textCursor = null;
-	private SDL_Cursor* _defaultCursor = null;
 
 	public LinuxGtkWindow(LinuxGtkContext context, string title, double width, double height) {
 		if (!Math.isFinite(width) || !Math.isFinite(height) || width <= 0.0 || height <= 0.0) { throw "Invalid window content size"; }
 		if (title == null) { throw "Native window title is missing"; }
 		self._context = context;
 		self._title = title;
-		self._window = SDL_CreateWindow(title, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height), (unsigned long long)SDL_WINDOW_RESIZABLE | (unsigned long long)SDL_WINDOW_HIDDEN | (unsigned long long)SDL_WINDOW_HIGH_PIXEL_DENSITY);
-		if (self._window == null) { throw "Cannot create native window: " + Strings.copy((char*)SDL_GetError()); }
-		self._id = SDL_GetWindowID(self._window);
+		self._window = btrcGtkWindowCreate(title, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height));
+		if (self._window == null) { throw "Cannot create native window: " + Strings.copy((char*)btrcGtkError()); }
+		self._id = btrcGtkWindowId(self._window);
 		self._host = LinuxGtkViewHost(self._window, context);
 		self._host.poller = self;  // released in destroyNative
 		try {
@@ -204,15 +202,15 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 		var old = self._state; var next = WindowState();
 		next.width = old == null ? self._host.width : old.width; next.height = old == null ? self._host.height : old.height;
 		next.backingScale = old == null ? self._host.scale : old.backingScale;
-		unsigned long long flags = 0ULL; int pixelWidth = 0; int pixelHeight = 0;
+		bool hidden = true; bool minimized = false; int pixelWidth = 0; int pixelHeight = 0;
 		if (self._window != null) {
-			int width = 0; int height = 0; SDL_GetWindowSize(self._window, &width, &height);
-			next.width = (double)width; next.height = (double)height; next.backingScale = (double)SDL_GetWindowPixelDensity(self._window);
-			SDL_GetWindowSizeInPixels(self._window, &pixelWidth, &pixelHeight); flags = SDL_GetWindowFlags(self._window);
+			next.width = (double)btrcGtkWindowWidth(self._window); next.height = (double)btrcGtkWindowHeight(self._window); next.backingScale = btrcGtkWindowPixelDensity(self._window);
+			pixelWidth = btrcGtkWindowPixelWidth(self._window); pixelHeight = btrcGtkWindowPixelHeight(self._window);
+			hidden = btrcGtkWindowIsHidden(self._window); minimized = btrcGtkWindowIsMinimized(self._window);
 		}
 		next.requestedVisible = self._requestedVisible;
-		next.nativeVisible = self.isOpen() && (flags & (unsigned long long)SDL_WINDOW_HIDDEN) == 0ULL;
-		next.minimized = self._window != null && (flags & (unsigned long long)SDL_WINDOW_MINIMIZED) != 0ULL;
+		next.nativeVisible = self.isOpen() && !hidden;
+		next.minimized = minimized;
 		next.windowActive = self.isOpen() && self._focused; next.applicationActivity = self._activity;
 		next.exposure = WINDOW_EXPOSURE_UNKNOWN; next.notExposedReason = WINDOW_EXPOSURE_REASON_NONE;
 		if (!next.nativeVisible) { next.exposure = WINDOW_EXPOSURE_NOT_EXPOSED; next.notExposedReason = WINDOW_EXPOSURE_REASON_HIDDEN; }
@@ -355,7 +353,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 
 	public unsigned int nativeId() { return self._id; }
 
-	public SDL_Window* nativeWindow() { self.requireOpen(); return self._window; }
+	public BtrcGtkWindow* nativeWindow() { self.requireOpen(); return self._window; }
 
 	public bool canCaptureInput() { return self._context.canCaptureInput(self._host.events); }
 
@@ -370,7 +368,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 	}
 
 	/* Capture only records readiness. Transaction admission and user delivery
-	 * belong to the ordinary bounded semantic turn, never SDL dispatch. */
+	 * belong to the ordinary bounded semantic turn, never event dispatch. */
 	public bool serviceNativeClose() {
 		self._context.requireMutationAllowed();
 		if (!self._closeRequested) { return false; }
@@ -382,7 +380,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 
 	private void refreshInteraction() {
 		bool visible = self.isVisible();
-		bool minimized = self._window != null && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_MINIMIZED) != 0ULL;
+		bool minimized = self._window != null && btrcGtkWindowIsMinimized(self._window);
 		self._host.eligible = self.isOpen() && visible && !minimized && !self._suspended;
 		self._host.exposure = !visible || minimized ? WINDOW_EXPOSURE_NOT_EXPOSED : WINDOW_EXPOSURE_UNKNOWN;
 		if (self._root != null) { self._root.node().refreshInteraction(self._host.eligible); }
@@ -420,10 +418,10 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 	}
 
 	/* Hidden windows present nothing, so they never keep the loop awake. */
-	public bool needsFrame() { return !self._suspended && self.isVisible() && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_MINIMIZED) == 0ULL && (self._host.invalidation.revision() != self._paintedRevision || (self._wakeAt != 0ULL && SDL_GetTicksNS() >= self._wakeAt)); }
+	public bool needsFrame() { return !self._suspended && self.isVisible() && !btrcGtkWindowIsMinimized(self._window) && (self._host.invalidation.revision() != self._paintedRevision || (self._wakeAt != 0ULL && btrcGtkTicksNS() >= self._wakeAt)); }
 
 	/* When a painted view asked to be redrawn (a caret blink, a spinner); zero for none. */
-	public unsigned long long wakeAt() { return !self._suspended && self.isVisible() && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_MINIMIZED) == 0ULL ? self._wakeAt : 0ULL; }
+	public unsigned long long wakeAt() { return !self._suspended && self.isVisible() && !btrcGtkWindowIsMinimized(self._window) ? self._wakeAt : 0ULL; }
 
 	private RGBA background() { var theme = self._dark ? self._context.darkTheme : self._context.lightTheme; return theme.dark ? RGBA(30, 30, 33, 255) : RGBA(238, 238, 240, 255); }
 
@@ -570,7 +568,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 		int top = path.isEmpty() ? 0 : path.last().view.node().id;
 		if (top != self._hoverTopId) {
 			self._hoverTopId = top;
-			self._hoverStart = SDL_GetTicksNS();
+			self._hoverStart = btrcGtkTicksNS();
 			self.applyCursor(path.isEmpty() ? 0 : path.last().view.node().cursor);
 			self._host.invalidation.mark();
 		}
@@ -579,13 +577,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 	private void applyCursor(int kind) {
 		if (kind == self._cursorKind || self._window == null) { return; }
 		self._cursorKind = kind;
-		if (kind == 1) {
-			if (self._textCursor == null) { self._textCursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT); }
-			if (self._textCursor != null) { SDL_SetCursor(self._textCursor); }
-		} else {
-			if (self._defaultCursor == null) { self._defaultCursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT); }
-			if (self._defaultCursor != null) { SDL_SetCursor(self._defaultCursor); }
-		}
+		btrcGtkWindowSetCursor(self._window, kind == 1 ? (int)BTRC_GTK_CURSOR_TEXT : (int)BTRC_GTK_CURSOR_DEFAULT);
 	}
 
 	/* Hover help after the pointer rests on a control for a moment. */
@@ -593,7 +585,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 		if (self._hoverTopId == 0 || !self._pointerInside || self._captureButton != APP_POINTER_BUTTON_NONE) { return; }
 		var located = self.locate(self._hoverTopId);
 		if (located == null || located.view.node().toolTip.isEmpty()) { return; }
-		unsigned long long elapsed = (SDL_GetTicksNS() - self._hoverStart) / 1000000ULL;
+		unsigned long long elapsed = (btrcGtkTicksNS() - self._hoverStart) / 1000000ULL;
 		if (elapsed < 700ULL) { self._host.requestWake((double)(700ULL - elapsed) / 1000.0); return; }
 		var theme = painter.theme();
 		string text = located.view.node().toolTip;
@@ -762,47 +754,41 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 	private void syncTextInput() {
 		if (self._window == null) { return; }
 		if (self._host.textInputWanted) {
-			double scale = 1.0;
-			SDL_Rect area;
-			area.x = (int)(self._host.textInputX * scale);
-			area.y = (int)(self._host.textInputY * scale);
-			area.w = (int)Math.maxDouble(1.0, self._host.textInputWidth * scale);
-			area.h = (int)Math.maxDouble(1.0, self._host.textInputHeight * scale);
-			SDL_SetTextInputArea(self._window, &area, 0);
-			if (!SDL_TextInputActive(self._window)) { SDL_StartTextInput(self._window); }
-		} else if (SDL_TextInputActive(self._window)) { SDL_StopTextInput(self._window); }
+			btrcGtkWindowSetTextInputArea(self._window, (int)self._host.textInputX, (int)self._host.textInputY, (int)Math.maxDouble(1.0, self._host.textInputWidth), (int)Math.maxDouble(1.0, self._host.textInputHeight));
+			if (!btrcGtkWindowTextInputActive(self._window)) { btrcGtkWindowStartTextInput(self._window); }
+		} else if (btrcGtkWindowTextInputActive(self._window)) { btrcGtkWindowStopTextInput(self._window); }
 	}
 
-	/* Route one flattened SDL event that names this window. */
-	public void dispatch(BtrcSdlEvent* event) {
+	/* Route one of the shim's events that names this window. */
+	public void dispatch(BtrcGtkEvent* event) {
 		if (self._window == null || self._closing || self._closed || event == null) { return; }
 		unsigned int type = event->type;
-		if (type == (unsigned int)SDL_EVENT_WINDOW_CLOSE_REQUESTED) { self._closeRequested = true; self._host.invalidation.mark(); return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_RESIZED || type == (unsigned int)SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || type == (unsigned int)SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED || type == (unsigned int)SDL_EVENT_WINDOW_EXPOSED) {
+		if (type == (unsigned int)BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED) { self._closeRequested = true; self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)BTRC_GTK_EVENT_WINDOW_RESIZED || type == (unsigned int)BTRC_GTK_EVENT_WINDOW_PIXEL_SIZE_CHANGED || type == (unsigned int)BTRC_GTK_EVENT_WINDOW_DISPLAY_SCALE_CHANGED || type == (unsigned int)BTRC_GTK_EVENT_WINDOW_EXPOSED) {
 			self.layoutRoot(); self.refreshWindowState();
 			self._host.invalidation.mark();
 			return;
 		}
-		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_GAINED) { self._focused = true; self._focusObserved = true; self.refreshWindowState(); self._host.invalidation.mark(); return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_FOCUS_LOST) { self._focused = false; self._focusObserved = true; self.cancelCapture(); self.refreshWindowState(); self._host.invalidation.mark(); return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_LEAVE) { self._pointerInside = false; if (self._captureButton == APP_POINTER_BUTTON_NONE) { self.clearHover(); } return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_MOUSE_ENTER) { self._pointerInside = true; return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_SHOWN) { self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_HIDDEN) { self._visible = false; self.refreshInteraction(); return; }
-		if (type == (unsigned int)SDL_EVENT_WINDOW_MINIMIZED || type == (unsigned int)SDL_EVENT_WINDOW_RESTORED) { self.refreshInteraction(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)BTRC_GTK_EVENT_WINDOW_FOCUS_GAINED) { self._focused = true; self._focusObserved = true; self.refreshWindowState(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)BTRC_GTK_EVENT_WINDOW_FOCUS_LOST) { self._focused = false; self._focusObserved = true; self.cancelCapture(); self.refreshWindowState(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)BTRC_GTK_EVENT_WINDOW_MOUSE_LEAVE) { self._pointerInside = false; if (self._captureButton == APP_POINTER_BUTTON_NONE) { self.clearHover(); } return; }
+		if (type == (unsigned int)BTRC_GTK_EVENT_WINDOW_MOUSE_ENTER) { self._pointerInside = true; return; }
+		if (type == (unsigned int)BTRC_GTK_EVENT_WINDOW_SHOWN) { self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); return; }
+		if (type == (unsigned int)BTRC_GTK_EVENT_WINDOW_HIDDEN) { self._visible = false; self.refreshInteraction(); return; }
+		if (type == (unsigned int)BTRC_GTK_EVENT_WINDOW_MINIMIZED || type == (unsigned int)BTRC_GTK_EVENT_WINDOW_RESTORED) { self.refreshInteraction(); self._host.invalidation.mark(); return; }
 		if (!self._host.eligible) { return; }
-		if (type == (unsigned int)SDL_EVENT_MOUSE_MOTION) {
+		if (type == (unsigned int)BTRC_GTK_EVENT_MOUSE_MOTION) {
 			self._pointerX = (double)event->x;
 			self._pointerY = (double)event->y;
-			self._modifiers = LinuxGtkKeys.modifiers((unsigned int)SDL_GetModState());
+			self._modifiers = LinuxGtkKeys.modifiers((unsigned int)btrcGtkModState());
 			bool dragging = self._captureButton != APP_POINTER_BUTTON_NONE && (self._captureViewId != 0 || self._captureInputViewId != 0);
 			self.deliverPointer(dragging ? APP_POINTER_DRAGGED : APP_POINTER_MOVED, dragging ? self._captureButton : APP_POINTER_BUTTON_NONE, 0);
 			return;
 		}
-		if (type == (unsigned int)SDL_EVENT_MOUSE_BUTTON_DOWN || type == (unsigned int)SDL_EVENT_MOUSE_BUTTON_UP) {
+		if (type == (unsigned int)BTRC_GTK_EVENT_MOUSE_BUTTON_DOWN || type == (unsigned int)BTRC_GTK_EVENT_MOUSE_BUTTON_UP) {
 			self._pointerX = (double)event->x;
 			self._pointerY = (double)event->y;
-			self._modifiers = LinuxGtkKeys.modifiers((unsigned int)SDL_GetModState());
+			self._modifiers = LinuxGtkKeys.modifiers((unsigned int)btrcGtkModState());
 			var button = LinuxGtkKeys.button(event->button);
 			bool down = event->down != 0;
 			if (down && self._captureButton != APP_POINTER_BUTTON_NONE) { return; }
@@ -810,13 +796,13 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 			self.applyFocus();
 			return;
 		}
-		if (type == (unsigned int)SDL_EVENT_MOUSE_WHEEL) {
+		if (type == (unsigned int)BTRC_GTK_EVENT_MOUSE_WHEEL) {
 			self._pointerX = (double)event->x;
 			self._pointerY = (double)event->y;
 			self.deliverScroll((double)event->wheelX, (double)event->wheelY);
 			return;
 		}
-		if (type == (unsigned int)SDL_EVENT_KEY_DOWN || type == (unsigned int)SDL_EVENT_KEY_UP) {
+		if (type == (unsigned int)BTRC_GTK_EVENT_KEY_DOWN || type == (unsigned int)BTRC_GTK_EVENT_KEY_UP) {
 			self._modifiers = LinuxGtkKeys.modifiers(event->modifiers);
 			var code = LinuxGtkKeys.keyCode(event->key, event->scancode);
 			AppKeyAction action = event->down != 0 ? (event->repeat != 0 ? APP_KEY_REPEATED : APP_KEY_PRESSED) : APP_KEY_RELEASED;
@@ -824,7 +810,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 			self.applyFocus();
 			return;
 		}
-		if (type == (unsigned int)SDL_EVENT_TEXT_EDITING) {
+		if (type == (unsigned int)BTRC_GTK_EVENT_TEXT_EDITING) {
 			if (event->text != null && self._host.focusedId != 0) {
 				var focused = self.locate(self._host.focusedId);
 				if (focused != null && focused.view.node().effectiveEligible()) {
@@ -834,7 +820,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 			}
 			return;
 		}
-		if (type == (unsigned int)SDL_EVENT_TEXT_INPUT) {
+		if (type == (unsigned int)BTRC_GTK_EVENT_TEXT_INPUT) {
 			if (event->text != null && self._host.focusedId != 0) {
 				var focused = self.locate(self._host.focusedId);
 				if (focused != null && focused.view.node().effectiveEligible()) { focused.view.textInput(Strings.copy((char*)event->text)); }
@@ -854,9 +840,8 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 	private void layoutRoot() {
 		var root = self._root;
 		if (root == null || self._window == null) { return; }
-		int width = 0;
-		int height = 0;
-		SDL_GetWindowSize(self._window, &width, &height);
+		int width = btrcGtkWindowWidth(self._window);
+		int height = btrcGtkWindowHeight(self._window);
 		self._host.width = (double)width;
 		self._host.height = (double)height;
 		root.arrange(0.0, 0.0, (double)width, (double)height);
@@ -868,17 +853,17 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 		self.requireOpen();
 		if (title == null) { throw "Native window title is missing"; }
 		self._title = title;
-		SDL_SetWindowTitle(self._window, title);
+		btrcGtkWindowSetTitle(self._window, title);
 	}
 
-	public double contentWidth() { self.requireOpen(); int width = 0; int height = 0; SDL_GetWindowSize(self._window, &width, &height); return (double)width; }
+	public double contentWidth() { self.requireOpen(); return (double)btrcGtkWindowWidth(self._window); }
 
-	public double contentHeight() { self.requireOpen(); int width = 0; int height = 0; SDL_GetWindowSize(self._window, &width, &height); return (double)height; }
+	public double contentHeight() { self.requireOpen(); return (double)btrcGtkWindowHeight(self._window); }
 
 	public void setContentSize(double width, double height) {
 		self.requireOpen();
 		if (!Math.isFinite(width) || !Math.isFinite(height) || width <= 0.0 || height <= 0.0) { throw "Invalid window content size"; }
-		SDL_SetWindowSize(self._window, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height));
+		btrcGtkWindowSetSize(self._window, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height));
 		self._host.width = width;
 		self._host.height = height;
 		self.layoutRoot(); self.refreshWindowState();
@@ -887,7 +872,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 	public void setMinimumContentSize(double width, double height) {
 		self.requireOpen();
 		if (!Math.isFinite(width) || !Math.isFinite(height) || width <= 0.0 || height <= 0.0) { throw "Invalid window content size"; }
-		SDL_SetWindowMinimumSize(self._window, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height));
+		btrcGtkWindowSetMinimumSize(self._window, (int)Math.ceilDouble(width), (int)Math.ceilDouble(height));
 	}
 
 	public IView? root() { return self._root; }
@@ -940,17 +925,17 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 		return root;
 	}
 
-	public void show() { self.requireOpen(); if (!SDL_ShowWindow(self._window)) { throw "Cannot show native window"; } self._requestedVisible = true; self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); }
+	public void show() { self.requireOpen(); if (!btrcGtkWindowShow(self._window)) { throw "Cannot show native window"; } self._requestedVisible = true; self._visible = true; self.refreshInteraction(); self.layoutRoot(); self._host.invalidation.mark(); }
 
-	public void hide() { self.requireOpen(); if (!SDL_HideWindow(self._window)) { throw "Cannot hide native window"; } self._requestedVisible = false; self._visible = false; self.refreshInteraction(); }
+	public void hide() { self.requireOpen(); if (!btrcGtkWindowHide(self._window)) { throw "Cannot hide native window"; } self._requestedVisible = false; self._visible = false; self.refreshInteraction(); }
 
-	public bool isVisible() { return self.isOpen() && self._visible && (SDL_GetWindowFlags(self._window) & (unsigned long long)SDL_WINDOW_HIDDEN) == 0ULL; }
+	public bool isVisible() { return self.isOpen() && self._visible && !btrcGtkWindowIsHidden(self._window); }
 
 	public bool isFocused() { return self.isOpen() && self._focused; }
 
 	public void showAlert(string title, string message) {
 		self.requireOpen(); self._context.requireNoCloseDecision();
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title, message, self._window);
+		btrcGtkWindowShowMessage(self._window, title, message);
 	}
 
 	public ICallbackRegistration onKey(IWindowKeyHandler handler, CallbackScope owner) {
@@ -986,9 +971,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 		var surface = self._surface;
 		if (surface != null) { surface.close(); }
 		self._surface = null;
-		if (self._textCursor != null) { SDL_DestroyCursor(self._textCursor); self._textCursor = null; }
-		if (self._defaultCursor != null) { SDL_DestroyCursor(self._defaultCursor); self._defaultCursor = null; }
-		if (self._window != null) { SDL_DestroyWindow(self._window); self._window = null; }
+		if (self._window != null) { btrcGtkWindowDestroy(self._window); self._window = null; }
 	}
 
 	public CallbackCancellation pollClose() {

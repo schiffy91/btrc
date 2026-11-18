@@ -10,9 +10,9 @@ import Library.GUI.Linux.Gtk.LinuxGtkView;
 import Library.GUI.Linux.Gtk.LinuxGtkContext;
 import Library.GUI.Linux.Gtk.LinuxGtkFonts;
 import Library.GUI.Linux.Gtk.LinuxGtkPainter;
-import Library.GUI.Linux.Gtk.SDL;
+import Library.GUI.Linux.Gtk.GtkShim;
 
-/* A drawn single-line editor: caret, selection, clipboard and SDL text
+/* A drawn single-line editor: caret, selection, clipboard and the shim's text
  * input. Text is always an owned BTRC string; offsets are byte offsets on
  * scalar boundaries. */
 class LinuxGtkTextField extends LinuxGtkNodeView implements ITextField, ILinuxGtkTextTarget {
@@ -161,7 +161,7 @@ class LinuxGtkTextField extends LinuxGtkNodeView implements ITextField, ILinuxGt
 	private void clearComposition() {
 		if (!self._composing) { return; }
 		var host = self._compositionHost;
-		if (host != null && host.window != null && !SDL_ClearComposition(host.window)) { throw "Cannot cancel native text composition"; }
+		if (host != null && host.window != null) { btrcGtkWindowClearComposition(host.window); }
 		self._composing = false; self._preedit = ""; self._compositionHost = null; self._compositionCommitRequested = false; self.changed();
 	}
 
@@ -193,7 +193,7 @@ class LinuxGtkTextField extends LinuxGtkNodeView implements ITextField, ILinuxGt
 		} finally { self.releaseTickets(); }
 	}
 
-	/* SDL editing offsets count UTF-8 scalar values, not byte offsets. The
+	/* Editing offsets count UTF-8 scalar values, not byte offsets. The
 	 * native preedit stays separate from the accepted/non-composing draft. */
 	public void textEditing(string value, int start, int length) {
 		if (!self._focused || !self.node().effectiveEligible() || value == null || !Bytes.fromString(value).isNulFreeUtf8()) { return; }
@@ -268,7 +268,7 @@ class LinuxGtkTextField extends LinuxGtkNodeView implements ITextField, ILinuxGt
 	}
 
 	private void changed() {
-		self._blinkStart = SDL_GetTicksNS();
+		self._blinkStart = btrcGtkTicksNS();
 		self.ensureCaretVisible();
 		self.node().invalidate();
 	}
@@ -281,15 +281,15 @@ class LinuxGtkTextField extends LinuxGtkNodeView implements ITextField, ILinuxGt
 
 	private bool copySelection() {
 		if (!self.hasSelection()) { return false; }
-		return SDL_SetClipboardText(self._text.substring(self.selectionStart(), self.selectionEnd()));
+		return btrcGtkSetClipboardText(self._text.substring(self.selectionStart(), self.selectionEnd()));
 	}
 
 	private void paste() {
-		if (!SDL_HasClipboardText()) { return; }
-		var raw = SDL_GetClipboardText();
+		if (!btrcGtkHasClipboardText()) { return; }
+		var raw = btrcGtkGetClipboardText();
 		if (raw == null) { return; }
 		string pasted = "";
-		try { pasted = Strings.copy(raw); } finally { SDL_free((void*)raw); }
+		try { pasted = Strings.copy(raw); } finally { btrcGtkFree(raw); }
 		if (!Bytes.fromString(pasted).isNulFreeUtf8()) { return; }
 		self.replaceSelection(pasted.replace("\n", " ").replace("\r", ""));
 	}
@@ -325,7 +325,7 @@ class LinuxGtkTextField extends LinuxGtkNodeView implements ITextField, ILinuxGt
 			painter.fillRect(textX + start, textY + lineHeight - 1.0, width, 1.0, theme.accent, 0.0);
 		}
 		if (self._focused && self._enabled) {
-			unsigned long long elapsed = (SDL_GetTicksNS() - self._blinkStart) / 1000000ULL;
+			unsigned long long elapsed = (btrcGtkTicksNS() - self._blinkStart) / 1000000ULL;
 			bool on = (elapsed / 530ULL) % 2ULL == 0ULL;
 			double caret = self.caretAdvance();
 			if (on) { painter.fillRect(textX + caret, textY + 1.0, 1.5, lineHeight - 2.0, theme.text, 0.0); }
@@ -413,7 +413,7 @@ class LinuxGtkTextField extends LinuxGtkNodeView implements ITextField, ILinuxGt
 		self._focused = focused;
 		self._dragging = false;
 		if (!focused) { self._anchor = self._caret; }
-		self._blinkStart = SDL_GetTicksNS();
+		self._blinkStart = btrcGtkTicksNS();
 		self.node().invalidate();
 	}
 

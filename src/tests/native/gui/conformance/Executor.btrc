@@ -179,7 +179,7 @@ class AppRun implements ILoopCase {
 
 	public void run() {
 		GUI.initialize();
-		var window = GUI.createWindow("conformance app.run", 160.0, 100.0);
+		var window = GUI.createWindow("conformance app.run", 320.0, 100.0);
 		window.show();
 		var quit = QuitWork();
 		GUI.post(quit);

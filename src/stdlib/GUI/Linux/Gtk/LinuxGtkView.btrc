@@ -7,11 +7,11 @@ import Library.GUI.ControlEventQueue;
 import Library.GUI.Linux.Gtk.LinuxGtkContext;
 import Library.GUI.Linux.Gtk.LinuxGtkActionQueue;
 import Library.GUI.Linux.Gtk.LinuxGtkPainter;
-import Library.GUI.Linux.Gtk.SDL;
+import Library.GUI.Linux.Gtk.GtkShim;
 import Library.GPU.GPUDevice;
 import Library.GPU.WebGPU;
 
-/* SDL's monotonic clock in nanoseconds. Delays are clamped to a billion
+/* The monotonic clock in nanoseconds. Delays are clamped to a billion
  * seconds so the conversion and the deadline sum stay in range; a longer
  * delay never fires either way. */
 class LinuxGtkClock {
@@ -21,7 +21,7 @@ class LinuxGtkClock {
 		return (unsigned long long)(seconds * 1000000000.0);
 	}
 
-	class unsigned long long after(double seconds) { return SDL_GetTicksNS() + LinuxGtkClock.nanoseconds(seconds); }
+	class unsigned long long after(double seconds) { return btrcGtkTicksNS() + LinuxGtkClock.nanoseconds(seconds); }
 }
 
 /* The window behind a host: advances its asynchronous device request on demand. */
@@ -34,7 +34,7 @@ interface ILinuxGtkDevicePoller {
  * window's own invalidation, so a change repaints only its window.
  * Owned by the window, referenced by attached nodes, referencing no view. */
 class LinuxGtkViewHost {
-	public SDL_Window* window;
+	public BtrcGtkWindow* window;
 	public ControlEventQueue events;
 	public bool eligible = false;
 	public WindowExposure exposure = WINDOW_EXPOSURE_UNKNOWN;
@@ -57,7 +57,7 @@ class LinuxGtkViewHost {
 	public double height = 0.0;
 	public double wakeSeconds = -1.0;
 
-	public LinuxGtkViewHost(SDL_Window* window, LinuxGtkContext context) { self.window = window; self.context = context; self.invalidation = LinuxGtkInvalidation(); self.events = context.createSemanticQueue(); }
+	public LinuxGtkViewHost(BtrcGtkWindow* window, LinuxGtkContext context) { self.window = window; self.context = context; self.invalidation = LinuxGtkInvalidation(); self.events = context.createSemanticQueue(); }
 
 	/* Ask the window to repaint after at most `seconds`, for blinking or spinning. */
 	public void requestWake(double seconds) {

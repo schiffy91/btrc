@@ -80,7 +80,7 @@ class ViewPointer implements IConformanceCase {
 	public string name() { return "view.pointer"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance view.pointer", 300.0, 200.0);
+		var window = GUI.createWindow("conformance view.pointer", 320.0, 200.0);
 		var root = GUI.createContainer();
 		var target = GUI.createPanel(RGBA(30, 160, 60));
 		window.attachRoot(root);
@@ -136,7 +136,7 @@ class ViewInteraction implements IConformanceCase {
 	public string name() { return "view.interaction"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance view.interaction", 240.0, 160.0);
+		var window = GUI.createWindow("conformance view.interaction", 320.0, 160.0);
 		var root = GUI.createContainer();
 		var button = GUI.createButton("Go");
 		window.attachRoot(root);

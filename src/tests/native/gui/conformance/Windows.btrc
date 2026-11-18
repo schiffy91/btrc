@@ -24,13 +24,13 @@ class WindowStateCase implements IConformanceCase {
 	public string name() { return "window.state"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance window.state", 300.0, 200.0);
+		var window = GUI.createWindow("conformance window.state", 400.0, 240.0);
 		Expect.strEq(window.title(), "conformance window.state");
 		window.setTitle("conformance window.state renamed");
 		Expect.strEq(window.title(), "conformance window.state renamed");
 		Expect.isTrue(window.isOpen());
 		Expect.isFalse(window.isVisible(), "a new window is not shown");
-		Expect.isTrue(window.contentWidth() == 300.0 && window.contentHeight() == 200.0);
+		Expect.isTrue(window.contentWidth() == 400.0 && window.contentHeight() == 240.0);
 		Expect.isTrue(window.root() == null, "a new window has no root");
 		var panel = GUI.createPanel(Palette.red());
 		window.attachRoot(panel);
@@ -42,16 +42,16 @@ class WindowStateCase implements IConformanceCase {
 		turns.settle();
 		Expect.isTrue(window.isVisible());
 		var shown = window.state();
-		Expect.isTrue(shown.requestedVisible && shown.width == 300.0 && shown.height == 200.0 && shown.backingScale > 0.0);
+		Expect.isTrue(shown.requestedVisible && shown.width == 400.0 && shown.height == 240.0 && shown.backingScale > 0.0, "a shown window has the content size it was made with");
 		Expect.isTrue(log.states.length > 0, "showing a window is a state change");
-		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 300.0, 200.0), "the root, which fills the content");
+		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 400.0, 240.0), "the root, which fills the content");
 		int reported = log.states.length;
-		window.setContentSize(360.0, 240.0);
+		window.setContentSize(480.0, 300.0);
 		turns.settle();
-		Expect.isTrue(window.contentWidth() == 360.0 && window.contentHeight() == 240.0);
-		Expect.isTrue(log.states.length > reported && log.states.get(log.states.length - 1).width == 360.0, "a new size is a state change");
-		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 360.0, 240.0), "the root after the window grew");
-		window.setMinimumContentSize(200.0, 150.0);
+		Expect.isTrue(window.contentWidth() == 480.0 && window.contentHeight() == 300.0, "a window takes the content size it is given");
+		Expect.isTrue(log.states.length > reported && log.states.get(log.states.length - 1).width == 480.0, "a new size is a state change");
+		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 480.0, 300.0), "the root after the window grew");
+		window.setMinimumContentSize(320.0, 150.0);
 		var detached = window.detachRoot();
 		Expect.isTrue(detached == panel && panel.isOpen() && window.root() == null, "detaching returns the same open root");
 		window.hide();
@@ -85,7 +85,7 @@ class WindowClose implements IConformanceCase {
 	public string name() { return "window.close"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance window.close", 240.0, 120.0);
+		var window = GUI.createWindow("conformance window.close", 320.0, 120.0);
 		window.show();
 		turns.settle();
 		var log = CloseLog();
@@ -136,7 +136,7 @@ class WindowKey implements IConformanceCase {
 	public string name() { return "window.key"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance window.key", 240.0, 120.0);
+		var window = GUI.createWindow("conformance window.key", 320.0, 120.0);
 		window.attachRoot(GUI.createPanel(Palette.blue()));
 		window.show();
 		turns.settle();

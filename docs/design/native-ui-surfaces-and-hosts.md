@@ -129,18 +129,31 @@ until the first provider commit opens the gate's window from a BTRC program.
 In steps that each keep the conformance suite passing, so the work can stop
 and resume at any of them:
 
-1. **A copy that is still drawn.** `GUI/Linux` is copied to `GUI/Gtk` with its
-   classes renamed, and tests select it through an alternate data root whose
+1. **A copy that is still drawn.** `GUI/Linux` is copied to `GUI/Linux/Gtk`
+   with its classes renamed (**done**), and tests select it through an alternate data root whose
    GUI manifest names it for Linux (as `src/tests/gui_provider_root.py` does
    for white-box fixtures). The SDL provider stays the shipped one. The suite
    passes on the copy before anything changes.
 2. **A GTK window under it.** The copy's window becomes a `GtkWindow`. Its
    drawn content moves to one full-window GPU surface on a subsurface below
-   the window, the gate's route. A C shim (`GUI/Gtk/GtkShim.h`, `.c`) owns
+   the window, the gate's route. A C shim (`GUI/Linux/Gtk/GtkShim.h`, `.c`) owns
    every GTK object and turns signals and controller events into a queue of
    plain events that BTRC polls each turn (`g_main_context_iteration`), as
    the SDL provider polls SDL: no callback enters BTRC. This is the
    btrc-hosted window the gate did not show.
+   **Done 2026-11-18.** The copy no longer uses SDL. All 35 cases pass on it
+   on X11 (the surface is an input-transparent child window) and on Wayland
+   (the subsurface), and a compositor screenshot of `examples/gui/Native.btrc`
+   shows GTK's header bar over the provider's content
+   (`native-ui-gtk4-gate/hosted-window.png`). Found on the way: GTK sizes a
+   window with its header bar and, on a display that does not composite, a
+   drawn border, so the shim measures what GTK adds around the content; and a
+   header bar has a minimum width (about 280 points with the default theme),
+   so a narrower window comes out wider than asked. The suite's cases now use
+   windows at least 320 points wide and read the content size back. Not yet
+   shown: pointer and keys arriving through GTK's own controllers; the suite
+   still queues its input in the shim, until the probes of step 5 send real
+   input.
 3. **One control at a time.** Each drawn control is replaced by its native
    widget placed over the surface at the frame the provider's own layout
    gives it: button, label, text field, select, slider, the two indicators,

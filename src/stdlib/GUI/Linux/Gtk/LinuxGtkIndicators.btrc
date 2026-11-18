@@ -6,7 +6,7 @@ import Library.GUI.Linux.Gtk.LinuxGtkView;
 import Library.GUI.Linux.Gtk.LinuxGtkContext;
 import Library.GUI.Linux.Gtk.LinuxGtkPainter;
 import Library.GUI.Linux.Gtk.LinuxGtkSymbols;
-import Library.GUI.Linux.Gtk.SDL;
+import Library.GUI.Linux.Gtk.GtkShim;
 
 /* An indeterminate spinner: a rotating arc redrawn while running. */
 class LinuxGtkProgressIndicator extends LinuxGtkNodeView implements IProgressIndicator {
@@ -21,7 +21,7 @@ class LinuxGtkProgressIndicator extends LinuxGtkNodeView implements IProgressInd
 		double cx = x + self.node().width * 0.5;
 		double cy = y + self.node().height * 0.5;
 		double radius = Math.maxDouble(4.0, size * 0.4);
-		double phase = (double)(SDL_GetTicksNS() / 4000000ULL % 1000ULL) / 1000.0 * 6.283185307179586;
+		double phase = (double)(btrcGtkTicksNS() / 4000000ULL % 1000ULL) / 1000.0 * 6.283185307179586;
 		painter.strokeCircle(cx, cy, radius, RGBA(theme.text.red, theme.text.green, theme.text.blue, 40), Math.maxDouble(2.0, size * 0.12));
 		LinuxGtkSymbols.arc(painter, cx, cy, radius, phase, phase + 1.9, Math.maxDouble(2.0, size * 0.12), theme.accent);
 		var host = self.node().host;

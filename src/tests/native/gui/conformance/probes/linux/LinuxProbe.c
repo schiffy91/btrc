@@ -1,10 +1,26 @@
-/* The conformance probe for the SDL provider: synthetic SDL events queued for
- * the window with the given title. Like the provider's own automation helpers
- * these are stand-ins for a compositor's input, not a compositor's input. */
+/* The conformance probe for Linux. While the GTK provider is built beside the
+ * SDL one (docs/design/native-ui-surfaces-and-hosts.md, section 3) one probe
+ * serves both: a window the SDL provider made gets synthetic SDL events, and
+ * a window the GTK provider made gets events queued in its shim. Both are
+ * stand-ins for a compositor's input, as each provider's own automation
+ * helpers are. */
 #include "../ConformanceProbe.h"
 #include <SDL3/SDL.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* The GTK shim's automation entry points (GUI/Linux/Gtk/GtkShim.h). A
+ * program built on the SDL provider does not link the shim, so they are weak
+ * and absent there. The key numbers are the shim's BtrcGtkKey. */
+unsigned int btrcGtkWindowNamed(const char *title) __attribute__((weak));
+void btrcGtkPushPointerMotion(unsigned int window, float x, float y) __attribute__((weak));
+void btrcGtkPushPointerButton(unsigned int window, float x, float y, unsigned int button, int down, unsigned int clicks) __attribute__((weak));
+void btrcGtkPushWheel(unsigned int window, float x, float y, float deltaX, float deltaY) __attribute__((weak));
+void btrcGtkPushKey(unsigned int window, unsigned int scancode, unsigned int key, unsigned int modifiers, int down, int repeat) __attribute__((weak));
+int btrcGtkPushText(unsigned int window, const char *text) __attribute__((weak));
+void btrcGtkPushClose(unsigned int window) __attribute__((weak));
+
+static unsigned int gtkWindowNamed(const char *title) { return btrcGtkWindowNamed ? btrcGtkWindowNamed(title) : 0; }
 
 static SDL_WindowID windowNamed(const char *title) {
     int count = 0;
@@ -22,6 +38,8 @@ static SDL_WindowID windowNamed(const char *title) {
 }
 
 static int button(const char *title, double x, double y, bool down) {
+    unsigned int native = gtkWindowNamed(title);
+    if (native) { btrcGtkPushPointerButton(native, (float)x, (float)y, 1u, down ? 1 : 0, 1u); return 1; }
     SDL_WindowID window = windowNamed(title);
     if (!window) { return 0; }
     SDL_Event event;
@@ -37,6 +55,8 @@ static int button(const char *title, double x, double y, bool down) {
 }
 
 int conformanceProbeMove(const char *title, double x, double y) {
+    unsigned int native = gtkWindowNamed(title);
+    if (native) { btrcGtkPushPointerMotion(native, (float)x, (float)y); return 1; }
     SDL_WindowID window = windowNamed(title);
     if (!window) { return 0; }
     SDL_Event event;
@@ -53,6 +73,8 @@ int conformanceProbePress(const char *title, double x, double y) { return button
 int conformanceProbeRelease(const char *title, double x, double y) { return button(title, x, y, false); }
 
 int conformanceProbeWheel(const char *title, double x, double y, double deltaX, double deltaY) {
+    unsigned int native = gtkWindowNamed(title);
+    if (native) { btrcGtkPushWheel(native, (float)x, (float)y, (float)deltaX, (float)deltaY); return 1; }
     SDL_WindowID window = windowNamed(title);
     if (!window) { return 0; }
     SDL_Event event;
@@ -78,8 +100,27 @@ int conformanceProbeKey(const char *title, int key) {
         [CONFORMANCE_KEY_BACKSPACE] = {SDL_SCANCODE_BACKSPACE, SDLK_BACKSPACE, SDL_KMOD_NONE},
         [CONFORMANCE_KEY_SELECT_ALL] = {SDL_SCANCODE_A, SDLK_A, SDL_KMOD_CTRL},
     };
+    /* The shim's BtrcGtkKey, its scancode and its modifier for each key. */
+    static const struct { unsigned int scancode, key, modifiers; } gtkKeys[] = {
+        [CONFORMANCE_KEY_RETURN] = {0, 2, 0},
+        [CONFORMANCE_KEY_ESCAPE] = {0, 1, 0},
+        [CONFORMANCE_KEY_TAB] = {0, 9, 0},
+        [CONFORMANCE_KEY_LEFT] = {0x100, 5, 0},
+        [CONFORMANCE_KEY_RIGHT] = {0, 6, 0},
+        [CONFORMANCE_KEY_UP] = {0, 7, 0},
+        [CONFORMANCE_KEY_DOWN] = {0, 8, 0},
+        [CONFORMANCE_KEY_BACKSPACE] = {8, 10, 0},
+        [CONFORMANCE_KEY_SELECT_ALL] = {'a', 18, 2},
+    };
+    if (key < CONFORMANCE_KEY_RETURN || key > CONFORMANCE_KEY_SELECT_ALL) { return 0; }
+    unsigned int native = gtkWindowNamed(title);
+    if (native) {
+        btrcGtkPushKey(native, gtkKeys[key].scancode, gtkKeys[key].key, gtkKeys[key].modifiers, 1, 0);
+        btrcGtkPushKey(native, gtkKeys[key].scancode, gtkKeys[key].key, gtkKeys[key].modifiers, 0, 0);
+        return 1;
+    }
     SDL_WindowID window = windowNamed(title);
-    if (!window || key < CONFORMANCE_KEY_RETURN || key > CONFORMANCE_KEY_SELECT_ALL) { return 0; }
+    if (!window) { return 0; }
     for (int down = 1; down >= 0; down--) {
         SDL_Event event;
         memset(&event, 0, sizeof event);
@@ -98,6 +139,8 @@ int conformanceProbeKey(const char *title, int key) {
  * queued text keeps its own copy for the life of the process: a test's few
  * short strings, never freed while an event could still name them. */
 int conformanceProbeText(const char *title, const char *text) {
+    unsigned int native = gtkWindowNamed(title);
+    if (native) { return btrcGtkPushText(native, text); }
     SDL_WindowID window = windowNamed(title);
     if (!window) { return 0; }
     size_t length = strlen(text) + 1;
@@ -113,6 +156,8 @@ int conformanceProbeText(const char *title, const char *text) {
 }
 
 int conformanceProbeClose(const char *title) {
+    unsigned int native = gtkWindowNamed(title);
+    if (native) { btrcGtkPushClose(native); return 1; }
     SDL_WindowID window = windowNamed(title);
     if (!window) { return 0; }
     SDL_Event event;

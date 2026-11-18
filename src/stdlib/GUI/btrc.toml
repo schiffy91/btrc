@@ -21,7 +21,7 @@ os = ["windows"]
 
 [[native.pkg-config]]
 name = "sdl3"
-modules = ["Linux.SDL", "Linux.Gtk.SDL"]
+modules = ["Linux.SDL"]
 os = ["linux"]
 
 [[native.pkg-config]]
@@ -62,35 +62,80 @@ read-only-borrows = ["SDL_CreateWindow.title", "SDL_SetWindowTitle.title", "SDL_
 os = ["linux"]
 
 [[native.bindings]]
-module = "Linux.Gtk.SDL"
-header = "Linux/Gtk/SDL.h"
+module = "Linux.Gtk.GtkShim"
+header = "Linux/Gtk/GtkShim.h"
 language = "c"
 standard = "c11"
 symbols = [
-	"SDL_Window", "SDL_Init", "SDL_GetError", "SDL_IsMainThread", "SDL_CreateWindow", "SDL_DestroyWindow", "SDL_ShowWindow", "SDL_HideWindow",
-	"SDL_SetWindowTitle", "SDL_SetWindowSize", "SDL_GetWindowSize", "SDL_GetWindowSizeInPixels", "SDL_SetWindowMinimumSize",
-	"SDL_GetWindowID", "SDL_GetWindowPixelDensity", "SDL_GetWindowFlags", "SDL_GetWindowProperties", "SDL_GetPointerProperty", "SDL_GetNumberProperty",
-	"SDL_Rect", "SDL_StartTextInput", "SDL_StopTextInput", "SDL_TextInputActive", "SDL_ClearComposition", "SDL_SetTextInputArea", "SDL_GetModState",
-	"SDL_ShowSimpleMessageBox", "SDL_SetClipboardText", "SDL_HasClipboardText", "SDL_GetClipboardText", "SDL_free", "SDL_GetTicksNS",
-	"SDL_Cursor", "SDL_CreateSystemCursor", "SDL_SetCursor", "SDL_DestroyCursor",
-	"BtrcSdlEvent", "btrcSdlPollEvent", "btrcSdlWaitEvent", "btrcSdlPushWake",
-	"BtrcSdlFolderDialog", "btrcSdlFolderDialogOpen", "btrcSdlFolderDialogState", "btrcSdlFolderDialogPath", "btrcSdlFolderDialogRelease",
-	"btrcSdlPushPointerMotion", "btrcSdlPushPointerButton", "btrcSdlPushWheel", "btrcSdlPushKey", "btrcSdlPushText",
-	"SDLK_BACKSPACE", "SDLK_DELETE", "SDLK_DOWN", "SDLK_END", "SDLK_ESCAPE", "SDLK_HOME",
-	"SDLK_KP_ENTER", "SDLK_LALT", "SDLK_LEFT", "SDLK_LSHIFT", "SDLK_RALT", "SDLK_RETURN",
-	"SDLK_RIGHT", "SDLK_RSHIFT", "SDLK_SPACE", "SDLK_TAB", "SDLK_UP", "SDL_EVENT_KEY_DOWN",
-	"SDL_EVENT_KEY_UP", "SDL_EVENT_TEXT_EDITING", "SDL_EVENT_MOUSE_BUTTON_DOWN", "SDL_EVENT_MOUSE_BUTTON_UP", "SDL_EVENT_MOUSE_MOTION", "SDL_EVENT_MOUSE_WHEEL", "SDL_EVENT_QUIT",
-	"SDL_EVENT_TEXT_INPUT", "SDL_EVENT_WINDOW_CLOSE_REQUESTED", "SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED", "SDL_EVENT_WINDOW_EXPOSED", "SDL_EVENT_WINDOW_FOCUS_GAINED", "SDL_EVENT_WINDOW_FOCUS_LOST",
-	"SDL_EVENT_WINDOW_HIDDEN", "SDL_EVENT_WINDOW_MINIMIZED", "SDL_EVENT_WINDOW_RESTORED", "SDL_EVENT_WINDOW_MOUSE_ENTER", "SDL_EVENT_WINDOW_MOUSE_LEAVE", "SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED", "SDL_EVENT_WINDOW_RESIZED",
-	"SDL_EVENT_WINDOW_SHOWN", "SDL_INIT_EVENTS", "SDL_INIT_VIDEO", "SDL_KMOD_ALT", "SDL_KMOD_CTRL", "SDL_KMOD_GUI",
-	"SDL_KMOD_SHIFT", "SDL_MESSAGEBOX_INFORMATION", "SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER", "SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER", "SDL_PROP_WINDOW_X11_DISPLAY_POINTER", "SDL_PROP_WINDOW_X11_WINDOW_NUMBER",
-	"SDL_SCANCODE_A", "SDL_SCANCODE_C", "SDL_SCANCODE_D", "SDL_SCANCODE_LEFTBRACKET", "SDL_SCANCODE_Q", "SDL_SCANCODE_RIGHTBRACKET",
-	"SDL_SCANCODE_S", "SDL_SCANCODE_V", "SDL_SCANCODE_W", "SDL_SCANCODE_X", "SDL_SCANCODE_Z", "SDL_SYSTEM_CURSOR_DEFAULT",
-	"SDL_SYSTEM_CURSOR_TEXT", "SDL_WINDOW_HIDDEN", "SDL_WINDOW_HIGH_PIXEL_DENSITY", "SDL_WINDOW_MINIMIZED", "SDL_WINDOW_RESIZABLE",
-	"SDLK_A", "SDLK_C", "SDLK_V", "SDL_KMOD_LCTRL", "SDL_SCANCODE_BACKSPACE", "SDL_SCANCODE_END",
-	"SDL_SCANCODE_LEFT"
+	"BtrcGtkWindow", "BtrcGtkEvent", "BtrcGtkFolderDialog", "btrcGtkInit", "btrcGtkError", "btrcGtkIsMainThread", "btrcGtkTicksNS",
+	"btrcGtkWindowCreate", "btrcGtkWindowDestroy", "btrcGtkWindowId", "btrcGtkWindowShow", "btrcGtkWindowHide", "btrcGtkWindowIsHidden",
+	"btrcGtkWindowIsMinimized", "btrcGtkWindowSetTitle", "btrcGtkWindowSetSize", "btrcGtkWindowSetMinimumSize", "btrcGtkWindowWidth",
+	"btrcGtkWindowHeight", "btrcGtkWindowPixelWidth", "btrcGtkWindowPixelHeight", "btrcGtkWindowPixelDensity", "btrcGtkWindowSetCursor",
+	"btrcGtkWindowShowMessage", "btrcGtkWindowWaylandDisplay", "btrcGtkWindowWaylandSurface", "btrcGtkWindowX11Display", "btrcGtkWindowX11Window",
+	"btrcGtkWindowStartTextInput", "btrcGtkWindowStopTextInput", "btrcGtkWindowTextInputActive", "btrcGtkWindowClearComposition",
+	"btrcGtkWindowSetTextInputArea", "btrcGtkModState", "btrcGtkSetClipboardText", "btrcGtkHasClipboardText", "btrcGtkGetClipboardText", "btrcGtkFree",
+	"btrcGtkPollEvent", "btrcGtkWaitEvent", "btrcGtkPushWake", "btrcGtkFolderDialogOpen", "btrcGtkFolderDialogState", "btrcGtkFolderDialogPath",
+	"btrcGtkFolderDialogRelease", "btrcGtkPushPointerMotion", "btrcGtkPushPointerButton", "btrcGtkPushWheel", "btrcGtkPushKey", "btrcGtkPushText",
+	"btrcGtkPushEditing", "btrcGtkPushClose", "btrcGtkWindowNamed", "BTRC_GTK_EVENT_NONE", "BTRC_GTK_EVENT_QUIT", "BTRC_GTK_EVENT_USER",
+	"BTRC_GTK_EVENT_WINDOW_SHOWN", "BTRC_GTK_EVENT_WINDOW_HIDDEN", "BTRC_GTK_EVENT_WINDOW_EXPOSED", "BTRC_GTK_EVENT_WINDOW_RESIZED",
+	"BTRC_GTK_EVENT_WINDOW_PIXEL_SIZE_CHANGED", "BTRC_GTK_EVENT_WINDOW_DISPLAY_SCALE_CHANGED", "BTRC_GTK_EVENT_WINDOW_MINIMIZED",
+	"BTRC_GTK_EVENT_WINDOW_RESTORED", "BTRC_GTK_EVENT_WINDOW_MOUSE_ENTER", "BTRC_GTK_EVENT_WINDOW_MOUSE_LEAVE", "BTRC_GTK_EVENT_WINDOW_FOCUS_GAINED",
+	"BTRC_GTK_EVENT_WINDOW_FOCUS_LOST", "BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED", "BTRC_GTK_EVENT_KEY_DOWN", "BTRC_GTK_EVENT_KEY_UP",
+	"BTRC_GTK_EVENT_TEXT_EDITING", "BTRC_GTK_EVENT_TEXT_INPUT", "BTRC_GTK_EVENT_MOUSE_MOTION", "BTRC_GTK_EVENT_MOUSE_BUTTON_DOWN",
+	"BTRC_GTK_EVENT_MOUSE_BUTTON_UP", "BTRC_GTK_EVENT_MOUSE_WHEEL", "BTRC_GTK_KEY_UNKNOWN", "BTRC_GTK_KEY_ESCAPE", "BTRC_GTK_KEY_RETURN",
+	"BTRC_GTK_KEY_KP_ENTER", "BTRC_GTK_KEY_SPACE", "BTRC_GTK_KEY_LEFT", "BTRC_GTK_KEY_RIGHT", "BTRC_GTK_KEY_UP", "BTRC_GTK_KEY_DOWN",
+	"BTRC_GTK_KEY_TAB", "BTRC_GTK_KEY_BACKSPACE", "BTRC_GTK_KEY_DELETE", "BTRC_GTK_KEY_HOME", "BTRC_GTK_KEY_END", "BTRC_GTK_KEY_LSHIFT",
+	"BTRC_GTK_KEY_RSHIFT", "BTRC_GTK_KEY_LALT", "BTRC_GTK_KEY_RALT", "BTRC_GTK_KEY_A", "BTRC_GTK_KEY_C", "BTRC_GTK_KEY_V", "BTRC_GTK_SCANCODE_A",
+	"BTRC_GTK_SCANCODE_C", "BTRC_GTK_SCANCODE_D", "BTRC_GTK_SCANCODE_Q", "BTRC_GTK_SCANCODE_S", "BTRC_GTK_SCANCODE_V", "BTRC_GTK_SCANCODE_W",
+	"BTRC_GTK_SCANCODE_X", "BTRC_GTK_SCANCODE_Z", "BTRC_GTK_SCANCODE_LEFTBRACKET", "BTRC_GTK_SCANCODE_RIGHTBRACKET", "BTRC_GTK_SCANCODE_BACKSPACE",
+	"BTRC_GTK_SCANCODE_LEFT", "BTRC_GTK_SCANCODE_END", "BTRC_GTK_MOD_SHIFT", "BTRC_GTK_MOD_CTRL", "BTRC_GTK_MOD_ALT", "BTRC_GTK_MOD_GUI",
+	"BTRC_GTK_CURSOR_DEFAULT", "BTRC_GTK_CURSOR_TEXT"
 ]
-read-only-borrows = ["SDL_CreateWindow.title", "SDL_SetWindowTitle.title", "SDL_GetPointerProperty.name", "SDL_GetNumberProperty.name", "SDL_SetClipboardText.text", "SDL_ShowSimpleMessageBox.title", "SDL_ShowSimpleMessageBox.message", "btrcSdlFolderDialogOpen.initialDirectory", "btrcSdlFolderDialogOpen.title", "btrcSdlPushText.text"]
+read-only-borrows = ["btrcGtkWindowCreate.title", "btrcGtkWindowSetTitle.title", "btrcGtkWindowShowMessage.title", "btrcGtkWindowShowMessage.message", "btrcGtkSetClipboardText.text", "btrcGtkFolderDialogOpen.initialDirectory", "btrcGtkFolderDialogOpen.title", "btrcGtkPushText.text", "btrcGtkPushEditing.text", "btrcGtkWindowNamed.title"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Gtk/GtkShim.c"
+language = "c"
+standard = "c11"
+modules = ["Linux.Gtk.GtkShim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Gtk/wayland/viewporter-protocol.c"
+language = "c"
+standard = "c11"
+modules = ["Linux.Gtk.GtkShim"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "gtk4"
+modules = ["Linux.Gtk.GtkShim"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "gtk4-wayland"
+modules = ["Linux.Gtk.GtkShim"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "gtk4-x11"
+modules = ["Linux.Gtk.GtkShim"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "wayland-client"
+modules = ["Linux.Gtk.GtkShim"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "x11"
+modules = ["Linux.Gtk.GtkShim"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "xext"
+modules = ["Linux.Gtk.GtkShim"]
 os = ["linux"]
 
 [[native.pkg-config]]

@@ -58,14 +58,16 @@ class StackRow implements IConformanceCase {
 		row.layout();
 		turns.settle();
 		Expect.isTrue(row.alignment() == STACK_ALIGN_END);
-		/* The row fills the window: 200 points tall, less 12 above and 8 below. */
+		/* The row fills the window's height, less 12 above and 8 below. */
+		double bottom = window.contentHeight() - 8.0;
 		var end = Picture(window);
-		end.expect(Palette.red(), Frame(20.0, 152.0, 60.0, 40.0), "the first child aligned to the end");
-		end.expect(Palette.green(), Frame(80.0, 112.0, 30.0, 80.0), "the second child aligned to the end");
+		end.expect(Palette.red(), Frame(20.0, bottom - 40.0, 60.0, 40.0), "the first child aligned to the end");
+		end.expect(Palette.green(), Frame(80.0, bottom - 80.0, 30.0, 80.0), "the second child aligned to the end");
 		row.setAlignment(STACK_ALIGN_CENTER);
 		row.layout();
 		turns.settle();
-		Picture(window).expect(Palette.blue(), Frame(110.0, 92.0, 90.0, 20.0), "the third child centred");
+		double middle = 12.0 + (bottom - 12.0) / 2.0;
+		Picture(window).expect(Palette.blue(), Frame(110.0, middle - 10.0, 90.0, 20.0), "the third child centred");
 		window.close();
 		turns.settle();
 	}
@@ -76,7 +78,7 @@ class StackColumn implements IConformanceCase {
 	public string name() { return "stack.column"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance stack.column", 300.0, 300.0);
+		var window = GUI.createWindow("conformance stack.column", 320.0, 300.0);
 		var column = GUI.createColumn(6.0);
 		column.setPadding(10.0, 10.0, 10.0, 10.0);
 		column.attach(Swatch.sized(Palette.red(), 60.0, 40.0));

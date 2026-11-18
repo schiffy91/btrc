@@ -73,9 +73,13 @@ meant, and what is recorded, is that no frame is missed.
   shim that owns the GTK objects and queues their signals as events BTRC
   polls each turn, as the SDL provider does, so it needs no callbacks into
   BTRC and no GObject binding. The first provider commit must show that: a
-  BTRC program opening this window through the shim.
-- **X11.** Not run. The plan stands: a child window when nothing overlaps the
-  GPU surface, readback when something does.
+  BTRC program opening this window through the shim. **Shown since:**
+  `hosted-window.png` is headless Weston's screenshot of
+  `examples/gui/Native.btrc` built on the provider in `GUI/Linux/Gtk`, whose
+  shim (`GtkShim.c`) places the provider's surface below a `GtkWindow`.
+- **X11.** Not run here. The plan stands: a child window when nothing
+  overlaps the GPU surface, readback when something does. The provider's
+  child window has since passed the conformance suite under Xvfb.
 - **Input over the surface.** The empty input region is set; no pointer was
   sent through it.
 

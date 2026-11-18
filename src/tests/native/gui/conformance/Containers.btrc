@@ -129,7 +129,7 @@ class ScrollOffsets implements IConformanceCase {
 	public string name() { return "scroll.offsets"; }
 
 	public void run(Turns turns) {
-		var window = GUI.createWindow("conformance scroll.offsets", 200.0, 150.0);
+		var window = GUI.createWindow("conformance scroll.offsets", 320.0, 150.0);
 		var scroll = GUI.createScrollView();
 		var content = GUI.createContainer();
 		var marker = GUI.createPanel(Palette.red());
