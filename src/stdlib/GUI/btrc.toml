@@ -577,7 +577,8 @@ symbols = [
 	"-[NSGridView columnAtIndex:]", "-[NSGridView rowAtIndex:]", "-[NSGridView setXPlacement:]", "-[NSGridView setYPlacement:]",
 	"NSGridCellPlacementFill", "NSGridCellPlacementCenter", "NSGridViewSizeForContent",
 	"-[NSGridView setColumnSpacing:]", "-[NSGridView setRowSpacing:]", "-[NSGridColumn setWidth:]", "-[NSGridColumn setHidden:]", "-[NSGridRow setHeight:]", "-[NSGridRow setHidden:]",
-	"-[NSGridCell contentView]", "-[NSGridCell setContentView:]", "-[NSView superview]", "-[NSView layoutSubtreeIfNeeded]"
+	"-[NSGridCell contentView]", "-[NSGridCell setContentView:]", "-[NSGridCell setYPlacement:]", "-[NSView superview]", "-[NSView layoutSubtreeIfNeeded]",
+	"-[NSView intrinsicContentSize]"
 ]
 os = ["macos"]
 

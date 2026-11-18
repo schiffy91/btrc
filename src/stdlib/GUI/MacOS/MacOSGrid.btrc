@@ -57,7 +57,14 @@ class MacOSGridLayout implements IMacOSContainerLayout {
 
 	public MacOSContainerPlacement insertionPlacement(int index) { var placement = MacOSContainerPlacement(); placement.column = self._column; placement.row = self._row; return placement; }
 
-	public void placeChild(NSView child, int index, MacOSContainerPlacement placement) { self.control().cellAtColumnIndex(placement.column, placement.row).setContentView(child); }
+	/* A control keeps its own height, centred in its row. A child with no
+	 * height of its own (a panel, a container, a scroll view) fills its cell,
+	 * or it would collapse to nothing. */
+	public void placeChild(NSView child, int index, MacOSContainerPlacement placement) {
+		var cell = self.control().cellAtColumnIndex(placement.column, placement.row);
+		cell.setContentView(child);
+		cell.setYPlacement(child.intrinsicContentSize().height < 0.0 ? NSGridCellPlacementFill : NSGridCellPlacementCenter);
+	}
 
 	public void forgetChild(NSView child) {
 		var grid = self.control();
