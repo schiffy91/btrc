@@ -1,0 +1,115 @@
+import Library.Callback;
+import Library.Console;
+import Library.Math;
+import Library.GUI.IStack;
+import Library.GUI.IView;
+import Library.GUI.Linux.Gtk.LinuxGtkView;
+import Library.GUI.Linux.Gtk.LinuxGtkContainer;
+import Library.GUI.Linux.Gtk.LinuxGtkContext;
+import Library.GUI.Linux.Gtk.LinuxGtkPainter;
+
+/* Rows and columns place children at their fitting sizes along the axis;
+ * alignment positions them across it. Hidden children keep their space. */
+class LinuxGtkStack extends LinuxGtkContainerView implements IStack {
+	private bool _vertical;
+	private double _spacing;
+	private StackAlignment _alignment = STACK_ALIGN_START;
+	private double _top = 0.0;
+	private double _right = 0.0;
+	private double _bottom = 0.0;
+	private double _left = 0.0;
+
+	public LinuxGtkStack(LinuxGtkContext context, bool vertical, double spacing) {
+		self.adoptNode(LinuxGtkViewNode(context));
+		self.validateLength(spacing);
+		self._vertical = vertical;
+		self._spacing = spacing;
+	}
+
+	private void validateLength(double value) { if (!Math.isFinite(value) || value < 0.0) { throw "Stack spacing and padding must be finite and nonnegative"; } }
+
+	public void paint(LinuxGtkPainter painter, double x, double y) { self.relayout(); LinuxGtkComposite.paintChildren(self.node(), painter, x, y); }
+
+	public double fittingWidth() {
+		self.node().requireOpen();
+		double along = 0.0;
+		double across = 0.0;
+		int count = 0;
+		for child in self.node().children {
+			double width = child.fittingWidth();
+			if (self._vertical) { across = Math.maxDouble(across, width); } else { along += width; count++; }
+		}
+		if (!self._vertical && count > 1) { along += self._spacing * (double)(count - 1); }
+		return (self._vertical ? across : along) + self._left + self._right;
+	}
+
+	public double fittingHeight() {
+		self.node().requireOpen();
+		double along = 0.0;
+		double across = 0.0;
+		int count = 0;
+		for child in self.node().children {
+			double height = child.fittingHeight();
+			if (self._vertical) { along += height; count++; } else { across = Math.maxDouble(across, height); }
+		}
+		if (self._vertical && count > 1) { along += self._spacing * (double)(count - 1); }
+		return (self._vertical ? along : across) + self._top + self._bottom;
+	}
+
+	/* Place children; a child arranged by the consumer is overridden here,
+	 * because the stack owns its children's frames. */
+	private void relayout() {
+		double cursor = self._vertical ? self._top : self._left;
+		double innerWidth = Math.maxDouble(0.0, self.node().width - self._left - self._right);
+		double innerHeight = Math.maxDouble(0.0, self.node().height - self._top - self._bottom);
+		for child in self.node().children {
+			var childNode = child.node();
+			if (!childNode.isOpen()) { continue; }
+			double width = child.fittingWidth();
+			double height = child.fittingHeight();
+			if (self._vertical) {
+				if (width <= 0.0 || width > innerWidth) { width = innerWidth; }
+				double x = self._left;
+				if (self._alignment == STACK_ALIGN_CENTER) { x = self._left + (innerWidth - width) * 0.5; }
+				else if (self._alignment == STACK_ALIGN_END) { x = self._left + innerWidth - width; }
+				child.arrange(x, cursor, width, height);
+				cursor += height + self._spacing;
+			} else {
+				if (height <= 0.0 || height > innerHeight) { height = innerHeight; }
+				double y = self._top;
+				if (self._alignment == STACK_ALIGN_CENTER) { y = self._top + (innerHeight - height) * 0.5; }
+				else if (self._alignment == STACK_ALIGN_END) { y = self._top + innerHeight - height; }
+				child.arrange(cursor, y, width, height);
+				cursor += width + self._spacing;
+			}
+		}
+	}
+
+	public void arrange(double x, double y, double width, double height) { self.node().arrange(x, y, width, height); self.relayout(); }
+
+	public double spacing() { self.node().requireOpen(); return self._spacing; }
+
+	public void setSpacing(double spacing) { self.node().requireOpen(); self.validateLength(spacing); self._spacing = spacing; self.relayout(); self.node().invalidate(); }
+
+	public StackAlignment alignment() { self.node().requireOpen(); return self._alignment; }
+
+	public void setAlignment(StackAlignment alignment) {
+		self.node().requireOpen();
+		if (alignment != STACK_ALIGN_START && alignment != STACK_ALIGN_CENTER && alignment != STACK_ALIGN_END) { throw "Unknown stack alignment"; }
+		self._alignment = alignment;
+		self.relayout();
+		self.node().invalidate();
+	}
+
+	public void setPadding(double top, double right, double bottom, double left) {
+		self.node().requireOpen();
+		self.validateLength(top); self.validateLength(right); self.validateLength(bottom); self.validateLength(left);
+		self._top = top; self._right = right; self._bottom = bottom; self._left = left;
+		self.relayout();
+		self.node().invalidate();
+	}
+
+	public void layout() { self.node().requireOpen(); self.relayout(); }
+
+	public void __del__() { if (self.node() != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native stack destroyed before subtree cleanup completed"); } }
+}

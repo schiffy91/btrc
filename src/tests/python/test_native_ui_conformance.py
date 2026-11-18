@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.gui_provider_root import GUIProviderRoot
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.linux_provider_fixtures import (
     build_provider_program,
@@ -28,6 +29,10 @@ SUITE = REPO / "src/tests/native/gui/conformance"
 CASES = tomllib.loads((SUITE / "cases.toml").read_text())["case"]
 NAMES = [case["name"] for case in CASES]
 LINUX_ONLY = "requires Linux: the GUI conformance suite's Linux rows"
+# The shipped Linux provider, and the GTK provider being built beside it from a
+# copy of it (docs/design/native-ui-surfaces-and-hosts.md, section 3): both must
+# pass every case at every step, until the second replaces the first.
+PROVIDERS = ["sdl", "gtk"]
 # Catalog operations no case exercises yet, each with what stands in the way.
 UNCOVERED = {
     "IWindow.showAlert": "modal: the probe cannot yet dismiss the alert it would open",
@@ -44,22 +49,35 @@ class ConformancePrograms:
         self.directories = directories
         self.built = {}
         self.font_file = None
+        self.gtk_root = None
 
-    def program(self, request, frontend, sanitized):
-        key = (frontend, sanitized)
+    def root(self, provider):
+        """The data root a provider is built from: the tree itself for the shipped
+        one, a copy whose GUI manifest names the provider under construction for the other."""
+        if provider == "sdl":
+            return None
+        if self.gtk_root is None:
+            self.gtk_root = GUIProviderRoot.create(self.directories.mktemp("gtk-root") / "src", linux="Linux.Gtk")
+        return self.gtk_root
+
+    def program(self, request, provider, frontend, sanitized):
+        key = (provider, frontend, sanitized)
         if key not in self.built:
-            directory = self.directories.mktemp(f"conformance-{frontend}-{'sanitized' if sanitized else 'plain'}")
-            self.built[key] = build_provider_program(SUITE / "Main.btrc", directory, frontend, sanitized, request)
+            mode = "sanitized" if sanitized else "plain"
+            directory = self.directories.mktemp(f"conformance-{provider}-{frontend}-{mode}")
+            self.built[key] = build_provider_program(
+                SUITE / "Main.btrc", directory, frontend, sanitized, request, data_root=self.root(provider)
+            )
         return self.built[key]
 
-    def run(self, request, frontend, sanitized, argument):
+    def run(self, request, provider, frontend, sanitized, argument):
         if sys.platform != "linux":
             pytest.skip(LINUX_ONLY)
         require_linux_reader()
         if error := linux_display_error():
             pytest.skip(error)
         return subprocess.run(
-            [str(self.program(request, frontend, sanitized)), argument],
+            [str(self.program(request, provider, frontend, sanitized)), argument],
             capture_output=True,
             text=True,
             timeout=120,
@@ -87,10 +105,11 @@ def session():
 @pytest.mark.linux_gui
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("provider", PROVIDERS)
 @pytest.mark.parametrize("name", NAMES)
-def test_linux_conformance_case(programs, request, name, frontend, sanitized):
-    result = programs.run(request, frontend, sanitized, name)
-    report = f"{name} on linux-{session()} ({frontend}, {'sanitized' if sanitized else 'plain'})\n"
+def test_linux_conformance_case(programs, request, name, provider, frontend, sanitized):
+    result = programs.run(request, provider, frontend, sanitized, name)
+    report = f"{name} on linux-{session()} ({provider}, {frontend}, {'sanitized' if sanitized else 'plain'})\n"
     report += result.stdout + result.stderr
     assert result.returncode == 0, report
     assert "ERROR: AddressSanitizer" not in result.stderr and "runtime error:" not in result.stderr, report
@@ -98,8 +117,9 @@ def test_linux_conformance_case(programs, request, name, frontend, sanitized):
 
 
 @pytest.mark.linux_gui
-def test_the_program_lists_exactly_the_recorded_cases(programs, request):
-    listed = programs.run(request, "python", False, "--list")
+@pytest.mark.parametrize("provider", PROVIDERS)
+def test_the_program_lists_exactly_the_recorded_cases(programs, request, provider):
+    listed = programs.run(request, provider, "python", False, "--list")
     assert listed.returncode == 0, listed.stderr
     assert sorted(listed.stdout.split()) == sorted(NAMES)
     assert len(set(NAMES)) == len(NAMES)

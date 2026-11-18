@@ -1,0 +1,55 @@
+import Library.Callback;
+import Library.Console;
+import Library.Image;
+import Library.Math;
+import Library.GUI.IPanel;
+import Library.GUI.Linux.Gtk.LinuxGtkView;
+import Library.GUI.Linux.Gtk.LinuxGtkContainer;
+import Library.GUI.Linux.Gtk.LinuxGtkContext;
+import Library.GUI.Linux.Gtk.LinuxGtkPainter;
+
+/* A filled, optionally rounded container. setDarkAppearance selects the
+ * dark or light theme its descendants draw with; inheritAppearance returns
+ * to the enclosing theme. Children clip to the panel's rectangular bounds;
+ * the corner radius shapes only the fill. */
+class LinuxGtkPanel extends LinuxGtkContainerView implements IPanel {
+	private RGBA _fill;
+	private double _radius;
+	private int _appearance = 0;
+
+	public LinuxGtkPanel(LinuxGtkContext context, RGBA fill, double radius) {
+		self.adoptNode(LinuxGtkViewNode(context));
+		self.node().clipsChildren = true;
+		if (fill == null) { throw "Native panel fill is missing"; }
+		self._fill = fill;
+		self.setCornerRadius(radius);
+	}
+
+	public void paint(LinuxGtkPainter painter, double x, double y) {
+		bool pushed = self._appearance != 0;
+		if (pushed) { painter.pushTheme(self._appearance == 2 ? self.node().context.darkTheme : self.node().context.lightTheme); }
+		painter.fillRect(x, y, self.node().width, self.node().height, self._fill, self._radius);
+		LinuxGtkComposite.paintChildren(self.node(), painter, x, y);
+		if (pushed) { painter.popTheme(); }
+	}
+
+	public void setFill(RGBA fill) {
+		self.node().requireOpen();
+		if (fill == null) { throw "Native panel fill is missing"; }
+		self._fill = fill;
+		self.node().invalidate();
+	}
+
+	public void setCornerRadius(double radius) {
+		self.node().requireOpen();
+		if (!Math.isFinite(radius) || radius < 0.0 || radius > 4096.0) { throw "Invalid native panel corner radius"; }
+		self._radius = radius;
+		self.node().invalidate();
+	}
+
+	public void setDarkAppearance(bool dark) { self.node().requireOpen(); self._appearance = dark ? 2 : 1; self.node().invalidate(); }
+
+	public void inheritAppearance() { self.node().requireOpen(); self._appearance = 0; self.node().invalidate(); }
+
+	public void __del__() { if (self.node() != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native panel destroyed before subtree cleanup completed"); } }
+}

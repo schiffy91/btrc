@@ -1,0 +1,147 @@
+import Library.Math;
+import Library.App;
+import Library.Callback;
+import Library.UI.Element;
+import Library.GUI.ControlEvents;
+import Library.GUI.SliderInteraction;
+import Library.GUI.ISlider;
+import Library.GUI.Linux.Gtk.LinuxGtkView;
+import Library.GUI.Linux.Gtk.LinuxGtkContext;
+import Library.GUI.Linux.Gtk.LinuxGtkPainter;
+
+/* A horizontal projection of the shared double model and interaction owner.
+ * User events enter the window queue after native input returns. */
+class LinuxGtkSlider extends LinuxGtkNodeView implements ISlider {
+	private SliderInteraction _interaction;
+	private bool _enabled = true;
+	private bool _hovered = false;
+
+	public LinuxGtkSlider(LinuxGtkContext context, double minimum, double maximum, int intervals) {
+		self.adoptNode(LinuxGtkViewNode(context));
+		self._interaction = SliderInteraction(minimum, maximum, intervals);
+		self.node().focusable = true;
+	}
+
+	private double knobRadius() { return Math.minDouble(10.0, Math.maxDouble(4.0, self.node().height * 0.42)); }
+
+	private double fraction() {
+		var range = self._interaction.range();
+		return self._interaction.inert() ? 0.0 : (self._interaction.value() - range.minimum) / (range.maximum - range.minimum);
+	}
+
+	private double valueFromX(double x) {
+		double radius = self.knobRadius();
+		double track = Math.maxDouble(1.0, self.node().width - radius * 2.0);
+		double fraction = (x - radius) / track;
+		fraction = fraction < 0.0 ? 0.0 : (fraction > 1.0 ? 1.0 : fraction);
+		var range = self._interaction.range();
+		return fraction <= 0.0 ? range.minimum : (fraction >= 1.0 ? range.maximum : Math.maxDouble(range.minimum, Math.minDouble(range.maximum, range.minimum + fraction * (range.maximum - range.minimum))));
+	}
+
+	private void previewFromX(double x) {
+		if (!self._interaction.preview(self.valueFromX(x))) { throw "Slider preview queue cannot admit native input"; }
+		self.node().invalidate();
+	}
+
+	public void paint(LinuxGtkPainter painter, double x, double y) {
+		var theme = painter.theme();
+		double radius = self.knobRadius();
+		double centerY = y + self.node().height * 0.5;
+		double trackX = x + radius;
+		double trackWidth = Math.maxDouble(1.0, self.node().width - radius * 2.0);
+		double filled = trackWidth * self.fraction();
+		painter.fillRect(trackX, centerY - 2.0, trackWidth, 4.0, theme.track, 2.0);
+		painter.fillRect(trackX, centerY - 2.0, filled, 4.0, self._enabled ? theme.accent : theme.disabledText, 2.0);
+		var range = self._interaction.range();
+		double span = range.maximum - range.minimum;
+		if (span > 0.0 && range.step > 0.0 && span / range.step <= 64.0) {
+			int ticks = (int)Math.floorDouble(span / range.step);
+			for (int tick = 0; tick <= ticks; tick++) {
+				double tickX = trackX + trackWidth * ((double)tick * range.step / span);
+				painter.fillRect(tickX - 0.5, centerY + 5.0, 1.0, 4.0, theme.secondaryText, 0.0);
+			}
+		}
+		double knobX = trackX + filled;
+		painter.fillCircle(knobX, centerY, radius, self._enabled ? (self._interaction.active() ? theme.controlPressed : theme.controlFill) : theme.controlPressed);
+		painter.strokeCircle(knobX, centerY, radius, self._interaction.active() || self._hovered ? theme.accent : theme.controlBorder, 1.0);
+	}
+
+	public bool pointer(AppPointerEvent event) {
+		if (event.action == APP_POINTER_ENTERED) { self._hovered = true; self.node().invalidate(); return false; }
+		if (event.action == APP_POINTER_EXITED) { self._hovered = false; self.node().invalidate(); return false; }
+		if (!self._enabled || !self.node().effectiveEligible()) { return false; }
+		if (event.action == APP_POINTER_PRESSED && event.button == APP_POINTER_BUTTON_PRIMARY) {
+			if (self._interaction.active() || self._interaction.inert()) { return false; }
+			if (!self._interaction.begin(self.node().generation())) { throw "Slider interaction admission unavailable"; }
+			self.node().requestFocus(); self.previewFromX(event.logicalX); return true;
+		}
+		if (event.action == APP_POINTER_DRAGGED && self._interaction.active()) { self.previewFromX(event.logicalX); return true; }
+		if (event.action == APP_POINTER_RELEASED && self._interaction.active()) { self._interaction.commitValue(self.valueFromX(event.logicalX)); self.node().invalidate(); return true; }
+		if (event.action == APP_POINTER_CANCELLED && self._interaction.active()) { self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_CAPTURE_LOSS); self.node().invalidate(); return true; }
+		return false;
+	}
+
+	public bool key(AppKeyboardEvent event) {
+		if (event.action == APP_KEY_RELEASED || !self._enabled || !self.node().effectiveEligible()) { return false; }
+		if (event.key == APP_KEY_ESCAPE && self._interaction.active()) { self._interaction.cancel(CONTROL_ORIGIN_USER, CONTROL_CANCEL_ESCAPE); self.node().cancelOwnPointerCapture(); self.node().invalidate(); return true; }
+		UIRangeAdjustment adjustment = UI_RANGE_ADJUST_NONE;
+		if (event.key == APP_KEY_LEFT || event.key == APP_KEY_DOWN) { adjustment = UI_RANGE_ADJUST_SMALL_DECREMENT; }
+		else if (event.key == APP_KEY_RIGHT || event.key == APP_KEY_UP) { adjustment = UI_RANGE_ADJUST_SMALL_INCREMENT; }
+		else if (event.key == APP_KEY_HOME) { adjustment = UI_RANGE_ADJUST_MINIMUM; }
+		else if (event.key == APP_KEY_END) { adjustment = UI_RANGE_ADJUST_MAXIMUM; }
+		if (adjustment == UI_RANGE_ADJUST_NONE) { return false; }
+		if (self._interaction.inert()) { return false; }
+		if (!self._interaction.adjust(self.node().generation(), adjustment, 1)) { throw "Slider adjustment admission unavailable"; }
+		self.node().cancelOwnPointerCapture(); self.node().invalidate(); return true;
+	}
+
+	public void focus(bool focused) { if (!focused) { self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_PLATFORM_INTERRUPTION); self.node().cancelOwnPointerCapture(); self.node().invalidate(); } }
+
+	public ICallbackRegistration onPreview(ISliderControlEventHandler receiver, CallbackScope owner) {
+		self.node().requireOpen(); self.node().context.requireSemanticRegistration(); var channel = self._interaction.onPreview(self.node().events(), self.node(), receiver, owner);
+		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
+	}
+
+	public ICallbackRegistration onCommit(ISliderControlEventHandler receiver, CallbackScope owner) {
+		self.node().requireOpen(); self.node().context.requireSemanticRegistration(); var channel = self._interaction.onCommit(self.node().events(), self.node(), receiver, owner);
+		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
+	}
+
+	public ICallbackRegistration onCancel(ISliderControlEventHandler receiver, CallbackScope owner) {
+		self.node().requireOpen(); self.node().context.requireSemanticRegistration(); var channel = self._interaction.onCancel(self.node().events(), self.node(), receiver, owner);
+		try { self.node().ownSemantic(channel); } catch (string error) { channel.cancel(); throw error; } return channel;
+	}
+
+	public SliderRange range() { self.node().requireOpen(); return self._interaction.range(); }
+
+	private void modelChanged() { if (!self._interaction.active()) { self.node().cancelOwnPointerCapture(); } self.node().invalidate(); }
+
+	public void setRange(double minimum, double maximum, double step) { self.node().requireOpen(); if (self._interaction.setRange(minimum, maximum, step)) { self.modelChanged(); } }
+
+	public void setRangeValue(SliderRange range, double value) {
+		self.node().requireOpen(); if (range == null) { throw "Slider range is missing"; }
+		if (self._interaction.setRangeValue(range.minimum, range.maximum, range.step, value)) { self.modelChanged(); }
+	}
+
+	public double fittingWidth() { self.node().requireOpen(); return LinuxGtkMetrics.sliderWidth(); }
+
+	public double fittingHeight() { self.node().requireOpen(); return LinuxGtkMetrics.sliderHeight(); }
+
+	public double value() { self.node().requireOpen(); return self._interaction.value(); }
+
+	public void setValue(double value) { self.node().requireOpen(); if (self._interaction.setValue(value)) { self.modelChanged(); } }
+
+	public void setEnabled(bool enabled) { self.node().requireOpen(); if (enabled != self._enabled) { self._enabled = enabled; self.node().localEligibilityChanged(); self.node().invalidate(); } }
+
+	public bool locallyEnabled() { return self._enabled; }
+
+	public void eligibilityLost() { self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_ELIGIBILITY_LOSS); self.node().cancelOwnPointerCapture(); self.node().invalidate(); }
+
+	public CallbackCancellation close() { self._interaction.cancel(CONTROL_ORIGIN_SYSTEM, CONTROL_CANCEL_SOURCE_CLOSING); return self.node().close(); }
+
+	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
+
+	public void setToolTip(string text) { self.node().requireOpen(); self.node().toolTip = text == null ? "" : text; }
+
+	public string toolTip() { self.node().requireOpen(); return self.node().toolTip; }
+}

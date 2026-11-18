@@ -1,0 +1,75 @@
+import Library.Math;
+import Library.Image;
+import Library.GUI.IProgressIndicator;
+import Library.GUI.ILevelIndicator;
+import Library.GUI.Linux.Gtk.LinuxGtkView;
+import Library.GUI.Linux.Gtk.LinuxGtkContext;
+import Library.GUI.Linux.Gtk.LinuxGtkPainter;
+import Library.GUI.Linux.Gtk.LinuxGtkSymbols;
+import Library.GUI.Linux.Gtk.SDL;
+
+/* An indeterminate spinner: a rotating arc redrawn while running. */
+class LinuxGtkProgressIndicator extends LinuxGtkNodeView implements IProgressIndicator {
+	private bool _running = false;
+
+	public LinuxGtkProgressIndicator(LinuxGtkContext context) { self.adoptNode(LinuxGtkViewNode(context)); }
+
+	public void paint(LinuxGtkPainter painter, double x, double y) {
+		if (!self._running) { return; }
+		var theme = painter.theme();
+		double size = Math.minDouble(self.node().width, self.node().height);
+		double cx = x + self.node().width * 0.5;
+		double cy = y + self.node().height * 0.5;
+		double radius = Math.maxDouble(4.0, size * 0.4);
+		double phase = (double)(SDL_GetTicksNS() / 4000000ULL % 1000ULL) / 1000.0 * 6.283185307179586;
+		painter.strokeCircle(cx, cy, radius, RGBA(theme.text.red, theme.text.green, theme.text.blue, 40), Math.maxDouble(2.0, size * 0.12));
+		LinuxGtkSymbols.arc(painter, cx, cy, radius, phase, phase + 1.9, Math.maxDouble(2.0, size * 0.12), theme.accent);
+		var host = self.node().host;
+		if (host != null) { host.requestWake(0.016); }
+	}
+
+	public double fittingWidth() { self.node().requireOpen(); return LinuxGtkMetrics.spinnerSize(); }
+
+	public double fittingHeight() { self.node().requireOpen(); return LinuxGtkMetrics.spinnerSize(); }
+
+	public bool isRunning() { self.node().requireOpen(); return self._running; }
+
+	public void setRunning(bool running) { self.node().requireOpen(); if (running != self._running) { self._running = running; self.node().invalidate(); } }
+}
+
+/* A read-only capacity bar with warning and critical thresholds. */
+class LinuxGtkLevelIndicator extends LinuxGtkNodeView implements ILevelIndicator {
+	private double _warning;
+	private double _critical;
+	private double _value = 0.0;
+
+	public LinuxGtkLevelIndicator(LinuxGtkContext context, double warning, double critical) {
+		self.adoptNode(LinuxGtkViewNode(context));
+		if (!Math.isFinite(warning) || !Math.isFinite(critical) || warning < 0.0 || critical > 1.0 || warning > critical) { throw "Invalid native level thresholds"; }
+		self._warning = warning;
+		self._critical = critical;
+	}
+
+	public void paint(LinuxGtkPainter painter, double x, double y) {
+		var theme = painter.theme();
+		double height = Math.minDouble(self.node().height, 10.0);
+		double top = y + (self.node().height - height) * 0.5;
+		painter.fillRect(x, top, self.node().width, height, theme.track, height * 0.5);
+		RGBA color = self._value >= self._critical ? RGBA(220, 70, 70, 255) : (self._value >= self._warning ? RGBA(235, 180, 50, 255) : RGBA(80, 190, 110, 255));
+		painter.fillRect(x, top, self.node().width * self._value, height, color, height * 0.5);
+	}
+
+	public double fittingWidth() { self.node().requireOpen(); return LinuxGtkMetrics.levelWidth(); }
+
+	public double fittingHeight() { self.node().requireOpen(); return LinuxGtkMetrics.levelHeight(); }
+
+	public void setValue(double value) {
+		self.node().requireOpen();
+		if (!Math.isFinite(value) || value < 0.0 || value > 1.0) { throw "Native level must be between zero and one"; }
+		if (value == self._value) { return; }
+		self._value = value;
+		self.node().invalidate();
+	}
+
+	public double value() { self.node().requireOpen(); return self._value; }
+}

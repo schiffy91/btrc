@@ -1,0 +1,638 @@
+import Library.Callback;
+import Library.Math;
+import Library.Vector;
+import Library.App;
+import Library.GUI.IView;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.Linux.Gtk.LinuxGtkContext;
+import Library.GUI.Linux.Gtk.LinuxGtkActionQueue;
+import Library.GUI.Linux.Gtk.LinuxGtkPainter;
+import Library.GUI.Linux.Gtk.SDL;
+import Library.GPU.GPUDevice;
+import Library.GPU.WebGPU;
+
+/* SDL's monotonic clock in nanoseconds. Delays are clamped to a billion
+ * seconds so the conversion and the deadline sum stay in range; a longer
+ * delay never fires either way. */
+class LinuxGtkClock {
+	class unsigned long long nanoseconds(double seconds) {
+		if (!Math.isFinite(seconds) || seconds <= 0.0) { return 0ULL; }
+		if (seconds >= 1000000000.0) { return 1000000000000000000ULL; }
+		return (unsigned long long)(seconds * 1000000000.0);
+	}
+
+	class unsigned long long after(double seconds) { return SDL_GetTicksNS() + LinuxGtkClock.nanoseconds(seconds); }
+}
+
+/* The window behind a host: advances its asynchronous device request on demand. */
+interface ILinuxGtkDevicePoller {
+	bool pollDevice();
+}
+
+/* What an attached subtree learns from its window: the native window for
+ * text input, the device for GPU children, focus, the backing scale and the
+ * window's own invalidation, so a change repaints only its window.
+ * Owned by the window, referenced by attached nodes, referencing no view. */
+class LinuxGtkViewHost {
+	public SDL_Window* window;
+	public ControlEventQueue events;
+	public bool eligible = false;
+	public WindowExposure exposure = WINDOW_EXPOSURE_UNKNOWN;
+	public LinuxGtkContext context;
+	public LinuxGtkInvalidation invalidation;
+	public ILinuxGtkDevicePoller? poller = null;
+	public GPUDevice? device = null;
+	public WGPUTextureFormat format;
+	public double scale = 1.0;
+	public int focusedId = 0;
+	public int focusRequest = 0;
+	public bool focusInvalidated = false;
+	public bool textInputWanted = false;
+	public double textInputX = 0.0;
+	public double textInputY = 0.0;
+	public double textInputWidth = 0.0;
+	public double textInputHeight = 0.0;
+	public int overlayId = 0;
+	public double width = 0.0;
+	public double height = 0.0;
+	public double wakeSeconds = -1.0;
+
+	public LinuxGtkViewHost(SDL_Window* window, LinuxGtkContext context) { self.window = window; self.context = context; self.invalidation = LinuxGtkInvalidation(); self.events = context.createSemanticQueue(); }
+
+	/* Ask the window to repaint after at most `seconds`, for blinking or spinning. */
+	public void requestWake(double seconds) {
+		if (seconds < 0.0) { seconds = 0.0; }
+		if (self.wakeSeconds < 0.0 || seconds < self.wakeSeconds) { self.wakeSeconds = seconds; }
+	}
+
+	/* GPU children may poll before the first loop turn, so ask the window for its device. */
+	public bool deviceReady() {
+		var device = self.device;
+		if (device == null) {
+			var poller = self.poller;
+			if (poller == null || !poller.pollDevice()) { return false; }
+			device = self.device;
+		}
+		return device != null && device.state() == GPU_DEVICE_READY;
+	}
+
+	public void requestFocus(int id) { self.focusRequest = id; self.invalidation.mark(); }
+
+	/* Eligibility settlement invalidates the route synchronously, even if a
+	 * model callback makes the same view eligible again before the next turn. */
+	public void forgetFocus(int id) {
+		if (self.focusRequest == id) { self.focusRequest = 0; }
+		if (self.focusedId != id) { return; }
+		self.focusedId = 0; self.focusInvalidated = true;
+		self.requestTextInput(false, 0.0, 0.0, 0.0, 0.0); self.invalidation.mark();
+	}
+
+	public void requestTextInput(bool wanted, double x, double y, double width, double height) {
+		self.textInputWanted = wanted;
+		self.textInputX = x;
+		self.textInputY = y;
+		self.textInputWidth = width;
+		self.textInputHeight = height;
+	}
+}
+
+/* Where a pointer event lands inside one view: local coordinates plus the
+ * view's absolute origin, so capture can keep delivering after the pointer
+ * leaves the view. */
+class LinuxGtkHit {
+	public ILinuxGtkView view;
+	public double originX;
+	public double originY;
+
+	public LinuxGtkHit(ILinuxGtkView view, double originX, double originY) { self.view = view; self.originX = originX; self.originY = originY; }
+}
+
+/* Every drawn view: portable IView plus what the window needs to compose,
+ * paint and route input. Controls implement it over one LinuxGtkViewNode. */
+interface ILinuxGtkView extends IView {
+	LinuxGtkViewNode node();
+	bool locallyEnabled();
+	void eligibilityLost();
+	void attachTo(LinuxGtkViewHost? host);
+	void paint(LinuxGtkPainter painter, double x, double y);
+	void paintOverlay(LinuxGtkPainter painter, double x, double y);
+	bool pointer(AppPointerEvent event);
+	bool scroll(AppScrollEvent event);
+	bool key(AppKeyboardEvent event);
+	void textInput(string value);
+	void focus(bool focused);
+}
+
+/* Route reservations cover a complete affected forest before attachment or
+ * layout changes. Removed snapshots stay pinned until every generation and
+ * route is coherent, since releasing a snapshot may re-enter application code. */
+class LinuxGtkAttachmentRoute {
+	public LinuxGtkViewNode node;
+	public LinuxGtkViewHost? destination;
+	public long long generation;
+	public LinuxGtkAttachmentRoute(LinuxGtkViewNode node, LinuxGtkViewHost? destination) { self.node = node; self.destination = destination; self.generation = node.generation(); }
+
+	public void validate() { if (self.node.host != self.destination || self.node.generation() != self.generation) { throw "Native attachment changed during route preparation"; } }
+}
+
+class LinuxGtkAttachmentTransition {
+	private ControlEventRebindBatch _channels = ControlEventRebindBatch();
+	private Vector<LinuxGtkAttachmentRoute> _routes = [];
+	private bool _committed = false;
+	private LinuxGtkContext? _context = null;
+	private void releasePreparation() { var context = self._context; self._context = null; if (context != null) { context.leaveRoutePreparation(); } }
+
+	public bool prepare(LinuxGtkViewNode node, LinuxGtkViewHost? destination) {
+		if (self._context == null) { node.context.enterRoutePreparation(); self._context = node.context; }
+		else if (self._context != node.context) { throw "Native route preparation spans applications"; }
+		for route in self._routes { if (route.node == node) { if (route.destination != destination) { self.abort(); throw "Native attachment has conflicting destinations"; } return true; } }
+		try {
+			if (!node.prepareAttachment(self._channels, destination)) { self.abort(); return false; }
+			self._routes.push(LinuxGtkAttachmentRoute(node, destination));
+			for child in node.children { if (!self.prepare(child.node(), destination)) { return false; } }
+			return true;
+		} catch (string error) { self.abort(); throw error; }
+	}
+
+	public void validate() { for route in self._routes { route.validate(); } self._channels.validate(); }
+
+	public void commit() { self.validate(); self._channels.commitRoutes(); self._committed = true; for route in self._routes { route.node.commitAttachment(); } }
+
+	public void finish() { self.releasePreparation(); self._channels.finish(); }
+
+	public void abort() { self._channels.abort(); self._routes.clear(); }
+
+	public void __del__() { try { if (self._committed) { self.finish(); } else { self.abort(); } } finally { self.releasePreparation(); } }
+}
+
+/* A focused control that hosts an input-method composition. */
+interface ILinuxGtkTextTarget {
+	void prepareFocus();
+	void discardFocusPreparation();
+	void textEditing(string value, int start, int length);
+	void textInputArea(LinuxGtkViewHost host, double x, double y);
+}
+
+/* One consumer subscription to a view's pointer or scroll events. The view
+ * scope and the caller scope share its cancellation. Capture is per
+ * subscription: a consumed press keeps drags and the release. */
+class LinuxGtkViewInput implements ICallbackRegistration {
+	private IViewPointerHandler? _pointer;
+	private IViewScrollHandler? _scroll;
+	private CallbackContext<LinuxGtkViewInput, LinuxGtkViewInput>? _context;
+	private bool _open = true;
+	public bool inside = false;
+	public AppPointerButton captured = APP_POINTER_BUTTON_NONE;
+
+	public LinuxGtkViewInput(IViewPointerHandler? pointer, IViewScrollHandler? scroll) {
+		if ((pointer == null) == (scroll == null)) { throw "View input requires exactly one handler"; }
+		self._pointer = pointer;
+		self._scroll = scroll;
+	}
+
+	public bool handlesPointer() { return self._pointer != null; }
+
+	public bool handlesScroll() { return self._scroll != null; }
+
+	public void activate(CallbackScope viewOwner, CallbackScope owner) {
+		var context = new CallbackContext<LinuxGtkViewInput, LinuxGtkViewInput>(self, LinuxGtkViewInput.unregister);
+		context.activate(viewOwner);
+		self._context = context;
+		try { owner.track(context); }
+		catch (string error) { context.abortActivation(); self._context = null; self._open = false; throw error; }
+		context.publish(self);
+	}
+
+	class bool unregister(LinuxGtkViewInput input) { input._open = false; input.captured = APP_POINTER_BUTTON_NONE; input.inside = false; return true; }
+
+	private bool admitted() {
+		var context = self._context;
+		if (context == null || !self._open) { return false; }
+		var receiver = context.enter();
+		if (receiver == null) { return false; }
+		return true;
+	}
+
+	private void leave() { var context = self._context; if (context != null) { context.leave(); context.pollCompletion(); } }
+
+	public bool deliverPointer(AppPointerEvent event) {
+		var handler = self._pointer;
+		if (handler == null || !self.admitted()) { return false; }
+		bool consumed = false;
+		try { consumed = handler.pointer(event); }
+		finally { self.leave(); }
+		return consumed;
+	}
+
+	public bool deliverScroll(AppScrollEvent event) {
+		var handler = self._scroll;
+		if (handler == null || !self.admitted()) { return false; }
+		bool consumed = false;
+		try { consumed = handler.scroll(event); }
+		finally { self.leave(); }
+		return consumed;
+	}
+
+	/* Leave a captured or hovered state without a native event (detach, focus loss). */
+	public void cancelCapture(double x, double y) {
+		var button = self.captured;
+		self.captured = APP_POINTER_BUTTON_NONE;
+		if (button != APP_POINTER_BUTTON_NONE) { self.deliverPointer(AppPointerEvent(APP_POINTER_CANCELLED, button, x, y, AppKeyModifiers(false, false, false, false), 0)); }
+		if (self.inside) { self.inside = false; self.deliverPointer(AppPointerEvent(APP_POINTER_EXITED, APP_POINTER_BUTTON_NONE, x, y, AppKeyModifiers(false, false, false, false), 0)); }
+	}
+
+	public bool isOpen() { return self._open; }
+
+	public CallbackCancellation cancel() { var context = self._context; return context == null ? CALLBACK_CANCELLATION_COMPLETE : context.cancel(); }
+
+	public CallbackCancellation pollCompletion() { var context = self._context; return context == null ? CALLBACK_CANCELLATION_COMPLETE : context.pollCompletion(); }
+}
+
+/* Shared state of one drawn view: frame, visibility, attachment, host and
+ * input subscriptions. Containers also keep their children here so the
+ * window can traverse, hit-test and paint without control-specific code. */
+class LinuxGtkViewObservationTarget implements IControlEventTarget {
+	private LinuxGtkViewNode _node;
+	public LinuxGtkViewObservationTarget(LinuxGtkViewNode node) { self._node = node; }
+
+	public ControlEventDisposition admission(long long generation) { return self._node.observationAdmission(generation); }
+}
+
+class LinuxGtkViewNode implements IControlEventTarget, ILinuxGtkActionTarget {
+	public int id;
+	public LinuxGtkContext context;
+	public double x = 0.0;
+	public double y = 0.0;
+	public double width = 0.0;
+	public double height = 0.0;
+	public bool visible = true;
+	public bool attached = false;
+	public bool closing = false;
+	public bool closed = false;
+	public bool faulted = false;
+	public bool treeMutation = false;
+	public long long treeRevision = 1LL;
+	private Vector<ILinuxGtkView> _quarantined = [];
+	private LinuxGtkViewHost? _routedHost = null;
+	public LinuxGtkViewHost? host = null;
+	public Vector<ILinuxGtkView> children = [];
+	public double contentOffsetX = 0.0;
+	public double contentOffsetY = 0.0;
+	public bool clipsChildren = false;
+	public bool focusable = false;
+	public string toolTip = "";
+	public int cursor = 0;
+	private ILinuxGtkView? _owner = null;
+	private ViewInteractionState? _state = null;
+	private long long _generation = 1LL;
+	private bool _inherited = false;
+	private bool _stateChanged = false;
+	private bool _lostEligibility = false;
+	private ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>? _stateChannel = null;
+	private Vector<IControlEventChannel> _channels = [];
+	private CallbackScope _input = CallbackScope();
+	private Vector<LinuxGtkViewInput> _inputs = [];
+
+	public LinuxGtkViewNode(LinuxGtkContext context) {
+		self.context = context;
+		self.id = context.ids.next();
+	}
+
+	public void bindOwner(ILinuxGtkView owner) { if (self._owner != null || owner == null) { throw "Native node already has an owner"; } self._owner = owner; self.refreshInteraction(false); }
+
+	private void pruneSemantic() {
+		self._input.pollCompletion();
+		for (int index = self._channels.len - 1; index >= 0; index--) { if (self._channels.get(index).pollCompletion() == CALLBACK_CANCELLATION_COMPLETE) { self._channels.remove(index); } }
+	}
+
+	public void ownCallback(ICallbackRegistration registration) {
+		self.requireOpen(); self._input.pollCompletion();
+		try { self._input.track(registration); } catch (string error) { registration.cancel(); throw error; }
+	}
+
+	public void ownSemantic(IControlEventChannel channel) {
+		try { self.context.requireSemanticRegistration(); } catch (string error) { channel.cancel(); throw error; }
+		self.pruneSemantic(); self.ownCallback(channel); self._channels.push(channel);
+	}
+
+	public long long generation() { return self._generation; }
+
+	public ControlEventQueue events() { return self.host == null ? self.context.detachedEvents : self.host.events; }
+
+	public ControlEventDisposition observationAdmission(long long generation) { return !self.isOpen() ? CONTROL_EVENT_CLOSED : (generation != self._generation ? CONTROL_EVENT_STALE_GENERATION : CONTROL_EVENT_DELIVERED); }
+
+	public ControlEventDisposition admission(long long generation) {
+		ControlEventDisposition status = self.observationAdmission(generation);
+		return status == CONTROL_EVENT_DELIVERED && (self._state == null || !self._state.effectiveEligible) ? CONTROL_EVENT_INELIGIBLE : status;
+	}
+
+	public bool effectiveEligible() { return self.isOpen() && self._state != null && self._state.effectiveEligible; }
+
+	public ViewInteractionState interactionState() { self.requireInspection(); return self.snapshot(); }
+
+	private ViewInteractionState snapshot() {
+		var state = ViewInteractionState(); var current = self._state;
+		if (current == null) { throw "Native interaction state is not initialized"; }
+		state.localVisible = current.localVisible; state.localEnabled = current.localEnabled;
+		state.inheritedEligible = current.inheritedEligible; state.effectiveEligible = current.effectiveEligible;
+		state.layoutParticipating = current.layoutParticipating; state.exposure = current.exposure;
+		state.faulted = current.faulted; state.stateRevision = current.stateRevision; return state;
+	}
+
+	class void deliverState(IViewInteractionStateHandler receiver, ViewInteractionState state) { receiver.interactionChanged(state); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler receiver, CallbackScope owner) {
+		self.requireOpen(); self.context.requireSemanticRegistration(); self.pruneSemantic();
+		if (self._stateChannel != null && self._stateChannel.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing interaction state handler first"; }
+		var channel = new ControlEventChannel<IViewInteractionStateHandler, ViewInteractionState>(self.events(), LinuxGtkViewObservationTarget(self), receiver, LinuxGtkViewNode.deliverState, self._input, self.context.eventRole(CONTROL_CAPTURE_OBSERVER));
+		try { owner.track(channel); } catch (string error) { channel.cancel(); throw error; }
+		self._stateChannel = channel; self._channels.push(channel); return channel;
+	}
+
+	/* Cache inherited facts, never a second local enabled preference. Mark the
+	 * whole subtree unavailable before invoking cancellation/settlement hooks. */
+	public void markInteraction(bool inherited) {
+		self._inherited = inherited;
+		var old = self._state; var owner = self._owner;
+		bool enabled = owner == null || owner.locallyEnabled();
+		bool eligible = self.isOpen() && !self.faulted && self.attached && self.host != null && inherited && self.visible && enabled;
+		WindowExposure exposure = self.host == null ? WINDOW_EXPOSURE_UNKNOWN : self.host.exposure;
+		if (old == null || old.localVisible != self.visible || old.localEnabled != enabled || old.inheritedEligible != inherited || old.effectiveEligible != eligible || old.exposure != exposure || old.faulted != self.faulted) {
+			if (old != null && old.stateRevision == 9223372036854775807LL) { throw "Native interaction revisions exhausted"; }
+			var state = ViewInteractionState(); state.localVisible = self.visible; state.localEnabled = enabled;
+			state.inheritedEligible = inherited; state.effectiveEligible = eligible; state.layoutParticipating = true;
+			state.exposure = exposure; state.faulted = self.faulted; state.stateRevision = old == null ? 1LL : old.stateRevision + 1LL;
+			self._state = state; self._stateChanged = true;
+			if (old != null && old.effectiveEligible && !eligible) { self._lostEligibility = true; }
+		}
+		for child in self.children { child.node().markInteraction(eligible); }
+	}
+
+	public void settleInteraction() {
+		if (self._lostEligibility) {
+			self._lostEligibility = false;
+			var previousHost = self._routedHost;
+			/* Clear dispatch identity before any synchronous cancellation receiver
+			 * can re-enable or refocus this view. The editor still settles its
+			 * retained composition using the old native host. */
+			if (previousHost != null) { previousHost.forgetFocus(self.id); }
+			if (self._owner != null) { self._owner.eligibilityLost(); }
+		}
+		for child in self.children { child.node().settleInteraction(); }
+	}
+
+	public void publishInteraction() {
+		var channel = self._stateChannel;
+		if (self._stateChanged) { self._stateChanged = false; if (channel != null && channel.isOpen()) { if (!channel.publish(self.snapshot(), self._generation, 0LL, 1LL)) { throw "Interaction state semantic source is unavailable"; } } }
+		for child in self.children { child.node().publishInteraction(); }
+	}
+
+	/* Routing changes retire old records only after active interactions have
+	 * emitted their one terminal using the old registration and reservation. */
+	public void refreshInteraction(bool inherited) { self.markInteraction(inherited); self.settleInteraction(); self.publishInteraction(); }
+
+	public void markLocalInteraction() { self.markInteraction(self._inherited); }
+
+	public void localEligibilityChanged() { self.refreshInteraction(self._inherited); }
+
+	public void requireInspection() { if (self.closing || self.closed) { throw "Native view is closing or closed"; } }
+
+	public void requireOpen() { self.requireInspection(); if (self.faulted) { throw "Native view is quarantined"; } }
+
+	public void quarantine(Vector<ILinuxGtkView> possible) {
+		self.faulted = true;
+		for child in possible { if (self.childIndex(child) < 0 && !self._quarantined.contains(child)) { self._quarantined.push(child); child.node().attached = true; } }
+	}
+
+	public bool isOpen() { return !self.closing && !self.closed; }
+
+	/* A detached subtree has nothing to repaint; attaching it invalidates its new window. */
+	public void invalidate() { var host = self.host; if (host != null) { host.invalidation.mark(); } }
+
+	/* The backing scale of the window this view measures for; one when detached. */
+	public double scale() { var host = self.host; return host == null ? 1.0 : host.scale; }
+
+	public void requireDetached() { if (self.attached) { throw "Detach the view from its container before closing it"; } }
+
+	public void arrange(double x, double y, double width, double height) {
+		self.requireOpen();
+		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native view frame"; }
+		if (x == self.x && y == self.y && width == self.width && height == self.height) { return; }
+		self.x = x;
+		self.y = y;
+		self.width = width;
+		self.height = height;
+		self.invalidate();
+	}
+
+	public void setVisible(bool visible) {
+		self.requireOpen();
+		if (visible == self.visible) { return; }
+		self.visible = visible;
+		self.localEligibilityChanged();
+		self.invalidate();
+	}
+
+	public void requestFocus() { var host = self.host; if (host != null) { host.requestFocus(self.id); } }
+
+	/* Validate before a replacement releases its previous subtree. */
+	public void validateChild(ILinuxGtkView child) {
+		self.requireOpen();
+		if (child == null) { throw "Cannot attach a missing view"; }
+		var childNode = child.node();
+		childNode.requireOpen();
+		if (childNode.attached) { throw "View already belongs to a container"; }
+		if (childNode == self || childNode.contains(self)) { throw "Native child is already attached or creates a cycle"; }
+	}
+
+	/* Attach a child subtree: lifecycle responsibility moves here. */
+	public void attachChild(ILinuxGtkView child, LinuxGtkAttachmentTransition? prepared = null) {
+		self.validateChild(child);
+		var childNode = child.node();
+		var transition = prepared == null ? LinuxGtkAttachmentTransition() : prepared;
+		if (prepared == null && !transition.prepare(childNode, self.host)) { throw "Native attachment capture capacity unavailable"; }
+		self.children.push(child); childNode.attached = true;
+		child.attachTo(self.host);
+		childNode.markInteraction(self.effectiveEligible()); childNode.settleInteraction();
+		if (prepared == null) { transition.commit(); childNode.publishInteraction(); transition.finish(); }
+		self.invalidate();
+	}
+
+	public bool contains(LinuxGtkViewNode node) {
+		for child in self.children { var childNode = child.node(); if (childNode == node || childNode.contains(node)) { return true; } }
+		return false;
+	}
+
+	public int childIndex(ILinuxGtkView child) {
+		for (int index = 0; index < self.children.len; index++) { if (self.children.get(index) == child) { return index; } }
+		return -1;
+	}
+
+	public ILinuxGtkView detachChild(ILinuxGtkView child, LinuxGtkAttachmentTransition? prepared = null) {
+		self.requireOpen();
+		int index = self.childIndex(child);
+		if (index < 0) { throw "View does not belong to this container"; }
+		var childNode = child.node();
+		var transition = prepared == null ? LinuxGtkAttachmentTransition() : prepared;
+		if (prepared == null && !transition.prepare(childNode, null)) { throw "Native attachment capture capacity unavailable"; }
+		childNode.attached = false;
+		childNode.markInteraction(false); childNode.settleInteraction();
+		self.children.remove(index);
+		child.attachTo(null); childNode.markInteraction(false);
+		if (prepared == null) { transition.commit(); childNode.publishInteraction(); transition.finish(); }
+		self.invalidate();
+		return child;
+	}
+
+	public bool prepareAttachment(ControlEventRebindBatch batch, LinuxGtkViewHost? destination) {
+		self.requireOpen();
+		if (self._routedHost == destination) { return true; }
+		if (self._generation == 9223372036854775807LL) { throw "Native view generations exhausted"; }
+		var queue = destination == null ? self.context.detachedEvents : destination.events;
+		for channel in self._channels { if (channel.isOpen() && !batch.prepare(channel, queue)) { return false; } }
+		return true;
+	}
+
+	public void commitAttachment() { if (self._routedHost != self.host) { self._generation++; self._routedHost = self.host; } }
+
+	public void cancelSemanticForest() {
+		string failure = "";
+		for channel in self._channels { try { channel.cancel(); } catch (string error) { if (failure == "") { failure = error; } } }
+		for child in self.children { try { child.node().cancelSemanticForest(); } catch (string error) { if (failure == "") { failure = error; } } }
+		if (failure != "") { throw failure; }
+	}
+
+	public void setHost(LinuxGtkViewHost? host) {
+		self.host = host;
+		for child in self.children { child.attachTo(host); }
+		/* Membership is staged here. Its owner marks and settles the complete
+		 * affected forest before committing callback routes and generations. */
+	}
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self.subscribe(handler, null, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self.subscribe(null, handler, owner); }
+
+	private ICallbackRegistration subscribe(IViewPointerHandler? pointer, IViewScrollHandler? scroll, CallbackScope owner) {
+		self.requireOpen();
+		self._input.pollCompletion();
+		for (int index = self._inputs.len - 1; index >= 0; index--) { if (!self._inputs.get(index).isOpen()) { self._inputs.remove(index); } }
+		var registration = LinuxGtkViewInput(pointer, scroll);
+		registration.activate(self._input, owner);
+		self._inputs.push(registration);
+		return registration;
+	}
+
+	public Vector<LinuxGtkViewInput> inputs() { return self._inputs; }
+
+	public void cancelOwnPointerCapture() { for input in self._inputs { if (input.isOpen()) { input.cancelCapture(0.0, 0.0); } } }
+
+	public void cancelPointerCapture() {
+		self.cancelOwnPointerCapture();
+		for child in self.children { child.node().cancelPointerCapture(); }
+	}
+
+	public CallbackCancellation cancelInput() { return self._input.cancel(); }
+
+	/* Begin shutdown of this node and every attached child. */
+	public CallbackCancellation close() {
+		if (self.closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		self.requireDetached();
+		if (!self.closing) {
+			if (self.context.mutationDepth > 0) { throw "Cannot close a view during native tree mutation"; }
+			for child in self._quarantined { if (self.childIndex(child) < 0) { self.children.push(child); } }
+			self._quarantined.clear();
+			self.closing = true;
+			self.markInteraction(false); self.settleInteraction();
+			self._input.cancel();
+			for child in self.children { var childNode = child.node(); childNode.attached = false; child.attachTo(null); }
+			self.invalidate();
+		}
+		return self.pollClose();
+	}
+
+	public CallbackCancellation pollClose() {
+		if (self.closed) { return CALLBACK_CANCELLATION_COMPLETE; }
+		if (!self.closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var input = self._input.pollCompletion();
+		if (input != CALLBACK_CANCELLATION_COMPLETE) { return input; }
+		CallbackCancellation result = CALLBACK_CANCELLATION_COMPLETE;
+		for (int index = self.children.len - 1; index >= 0; index--) {
+			var child = self.children.get(index);
+			var state = child.isOpen() ? child.close() : child.pollClose();
+			if (state == CALLBACK_CANCELLATION_COMPLETE) { self.children.remove(index); }
+			else if (state == CALLBACK_CANCELLATION_FAILED) { result = state; }
+			else if (result != CALLBACK_CANCELLATION_FAILED) {
+				if (state == CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = state; }
+				else if (result != CALLBACK_CANCELLATION_RETRYABLE_FAILURE) { result = CALLBACK_CANCELLATION_PENDING; }
+			}
+		}
+		if (result != CALLBACK_CANCELLATION_COMPLETE) { return result; }
+		self._inputs.clear(); self._channels.clear(); self._stateChannel = null; self._owner = null;
+		self.host = null; self._routedHost = null;
+		self.closed = true;
+		return CALLBACK_CANCELLATION_COMPLETE;
+	}
+}
+
+/* The ILinuxGtkView members every drawn control shares over its one node. A
+ * control extends it, adopts its node first thing in its constructor and
+ * overrides what it draws or handles. btrc neither chains base constructors
+ * nor applies a base's field defaults to a subclass, so this base declares
+ * none, and its methods never call one another through `self` (inherited
+ * bodies dispatch statically). */
+class LinuxGtkNodeView implements ILinuxGtkView {
+	private LinuxGtkViewNode _node;
+
+	public void adoptNode(LinuxGtkViewNode node) {
+		if (self._node != null) { throw "Native view already has a node"; }
+		self._node = node;
+		ILinuxGtkView owner = self; node.bindOwner(owner);
+	}
+
+	public LinuxGtkViewNode node() { return self._node; }
+
+	public bool locallyEnabled() { return true; }
+
+	public void eligibilityLost() { self._node.cancelOwnPointerCapture(); }
+
+	public ViewInteractionState interactionState() { return self._node.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._node.onInteractionStateChanged(handler, owner); }
+
+	public void attachTo(LinuxGtkViewHost? host) { self._node.setHost(host); }
+
+	public void paint(LinuxGtkPainter painter, double x, double y) {}
+
+	public void paintOverlay(LinuxGtkPainter painter, double x, double y) {}
+
+	public bool pointer(AppPointerEvent event) { return false; }
+
+	public bool scroll(AppScrollEvent event) { return false; }
+
+	public bool key(AppKeyboardEvent event) { return false; }
+
+	public void textInput(string value) {}
+
+	public void focus(bool focused) {}
+
+	public bool isOpen() { return self._node.isOpen(); }
+
+	public double fittingWidth() { self._node.requireOpen(); return 0.0; }
+
+	public double fittingHeight() { self._node.requireOpen(); return 0.0; }
+
+	public void arrange(double x, double y, double width, double height) { self._node.arrange(x, y, width, height); }
+
+	public bool isVisible() { self._node.requireOpen(); return self._node.visible; }
+
+	public void setVisible(bool visible) { self._node.setVisible(visible); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public CallbackCancellation close() { return self._node.close(); }
+
+	public CallbackCancellation pollClose() { return self._node.pollClose(); }
+}

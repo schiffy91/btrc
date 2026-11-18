@@ -24,10 +24,13 @@ REPO = Path(__file__).resolve().parents[2]
 class GUIProviderRoot:
     """Build and use the white-box data root for native provider fixtures."""
 
-    PROVIDERS = ("MacOS", "Linux")
+    PROVIDERS = ("MacOS", "Linux", "Linux.Gtk")
 
     @classmethod
-    def create(cls, root: Path) -> Path:
+    def create(cls, root: Path, *, linux: str = "Linux") -> Path:
+        """`linux` names the provider package Linux builds select: the shipped
+        one, or `Linux.Gtk` while the GTK provider is built beside it
+        (docs/design/native-ui-surfaces-and-hosts.md, section 3)."""
         root.mkdir(parents=True, exist_ok=True)
         shutil.copytree(REPO / "src/language", root / "language")
         shutil.copytree(REPO / "src/stdlib", root / "stdlib")
@@ -39,7 +42,7 @@ class GUIProviderRoot:
         provider = [
             f"{platform}.{path.stem}"
             for platform in cls.PROVIDERS
-            for path in sorted((root / "stdlib/GUI" / platform).glob("*.btrc"))
+            for path in sorted((root / "stdlib/GUI" / platform.replace(".", "/")).glob("*.btrc"))
             if path.stem != "GUIProvider" and f"{platform}.{path.stem}" not in exported
         ]
         # White-box fixtures inspect these private owners.
@@ -56,9 +59,10 @@ class GUIProviderRoot:
             if name not in exported:
                 provider.append(name)
         assert text.count("exports = [") == 1, "the GUI manifest declares one export list"
-        manifest.write_text(
-            text.replace("exports = [", "exports = [" + "".join(f'"{name}", ' for name in provider)), encoding="utf-8"
-        )
+        text = text.replace("exports = [", "exports = [" + "".join(f'"{name}", ' for name in provider))
+        shipped = 'implementation = "Linux.GUIProvider"'
+        assert text.count(shipped) == 1, "the GUI manifest names one Linux provider"
+        manifest.write_text(text.replace(shipped, f'implementation = "{linux}.GUIProvider"'), encoding="utf-8")
         return root
 
     @classmethod
