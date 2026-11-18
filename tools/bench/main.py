@@ -39,7 +39,12 @@ class BenchCommand:
             command.add_argument("--json", help="write results to this path")
             command.add_argument("--out-dir", default=str(REPO / "build" / "bench"), help="scratch directory")
             command.add_argument("--no-reference", action="store_true", help="skip the in-process reference transpile")
-            command.add_argument("--results", help="reuse results JSON from an earlier run instead of measuring")
+            command.add_argument(
+                "--results",
+                action="append",
+                help="reuse results JSON from an earlier run instead of measuring; given several times, oldest "
+                "first, timings and peaks are their median and everything else is the last run's",
+            )
             command.add_argument("--no-peaks", action="store_true", help="skip each program's compile peak memory")
             command.add_argument(
                 "--peak-only", action="store_true", help="measure peak memory only: no timings, sizes or runs"
@@ -64,9 +69,10 @@ class BenchCommand:
         check.add_argument("--strict", action="store_true", help="fail when this platform has no baseline")
         check.add_argument(
             "--timings",
-            choices=("gate", "report"),
+            choices=("gate", "report", "relative"),
             default="gate",
-            help="report: compare timings but fail only on sizes, lines, parity and peaks (a hosted runner pool)",
+            help="report: compare timings but fail only on sizes, lines, parity and peaks. relative: divide the "
+            "run's timings by its machine factor first, then gate them (a hosted runner pool)",
         )
         check.add_argument(
             "--peak-budget-gib",
@@ -132,9 +138,12 @@ class BenchCommand:
         return metrics, meta
 
     @staticmethod
-    def load_results(path: str) -> tuple[dict[str, float], dict]:
-        document = json.loads(Path(path).read_text(encoding="utf-8"))
-        return document["metrics"], document["meta"]
+    def load_results(paths: list[str]) -> tuple[dict[str, float], dict]:
+        documents = [json.loads(Path(path).read_text(encoding="utf-8")) for path in paths]
+        if len(documents) == 1:
+            return documents[0]["metrics"], documents[0]["meta"]
+        meta = {**documents[-1]["meta"], "median_of": [document["meta"].get("revision", "") for document in documents]}
+        return Baseline.median_of([document["metrics"] for document in documents]), meta
 
     @staticmethod
     def table(metrics: dict[str, float]) -> str:
@@ -157,9 +166,16 @@ class BenchCommand:
             return 0
         recorded = Baseline.platform_metrics(document, key)
         findings = Baseline.compare(
-            metrics, recorded, args.tolerance, args.peak_tolerance, gate_timings=args.timings == "gate"
+            metrics,
+            recorded,
+            args.tolerance,
+            args.peak_tolerance,
+            gate_timings=args.timings != "report",
+            relative_timings=args.timings == "relative",
         )
         print(Baseline.render(findings))
+        if args.timings == "relative":
+            print(f"\nmachine factor {Baseline.machine_factor(metrics, recorded):.2f}x: timings are divided by it")
         regressions = [finding for finding in findings if finding.status == "regression"]
         lower = [f.name for f in findings if f.status == "improvement" and Baseline.metric_kind(f.name) == "peak"]
         if lower:

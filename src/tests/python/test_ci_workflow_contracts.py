@@ -2407,7 +2407,7 @@ def test_bench_diagnostic_is_manual_only_and_preserves_the_ordinary_guard() -> N
     assert upload["with"]["path"] == "build/bench-diagnostic/"
     assert upload["with"]["if-no-files-found"] == "error"
     assert document["jobs"]["bench"]["if"] == f"contains({PLAN}.jobs, 'bench')"
-    assert 'BENCH_ARGS="--repeat 3 --strict --timings report"' in _job(_workflow("ci.yml"), "bench")
+    assert 'BENCH_ARGS="--repeat 3 --strict --timings relative"' in _job(_workflow("ci.yml"), "bench")
 
 
 def test_mac_loop_diagnostic_is_opt_in_and_preserves_exact_native_trials() -> None:

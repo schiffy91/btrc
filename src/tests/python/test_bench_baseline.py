@@ -71,6 +71,54 @@ def test_reported_timings_never_fail_but_sizes_parity_and_peaks_still_do() -> No
     assert Baseline.render(list(findings.values())).splitlines()[4].endswith("slower")
 
 
+def test_relative_timings_forgive_a_slow_machine_and_catch_one_timing_that_grew() -> None:
+    recorded = {f"cc.P{index}.O0_ms": 100.0 + index for index in range(9)} | {"c.a.bytes": 1000}
+    slow = {name: value * 1.8 if name.endswith("_ms") else value for name, value in recorded.items()}
+    assert Baseline.machine_factor(slow, recorded) == pytest.approx(1.8)
+    assert {finding.status for finding in Baseline.compare(slow, recorded, relative_timings=True)} == {"ok"}
+    assert "regression" in {
+        finding.status for finding in Baseline.compare(slow, recorded)
+    }  # absolute: the runner fails
+    grown = dict(slow) | {
+        "cc.P4.O0_ms": slow["cc.P4.O0_ms"] * 1.6
+    }  # one timing against the others, on that slow machine
+    findings = {finding.name: finding.status for finding in Baseline.compare(grown, recorded, relative_timings=True)}
+    assert findings.pop("cc.P4.O0_ms") == "regression" and set(findings.values()) == {"ok"}
+    inside = dict(slow) | {"cc.P4.O0_ms": slow["cc.P4.O0_ms"] * 1.4}
+    assert {finding.status for finding in Baseline.compare(inside, recorded, relative_timings=True)} == {"ok"}
+    assert Baseline.machine_factor({"c.a.bytes": 1}, recorded) == 1.0 and Baseline.machine_factor(slow, None) == 1.0
+
+
+def test_a_baseline_from_several_runs_is_their_median_with_the_newest_runs_exact_facts() -> None:
+    runs = [
+        {"a.compile_ms": 10.0, "a.compile_peak": 3 << 20, "c.a.bytes": 900, "c.a.parity": 0, "old.only_ms": 1.0},
+        {"a.compile_ms": 30.0, "a.compile_peak": 5 << 20, "c.a.bytes": 950, "c.a.parity": 1},
+        {"a.compile_ms": 12.0, "a.compile_peak": 4 << 20, "c.a.bytes": 1000, "c.a.parity": 1, "new.only_ms": 7.0},
+    ]
+    assert Baseline.median_of(runs) == {
+        "a.compile_ms": 12.0,  # not the slow runner's 30
+        "a.compile_peak": 4 << 20,
+        "c.a.bytes": 1000,  # a fact of the newest tree, never an average
+        "c.a.parity": 1,
+        "new.only_ms": 7.0,  # and only what the newest run measures
+    }
+    assert Baseline.median_of(runs[:2])["a.compile_ms"] == 20.0
+
+
+def test_a_baseline_recorded_from_several_results_names_the_runs(tmp_path: Path) -> None:
+    paths = []
+    for index, value in enumerate((10.0, 30.0, 12.0)):
+        path = tmp_path / f"results-{index}.json"
+        meta = {"platform": "linux-x86_64", "revision": f"rev{index}"}
+        path.write_text(json.dumps({"meta": meta, "metrics": {"a.compile_ms": value}}), encoding="utf-8")
+        paths += ["--results", str(path)]
+    baseline = tmp_path / "baseline.json"
+    assert main(["baseline", *paths, "--baseline", str(baseline)]) == 0
+    entry = json.loads(baseline.read_text(encoding="utf-8"))["platforms"]["linux-x86_64"]
+    assert entry["metrics"] == {"a.compile_ms": 12.0} and entry["recorded"]["median_of"] == ["rev0", "rev1", "rev2"]
+    assert main(["check", paths[0], paths[1], "--baseline", str(baseline), "--timings", "relative"]) == 0
+
+
 def test_check_from_saved_results_is_strict_about_a_missing_baseline(tmp_path: Path) -> None:
     """CI's transition: results recorded on the runner become its baseline, then --strict holds it."""
     key = Baseline.platform_key()

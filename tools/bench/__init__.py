@@ -9,16 +9,20 @@ runs on fixed workloads. Every number is recorded to JSON and compared with a
 tracked per-platform baseline, so a regression fails ``check`` on a developer
 machine and in CI. A platform without a baseline passes unless ``--strict``,
 which CI passes. CI's linux-x86_64 baseline is recorded from the bench job's
-own ``results.json`` artifact with ``baseline --results``, and CI checks with
-``--timings report``, which compares timings without failing on them: the
-hosted runners are a pool of unlike machines. On Linux a peak is a maximum
+own ``results.json`` artifacts with ``baseline --results``, given once per run,
+oldest first: timings and peaks are then the runs' median, and sizes, lines and
+parity those of the newest. CI checks with ``--timings relative``: the hosted
+runners are a pool of unlike machines, but a slow one is slow at everything, so
+each run's timings are divided by its machine factor (the median of their ratios
+to the baseline) before they are compared, with 50% of slack. ``--timings
+report`` only lists timings past their slack. On Linux a peak is a maximum
 resident set, and one below the measuring interpreter's own (about 13 MiB)
 reads as that floor.
 
 Peak memory is guarded too: each program's compile peak, and with
 ``--peak-workload <workspace>`` the cold ``--jobs 1`` module-unit compile of a
 pinned whole program, the workload the M11 peak budget is written for. A peak
-more than 2% (and at least 1 MiB) over its baseline fails the check, and
+more than 2% (and at least 1.5 MiB) over its baseline fails the check, and
 ``--peak-budget-gib`` fails a workload over an absolute budget whatever its
 baseline says. ``--peak-only`` skips every timing and ``--no-peaks`` the
 programs, so the M11 guard alone is::

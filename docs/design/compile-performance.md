@@ -436,6 +436,37 @@ run's `bench-results` and run the same command. The `linux-arm64` and
 `linux-arm64` they were floored at the suite's own resident set, so they now
 read as improvements until they are recorded again.
 
+**The gate's allowances, from 14 hosted runs (18 November 2026).** The bench
+job had failed on 4 of the last 9 pushes, each time on one compile peak about
+1 MiB over its baseline, on commits that changed nothing a compile loads. The
+`bench-results` of the 14 runs from `cee6f99` to `e339999` show why:
+
+- A program's compile peak is not exact on the runner pool. Within one
+  compiler it ranged over 0.9 MiB and stood up to 0.70 MiB above its median;
+  five local runs of one compiler on one machine spread 0.62 MiB. Most of a
+  small compile's peak is the pages of the 18 MB compiler it touches, and how
+  many the kernel maps around each fault varies from run to run. `PEAK_FLOOR`
+  is now 1.5 MiB, twice the largest distance from a median.
+- The baseline had been taken from single runs at the low end of that range.
+  `baseline --results` now accepts several runs, oldest first, and records the
+  median of their timings and peaks with the newest run's sizes, lines and
+  parity. The `linux-x86_64` baseline is the median of the eight runs from
+  `5020b73` to `e339999`, 312 metrics, so the app-scale program has a baseline
+  and no row reads "new".
+- Timings can gate after all. A timing stood up to 1.76x above its median
+  across those runs, but a slow runner is slow at everything: divided by each
+  run's machine factor (the median of its timings' ratios to the baseline,
+  0.83x to 1.37x here) no timing stood more than 1.27x above. CI now runs
+  `--timings relative`, which gates the divided timings with 50% of slack.
+  That would have reported the C compiler's fixed cost doubling since the
+  October baseline (342 to 721 ms for the 22-line hello), which
+  `--timings report` only listed.
+
+Replayed against the new baseline, all 14 runs pass with no regression and no
+new row. To re-record: download the `bench-results` of the last several runs
+on main and run `python3 -m tools.bench baseline --results <oldest> ...
+--results <newest>`.
+
 ### Baseline: the compiler compiling itself (`perf-self`, 2026-09-19)
 
 | Compiler | Wall | CPU | Peak RSS | front end | analyze | lower | optimize | emit |

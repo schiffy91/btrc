@@ -22,8 +22,17 @@ SCHEMA_VERSION = 1
 # `--jobs 1` peak sits 35 MiB under its 3 GiB M11 budget, so growth past 2% is a
 # regression; that workload repeats to within 0.7% however loaded the host is.
 # Identical small compiles still differ by a few hundred KiB of allocator
-# regions and 16 KiB pages (a 4 MiB compile by up to 9%), so a peak's slack is
-# never under PEAK_FLOOR bytes.
+# regions and 16 KiB pages (a 4 MiB compile by up to 9%), and on Linux by which
+# pages of the 18 MB compiler the kernel maps around each fault. Over the 14
+# hosted runs of 15 to 18 November 2026 one program's peak stood up to 0.70 MiB
+# above its median, and five runs of one compiler on one machine spread 0.62
+# MiB, so a peak's slack is never under PEAK_FLOOR bytes, twice that.
+#
+# A hosted runner pool is not one machine, but a slow runner is slow at
+# everything: in those runs a timing stood up to 1.76x above its median, and no
+# more than 1.27x once each run was divided by its own machine factor, the
+# median of its timings' ratios to the baseline. RELATIVE_TOLERANCE is the slack
+# for timings compared that way.
 TOLERANCES: dict[str, float] = {
     "ms": 0.35,
     "bytes": 0.03,
@@ -34,7 +43,9 @@ TOLERANCES: dict[str, float] = {
     "info": 0.0,
 }
 IMPROVEMENT_NOTE = 0.20
-PEAK_FLOOR = 1 << 20
+PEAK_FLOOR = 3 << 19
+RELATIVE_TOLERANCE = 0.5
+MEDIAN_KINDS = frozenset({"ms", "peak", "info"})
 INFORMATIONAL_PREFIXES = ("btrcc.phase.",)
 
 
@@ -98,6 +109,40 @@ class Baseline:
         ) and name.endswith("_ms")
 
     @classmethod
+    def machine_factor(cls, current: dict[str, float], baseline: dict[str, float] | None) -> float:
+        """How much slower this run's machine is than the baseline's: the median timing ratio."""
+
+        ratios = sorted(
+            float(value) / float(baseline[name])
+            for name, value in current.items()
+            if baseline and cls.metric_kind(name) == "ms" and float(baseline.get(name) or 0) > 0 and float(value) > 0
+        )
+        if not ratios:
+            return 1.0
+        middle = len(ratios) // 2
+        return ratios[middle] if len(ratios) % 2 else (ratios[middle - 1] + ratios[middle]) / 2
+
+    @classmethod
+    def median_of(cls, runs: list[dict[str, float]]) -> dict[str, float]:
+        """One baseline from several runs, oldest first.
+
+        Timings and peaks take their median, so no single run sets the bar. Sizes,
+        lines, counts and parity are exact facts of a tree and come from the newest
+        run, as does the list of metrics.
+        """
+
+        merged: dict[str, float] = {}
+        for name, newest in runs[-1].items():
+            values = sorted(float(run[name]) for run in runs if name in run)
+            if cls.metric_kind(name) not in MEDIAN_KINDS:
+                merged[name] = newest
+                continue
+            middle = len(values) // 2
+            median = values[middle] if len(values) % 2 else (values[middle - 1] + values[middle]) / 2
+            merged[name] = int(median) if cls.metric_kind(name) == "peak" else round(median, 3)
+        return merged
+
+    @classmethod
     def compare(
         cls,
         current: dict[str, float],
@@ -106,6 +151,7 @@ class Baseline:
         tolerance_peak: float | None = None,
         *,
         gate_timings: bool = True,
+        relative_timings: bool = False,
     ) -> list[Finding]:
         """Compare one run against a platform baseline metric by metric.
 
@@ -116,11 +162,16 @@ class Baseline:
         Without `gate_timings`, a timing past its slack is "slower", reported but
         not a regression. A pool of hosted runners is not one machine: GitHub's
         ubuntu-latest runs of the same tree differed by up to 2.15x on one timing
-        and 1.45x across most of them, while sizes, lines, parity and peaks
-        repeated exactly.
+        and 1.45x across most of them, while sizes, lines and parity repeated
+        exactly.
+
+        With `relative_timings`, each timing is first divided by the run's machine
+        factor, so a slow runner does not fail and one timing that grew against the
+        others does. Its slack is RELATIVE_TOLERANCE unless `tolerance_ms` is given.
         """
 
         findings: list[Finding] = []
+        factor = cls.machine_factor(current, baseline) if relative_timings else 1.0
         qualified = (
             0.0
             < float((baseline or {}).get(f"btrcc.compile.{AppScaleFixture.NAME}_ms", 0))
@@ -137,6 +188,8 @@ class Baseline:
                 continue
             reference = float(reference)
             tolerance = TOLERANCES[kind]
+            if kind == "ms" and relative_timings:
+                tolerance = RELATIVE_TOLERANCE
             if kind == "ms" and tolerance_ms is not None:
                 tolerance = tolerance_ms
             if kind == "peak" and tolerance_peak is not None:
@@ -152,9 +205,9 @@ class Baseline:
                 status = (
                     "regression" if value > reference + slack else "improvement" if value < reference - slack else "ok"
                 )
-            elif value > reference * (1.0 + tolerance):
+            elif (value / factor if kind == "ms" else value) > reference * (1.0 + tolerance):
                 status = "regression" if gate_timings or kind != "ms" else "slower"
-            elif kind == "ms" and value < reference * (1.0 - IMPROVEMENT_NOTE):
+            elif kind == "ms" and value / factor < reference * (1.0 - IMPROVEMENT_NOTE):
                 status = "improvement"
             else:
                 status = "ok"
