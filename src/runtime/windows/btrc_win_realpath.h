@@ -24,6 +24,11 @@ int CloseHandle(void *object);
 /* glob.h's existence and GLOB_MARK check; declared here, before any
    windows.h a unit includes, like the declarations around it. */
 unsigned long GetFileAttributesW(const wchar_t *name);
+/* Platform.programName's source. windows.h spells the module handle
+   `struct HINSTANCE__ *`; NULL names the process's own executable. */
+struct HINSTANCE__;
+unsigned long GetModuleFileNameW(struct HINSTANCE__ *module, wchar_t *path,
+                                 unsigned long capacity);
 int MultiByteToWideChar(unsigned int code_page, unsigned long flags,
                         const char *input, int input_length,
                         wchar_t *output, int output_length);

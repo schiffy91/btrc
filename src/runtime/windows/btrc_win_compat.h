@@ -400,10 +400,24 @@ static inline char *btrc_win_getcwd(char *buffer, size_t capacity) {
 #endif
 #define getcwd btrc_win_getcwd
 
+/* The executable's path as UTF-8, or NULL. The CRT's wide program name
+   (_get_wpgmptr) exists only in a program entered through wmain, and a btrc
+   program's entry is main, so ask the loader. A result that fills the buffer
+   was truncated: double it, up to the longest path Windows can name. */
 static inline char *btrcWinProgramName(void) {
-    wchar_t *wide = NULL;
-    if (_get_wpgmptr(&wide) != 0 || !wide || !wide[0]) { return NULL; }
-    return btrc_win_path_to_utf8(wide);
+    for (unsigned long capacity = 260; capacity <= 65536; capacity *= 2) {
+        wchar_t *wide = (wchar_t *)malloc((size_t)capacity * sizeof(wchar_t));
+        if (!wide) { return NULL; }
+        unsigned long length = GetModuleFileNameW(NULL, wide, capacity);
+        if (length != 0 && length < capacity) {
+            char *path = btrc_win_path_to_utf8(wide);
+            free(wide);
+            return path;
+        }
+        free(wide);
+        if (length == 0) { return NULL; }
+    }
+    return NULL;
 }
 
 /* mkdtemp: create a uniquely-named temp directory. Keep the implementation
