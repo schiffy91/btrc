@@ -29,6 +29,7 @@ GtkWidget* btrcGtkCanvasNew(void);
 GtkWidget* btrcGtkSlotNew(GtkWidget* control);
 void btrcGtkCanvasBegin(GtkWidget* canvas);
 void btrcGtkCanvasPlace(GtkWidget* canvas, GtkWidget* slot, double x, double y, double width, double height, double clipX, double clipY, double clipWidth, double clipHeight);
+void btrcGtkCanvasPlaceHole(GtkWidget* canvas, double x, double y, double width, double height, double clipX, double clipY, double clipWidth, double clipHeight);
 void btrcGtkCanvasEnd(GtkWidget* canvas);
 bool btrcGtkSlotPlaced(GtkWidget* slot);
 void btrcGtkCanvasSettle(GtkWidget* canvas);

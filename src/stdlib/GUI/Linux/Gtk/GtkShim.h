@@ -34,7 +34,8 @@ typedef struct BtrcGtkEvent {
 	int data2;
 	int down;
 	int repeat;
-	/* For BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED: the value asked for. */
+	/* For BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED and _SCROLLBAR_CHANGED: the
+	 * value asked for. */
 	double value;
 	const char* text;
 } BtrcGtkEvent;
@@ -63,6 +64,8 @@ enum BtrcGtkEventType {
 	BTRC_GTK_EVENT_MOUSE_MOTION,
 	BTRC_GTK_EVENT_MOUSE_BUTTON_DOWN,
 	BTRC_GTK_EVENT_MOUSE_BUTTON_UP,
+	/* wheelX and wheelY are notches of a wheel, or with data1 set points of a
+	 * touchpad's own scrolling. */
 	BTRC_GTK_EVENT_MOUSE_WHEEL,
 	/* What a person did to a native control (GtkControls.h). */
 	BTRC_GTK_EVENT_CONTROL_ACTIVATED,
@@ -71,7 +74,21 @@ enum BtrcGtkEventType {
 	BTRC_GTK_EVENT_CONTROL_SLIDER_PRESSED,
 	BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED,
 	BTRC_GTK_EVENT_CONTROL_SLIDER_RELEASED,
-	BTRC_GTK_EVENT_CONTROL_SLIDER_CANCELLED
+	BTRC_GTK_EVENT_CONTROL_SLIDER_CANCELLED,
+	/* A select's list was opened; an item (data1) became the one a choice
+	 * would take; an item (data1) was chosen; the list was closed without a
+	 * choice, by Escape when data1 is 1. */
+	BTRC_GTK_EVENT_CONTROL_SELECT_OPENED,
+	BTRC_GTK_EVENT_CONTROL_SELECT_CANDIDATE,
+	BTRC_GTK_EVENT_CONTROL_SELECT_CHOSEN,
+	BTRC_GTK_EVENT_CONTROL_SELECT_DISMISSED,
+	/* A text field's text is now `text`, composition included when data1 is
+	 * 1; Return was pressed in it; Escape was pressed in it. */
+	BTRC_GTK_EVENT_CONTROL_TEXT_CHANGED,
+	BTRC_GTK_EVENT_CONTROL_TEXT_ACTIVATED,
+	BTRC_GTK_EVENT_CONTROL_TEXT_ESCAPED,
+	/* A scroll bar was moved to `value`; data1 is 1 for the vertical bar. */
+	BTRC_GTK_EVENT_CONTROL_SCROLLBAR_CHANGED
 };
 
 /* A BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED event's data1: how the person

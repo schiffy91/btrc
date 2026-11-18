@@ -13,11 +13,30 @@ struct BtrcGtkControl {
 	GtkWidget* slot;
 	/* The window whose canvas shows it, or NULL. */
 	BtrcGtkWindow* window;
+	/* Set when the provider has let go of the control. GTK may keep the
+	 * widget a while longer (a window keeps the widget that has the keyboard
+	 * until it has told it otherwise), and this record lives exactly as long
+	 * as the widget, so a signal that still arrives finds it and is dropped. */
+	bool destroyed;
 	/* The label that carries the control's text, when it has one. */
 	GtkWidget* title;
 	/* A button's symbol: the widget that draws it and the shapes it draws. */
 	GtkWidget* symbol;
 	GArray* shapes;
+	/* A select's list, the popover that shows it, and whether Escape closed it. */
+	GtkWidget* popover;
+	GtkWidget* list;
+	bool escaped;
+	/* The font the control's text has, for text added later. */
+	double fontSize;
+	bool fontBold;
+	/* A text field's composition in progress, and whether a change to its
+	 * text is the program's own and so not reported. */
+	char* preedit;
+	bool silent;
+	/* A fill's colour and corner radius. */
+	GdkRGBA fill;
+	double radius;
 };
 
 /* One shape of a symbol, in points from the symbol's top left. A width of
@@ -30,13 +49,17 @@ typedef struct BtrcGtkShape {
 
 enum { BTRC_GTK_SHAPE_LINE, BTRC_GTK_SHAPE_TRIANGLE, BTRC_GTK_SHAPE_RECTANGLE, BTRC_GTK_SHAPE_CIRCLE };
 
-static void btrcGtkControlPush(BtrcGtkControl* control, unsigned int type) {
+static void btrcGtkControlPushData(BtrcGtkControl* control, unsigned int type, int data) {
 	BtrcGtkEvent event = {0};
+	if (control->destroyed) { return; }
 	event.type = type;
 	event.window = control->window == NULL ? 0u : btrcGtkWindowId(control->window);
 	event.control = control->id;
+	event.data1 = data;
 	btrcGtkPush(&event, NULL);
 }
+
+static void btrcGtkControlPush(BtrcGtkControl* control, unsigned int type) { btrcGtkControlPushData(control, type, 0); }
 
 static void btrcGtkOnControlFocusEnter(GtkEventControllerFocus* controller, gpointer data) {
 	(void)controller;
@@ -56,6 +79,13 @@ static void btrcGtkControlReportFocus(BtrcGtkControl* control) {
 	gtk_widget_add_controller(control->widget, focus);
 }
 
+static void btrcGtkControlFree(gpointer data) {
+	BtrcGtkControl* control = data;
+	if (control->shapes != NULL) { g_array_unref(control->shapes); }
+	g_free(control->preedit);
+	free(control);
+}
+
 static BtrcGtkControl* btrcGtkControlNew(unsigned int id, GtkWidget* widget) {
 	BtrcGtkControl* control = calloc(1, sizeof *control);
 	if (control == NULL) { g_object_ref_sink(widget); g_object_unref(widget); return NULL; }
@@ -63,32 +93,48 @@ static BtrcGtkControl* btrcGtkControlNew(unsigned int id, GtkWidget* widget) {
 	control->widget = widget;
 	control->slot = g_object_ref_sink(btrcGtkSlotNew(widget));
 	g_object_set_data(G_OBJECT(control->slot), "btrc-control", control);
+	g_object_set_data_full(G_OBJECT(widget), "btrc-control-record", control, btrcGtkControlFree);
 	return control;
 }
 
+/* The provider lets go of the control. Its record goes when its widget does. */
 void btrcGtkControlDestroy(BtrcGtkControl* control) {
 	if (control == NULL) { return; }
-	g_signal_handlers_disconnect_by_data(control->widget, control);
-	if (gtk_widget_get_parent(control->slot) != NULL) { gtk_widget_unparent(control->slot); }
-	if (control->symbol != NULL) { gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(control->symbol), NULL, NULL, NULL); }
-	g_object_unref(control->slot);
-	if (control->shapes != NULL) { g_array_unref(control->shapes); }
-	free(control);
+	control->destroyed = true;
+	control->window = NULL;
+	GtkWidget* slot = control->slot;
+	if (gtk_widget_get_parent(slot) != NULL) { gtk_widget_unparent(slot); }
+	g_object_unref(slot);
 }
 
 void btrcGtkControlSetEnabled(BtrcGtkControl* control, bool enabled) { gtk_widget_set_sensitive(control->widget, enabled); }
 
 void btrcGtkControlSetToolTip(BtrcGtkControl* control, const char* text) { gtk_widget_set_tooltip_text(control->widget, text == NULL || text[0] == '\0' ? NULL : text); }
 
-/* A font is an attribute of the control's own text, its size in logical
- * points: it holds whatever the theme says and takes effect at once. */
-void btrcGtkControlSetFont(BtrcGtkControl* control, double size, bool bold) {
-	if (control->title == NULL) { return; }
+/* A font is an attribute of a label's own text, its size in logical points:
+ * it holds whatever the theme says and takes effect at once. */
+static void btrcGtkLabelFont(GtkWidget* label, double size, bool bold) {
 	PangoAttrList* attributes = pango_attr_list_new();
 	pango_attr_list_insert(attributes, pango_attr_size_new_absolute((int)(size * (double)PANGO_SCALE + 0.5)));
 	if (bold) { pango_attr_list_insert(attributes, pango_attr_weight_new(PANGO_WEIGHT_BOLD)); }
-	gtk_label_set_attributes(GTK_LABEL(control->title), attributes);
+	gtk_label_set_attributes(GTK_LABEL(label), attributes);
 	pango_attr_list_unref(attributes);
+}
+
+static GtkWidget* btrcGtkSelectRowLabel(GtkWidget* row) { return gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(row)); }
+
+void btrcGtkControlSetFont(BtrcGtkControl* control, double size, bool bold) {
+	control->fontSize = size;
+	control->fontBold = bold;
+	if (control->title != NULL) { btrcGtkLabelFont(control->title, size, bold); }
+	if (GTK_IS_ENTRY(control->widget)) {
+		PangoAttrList* attributes = pango_attr_list_new();
+		pango_attr_list_insert(attributes, pango_attr_size_new_absolute((int)(size * (double)PANGO_SCALE + 0.5)));
+		gtk_entry_set_attributes(GTK_ENTRY(control->widget), attributes);
+		pango_attr_list_unref(attributes);
+	}
+	if (control->list == NULL) { return; }
+	for (GtkWidget* row = gtk_widget_get_first_child(control->list); row != NULL; row = gtk_widget_get_next_sibling(row)) { btrcGtkLabelFont(btrcGtkSelectRowLabel(row), size, bold); }
 }
 
 static int btrcGtkControlNatural(BtrcGtkControl* control, GtkOrientation orientation) {
@@ -116,12 +162,16 @@ void btrcGtkWindowPlace(BtrcGtkWindow* window, BtrcGtkControl* control, double x
 	btrcGtkCanvasPlace(btrcGtkWindowCanvas(window), control->slot, x, y, width, height, clipX, clipY, clipWidth, clipHeight);
 }
 
+void btrcGtkWindowPlaceHole(BtrcGtkWindow* window, double x, double y, double width, double height, double clipX, double clipY, double clipWidth, double clipHeight) {
+	btrcGtkCanvasPlaceHole(btrcGtkWindowCanvas(window), x, y, width, height, clipX, clipY, clipWidth, clipHeight);
+}
+
 /* A control the placement left out no longer belongs to this window. */
 void btrcGtkWindowEndPlacement(BtrcGtkWindow* window) {
 	GtkWidget* canvas = btrcGtkWindowCanvas(window);
 	for (GtkWidget* slot = gtk_widget_get_first_child(canvas); slot != NULL; slot = gtk_widget_get_next_sibling(slot)) {
 		BtrcGtkControl* control = g_object_get_data(G_OBJECT(slot), "btrc-control");
-		if (control != NULL && !btrcGtkSlotPlaced(slot)) { control->window = NULL; }
+		if (!btrcGtkSlotPlaced(slot)) { control->window = NULL; }
 	}
 	btrcGtkCanvasEnd(canvas);
 }
@@ -333,6 +383,7 @@ static gboolean btrcGtkOnSliderChange(GtkRange* range, GtkScrollType scroll, dou
 	BtrcGtkControl* control = data;
 	BtrcGtkEvent event = {0};
 	(void)range;
+	if (control->destroyed) { return TRUE; }
 	event.type = BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED;
 	event.window = control->window == NULL ? 0u : btrcGtkWindowId(control->window);
 	event.control = control->id;
@@ -404,4 +455,285 @@ void btrcGtkSliderSet(BtrcGtkControl* slider, double minimum, double maximum, do
 	} else if (gtk_adjustment_get_value(adjustment) != value) {
 		gtk_adjustment_set_value(adjustment, value);
 	}
+}
+
+/* A select: a button that shows the chosen item and opens a list of them.
+ * It never changes its own choice: opening, moving through the list,
+ * choosing and closing are queued, and the provider answers. */
+static void btrcGtkOnSelectShown(GtkWidget* popover, gpointer data) {
+	BtrcGtkControl* control = data;
+	(void)popover;
+	control->escaped = false;
+	gtk_widget_set_size_request(control->list, gtk_widget_get_width(control->widget), -1);
+	GtkListBoxRow* chosen = gtk_list_box_get_selected_row(GTK_LIST_BOX(control->list));
+	if (chosen != NULL) { gtk_widget_grab_focus(GTK_WIDGET(chosen)); }
+	btrcGtkControlPush(control, BTRC_GTK_EVENT_CONTROL_SELECT_OPENED);
+}
+
+static void btrcGtkOnSelectClosed(GtkPopover* popover, gpointer data) {
+	BtrcGtkControl* control = data;
+	(void)popover;
+	btrcGtkControlPushData(control, BTRC_GTK_EVENT_CONTROL_SELECT_DISMISSED, control->escaped ? 1 : 0);
+}
+
+static gboolean btrcGtkOnSelectKey(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
+	BtrcGtkControl* control = data;
+	(void)controller;
+	(void)keycode;
+	(void)state;
+	if (keyval == GDK_KEY_Escape) { control->escaped = true; }
+	return FALSE;
+}
+
+static void btrcGtkOnSelectRowSelected(GtkListBox* list, GtkListBoxRow* row, gpointer data) {
+	BtrcGtkControl* control = data;
+	(void)list;
+	if (row != NULL && gtk_widget_get_visible(control->popover)) { btrcGtkControlPushData(control, BTRC_GTK_EVENT_CONTROL_SELECT_CANDIDATE, gtk_list_box_row_get_index(row)); }
+}
+
+static void btrcGtkOnSelectRowActivated(GtkListBox* list, GtkListBoxRow* row, gpointer data) {
+	BtrcGtkControl* control = data;
+	(void)list;
+	btrcGtkControlPushData(control, BTRC_GTK_EVENT_CONTROL_SELECT_CHOSEN, gtk_list_box_row_get_index(row));
+	gtk_popover_popdown(GTK_POPOVER(control->popover));
+}
+
+/* The item under the pointer is the one a click would choose. */
+static void btrcGtkOnSelectRowEntered(GtkEventControllerMotion* controller, double x, double y, gpointer data) {
+	GtkWidget* row = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(controller));
+	(void)x;
+	(void)y;
+	if (gtk_widget_get_sensitive(row)) { gtk_list_box_select_row(GTK_LIST_BOX(data), GTK_LIST_BOX_ROW(row)); }
+}
+
+BtrcGtkControl* btrcGtkSelectCreate(unsigned int id) {
+	GtkWidget* button = gtk_menu_button_new();
+	BtrcGtkControl* control = btrcGtkControlNew(id, button);
+	if (control == NULL) { return NULL; }
+	GtkWidget* content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	control->title = gtk_label_new("");
+	gtk_label_set_xalign(GTK_LABEL(control->title), 0.0f);
+	gtk_label_set_ellipsize(GTK_LABEL(control->title), PANGO_ELLIPSIZE_END);
+	gtk_widget_set_hexpand(control->title, TRUE);
+	gtk_box_append(GTK_BOX(content), control->title);
+	gtk_box_append(GTK_BOX(content), gtk_image_new_from_icon_name("pan-down-symbolic"));
+	gtk_menu_button_set_child(GTK_MENU_BUTTON(button), content);
+	control->list = gtk_list_box_new();
+	gtk_list_box_set_selection_mode(GTK_LIST_BOX(control->list), GTK_SELECTION_BROWSE);
+	gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(control->list), TRUE);
+	g_signal_connect(control->list, "row-selected", G_CALLBACK(btrcGtkOnSelectRowSelected), control);
+	g_signal_connect(control->list, "row-activated", G_CALLBACK(btrcGtkOnSelectRowActivated), control);
+	control->popover = gtk_popover_new();
+	gtk_popover_set_has_arrow(GTK_POPOVER(control->popover), FALSE);
+	gtk_widget_add_css_class(control->popover, "menu");
+	gtk_popover_set_child(GTK_POPOVER(control->popover), control->list);
+	g_signal_connect(control->popover, "show", G_CALLBACK(btrcGtkOnSelectShown), control);
+	g_signal_connect(control->popover, "closed", G_CALLBACK(btrcGtkOnSelectClosed), control);
+	GtkEventController* keys = gtk_event_controller_key_new();
+	gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+	g_signal_connect(keys, "key-pressed", G_CALLBACK(btrcGtkOnSelectKey), control);
+	gtk_widget_add_controller(control->popover, keys);
+	gtk_menu_button_set_popover(GTK_MENU_BUTTON(button), control->popover);
+	return control;
+}
+
+void btrcGtkSelectClear(BtrcGtkControl* select) { gtk_list_box_remove_all(GTK_LIST_BOX(select->list)); }
+
+void btrcGtkSelectAppend(BtrcGtkControl* select, const char* title, bool enabled) {
+	GtkWidget* label = gtk_label_new(title);
+	gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+	if (select->fontSize > 0.0) { btrcGtkLabelFont(label, select->fontSize, select->fontBold); }
+	GtkWidget* row = gtk_list_box_row_new();
+	gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), label);
+	gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), enabled);
+	gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(row), enabled);
+	gtk_widget_set_sensitive(row, enabled);
+	GtkEventController* motion = gtk_event_controller_motion_new();
+	g_signal_connect(motion, "enter", G_CALLBACK(btrcGtkOnSelectRowEntered), select->list);
+	gtk_widget_add_controller(row, motion);
+	gtk_list_box_append(GTK_LIST_BOX(select->list), row);
+}
+
+void btrcGtkSelectShow(BtrcGtkControl* select, int selected, const char* shown, bool available) {
+	gtk_label_set_text(GTK_LABEL(select->title), shown);
+	GtkListBoxRow* row = selected < 0 ? NULL : gtk_list_box_get_row_at_index(GTK_LIST_BOX(select->list), selected);
+	if (row != NULL) { gtk_list_box_select_row(GTK_LIST_BOX(select->list), row); }
+	else { gtk_list_box_unselect_all(GTK_LIST_BOX(select->list)); }
+	gtk_widget_set_sensitive(select->widget, available);
+}
+
+void btrcGtkSelectDismiss(BtrcGtkControl* select) { gtk_popover_popdown(GTK_POPOVER(select->popover)); }
+
+/* Wide enough for the longest item, not only the one shown. */
+int btrcGtkSelectNaturalWidth(BtrcGtkControl* select) {
+	int button = 0;
+	int shown = 0;
+	int widest = 0;
+	gtk_widget_measure(select->widget, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &button, NULL, NULL);
+	gtk_widget_measure(select->title, GTK_ORIENTATION_HORIZONTAL, -1, NULL, &shown, NULL, NULL);
+	for (GtkWidget* row = gtk_widget_get_first_child(select->list); row != NULL; row = gtk_widget_get_next_sibling(row)) {
+		int width = 0;
+		gtk_widget_measure(btrcGtkSelectRowLabel(row), GTK_ORIENTATION_HORIZONTAL, -1, NULL, &width, NULL, NULL);
+		if (width > widest) { widest = width; }
+	}
+	return button - shown + (widest > shown ? widest : shown);
+}
+
+/* A text field: GTK owns the editing, the selection, the composition, the
+ * clipboard and undo. What is reported is the text as it now reads, with a
+ * composition in progress shown where it will go. */
+static bool btrcGtkTextComposing(const BtrcGtkControl* control) { return control->preedit != NULL && control->preedit[0] != '\0'; }
+
+static void btrcGtkTextReport(BtrcGtkControl* control) {
+	BtrcGtkEvent event = {0};
+	if (control->destroyed) { return; }
+	const char* text = gtk_editable_get_text(GTK_EDITABLE(control->widget));
+	char* draft = NULL;
+	if (btrcGtkTextComposing(control)) {
+		const char* caret = g_utf8_offset_to_pointer(text, gtk_editable_get_position(GTK_EDITABLE(control->widget)));
+		draft = g_strdup_printf("%.*s%s%s", (int)(caret - text), text, control->preedit, caret);
+	}
+	event.type = BTRC_GTK_EVENT_CONTROL_TEXT_CHANGED;
+	event.window = control->window == NULL ? 0u : btrcGtkWindowId(control->window);
+	event.control = control->id;
+	event.data1 = btrcGtkTextComposing(control) ? 1 : 0;
+	btrcGtkPush(&event, draft == NULL ? text : draft);
+	g_free(draft);
+}
+
+static void btrcGtkOnTextChanged(GtkEditable* editable, gpointer data) {
+	BtrcGtkControl* control = data;
+	(void)editable;
+	if (!control->silent) { btrcGtkTextReport(control); }
+}
+
+static void btrcGtkOnTextPreedit(GtkText* text, const char* preedit, gpointer data) {
+	BtrcGtkControl* control = data;
+	(void)text;
+	g_free(control->preedit);
+	control->preedit = g_strdup(preedit);
+	btrcGtkTextReport(control);
+}
+
+static void btrcGtkOnTextActivate(GtkEntry* entry, gpointer data) {
+	(void)entry;
+	btrcGtkControlPush(data, BTRC_GTK_EVENT_CONTROL_TEXT_ACTIVATED);
+}
+
+/* Escape during a composition belongs to the input method, which gives the
+ * composition up; otherwise it gives up the edit. */
+static gboolean btrcGtkOnTextKey(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
+	BtrcGtkControl* control = data;
+	(void)controller;
+	(void)keycode;
+	(void)state;
+	if (keyval == GDK_KEY_Escape && !btrcGtkTextComposing(control)) { btrcGtkControlPush(control, BTRC_GTK_EVENT_CONTROL_TEXT_ESCAPED); }
+	return FALSE;
+}
+
+BtrcGtkControl* btrcGtkTextCreate(unsigned int id, const char* text, const char* placeholder) {
+	GtkWidget* entry = gtk_entry_new();
+	BtrcGtkControl* control = btrcGtkControlNew(id, entry);
+	if (control == NULL) { return NULL; }
+	gtk_editable_set_text(GTK_EDITABLE(entry), text);
+	gtk_entry_set_placeholder_text(GTK_ENTRY(entry), placeholder);
+	g_signal_connect(entry, "changed", G_CALLBACK(btrcGtkOnTextChanged), control);
+	g_signal_connect(entry, "activate", G_CALLBACK(btrcGtkOnTextActivate), control);
+	g_signal_connect(gtk_editable_get_delegate(GTK_EDITABLE(entry)), "preedit-changed", G_CALLBACK(btrcGtkOnTextPreedit), control);
+	GtkEventController* keys = gtk_event_controller_key_new();
+	gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+	g_signal_connect(keys, "key-pressed", G_CALLBACK(btrcGtkOnTextKey), control);
+	gtk_widget_add_controller(entry, keys);
+	btrcGtkControlReportFocus(control);
+	return control;
+}
+
+/* The program's own text: not an edit, so not reported. The caret goes to its end. */
+void btrcGtkTextSet(BtrcGtkControl* field, const char* text) {
+	if (strcmp(gtk_editable_get_text(GTK_EDITABLE(field->widget)), text) == 0) { return; }
+	field->silent = true;
+	gtk_editable_set_text(GTK_EDITABLE(field->widget), text);
+	gtk_editable_set_position(GTK_EDITABLE(field->widget), -1);
+	field->silent = false;
+}
+
+void btrcGtkTextSetPlaceholder(BtrcGtkControl* field, const char* placeholder) { gtk_entry_set_placeholder_text(GTK_ENTRY(field->widget), placeholder); }
+
+/* A picture, shown whole and undistorted in whatever frame it is given. */
+BtrcGtkControl* btrcGtkPictureCreate(unsigned int id) {
+	GtkWidget* picture = gtk_picture_new();
+	BtrcGtkControl* control = btrcGtkControlNew(id, picture);
+	if (control == NULL) { return NULL; }
+	gtk_picture_set_content_fit(GTK_PICTURE(picture), GTK_CONTENT_FIT_CONTAIN);
+	gtk_picture_set_can_shrink(GTK_PICTURE(picture), TRUE);
+	gtk_widget_set_can_target(picture, FALSE);
+	return control;
+}
+
+void btrcGtkPictureSet(BtrcGtkControl* picture, const unsigned char* pixels, int width, int height) {
+	if (pixels == NULL || width <= 0 || height <= 0) { gtk_picture_set_paintable(GTK_PICTURE(picture->widget), NULL); return; }
+	GBytes* bytes = g_bytes_new(pixels, (gsize)width * (gsize)height * 4u);
+	GdkTexture* texture = gdk_memory_texture_new(width, height, GDK_MEMORY_R8G8B8A8, bytes, (gsize)width * 4u);
+	g_bytes_unref(bytes);
+	gtk_picture_set_paintable(GTK_PICTURE(picture->widget), GDK_PAINTABLE(texture));
+	g_object_unref(texture);
+}
+
+/* A fill: one colour in a rectangle with rounded corners. */
+static void btrcGtkOnFillDraw(GtkDrawingArea* area, cairo_t* context, int width, int height, gpointer data) {
+	BtrcGtkControl* control = data;
+	(void)area;
+	gdk_cairo_set_source_rgba(context, &control->fill);
+	btrcGtkRoundedRectangle(context, 0.0, 0.0, (double)width, (double)height, control->radius);
+	cairo_fill(context);
+}
+
+BtrcGtkControl* btrcGtkFillCreate(unsigned int id) {
+	GtkWidget* area = gtk_drawing_area_new();
+	BtrcGtkControl* control = btrcGtkControlNew(id, area);
+	if (control == NULL) { return NULL; }
+	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(area), btrcGtkOnFillDraw, control, NULL);
+	gtk_widget_set_can_target(area, FALSE);
+	return control;
+}
+
+void btrcGtkFillSet(BtrcGtkControl* fill, int red, int green, int blue, int alpha, double radius) {
+	fill->fill.red = (float)red / 255.0f;
+	fill->fill.green = (float)green / 255.0f;
+	fill->fill.blue = (float)blue / 255.0f;
+	fill->fill.alpha = (float)alpha / 255.0f;
+	fill->radius = radius;
+	gtk_widget_queue_draw(fill->widget);
+}
+
+/* A scroll bar beside a view the provider scrolls itself. It shows where
+ * the view is in its document and reports where a person moves it to. */
+static void btrcGtkOnScrollbarChanged(GtkAdjustment* adjustment, gpointer data) {
+	BtrcGtkControl* control = data;
+	BtrcGtkEvent event = {0};
+	if (control->destroyed || control->silent) { return; }
+	event.type = BTRC_GTK_EVENT_CONTROL_SCROLLBAR_CHANGED;
+	event.window = control->window == NULL ? 0u : btrcGtkWindowId(control->window);
+	event.control = control->id;
+	event.value = gtk_adjustment_get_value(adjustment);
+	event.data1 = gtk_orientable_get_orientation(GTK_ORIENTABLE(control->widget)) == GTK_ORIENTATION_VERTICAL ? 1 : 0;
+	btrcGtkPush(&event, NULL);
+}
+
+BtrcGtkControl* btrcGtkScrollbarCreate(unsigned int id, bool vertical) {
+	GtkAdjustment* adjustment = gtk_adjustment_new(0.0, 0.0, 0.0, 48.0, 48.0, 0.0);
+	GtkWidget* bar = gtk_scrollbar_new(vertical ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL, adjustment);
+	BtrcGtkControl* control = btrcGtkControlNew(id, bar);
+	if (control == NULL) { return NULL; }
+	g_signal_connect(adjustment, "value-changed", G_CALLBACK(btrcGtkOnScrollbarChanged), control);
+	return control;
+}
+
+/* Where the view is: `offset` into a document `content` long, of which
+ * `viewport` shows. The program's own position is not reported back. */
+void btrcGtkScrollbarSet(BtrcGtkControl* bar, double offset, double viewport, double content) {
+	GtkAdjustment* adjustment = gtk_scrollbar_get_adjustment(GTK_SCROLLBAR(bar->widget));
+	bar->silent = true;
+	gtk_adjustment_configure(adjustment, offset, 0.0, content, 48.0, viewport > 48.0 ? viewport - 48.0 : viewport, viewport);
+	bar->silent = false;
 }

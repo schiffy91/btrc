@@ -31,6 +31,10 @@ int btrcGtkControlNaturalHeightFor(BtrcGtkControl* control, int width);
  * placement does not name leaves the window. */
 void btrcGtkWindowBeginPlacement(BtrcGtkWindow* window);
 void btrcGtkWindowPlace(BtrcGtkWindow* window, BtrcGtkControl* control, double x, double y, double width, double height, double clipX, double clipY, double clipWidth, double clipHeight);
+/* A hole in the placement: a rectangle where the provider's drawn content
+ * (a GPU view) shows through every control placed before it, and under
+ * every control placed after. */
+void btrcGtkWindowPlaceHole(BtrcGtkWindow* window, double x, double y, double width, double height, double clipX, double clipY, double clipWidth, double clipHeight);
 void btrcGtkWindowEndPlacement(BtrcGtkWindow* window);
 
 /* Draw the window's controls, as GTK draws them, over a picture of its
@@ -77,4 +81,45 @@ void btrcGtkLevelSetValue(BtrcGtkControl* level, double value);
  * _CANCELLED that Escape gave a drag up. */
 BtrcGtkControl* btrcGtkSliderCreate(unsigned int id);
 void btrcGtkSliderSet(BtrcGtkControl* slider, double minimum, double maximum, double step, double value);
+
+/* A select: a button showing one text that opens a list of items. It never
+ * changes what it shows itself. BTRC_GTK_EVENT_CONTROL_SELECT_OPENED says a
+ * person opened the list, _CANDIDATE which item a choice would now take,
+ * _CHOSEN which item was chosen, and _DISMISSED that the list closed
+ * without a choice. Dismiss closes an open list. */
+BtrcGtkControl* btrcGtkSelectCreate(unsigned int id);
+void btrcGtkSelectClear(BtrcGtkControl* select);
+void btrcGtkSelectAppend(BtrcGtkControl* select, const char* title, bool enabled);
+/* The item marked in the list (-1 for none), the text on the button, and
+ * whether the list can be opened. */
+void btrcGtkSelectShow(BtrcGtkControl* select, int selected, const char* shown, bool available);
+void btrcGtkSelectDismiss(BtrcGtkControl* select);
+/* Wide enough for the longest item, not only the one shown. */
+int btrcGtkSelectNaturalWidth(BtrcGtkControl* select);
+
+/* A one-line text field. GTK owns the editing.
+ * BTRC_GTK_EVENT_CONTROL_TEXT_CHANGED carries the text as a person's edit
+ * left it, _ACTIVATED says Return was pressed, _ESCAPED that Escape was.
+ * Set is the program's own text and is not reported back. */
+BtrcGtkControl* btrcGtkTextCreate(unsigned int id, const char* text, const char* placeholder);
+void btrcGtkTextSet(BtrcGtkControl* field, const char* text);
+void btrcGtkTextSetPlaceholder(BtrcGtkControl* field, const char* placeholder);
+
+/* A picture, shown whole and undistorted in whatever frame it is given.
+ * `pixels` is `width` by `height` RGBA, copied; NULL shows nothing. It takes
+ * no input. */
+BtrcGtkControl* btrcGtkPictureCreate(unsigned int id);
+void btrcGtkPictureSet(BtrcGtkControl* picture, const unsigned char* pixels, int width, int height);
+
+/* A fill: one colour (each part 0 to 255) in the control's frame, with
+ * rounded corners. It takes no input. */
+BtrcGtkControl* btrcGtkFillCreate(unsigned int id);
+void btrcGtkFillSet(BtrcGtkControl* fill, int red, int green, int blue, int alpha, double radius);
+
+/* A scroll bar for a view the provider scrolls itself. Set says where the
+ * view is: `offset` into a document `content` long, of which `viewport`
+ * shows. BTRC_GTK_EVENT_CONTROL_SCROLLBAR_CHANGED says where a person moved
+ * it to. */
+BtrcGtkControl* btrcGtkScrollbarCreate(unsigned int id, bool vertical);
+void btrcGtkScrollbarSet(BtrcGtkControl* bar, double offset, double viewport, double content);
 #endif

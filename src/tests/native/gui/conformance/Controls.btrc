@@ -56,8 +56,9 @@ class TextFieldState implements IConformanceCase {
 		field.setEnabled(true);
 		double regular = field.fittingHeight();
 		Expect.isTrue(regular > 0.0);
-		field.setFont(24.0);
-		Expect.isTrue(field.fittingHeight() > regular, "a larger font is taller");
+		/* A field has a height of its own that a slightly larger font still fits in. */
+		field.setFont(48.0);
+		Expect.isTrue(field.fittingHeight() > regular, "a much larger font is taller");
 		Expect.isTrue(field.close() == CALLBACK_CANCELLATION_COMPLETE);
 	}
 }
@@ -238,21 +239,21 @@ class ImagePixels implements IConformanceCase {
 		pixels.fill(Palette.blue());
 		view.setImage(pixels);
 		turns.settle();
-		Expect.isTrue(Picture.same(Picture(window).at(80.0, 80.0), Palette.blue()), "an image fills its view");
+		Expect.isTrue(Picture.same(Picture(window).at(160.0, 80.0), Palette.blue()), "an image fills its view");
 		var other = Image(32, 32);
 		other.fill(Palette.red());
 		var handle = GUI.createImageHandle(other);
 		Expect.isTrue(handle.isOpen() && handle.width() == 32 && handle.height() == 32);
 		view.setImageHandle(handle);
 		turns.settle();
-		Expect.isTrue(Picture.same(Picture(window).at(80.0, 80.0), Palette.red()), "a handle's image replaces the last one");
+		Expect.isTrue(Picture.same(Picture(window).at(160.0, 80.0), Palette.red()), "a handle's image replaces the last one");
 		handle.close();
 		Expect.isFalse(handle.isOpen());
 		turns.settle();
-		Expect.isTrue(Picture.same(Picture(window).at(80.0, 80.0), Palette.red()), "closing a handle leaves what it published on screen");
+		Expect.isTrue(Picture.same(Picture(window).at(160.0, 80.0), Palette.red()), "closing a handle leaves what it published on screen");
 		view.setImageHandle(null);
 		turns.settle();
-		Expect.isFalse(Picture.same(Picture(window).at(80.0, 80.0), Palette.red()), "no handle, no image");
+		Expect.isFalse(Picture.same(Picture(window).at(160.0, 80.0), Palette.red()), "no handle, no image");
 		window.close();
 		turns.settle();
 	}

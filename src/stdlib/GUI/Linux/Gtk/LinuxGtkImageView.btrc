@@ -5,14 +5,15 @@ import Library.GUI.IImageHandle;
 import Library.GUI.Linux.Gtk.LinuxGtkView;
 import Library.GUI.Linux.Gtk.LinuxGtkContext;
 import Library.GUI.Linux.Gtk.LinuxGtkPainter;
+import Library.GUI.Linux.Gtk.GtkControls;
 
 /* Image identities come from one process-wide counter, so any thread creates
  * a handle without reaching the application. Static Atomic<T> storage is
  * zero-initialized before program entry. */
 static Atomic<int> linuxGtkImageIdentities;
 
-/* Decoded pixels with a stable identity. Any thread may create one; painters
- * upload it to their device on first use and cache by identity. */
+/* Decoded pixels with a stable identity. Any thread may create one; a view
+ * hands them to GTK when it is given the handle. */
 interface ILinuxGtkImageHandle extends IImageHandle {
 	int identity();
 	Image pixels();
@@ -59,20 +60,21 @@ class LinuxGtkImageHandle implements ILinuxGtkImageHandle {
 	public void close() { self._pixels.set(null); }
 }
 
-/* Aspect-preserving presentation of one image handle. */
+/* Aspect-preserving presentation of one image handle: a GTK picture. */
 class LinuxGtkImageView extends LinuxGtkNodeView implements IImageView {
+	private BtrcGtkControl* _control;
 	private ILinuxGtkImageHandle? _handle = null;
 	private Image? _pixels = null;
-	private int _identity = 0;
 
-	public LinuxGtkImageView(LinuxGtkContext context) { self.adoptNode(LinuxGtkViewNode(context)); }
-
-	public void paint(LinuxGtkPainter painter, double x, double y) {
-		var pixels = self._pixels;
-		if (pixels == null) { return; }
-		var texture = painter.imageTexture(self._identity, pixels);
-		painter.imageFit(texture, x, y, self.node().width, self.node().height, RGBA(255, 255, 255, 255));
+	public LinuxGtkImageView(LinuxGtkContext context) {
+		self.adoptNode(LinuxGtkViewNode(context));
+		self._control = btrcGtkPictureCreate((unsigned int)self.node().id);
+		if (self._control == null) { throw "Cannot create native image view"; }
 	}
+
+	private BtrcGtkControl* control() { if (self._control == null) { throw "Native image view is closed"; } return self._control; }
+
+	public void paint(LinuxGtkPainter painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
 
 	public double fittingWidth() { self.node().requireOpen(); var pixels = self._pixels; return pixels == null ? 0.0 : (double)pixels.width; }
 
@@ -86,18 +88,26 @@ class LinuxGtkImageView extends LinuxGtkNodeView implements IImageView {
 
 	public void setImageHandle(IImageHandle? handle) {
 		self.node().requireOpen();
-		if (handle == null) { self._handle = null; self._pixels = null; self._identity = 0; self.node().invalidate(); return; }
+		if (handle == null) { self._handle = null; self._pixels = null; btrcGtkPictureSet(self.control(), null, 0, 0); self.node().invalidate(); return; }
 		ILinuxGtkImageHandle? native = (ILinuxGtkImageHandle?)handle;
 		if (native == null) { throw "Native image view requires a Linux image handle"; }
 		/* Presentation owns its pixels independently of the publication handle.
 		 * Capture before the alias check, so a closed alias still rejects. */
-		var pixels = native.pixels(); int identity = native.identity();
+		var pixels = native.pixels();
 		if (self._handle == native) { return; }
-		self._handle = native; self._pixels = pixels; self._identity = identity;
+		self._handle = native; self._pixels = pixels;
+		btrcGtkPictureSet(self.control(), pixels.data, pixels.width, pixels.height);
 		self.node().invalidate();
 	}
 
-	public CallbackCancellation close() { var state = self.node().close(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._handle = null; self._pixels = null; self._identity = 0; } return state; }
+	private void releaseNative() {
+		self._handle = null; self._pixels = null;
+		if (self._control != null) { btrcGtkControlDestroy(self._control); self._control = null; }
+	}
 
-	public CallbackCancellation pollClose() { var state = self.node().pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._handle = null; self._pixels = null; self._identity = 0; } return state; }
+	public CallbackCancellation close() { var state = self.node().close(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); } return state; }
+
+	public CallbackCancellation pollClose() { var state = self.node().pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); } return state; }
+
+	public void __del__() { self.releaseNative(); }
 }

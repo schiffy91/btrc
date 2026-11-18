@@ -4,6 +4,7 @@
  * events. BTRC polls it each turn, so the provider's own dispatch runs
  * between GTK's callbacks and never inside one. */
 #include "GtkShimPrivate.h"
+#include "GtkControls.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #include <gdk/gdkkeysyms.h>
@@ -377,6 +378,7 @@ static gboolean btrcGtkOnScroll(GtkEventControllerScroll* controller, double dx,
 	event.y = (float)window->pointerY;
 	event.wheelX = (float)dx;
 	event.wheelY = (float)-dy;
+	event.data1 = gtk_event_controller_scroll_get_unit(controller) == GDK_SCROLL_UNIT_SURFACE ? 1 : 0;
 	btrcGtkPush(&event, NULL);
 	return TRUE;
 }
@@ -620,6 +622,9 @@ void btrcGtkWindowDestroy(BtrcGtkWindow* window) {
 	g_signal_handlers_disconnect_by_data(window->input, window);
 	GdkSurface* surface = gtk_native_get_surface(GTK_NATIVE(window->window));
 	if (surface != NULL) { g_signal_handlers_disconnect_by_data(surface, window); }
+	/* Controls still in the window leave it first: none keeps a pointer to it. */
+	btrcGtkWindowBeginPlacement(window);
+	btrcGtkWindowEndPlacement(window);
 	btrcGtkDestroySurface(window);
 	g_object_unref(window->input);
 	gtk_window_destroy(GTK_WINDOW(window->window));

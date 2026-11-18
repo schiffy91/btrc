@@ -60,6 +60,8 @@ class LinuxGtkGPUView extends LinuxGtkNodeView implements IGPUView {
 			self._sampledGeneration = target.generation();
 		}
 		painter.texture(sampled, x, y, self.node().width, self.node().height, RGBA(255, 255, 255, 255));
+		/* Its pixels are drawn content: they show through the controls behind it. */
+		painter.hole(x, y, self.node().width, self.node().height);
 	}
 
 	private void requireOpen() { if (self._closing || self.node().closed) { throw "GPU view is closing or closed"; } }

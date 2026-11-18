@@ -199,7 +199,31 @@ and resume at any of them:
    reports the drag given up. A control that can have the keyboard reports
    gaining and losing it, and the provider's own focus follows. GTK has one
    colour scheme per application, not per window: the last window to set a
-   dark or light appearance decides it. All 35 cases pass on X11 and labwc.
+   dark or light appearance decides it. The select is a GTK menu button
+   whose popover lists the items (`GtkListBox`): it reports the list opened,
+   the item a choice would take (the one under the pointer or the keyboard's
+   cursor), the item chosen, and the list closed without a choice, and the
+   existing select logic turns those into change, commit and cancel. The
+   text field is a `GtkEntry`: GTK owns the editing, the selection, the
+   composition, the clipboard and undo, and reports the text as each edit
+   leaves it, Return and Escape; the provider keeps the accepted text and
+   the one commit or cancel an interaction ends in. Found on the way: a
+   window keeps the widget that has the keyboard until it has told it
+   otherwise, so a control's record lives as long as its widget and a signal
+   for a control the provider has let go is dropped. The image view is a
+   `GtkPicture`, the panel a fill GTK draws under the panel's children, and
+   the scroll view keeps scrolling its children itself and shows a
+   `GtkScrollbar` along each edge its document overflows. A touchpad's own
+   scrolling now arrives as points, not as wheel notches. **Every control
+   on the list is a GTK widget.** All 35 cases pass on X11 and labwc.
+   **Holes.** What is still drawn (a GPU view, into the one surface) has to
+   keep its place among the controls: it lies over what was placed before
+   it and under what is placed after. A GPU view's paint therefore records
+   a hole. Where the drawn content is on a surface below the window, GTK
+   cuts each hole out of the controls under it, so the surface shows
+   through. Where it arrives as a picture (X11), GTK draws the hole's part
+   of the picture at the hole's place in the stack. A capture cuts the
+   holes the same way before it lays the controls over the drawn content.
 4. **GPU views get their own surfaces**, the web view arrives as
    `WebKitWebView`, and the window's own painter, with its fonts and symbols,
    is deleted.

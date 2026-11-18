@@ -503,7 +503,8 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 		btrcGtkWindowBeginPlacement(self._window);
 		for placement in painter.placements() {
 			var clip = placement.clip;
-			btrcGtkWindowPlace(self._window, placement.control, placement.x, placement.y, placement.width, placement.height, clip.x, clip.y, clip.width, clip.height);
+			if (placement.control == null) { btrcGtkWindowPlaceHole(self._window, placement.x, placement.y, placement.width, placement.height, clip.x, clip.y, clip.width, clip.height); }
+			else { btrcGtkWindowPlace(self._window, placement.control, placement.x, placement.y, placement.width, placement.height, clip.x, clip.y, clip.width, clip.height); }
 		}
 		btrcGtkWindowEndPlacement(self._window);
 	}
@@ -709,8 +710,9 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 		}
 	}
 
-	private void deliverScroll(double deltaX, double deltaY) {
-		var event = AppScrollEvent(deltaX, deltaY, 0.0, 0.0, false, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers);
+	/* `precise` deltas are a touchpad's points; the others are wheel notches. */
+	private void deliverScroll(double deltaX, double deltaY, bool precise) {
+		var event = AppScrollEvent(deltaX, deltaY, 0.0, 0.0, precise, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers);
 		if (self._host.overlayId != 0) {
 			var overlay = self.locate(self._host.overlayId);
 			if (overlay != null && overlay.view.scroll(event)) { return; }
@@ -718,12 +720,12 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 		var path = self.hitPath(self._pointerX, self._pointerY);
 		for (int index = path.len - 1; index >= 0; index--) {
 			var hit = path.get(index);
-			var local = AppScrollEvent(deltaX, deltaY, self._pointerX - hit.originX, self._pointerY - hit.originY, false, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers);
+			var local = AppScrollEvent(deltaX, deltaY, self._pointerX - hit.originX, self._pointerY - hit.originY, precise, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers);
 			for input in hit.view.node().inputs() { if (input.handlesScroll() && input.isOpen() && input.deliverScroll(local)) { return; } }
 		}
 		for (int index = path.len - 1; index >= 0; index--) {
 			var hit = path.get(index);
-			if (hit.view.scroll(AppScrollEvent(deltaX, deltaY, self._pointerX - hit.originX, self._pointerY - hit.originY, false, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers))) { return; }
+			if (hit.view.scroll(AppScrollEvent(deltaX, deltaY, self._pointerX - hit.originX, self._pointerY - hit.originY, precise, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers))) { return; }
 		}
 	}
 
@@ -830,7 +832,7 @@ class LinuxGtkWindow implements ILinuxGtkWindow, ILinuxGtkDevicePoller, IControl
 		if (type == (unsigned int)BTRC_GTK_EVENT_MOUSE_WHEEL) {
 			self._pointerX = (double)event->x;
 			self._pointerY = (double)event->y;
-			self.deliverScroll((double)event->wheelX, (double)event->wheelY);
+			self.deliverScroll((double)event->wheelX, (double)event->wheelY, event->data1 != 0);
 			return;
 		}
 		if (type == (unsigned int)BTRC_GTK_EVENT_KEY_DOWN || type == (unsigned int)BTRC_GTK_EVENT_KEY_UP) {

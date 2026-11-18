@@ -67,10 +67,20 @@ GtkWidget* btrcGtkSlotNew(GtkWidget* control) {
 	return GTK_WIDGET(slot);
 }
 
+/* A hole: a rectangle where the provider's drawn content (a GPU view) shows
+ * through everything placed before it. `below` counts the slots placed
+ * before the hole, which are the ones it lies above. */
+typedef struct BtrcGtkHole {
+	GdkRectangle area;
+	int below;
+} BtrcGtkHole;
+
 struct _BtrcGtkCanvas {
 	GtkWidget parent;
 	/* The slot the placement in progress last placed; the next goes above it. */
 	GtkWidget* placedLast;
+	int placedCount;
+	GArray* holes;
 	/* A picture of the provider's drawn content, where it cannot be shown on
 	 * a surface below the window (X11); NULL where it is. */
 	GdkTexture* picture;
@@ -109,27 +119,63 @@ static void btrc_gtk_canvas_size_allocate(GtkWidget* widget, int width, int heig
 	g_signal_emit(widget, btrcGtkCanvasSignals[BTRC_GTK_CANVAS_RESIZED], 0, width, height);
 }
 
-/* GTK presents nothing for a window whose picture is empty, and a window
- * that has presented nothing is never put on the screen. Where the desktop
- * draws the title bar and no control is placed, this window's picture is
- * empty: its content is the GPU surface below it. One pixel, a 255th
- * opaque, is a picture. */
+/* Draw one slot. Where the drawn content lies on a surface below the window,
+ * a hole above the slot is cut out of it, so the surface shows through. */
+static void btrcGtkCanvasSnapshotSlot(BtrcGtkCanvas* canvas, GtkWidget* child, int index, GtkSnapshot* snapshot, bool cut) {
+	BtrcGtkSlot* slot = BTRC_GTK_SLOT(child);
+	GdkRectangle visible;
+	bool holed = false;
+	if (!gtk_widget_get_child_visible(child) || !gdk_rectangle_intersect(&slot->frame, &slot->clip, &visible)) { return; }
+	for (guint at = 0; cut && at < canvas->holes->len && !holed; at++) {
+		const BtrcGtkHole* hole = &g_array_index(canvas->holes, BtrcGtkHole, at);
+		holed = hole->below > index && gdk_rectangle_intersect(&hole->area, &visible, NULL);
+	}
+	if (!holed) { gtk_widget_snapshot_child(GTK_WIDGET(canvas), child, snapshot); return; }
+	GdkRGBA solid = {1.0f, 1.0f, 1.0f, 1.0f};
+	gtk_snapshot_push_mask(snapshot, GSK_MASK_MODE_INVERTED_ALPHA);
+	for (guint at = 0; at < canvas->holes->len; at++) {
+		const BtrcGtkHole* hole = &g_array_index(canvas->holes, BtrcGtkHole, at);
+		if (hole->below > index) { gtk_snapshot_append_color(snapshot, &solid, &GRAPHENE_RECT_INIT((float)hole->area.x, (float)hole->area.y, (float)hole->area.width, (float)hole->area.height)); }
+	}
+	gtk_snapshot_pop(snapshot);
+	gtk_widget_snapshot_child(GTK_WIDGET(canvas), child, snapshot);
+	gtk_snapshot_pop(snapshot);
+}
+
+/* What the window shows. Where the drawn content is on a surface below, the
+ * canvas draws only the controls, each with the holes above it cut out. GTK
+ * presents nothing for a window whose picture is empty, and a window that
+ * has presented nothing is never put on the screen, so there is always one
+ * pixel, a 255th opaque. Where the drawn content arrives as a picture (X11),
+ * the canvas draws that first and then, at each hole's place among the
+ * controls, the part of the picture the hole shows. */
 static void btrc_gtk_canvas_snapshot(GtkWidget* widget, GtkSnapshot* snapshot) {
 	BtrcGtkCanvas* canvas = BTRC_GTK_CANVAS(widget);
+	graphene_rect_t whole = GRAPHENE_RECT_INIT(0.0f, 0.0f, (float)gtk_widget_get_width(widget), (float)gtk_widget_get_height(widget));
 	if (canvas->picture != NULL) {
-		graphene_rect_t whole = GRAPHENE_RECT_INIT(0.0f, 0.0f, (float)gtk_widget_get_width(widget), (float)gtk_widget_get_height(widget));
 		gtk_snapshot_append_texture(snapshot, canvas->picture, &whole);
 	} else {
 		GdkRGBA faint = {0.0f, 0.0f, 0.0f, 1.0f / 255.0f};
-		graphene_rect_t pixel = GRAPHENE_RECT_INIT(0.0f, 0.0f, 1.0f, 1.0f);
-		gtk_snapshot_append_color(snapshot, &faint, &pixel);
+		gtk_snapshot_append_color(snapshot, &faint, &GRAPHENE_RECT_INIT(0.0f, 0.0f, 1.0f, 1.0f));
 	}
-	for (GtkWidget* child = gtk_widget_get_first_child(widget); child != NULL; child = gtk_widget_get_next_sibling(child)) { gtk_widget_snapshot_child(widget, child, snapshot); }
+	int index = 0;
+	for (GtkWidget* child = gtk_widget_get_first_child(widget); child != NULL; child = gtk_widget_get_next_sibling(child)) {
+		btrcGtkCanvasSnapshotSlot(canvas, child, index, snapshot, canvas->picture == NULL);
+		index++;
+		for (guint at = 0; canvas->picture != NULL && at < canvas->holes->len; at++) {
+			const BtrcGtkHole* hole = &g_array_index(canvas->holes, BtrcGtkHole, at);
+			if (hole->below != index) { continue; }
+			gtk_snapshot_push_clip(snapshot, &GRAPHENE_RECT_INIT((float)hole->area.x, (float)hole->area.y, (float)hole->area.width, (float)hole->area.height));
+			gtk_snapshot_append_texture(snapshot, canvas->picture, &whole);
+			gtk_snapshot_pop(snapshot);
+		}
+	}
 }
 
 static void btrc_gtk_canvas_dispose(GObject* object) {
 	GtkWidget* child = NULL;
 	g_clear_object(&BTRC_GTK_CANVAS(object)->picture);
+	g_clear_pointer(&BTRC_GTK_CANVAS(object)->holes, g_array_unref);
 	while ((child = gtk_widget_get_first_child(GTK_WIDGET(object))) != NULL) { gtk_widget_unparent(child); }
 	G_OBJECT_CLASS(btrc_gtk_canvas_parent_class)->dispose(object);
 }
@@ -143,13 +189,15 @@ static void btrc_gtk_canvas_class_init(BtrcGtkCanvasClass* class) {
 	btrcGtkCanvasSignals[BTRC_GTK_CANVAS_RESIZED] = g_signal_new("resized", G_TYPE_FROM_CLASS(class), G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 2, G_TYPE_INT, G_TYPE_INT);
 }
 
-static void btrc_gtk_canvas_init(BtrcGtkCanvas* canvas) { (void)canvas; }
+static void btrc_gtk_canvas_init(BtrcGtkCanvas* canvas) { canvas->holes = g_array_new(FALSE, FALSE, sizeof(BtrcGtkHole)); }
 
 GtkWidget* btrcGtkCanvasNew(void) { return g_object_new(BTRC_GTK_TYPE_CANVAS, NULL); }
 
 /* A placement names, back to front, every control the canvas shows. */
 void btrcGtkCanvasBegin(GtkWidget* canvas) {
 	BTRC_GTK_CANVAS(canvas)->placedLast = NULL;
+	BTRC_GTK_CANVAS(canvas)->placedCount = 0;
+	g_array_set_size(BTRC_GTK_CANVAS(canvas)->holes, 0);
 	for (GtkWidget* child = gtk_widget_get_first_child(canvas); child != NULL; child = gtk_widget_get_next_sibling(child)) { BTRC_GTK_SLOT(child)->placed = false; }
 }
 
@@ -175,6 +223,7 @@ void btrcGtkCanvasPlace(GtkWidget* canvas, GtkWidget* slotWidget, double x, doub
 		gtk_widget_insert_after(slotWidget, canvas, self->placedLast);
 	}
 	self->placedLast = slotWidget;
+	self->placedCount++;
 	slot->placed = true;
 	GdkRectangle frame = btrcGtkCanvasRectangle(x, y, width, height);
 	GdkRectangle clip = btrcGtkCanvasRectangle(clipX, clipY, clipWidth, clipHeight);
@@ -183,6 +232,18 @@ void btrcGtkCanvasPlace(GtkWidget* canvas, GtkWidget* slotWidget, double x, doub
 		slot->clip = clip;
 		gtk_widget_queue_allocate(slotWidget);
 	}
+}
+
+/* A hole above everything placed so far: the part of the frame its clip leaves. */
+void btrcGtkCanvasPlaceHole(GtkWidget* canvas, double x, double y, double width, double height, double clipX, double clipY, double clipWidth, double clipHeight) {
+	BtrcGtkCanvas* self = BTRC_GTK_CANVAS(canvas);
+	GdkRectangle frame = btrcGtkCanvasRectangle(x, y, width, height);
+	GdkRectangle clip = btrcGtkCanvasRectangle(clipX, clipY, clipWidth, clipHeight);
+	BtrcGtkHole hole;
+	if (!gdk_rectangle_intersect(&frame, &clip, &hole.area)) { return; }
+	hole.below = self->placedCount;
+	g_array_append_val(self->holes, hole);
+	gtk_widget_queue_draw(canvas);
 }
 
 /* What the placement did not name leaves the canvas. */
@@ -215,9 +276,12 @@ void btrcGtkCanvasSetPicture(GtkWidget* widget, const unsigned char* pixels, int
 	gtk_widget_queue_draw(widget);
 }
 
-/* The placed controls alone, as GTK draws them, without the canvas's own picture. */
+/* The placed controls alone, as GTK draws them, each with the holes above
+ * it cut out: what lies over a picture of the drawn content. */
 void btrcGtkCanvasSnapshotControls(GtkWidget* canvas, GtkSnapshot* snapshot) {
+	int index = 0;
 	for (GtkWidget* child = gtk_widget_get_first_child(canvas); child != NULL; child = gtk_widget_get_next_sibling(child)) {
-		if (gtk_widget_get_child_visible(child)) { gtk_widget_snapshot_child(canvas, child, snapshot); }
+		btrcGtkCanvasSnapshotSlot(BTRC_GTK_CANVAS(canvas), child, index, snapshot, true);
+		index++;
 	}
 }

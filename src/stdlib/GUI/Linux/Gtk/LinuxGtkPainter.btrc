@@ -222,7 +222,9 @@ class LinuxGtkClip {
 }
 
 /* Where one native control goes this frame: its frame and the clip of the
- * views around it, in logical points from the window's top-left. */
+ * views around it, in logical points from the window's top-left. With no
+ * control it is a hole: a rectangle of drawn content (a GPU view) that shows
+ * through the controls placed before it. */
 class LinuxGtkPlacement {
 	public BtrcGtkControl* control;
 	public double x;
@@ -482,7 +484,11 @@ class LinuxGtkPainter implements ILinuxGtkStrokes {
 		self._placements.push(LinuxGtkPlacement(control, x, y, width, height, LinuxGtkClip(clip.x, clip.y, clip.width, clip.height)));
 	}
 
-	/* The native controls this frame painted, back to front. */
+	/* Drawn content that must show among the native controls: what was placed
+	 * before it lies under it, what is placed after lies over it. */
+	public void hole(double x, double y, double width, double height) { self.place(null, x, y, width, height); }
+
+	/* The native controls and holes this frame painted, back to front. */
 	public Vector<LinuxGtkPlacement> placements() { return self._placements; }
 
 	private LinuxGtkDrawRun run(LinuxGtkTexture texture) {
