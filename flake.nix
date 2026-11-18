@@ -107,6 +107,10 @@
               mkdir -p "$out/bin"
               ln -s ${westonPatched pkgs}/bin/weston "$out/bin/weston"
             '')
+            # The GUI conformance probe sends real input: XTEST on X11, and on
+            # Wayland a wlroots compositor's virtual pointer and keyboard, which
+            # weston does not offer (headless-session.sh --wlroots runs labwc).
+            libxtst labwc
           ];
       };
       files = import ./nix { inherit cfg lib; };

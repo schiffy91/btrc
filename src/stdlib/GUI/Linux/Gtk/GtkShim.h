@@ -149,8 +149,9 @@ void* btrcGtkWindowWaylandSurface(BtrcGtkWindow* window);
 void* btrcGtkWindowX11Display(BtrcGtkWindow* window);
 unsigned long btrcGtkWindowX11Window(BtrcGtkWindow* window);
 
-/* Text entry for the provider's own editor: committed text and preedit
- * arrive as TEXT_INPUT and TEXT_EDITING events while it is active. */
+/* Text entry for the provider's own editor. Text a key types always follows
+ * that key as a TEXT_INPUT event; while text input is active the input method
+ * also composes, and its preedit arrives as TEXT_EDITING events. */
 void btrcGtkWindowStartTextInput(BtrcGtkWindow* window);
 void btrcGtkWindowStopTextInput(BtrcGtkWindow* window);
 bool btrcGtkWindowTextInputActive(BtrcGtkWindow* window);
@@ -180,15 +181,22 @@ int btrcGtkFolderDialogState(BtrcGtkFolderDialog* dialog);
 const char* btrcGtkFolderDialogPath(const BtrcGtkFolderDialog* dialog);
 void btrcGtkFolderDialogRelease(BtrcGtkFolderDialog* dialog);
 
-/* Synthetic input for automation and tests: events enter the same queue the
- * window's own controllers fill. Coordinates are content points. */
-void btrcGtkPushPointerMotion(unsigned int window, float x, float y);
-void btrcGtkPushPointerButton(unsigned int window, float x, float y, unsigned int button, int down, unsigned int clicks);
-void btrcGtkPushWheel(unsigned int window, float x, float y, float deltaX, float deltaY);
-void btrcGtkPushKey(unsigned int window, unsigned int scancode, unsigned int key, unsigned int modifiers, int down, int repeat);
-int btrcGtkPushText(unsigned int window, const char* text);
-int btrcGtkPushEditing(unsigned int window, const char* text, int start, int length);
-void btrcGtkPushClose(unsigned int window);
+/* Automation: what a tool that sends real input through the display server
+ * cannot learn from it. None of these delivers input. */
+enum BtrcGtkDisplay {
+	BTRC_GTK_DISPLAY_NONE = 0,
+	BTRC_GTK_DISPLAY_WAYLAND = 1,
+	BTRC_GTK_DISPLAY_X11 = 2
+};
+int btrcGtkAutomationDisplay(void);
 /* The id of the open window with this title, or 0. */
 unsigned int btrcGtkWindowNamed(const char* title);
+/* A count of what the display server has delivered so far. */
+unsigned long btrcGtkAutomationSerial(void);
+/* Let GTK run until something arrives after `serial` and arrivals then
+ * pause, or the timeout passes; 1 when something arrived. What arrives is
+ * queued as always. */
+int btrcGtkAutomationAwait(unsigned long serial, int timeoutMilliseconds);
+/* 1 when the pointer is over the window's content, at this content position. */
+int btrcGtkAutomationPointer(unsigned int window, double* x, double* y);
 #endif

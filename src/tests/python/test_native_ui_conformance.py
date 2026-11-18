@@ -4,7 +4,11 @@ The suite is one portable BTRC program over the public GUI facade, with a
 per-platform probe for the input a person gives a window. This driver builds
 it through each compiler, plain and sanitized, and runs every case of
 cases.toml in its own process on the session's display. Run it inside
-tools/ui/headless-session.sh --x11 or --wayland.
+tools/ui/headless-session.sh --x11, --wlroots or --wayland.
+
+The GTK provider's probe sends real input through the display server, so its
+Wayland rows need a compositor that takes it: the wlroots session. Weston's
+offers none, and its session runs the SDL provider's rows only.
 """
 
 import fcntl
@@ -33,7 +37,8 @@ LINUX_ONLY = "requires Linux: the GUI conformance suite's Linux rows"
 # The shipped Linux provider, and the GTK provider being built beside it from a
 # copy of it (docs/design/native-ui-surfaces-and-hosts.md, section 3): both must
 # pass every case at every step, until the second replaces the first.
-PROVIDERS = ["sdl", "gtk"]
+SESSION = os.environ.get("BTRC_UI_SESSION") or ("wayland" if os.environ.get("SDL_VIDEODRIVER") == "wayland" else "x11")
+PROVIDERS = ["sdl"] if SESSION == "wayland" else ["sdl", "gtk"]
 # Catalog operations no case exercises yet, each with what stands in the way.
 UNCOVERED = {
     "IWindow.showAlert": "modal: the probe cannot yet dismiss the alert it would open",
@@ -108,10 +113,6 @@ def programs(tmp_path_factory):
     return ConformancePrograms(tmp_path_factory)
 
 
-def session():
-    return "wayland" if os.environ.get("SDL_VIDEODRIVER") == "wayland" else "x11"
-
-
 @pytest.mark.linux_gui
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
@@ -119,7 +120,7 @@ def session():
 @pytest.mark.parametrize("name", NAMES)
 def test_linux_conformance_case(programs, request, name, provider, frontend, sanitized):
     result = programs.run(request, provider, frontend, sanitized, name)
-    report = f"{name} on linux-{session()} ({provider}, {frontend}, {'sanitized' if sanitized else 'plain'})\n"
+    report = f"{name} on linux-{SESSION} ({provider}, {frontend}, {'sanitized' if sanitized else 'plain'})\n"
     report += result.stdout + result.stderr
     assert result.returncode == 0, report
     assert "ERROR: AddressSanitizer" not in result.stderr and "runtime error:" not in result.stderr, report

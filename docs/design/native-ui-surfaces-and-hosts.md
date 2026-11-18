@@ -150,10 +150,24 @@ and resume at any of them:
    drawn border, so the shim measures what GTK adds around the content; and a
    header bar has a minimum width (about 280 points with the default theme),
    so a narrower window comes out wider than asked. The suite's cases now use
-   windows at least 320 points wide and read the content size back. Not yet
-   shown: pointer and keys arriving through GTK's own controllers; the suite
-   still queues its input in the shim, until the probes of step 5 send real
-   input.
+   windows at least 320 points wide and read the content size back.
+   **Real input since:** the suite's probe for this provider no longer
+   queues events in the shim. It sends input through the display server:
+   XTEST on X11, and on Wayland a wlroots compositor's virtual pointer and
+   keyboard, with its foreign-toplevel list for raising and closing a
+   window. Weston offers none of those, so `tools/ui/headless-session.sh`
+   has a third session, `--wlroots` (headless labwc), and this provider's
+   Wayland rows run there. All 35 cases pass that way on X11 and on labwc.
+   Found on the way: GTK presents nothing for a window whose picture is
+   empty, and where the compositor draws the title bar (labwc, KWin) this
+   window's picture was empty, so it was never put on the screen; the
+   content now always draws one pixel, a 255th opaque. The window has no
+   header bar of its own any more: GTK decides, and the desktop's title bar
+   is used where the compositor offers one. A GTK scroll event carries no
+   position, so the wheel is reported where the pointer was last seen. And
+   a key typed right after the click that focuses a field reaches GTK
+   before BTRC has handled that click, so every key is offered to the input
+   method and its text queued behind it, for BTRC to route in order.
 3. **One control at a time.** Each drawn control is replaced by its native
    widget placed over the surface at the frame the provider's own layout
    gives it: button, label, text field, select, slider, the two indicators,

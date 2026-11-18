@@ -29,13 +29,15 @@
 struct BtrcGtkWindow {
 	unsigned int id;
 	GtkWidget* window;
-	GtkWidget* header;
 	GtkWidget* content;
 	GtkIMContext* input;
 	GtkEventController* keys;
 	bool textInput;
 	bool mapped;
 	bool minimized;
+	bool pointerInside;
+	double pointerX;
+	double pointerY;
 	int width;
 	int height;
 	int minimumWidth;
@@ -70,6 +72,8 @@ static char* btrcGtkTakenText;
 static unsigned int btrcGtkModifiers;
 static unsigned int btrcGtkNextId = 1;
 static GList* btrcGtkWindows;
+/* Counts what the display server has delivered: input, focus and close requests. */
+static unsigned long btrcGtkArrivals;
 
 /* The queue. A push may come from any thread (btrcGtkPushWake); when the
  * queue is full the newest event is refused, never an older one dropped. */
@@ -275,12 +279,14 @@ void btrcGtkWindowSetSize(BtrcGtkWindow* window, int width, int height);
 
 static gboolean btrcGtkOnCloseRequest(GtkWindow* native, gpointer data) {
 	(void)native;
+	btrcGtkArrivals++;
 	btrcGtkPushWindow(data, BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED);
 	return TRUE;
 }
 
 static void btrcGtkOnActive(GObject* object, GParamSpec* property, gpointer data) {
 	(void)property;
+	btrcGtkArrivals++;
 	btrcGtkPushWindow(data, gtk_window_is_active(GTK_WINDOW(object)) ? BTRC_GTK_EVENT_WINDOW_FOCUS_GAINED : BTRC_GTK_EVENT_WINDOW_FOCUS_LOST);
 }
 
@@ -314,6 +320,20 @@ static void btrcGtkOnUnmap(GtkWidget* content, gpointer data) {
 	(void)content;
 	window->mapped = false;
 	btrcGtkPushWindow(window, BTRC_GTK_EVENT_WINDOW_HIDDEN);
+}
+
+/* GTK presents nothing for a window whose picture is empty, and a window
+ * that has presented nothing is never put on the screen. Where the desktop
+ * draws the title bar this window's picture is empty: its content is the GPU
+ * surface below it. One pixel, a 255th opaque, is a picture. */
+static void btrcGtkOnDraw(GtkDrawingArea* content, cairo_t* context, int width, int height, gpointer data) {
+	(void)content;
+	(void)width;
+	(void)height;
+	(void)data;
+	cairo_set_source_rgba(context, 0.0, 0.0, 0.0, 1.0 / 255.0);
+	cairo_rectangle(context, 0.0, 0.0, 1.0, 1.0);
+	cairo_fill(context);
 }
 
 static void btrcGtkOnResize(GtkDrawingArea* content, int width, int height, gpointer data) {
@@ -369,23 +389,16 @@ static void btrcGtkOnReleased(GtkGestureClick* gesture, int presses, double x, d
 }
 
 /* GTK scrolls down with a positive dy; the provider's wheel is positive away
- * from the user, as SDL's is. */
+ * from the user, as SDL's is. A GTK scroll event carries no position: the
+ * wheel turns where the pointer was last seen. */
 static gboolean btrcGtkOnScroll(GtkEventControllerScroll* controller, double dx, double dy, gpointer data) {
 	BtrcGtkWindow* window = data;
 	BtrcGtkEvent event = {0};
 	btrcGtkObserveModifiers(GTK_EVENT_CONTROLLER(controller));
 	event.type = BTRC_GTK_EVENT_MOUSE_WHEEL;
 	event.window = window->id;
-	GdkEvent* source = gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller));
-	double x = 0.0;
-	double y = 0.0;
-	if (source != NULL && gdk_event_get_position(source, &x, &y)) {
-		double originX = 0.0;
-		double originY = 0.0;
-		btrcGtkContentOrigin(window, &originX, &originY);
-		event.x = (float)(x - originX);
-		event.y = (float)(y - originY);
-	}
+	event.x = (float)window->pointerX;
+	event.y = (float)window->pointerY;
 	event.wheelX = (float)dx;
 	event.wheelY = (float)-dy;
 	btrcGtkPush(&event, NULL);
@@ -440,17 +453,23 @@ static void btrcGtkKey(BtrcGtkWindow* window, guint keyval, GdkModifierType stat
 	btrcGtkPush(&event, NULL);
 }
 
+/* Every key is queued as a key and then offered to the input method, whose
+ * text follows it in the queue. Whether a control is taking text is decided
+ * when BTRC dispatches the queue, in order: a key typed right after the
+ * click that focuses a field is already here before that click is handled. */
 static gboolean btrcGtkOnKeyPressed(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
-	(void)controller;
+	BtrcGtkWindow* window = data;
 	(void)keycode;
-	btrcGtkKey(data, keyval, state, 1);
+	btrcGtkKey(window, keyval, state, 1);
+	gtk_im_context_filter_keypress(window->input, gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller)));
 	return TRUE;
 }
 
 static void btrcGtkOnKeyReleased(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
-	(void)controller;
+	BtrcGtkWindow* window = data;
 	(void)keycode;
-	btrcGtkKey(data, keyval, state, 0);
+	btrcGtkKey(window, keyval, state, 0);
+	gtk_im_context_filter_keypress(window->input, gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller)));
 }
 
 static void btrcGtkOnCommit(GtkIMContext* input, const char* text, gpointer data) {
@@ -474,6 +493,44 @@ static void btrcGtkOnPreedit(GtkIMContext* input, gpointer data) {
 	event.data2 = 0;
 	btrcGtkPush(&event, text == NULL ? "" : text);
 	g_free(text);
+}
+
+/* Everything the window is sent, seen before any widget handles it. These
+ * only observe: they count arrivals and remember where the pointer is over
+ * the content, for btrcGtkAutomation*. */
+static gboolean btrcGtkOnAnyEvent(GtkEventControllerLegacy* controller, GdkEvent* event, gpointer data) {
+	(void)controller;
+	(void)event;
+	(void)data;
+	btrcGtkArrivals++;
+	return FALSE;
+}
+
+static void btrcGtkObservePointer(BtrcGtkWindow* window, double x, double y) {
+	graphene_point_t point = GRAPHENE_POINT_INIT((float)x, (float)y);
+	graphene_point_t local;
+	btrcGtkArrivals++;
+	if (!gtk_widget_compute_point(window->window, window->content, &point, &local)) { window->pointerInside = false; return; }
+	window->pointerX = local.x;
+	window->pointerY = local.y;
+	window->pointerInside = local.x >= 0.0f && local.y >= 0.0f && local.x < (float)gtk_widget_get_width(window->content) && local.y < (float)gtk_widget_get_height(window->content);
+}
+
+static void btrcGtkOnObservedEnter(GtkEventControllerMotion* controller, double x, double y, gpointer data) {
+	(void)controller;
+	btrcGtkObservePointer(data, x, y);
+}
+
+static void btrcGtkOnObservedMotion(GtkEventControllerMotion* controller, double x, double y, gpointer data) {
+	(void)controller;
+	btrcGtkObservePointer(data, x, y);
+}
+
+static void btrcGtkOnObservedLeave(GtkEventControllerMotion* controller, gpointer data) {
+	BtrcGtkWindow* window = data;
+	(void)controller;
+	btrcGtkArrivals++;
+	window->pointerInside = false;
 }
 
 bool btrcGtkInit(void) {
@@ -506,9 +563,8 @@ BtrcGtkWindow* btrcGtkWindowCreate(const char* title, int width, int height) {
 	window->window = gtk_window_new();
 	gtk_widget_add_css_class(window->window, "btrc-surface");
 	gtk_window_set_title(GTK_WINDOW(window->window), title);
-	window->header = gtk_header_bar_new();
-	gtk_window_set_titlebar(GTK_WINDOW(window->window), window->header);
 	window->content = gtk_drawing_area_new();
+	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(window->content), btrcGtkOnDraw, NULL, NULL);
 	gtk_widget_set_hexpand(window->content, TRUE);
 	gtk_widget_set_vexpand(window->content, TRUE);
 	gtk_widget_set_focusable(window->content, TRUE);
@@ -536,6 +592,16 @@ BtrcGtkWindow* btrcGtkWindowCreate(const char* title, int width, int height) {
 	g_signal_connect(window->keys, "key-pressed", G_CALLBACK(btrcGtkOnKeyPressed), window);
 	g_signal_connect(window->keys, "key-released", G_CALLBACK(btrcGtkOnKeyReleased), window);
 	gtk_widget_add_controller(window->window, window->keys);
+	GtkEventController* every = gtk_event_controller_legacy_new();
+	gtk_event_controller_set_propagation_phase(every, GTK_PHASE_CAPTURE);
+	g_signal_connect(every, "event", G_CALLBACK(btrcGtkOnAnyEvent), window);
+	gtk_widget_add_controller(window->window, every);
+	GtkEventController* watched = gtk_event_controller_motion_new();
+	gtk_event_controller_set_propagation_phase(watched, GTK_PHASE_CAPTURE);
+	g_signal_connect(watched, "enter", G_CALLBACK(btrcGtkOnObservedEnter), window);
+	g_signal_connect(watched, "motion", G_CALLBACK(btrcGtkOnObservedMotion), window);
+	g_signal_connect(watched, "leave", G_CALLBACK(btrcGtkOnObservedLeave), window);
+	gtk_widget_add_controller(window->window, watched);
 	window->input = gtk_im_multicontext_new();
 	g_signal_connect(window->input, "commit", G_CALLBACK(btrcGtkOnCommit), window);
 	g_signal_connect(window->input, "preedit-changed", G_CALLBACK(btrcGtkOnPreedit), window);
@@ -561,7 +627,6 @@ void btrcGtkWindowDestroy(BtrcGtkWindow* window) {
 	g_signal_handlers_disconnect_by_data(window->input, window);
 	GdkSurface* surface = gtk_native_get_surface(GTK_NATIVE(window->window));
 	if (surface != NULL) { g_signal_handlers_disconnect_by_data(surface, window); }
-	gtk_event_controller_key_set_im_context(GTK_EVENT_CONTROLLER_KEY(window->keys), NULL);
 	btrcGtkDestroySurface(window);
 	g_object_unref(window->input);
 	gtk_window_destroy(GTK_WINDOW(window->window));
@@ -674,12 +739,11 @@ unsigned long btrcGtkWindowX11Window(BtrcGtkWindow* window) {
 #endif
 }
 
-/* While text is being entered the input method sees keys first, so a key it
- * turns into text arrives as TEXT_INPUT and not as a key event. */
+/* While text is being entered the input method is told so: it may then
+ * compose, and show what it composes with, at the text input area. */
 void btrcGtkWindowStartTextInput(BtrcGtkWindow* window) {
 	if (window->textInput) { return; }
 	window->textInput = true;
-	gtk_event_controller_key_set_im_context(GTK_EVENT_CONTROLLER_KEY(window->keys), window->input);
 	gtk_im_context_focus_in(window->input);
 }
 
@@ -687,7 +751,6 @@ void btrcGtkWindowStopTextInput(BtrcGtkWindow* window) {
 	if (!window->textInput) { return; }
 	window->textInput = false;
 	gtk_im_context_focus_out(window->input);
-	gtk_event_controller_key_set_im_context(GTK_EVENT_CONTROLLER_KEY(window->keys), NULL);
 }
 
 bool btrcGtkWindowTextInputActive(BtrcGtkWindow* window) { return window->textInput; }
@@ -830,78 +893,53 @@ void btrcGtkFolderDialogRelease(BtrcGtkFolderDialog* dialog) {
 	if (dialog != NULL) { btrcGtkFolderRelease(dialog); }
 }
 
-void btrcGtkPushPointerMotion(unsigned int window, float x, float y) {
-	BtrcGtkEvent event = {0};
-	event.type = BTRC_GTK_EVENT_MOUSE_MOTION;
-	event.window = window;
-	event.x = x;
-	event.y = y;
-	btrcGtkPush(&event, NULL);
-}
-
-void btrcGtkPushPointerButton(unsigned int window, float x, float y, unsigned int button, int down, unsigned int clicks) {
-	BtrcGtkEvent event = {0};
-	event.type = down ? BTRC_GTK_EVENT_MOUSE_BUTTON_DOWN : BTRC_GTK_EVENT_MOUSE_BUTTON_UP;
-	event.window = window;
-	event.x = x;
-	event.y = y;
-	event.button = button;
-	event.clicks = clicks;
-	event.down = down ? 1 : 0;
-	btrcGtkPush(&event, NULL);
-}
-
-void btrcGtkPushWheel(unsigned int window, float x, float y, float deltaX, float deltaY) {
-	BtrcGtkEvent event = {0};
-	event.type = BTRC_GTK_EVENT_MOUSE_WHEEL;
-	event.window = window;
-	event.x = x;
-	event.y = y;
-	event.wheelX = deltaX;
-	event.wheelY = deltaY;
-	btrcGtkPush(&event, NULL);
-}
-
-void btrcGtkPushKey(unsigned int window, unsigned int scancode, unsigned int key, unsigned int modifiers, int down, int repeat) {
-	BtrcGtkEvent event = {0};
-	event.type = down ? BTRC_GTK_EVENT_KEY_DOWN : BTRC_GTK_EVENT_KEY_UP;
-	event.window = window;
-	event.scancode = scancode;
-	event.key = key;
-	event.modifiers = modifiers;
-	event.down = down ? 1 : 0;
-	event.repeat = repeat ? 1 : 0;
-	btrcGtkPush(&event, NULL);
-}
-
-int btrcGtkPushText(unsigned int window, const char* text) {
-	BtrcGtkEvent event = {0};
-	event.type = BTRC_GTK_EVENT_TEXT_INPUT;
-	event.window = window;
-	return btrcGtkPush(&event, text) ? 1 : 0;
-}
-
-int btrcGtkPushEditing(unsigned int window, const char* text, int start, int length) {
-	BtrcGtkEvent event = {0};
-	event.type = BTRC_GTK_EVENT_TEXT_EDITING;
-	event.window = window;
-	event.data1 = start;
-	event.data2 = length;
-	return btrcGtkPush(&event, text) ? 1 : 0;
-}
-
-void btrcGtkPushClose(unsigned int window) {
-	BtrcGtkEvent event = {0};
-	event.type = BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED;
-	event.window = window;
-	btrcGtkPush(&event, NULL);
-}
-
 unsigned int btrcGtkWindowNamed(const char* title) {
 	for (GList* link = btrcGtkWindows; link != NULL; link = link->next) {
 		BtrcGtkWindow* window = link->data;
 		const char* candidate = gtk_window_get_title(GTK_WINDOW(window->window));
 		if (candidate != NULL && strcmp(candidate, title) == 0) { return window->id; }
+	}
+	return 0;
+}
+
+int btrcGtkAutomationDisplay(void) {
+	GdkDisplay* display = gdk_display_get_default();
+#ifdef GDK_WINDOWING_WAYLAND
+	if (display != NULL && GDK_IS_WAYLAND_DISPLAY(display)) { return BTRC_GTK_DISPLAY_WAYLAND; }
+#endif
+#ifdef GDK_WINDOWING_X11
+	if (display != NULL && GDK_IS_X11_DISPLAY(display)) { return BTRC_GTK_DISPLAY_X11; }
+#endif
+	return BTRC_GTK_DISPLAY_NONE;
+}
+
+unsigned long btrcGtkAutomationSerial(void) { return btrcGtkArrivals; }
+
+static void btrcGtkAutomationTurn(void) {
+	if (!g_main_context_iteration(NULL, FALSE)) { g_usleep(500); }
+}
+
+int btrcGtkAutomationAwait(unsigned long serial, int timeoutMilliseconds) {
+	gint64 deadline = g_get_monotonic_time() + (gint64)timeoutMilliseconds * 1000;
+	while (btrcGtkArrivals == serial && g_get_monotonic_time() < deadline) { btrcGtkAutomationTurn(); }
+	if (btrcGtkArrivals == serial) { return 0; }
+	/* One act of input is several events: wait until they stop arriving. */
+	unsigned long seen = btrcGtkArrivals;
+	gint64 quiet = g_get_monotonic_time() + 20000;
+	while (g_get_monotonic_time() < quiet) {
+		btrcGtkAutomationTurn();
+		if (btrcGtkArrivals != seen) { seen = btrcGtkArrivals; quiet = g_get_monotonic_time() + 20000; }
+	}
+	return 1;
+}
+
+int btrcGtkAutomationPointer(unsigned int window, double* x, double* y) {
+	for (GList* link = btrcGtkWindows; link != NULL; link = link->next) {
+		BtrcGtkWindow* candidate = link->data;
+		if (candidate->id != window) { continue; }
+		*x = candidate->pointerX;
+		*y = candidate->pointerY;
+		return candidate->pointerInside ? 1 : 0;
 	}
 	return 0;
 }

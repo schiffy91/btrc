@@ -25,10 +25,16 @@ platform implements it once, in C, beside the suite:
 | Platform | Source | How input arrives |
 | --- | --- | --- |
 | Linux, SDL provider | `probes/linux/LinuxProbe.c` | Synthetic SDL events queued for the window |
-| Linux, GTK provider (being built) | `probes/linux/LinuxProbe.c` | Events queued in the provider's GTK shim, until real input replaces them |
+| Linux, GTK provider (being built) | `probes/linux/GtkProbe.c` | Real input through the display server: XTEST on X11 (`X11Input.c`), a wlroots compositor's virtual pointer and keyboard on Wayland (`WaylandInput.c`) |
 
-A probe is a stand-in for a compositor's or a person's input, as the
-provider's own automation helpers are. It never reaches into a provider.
+The SDL probe is a stand-in for a compositor's input. The GTK probe is the
+input itself: it moves the session's one pointer and types on its one
+keyboard, so it runs only where `BTRC_UI_PRIVATE_SESSION=1` says the session
+was made for tests (`tools/ui/headless-session.sh` sets it; on a dedicated
+test host it is set by hand). Two things the display server will not tell an
+input tool it asks the provider's shim, through hooks that deliver nothing:
+where the pointer is in a window's content, which is how it finds that
+content on the screen, and whether what it sent has arrived.
 
 ## Running it
 
@@ -37,6 +43,7 @@ both compilers, plain and sanitized, and runs each case in its own process:
 
 ```sh
 tools/ui/headless-session.sh --x11 -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
+tools/ui/headless-session.sh --wlroots -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
 tools/ui/headless-session.sh --wayland -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
 ```
 

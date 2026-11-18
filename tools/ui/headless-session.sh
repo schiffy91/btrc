@@ -3,6 +3,7 @@
 #
 #   tools/ui/headless-session.sh --x11 -- python -m pytest src/tests/python/test_native_linux_providers.py -k gui
 #   tools/ui/headless-session.sh --wayland -- ./hello-gtk4
+#   tools/ui/headless-session.sh --wlroots -- ./conformance button.click
 #
 # The session is a private D-Bus session bus carrying the AT-SPI accessibility
 # bus, plus one display server:
@@ -14,9 +15,17 @@
 #              socket, without a panel or an idle timeout. Its fake seat gives
 #              clients a keyboard and pointer: without a seat there is no
 #              Wayland clipboard, so a text field's copy and paste do nothing.
+#   --wlroots  labwc, a wlroots compositor, on its headless backend with the
+#              pixman renderer. It is the Wayland session a test can send
+#              real input in: it offers the virtual pointer, virtual keyboard
+#              and foreign-toplevel protocols, which weston does not. It
+#              centres each new window. Its Xwayland starts only when an X
+#              client connects, and the command is given no DISPLAY.
 #
 # The command sees DISPLAY or WAYLAND_DISPLAY (never both), SDL_VIDEODRIVER and
-# GDK_BACKEND pinned to that protocol so neither toolkit probes the other, and
+# GDK_BACKEND pinned to that protocol so neither toolkit probes the other,
+# BTRC_UI_SESSION naming the mode and BTRC_UI_PRIVATE_SESSION=1, which tells a
+# test that the display's one pointer and keyboard are its own to drive, and
 # Mesa's software Vulkan driver (lavapipe) when the dev shell names it and the
 # caller chose no Vulkan driver. Its XDG_RUNTIME_DIR is the session's own: the
 # AT-SPI bus always binds <runtime>/at-spi/bus, so two sessions sharing one
@@ -29,7 +38,7 @@
 # tools/virtual-display.sh sources it, so it must always end in exit. A
 # server that fails to start has its log printed.
 #
-# The dev shell provides every tool (flake.nix): dbus-daemon, Xvfb, weston and
+# The dev shell provides every tool (flake.nix): dbus-daemon, Xvfb, weston, labwc and
 # BTRC_ATSPI_LIBEXEC. Without a working AT-SPI launcher the session still runs,
 # without an accessibility bus, and the native-atspi capability gate says why.
 set -euo pipefail
@@ -40,7 +49,7 @@ readonly SCREEN_HEIGHT=1024
 readonly START_TICKS=300
 
 usage() {
-  echo "usage: $0 --x11|--wayland -- <command> [args...]" >&2
+  echo "usage: $0 --x11|--wayland|--wlroots -- <command> [args...]" >&2
   exit 2
 }
 
@@ -52,7 +61,7 @@ fail() {
 mode=""
 while (($#)); do
   case "$1" in
-    --x11 | --wayland)
+    --x11 | --wayland | --wlroots)
       [[ -z "$mode" ]] || usage
       mode="${1#--}"
       shift
@@ -168,7 +177,24 @@ case "$mode" in
     export WAYLAND_DISPLAY="$socket"
     export SDL_VIDEODRIVER=wayland GDK_BACKEND=wayland
     ;;
+  wlroots)
+    command -v labwc >/dev/null || fail "labwc is not installed"
+    mkdir "$session/labwc"
+    printf '%s\n' '<?xml version="1.0"?>' '<labwc_config>' \
+      '  <placement><policy>center</policy></placement>' '</labwc_config>' >"$session/labwc/rc.xml"
+    # labwc names its own socket: the first free wayland-N in the session's
+    # private runtime directory, which holds no other.
+    unset DISPLAY WAYLAND_DISPLAY
+    WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
+      WLR_HEADLESS_OUTPUTS=1 \
+      labwc -C "$session/labwc" >"$session/labwc.log" 2>&1 &
+    pids+=("$!")
+    await '[[ -S "$XDG_RUNTIME_DIR/wayland-0" ]]' "$!" "$session/labwc.log" || fail "labwc did not start"
+    export WAYLAND_DISPLAY=wayland-0
+    export SDL_VIDEODRIVER=wayland GDK_BACKEND=wayland
+    ;;
 esac
+export BTRC_UI_SESSION="$mode" BTRC_UI_PRIVATE_SESSION=1
 
 if [[ -n "${BTRC_LAVAPIPE_ICD:-}" && -f "$BTRC_LAVAPIPE_ICD" && -z "${VK_DRIVER_FILES:-}${VK_ICD_FILENAMES:-}" ]]; then
   export VK_DRIVER_FILES="$BTRC_LAVAPIPE_ICD"

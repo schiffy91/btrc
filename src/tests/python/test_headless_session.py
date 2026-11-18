@@ -29,7 +29,7 @@ PROBE = """
 import json, os
 from pathlib import Path
 from src.tests.runner_capabilities import linux_atspi_error, linux_display_error, linux_wayland_display_error
-variables = ("DISPLAY", "WAYLAND_DISPLAY", "SDL_VIDEODRIVER", "GDK_BACKEND", "VK_DRIVER_FILES", "__EGL_VENDOR_LIBRARY_FILENAMES", "XDG_RUNTIME_DIR")
+variables = ("DISPLAY", "WAYLAND_DISPLAY", "SDL_VIDEODRIVER", "GDK_BACKEND", "VK_DRIVER_FILES", "__EGL_VENDOR_LIBRARY_FILENAMES", "XDG_RUNTIME_DIR", "BTRC_UI_SESSION", "BTRC_UI_PRIVATE_SESSION")
 wayland = os.environ.get("WAYLAND_DISPLAY")
 display = os.environ.get("DISPLAY")
 if wayland:
@@ -72,6 +72,8 @@ def _session_environment(**overrides: str) -> dict[str, str]:
         "SDL_VIDEODRIVER",
         "GDK_BACKEND",
         "BTRC_VIRTUAL_DISPLAY",
+        "BTRC_UI_SESSION",
+        "BTRC_UI_PRIVATE_SESSION",
     ):
         environment.pop(name, None)
     environment["PYTHONPATH"] = str(ROOT)
@@ -109,6 +111,8 @@ def test_x11_session_offers_a_display_and_the_accessibility_bus():
     assert seen["environ"]["DISPLAY"].startswith(":")
     assert seen["environ"]["WAYLAND_DISPLAY"] is None
     assert (seen["environ"]["SDL_VIDEODRIVER"], seen["environ"]["GDK_BACKEND"]) == ("x11", "x11")
+    # A test may drive this display's pointer and keyboard: they are no person's.
+    assert (seen["environ"]["BTRC_UI_SESSION"], seen["environ"]["BTRC_UI_PRIVATE_SESSION"]) == ("x11", "1")
     if os.environ.get("BTRC_LAVAPIPE_ICD"):
         assert seen["environ"]["VK_DRIVER_FILES"] == os.environ["BTRC_LAVAPIPE_ICD"]
         assert seen["environ"]["__EGL_VENDOR_LIBRARY_FILENAMES"] == os.environ.get("BTRC_MESA_EGL")
@@ -126,7 +130,24 @@ def test_wayland_session_offers_a_compositor_and_the_accessibility_bus():
     assert seen["environ"]["DISPLAY"] is None
     assert seen["environ"]["WAYLAND_DISPLAY"]
     assert (seen["environ"]["SDL_VIDEODRIVER"], seen["environ"]["GDK_BACKEND"]) == ("wayland", "wayland")
+    assert (seen["environ"]["BTRC_UI_SESSION"], seen["environ"]["BTRC_UI_PRIVATE_SESSION"]) == ("wayland", "1")
     # The session stopped weston and removed its private runtime directory.
+    assert _stopped(seen["socket"], seen["inode"])
+    assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()
+
+
+def test_wlroots_session_offers_a_compositor_that_takes_input():
+    """labwc, for the tests that send real input: weston offers no virtual pointer or keyboard."""
+    _require_session_tools("labwc")
+    seen = _probe(str(SESSION), "--wlroots", "--")
+    assert seen["display"] is None
+    assert seen["wayland"] is None
+    assert seen["atspi"] is None
+    assert seen["environ"]["DISPLAY"] is None
+    assert seen["environ"]["WAYLAND_DISPLAY"] == "wayland-0"
+    assert (seen["environ"]["SDL_VIDEODRIVER"], seen["environ"]["GDK_BACKEND"]) == ("wayland", "wayland")
+    assert (seen["environ"]["BTRC_UI_SESSION"], seen["environ"]["BTRC_UI_PRIVATE_SESSION"]) == ("wlroots", "1")
+    # The session stopped labwc and removed its private runtime directory.
     assert _stopped(seen["socket"], seen["inode"])
     assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()
 
