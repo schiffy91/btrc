@@ -326,9 +326,14 @@ class MacOSHostAttachment implements IApplicationHostAttachment {
 	public CallbackCancellation ownerCompletion() { var result = self.pollCompletion(); return self._detached ? CALLBACK_CANCELLATION_COMPLETE : result; }
 }
 
+/* What a view made outside the application needs of it. */
+interface IMacOSApplication extends IApplication {
+	void adopt(IView view);
+}
+
 /* One application owner on the main thread. Desktop run() configures AppKit;
  * attachHost() preserves the host's delegate and existing native loop. */
-class MacOSApplication implements IApplication {
+class MacOSApplication implements IMacOSApplication {
 	private ApplicationActivity _activity = APPLICATION_ACTIVITY_UNKNOWN;
 	private NSApplication _application;
 	private bool _running = false;
@@ -521,6 +526,9 @@ class MacOSApplication implements IApplication {
 		}
 		self._views.push(view);
 	}
+
+	/* Take a view made outside the application (a web view) among its own. */
+	public void adopt(IView view) { self.requireCreation(); self.rememberView(view); }
 
 	public IButton createButton(string title) { self.requireCreation(); var button = MacOSButton(title, self._actions); self.rememberView(button); return button; }
 

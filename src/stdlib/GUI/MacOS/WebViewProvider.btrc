@@ -1,28 +1,16 @@
 import Library.GUI.ApplicationSlot;
 import Library.GUI.IWebView;
-import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSApplication;
 import Library.GUI.MacOS.MacOSWebView;
 
 /* Private package implementation for macOS: the web view behind the WebView
- * facade, a WKWebView among the application's other views.
- *
- * The application gives each view it creates its context, the queues its
- * events travel on, and has no way to adopt a view made elsewhere. A
- * container it creates carries that context, so one is created, asked for it
- * and closed. The web view can then register receivers before it is
- * attached, as every other view can, and its window closes it with the rest
- * of the tree. The application does not close one left detached when it
- * shuts down: dropping that view withdraws its native target. */
+ * facade, a WKWebView among the application's other views. */
 class WebViewProvider {
 	class IWebView create() {
-		var application = GUIApplicationSlot.require();
-		var carrier = (IMacOSView?)application.createContainer();
-		if (carrier == null) { throw "The macOS web view needs the macOS GUI application"; }
-		var context = carrier.stateNode().context();
-		carrier.close();
-		if (context == null) { throw "The macOS web view needs the application's view context"; }
+		var application = (IMacOSApplication?)GUIApplicationSlot.require();
+		if (application == null) { throw "The macOS web view needs the macOS GUI application"; }
 		var view = MacOSWebView();
-		view.stateNode().configure(context);
+		application.adopt(view);
 		return view;
 	}
 }
