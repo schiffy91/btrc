@@ -117,3 +117,15 @@ os = ["windows"]
 name = "user32"
 modules = ["Probe"]
 os = ["windows"]
+
+[[native.sources]]
+path = "probes/macos/AppKitProbe.m"
+language = "objective-c"
+standard = "c11"
+modules = ["Probe"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "AppKit"
+modules = ["Probe"]
+os = ["macos"]

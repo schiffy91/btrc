@@ -16,10 +16,12 @@ import pytest
 from src.tests.native_bindings import NativeBindingPackage
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_ui_shell_fixtures import transpile
-from src.tests.python.test_native_ui_conformance import NAMES, SUITE
+from src.tests.python.test_native_ui_conformance import NAMES, NEEDS, SUITE
 from tools.native_plan import NativePlanBuilder
 
 MACOS_ONLY = "requires macOS: the GUI conformance suite's macOS rows"
+# What the AppKit provider has beyond the frozen contract (cases.toml `needs`).
+HAS: set[str] = set()
 # The font face case reads a font file; these ship with every macOS release.
 FONTS = (Path("/System/Library/Fonts/Supplemental/Arial.ttf"), Path("/System/Library/Fonts/Helvetica.ttc"))
 SANITIZERS = ("-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer")
@@ -77,6 +79,7 @@ class MacOSConformancePrograms:
                 "ASAN_OPTIONS": "detect_leaks=0",
                 "UBSAN_OPTIONS": "halt_on_error=1",
                 "BTRC_CONFORMANCE_FONT": font,
+                "BTRC_CONFORMANCE_WEB": str(SUITE / "web"),
             },
         )
 
@@ -89,7 +92,7 @@ def programs(tmp_path_factory):
 @pytest.mark.macos_gui
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
-@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("name", [name for name in NAMES if name not in NEEDS or NEEDS[name] in HAS])
 def test_macos_conformance_case(programs, request, name, frontend, sanitized):
     result = programs.run(request, frontend, sanitized, name)
     report = f"{name} on macos ({frontend}, {'sanitized' if sanitized else 'plain'})\n"
