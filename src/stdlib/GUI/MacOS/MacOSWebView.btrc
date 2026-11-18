@@ -1,0 +1,236 @@
+import Library.Bytes;
+import Library.Callback;
+import Library.Console;
+import Library.JSON;
+import Library.Map;
+import Library.Vector;
+import Library.GUI.IView;
+import Library.GUI.IWebView;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.MacOS.AppKitWeb;
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.MacOSViewState;
+
+/* What the engine reported and the UI executor has not delivered yet, in
+ * the order it happened. The window's queue keeps one entry per receiver
+ * that says "there is something here"; delivering it hands over everything
+ * that has arrived by then, so nothing is merged away and nothing overtakes. */
+class MacOSWebInbox {
+	public Vector<string> messages = [];
+	public Vector<WebNavigationEvent> navigations = [];
+}
+
+/* The native view's target. The engine reports on the main thread, inside
+ * native dispatch; each report is taken from the native view at once and
+ * queued for its receiver, never delivered from here. Native holders keep
+ * this object, never the web view that owns it. */
+class MacOSWebEvents implements IAppKitWebEvents {
+	private BtrcWebView _web;
+	private MacOSViewState _state;
+	private MacOSWebInbox _inbox = MacOSWebInbox();
+	private ControlEventChannel<IWebMessageHandler, MacOSWebInbox>? _messages = null;
+	private ControlEventChannel<IWebNavigationHandler, MacOSWebInbox>? _navigations = null;
+	private bool _open = true;
+
+	public MacOSWebEvents(BtrcWebView web, MacOSViewState state) { self._web = web; self._state = state; }
+
+	class void deliverMessages(IWebMessageHandler receiver, MacOSWebInbox inbox) {
+		while (!inbox.messages.isEmpty()) { string json = inbox.messages.get(0); inbox.messages.remove(0); receiver.webMessage(json); }
+	}
+
+	class void deliverNavigations(IWebNavigationHandler receiver, MacOSWebInbox inbox) {
+		while (!inbox.navigations.isEmpty()) { var event = inbox.navigations.get(0); inbox.navigations.remove(0); receiver.webNavigation(event); }
+	}
+
+	private ControlEventCaptureRole role() { return self._state.events().captureEnabled() ? CONTROL_CAPTURE_OBSERVER : CONTROL_CAPTURE_LEGACY; }
+
+	private void requireRegistration() {
+		self._state.requireMutation();
+		var context = self._state.context();
+		if (context != null) { context.requireSemanticRegistration(); }
+	}
+
+	public ICallbackRegistration onMessage(IWebMessageHandler receiver, CallbackScope owner) {
+		self.requireRegistration();
+		var existing = self._messages;
+		if (existing != null && existing.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing web message handler first"; }
+		var channel = new ControlEventChannel<IWebMessageHandler, MacOSWebInbox>(self._state.events(), MacOSViewObservation(self._state), receiver, MacOSWebEvents.deliverMessages, owner, self.role());
+		self._state.ownChannel(channel); self._inbox.messages.clear(); self._messages = channel; return channel;
+	}
+
+	public ICallbackRegistration onNavigation(IWebNavigationHandler receiver, CallbackScope owner) {
+		self.requireRegistration();
+		var existing = self._navigations;
+		if (existing != null && existing.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing web navigation handler first"; }
+		var channel = new ControlEventChannel<IWebNavigationHandler, MacOSWebInbox>(self._state.events(), MacOSViewObservation(self._state), receiver, MacOSWebEvents.deliverNavigations, owner, self.role());
+		self._state.ownChannel(channel); self._inbox.navigations.clear(); self._navigations = channel; return channel;
+	}
+
+	/* What the engine reported: a message from the page, or a navigation it
+	 * decided. With no receiver it is not kept. */
+	private void take() {
+		var web = self._web;
+		while (web.takeEvent()) {
+			if (!self._open) { continue; }
+			var kind = web.eventKind();
+			string text = AppKitText.ownedValue(web.eventText());
+			long long generation = self._state.generation();
+			if (kind == BtrcWebEventMessage) {
+				var channel = self._messages;
+				if (channel == null || !channel.isOpen()) { continue; }
+				self._inbox.messages.push(text);
+				if (!channel.publish(self._inbox, generation, 0LL, 1LL)) { throw "Web message source is unavailable"; }
+			} else if (kind == BtrcWebEventNavigation) {
+				var channel = self._navigations;
+				if (channel == null || !channel.isOpen()) { continue; }
+				var outcome = web.eventOutcome();
+				var navigation = WebNavigationEvent(); navigation.url = text;
+				navigation.outcome = outcome == BtrcWebNavigationAllowed ? WEB_NAVIGATION_ALLOWED : (outcome == BtrcWebNavigationHandedToSystem ? WEB_NAVIGATION_HANDED_TO_SYSTEM : WEB_NAVIGATION_REFUSED);
+				self._inbox.navigations.push(navigation);
+				if (!channel.publish(self._inbox, generation, 0LL, 1LL)) { throw "Web navigation source is unavailable"; }
+			}
+		}
+	}
+
+	/* Throwing from an AppKit callback would terminate the process: a failure
+	 * is recorded for the application to report after native dispatch. */
+	public void invoke() {
+		try { self.take(); }
+		catch (string error) { var context = self._state.context(); if (context != null) { context.recordNativeFailure(error); } }
+	}
+
+	public void close() { self._open = false; self._inbox.messages.clear(); self._inbox.navigations.clear(); }
+}
+
+/* A WKWebView among the window's views. The engine draws the page, serves
+ * the bundle and decides navigations; what it reports is queued for the
+ * receivers here. */
+class MacOSWebView implements IWebView, IMacOSView {
+	private BtrcWebView? _web;
+	private MacOSView _view;
+	private MacOSWebEvents? _events;
+	private CallbackScope _native = CallbackScope();
+	private bool _closing = false;
+
+	public MacOSWebView() {
+		if (!NSThread.isMainThread()) { throw "Native web views require the main thread"; }
+		var web = BtrcWebView.new();
+		if (web == null) { throw "Cannot create native web view"; }
+		self._web = web;
+		self._view = MacOSView(web);
+		var events = MacOSWebEvents(web, self._view.stateNode());
+		self._events = events;
+		try { web.setTarget(events, self._native); }
+		catch (string error) { self._closing = true; events.close(); web.closeWeb(); self._native.cancel(); self._view.close(); self._web = null; throw error; }
+	}
+
+	public MacOSViewState stateNode() { return self._view.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	private BtrcWebView engine() {
+		self._view.stateNode().requireMutation(); self._view.nativeView();
+		var web = self._web;
+		if (web == null) { throw "Native web view is closed"; }
+		return web;
+	}
+
+	private MacOSWebEvents events() {
+		self.engine();
+		var events = self._events;
+		if (events == null) { throw "Native web view is closed"; }
+		return events;
+	}
+
+	public void load(WebBundle bundle, string entryPath) {
+		var web = self.engine();
+		if (bundle == null || entryPath == null || entryPath.isEmpty()) { throw "A web view loads a bundle and an entry path"; }
+		var files = bundle.files;
+		if (files == null) {
+			if (bundle.directory.isEmpty()) { throw "A web bundle is a directory or files"; }
+			web.serveDirectory(AppKitText.nativeValue(bundle.directory));
+		} else {
+			web.serveFiles();
+			for path, contents in files { web.serveFile(AppKitText.nativeValue(path), contents.data, (unsigned long)contents.len); }
+		}
+		web.loadEntryPath(AppKitText.nativeValue(entryPath));
+	}
+
+	public void allowOrigin(string origin) {
+		var web = self.engine();
+		if (origin == null || !(origin.startsWith("https://") || origin.startsWith("http://")) || origin.endsWith("/")) { throw "A web origin is a scheme and a host, as in https://example.org"; }
+		web.allowOrigin(AppKitText.nativeValue(origin));
+	}
+
+	public void post(string json) {
+		var web = self.engine();
+		if (json == null || JSONValue.parse(json).isError()) { throw "A web view is posted JSON"; }
+		web.postMessage(AppKitText.nativeValue(json));
+	}
+
+	public ICallbackRegistration onMessage(IWebMessageHandler handler, CallbackScope owner) { return self.events().onMessage(handler, owner); }
+
+	public ICallbackRegistration onNavigation(IWebNavigationHandler handler, CallbackScope owner) { return self.events().onNavigation(handler, owner); }
+
+	/* The engine stops before its target is withdrawn, so nothing it reports
+	 * afterwards is waiting for a receiver that has gone. */
+	private void stopNative() {
+		var events = self._events; if (events != null) { events.close(); }
+		var web = self._web; if (web != null) { web.closeWeb(); }
+		self._native.cancel();
+	}
+
+	public CallbackCancellation pollClose() {
+		if (!NSThread.isMainThread()) { throw "Native web views require the main thread"; }
+		if (!self._closing) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		var native = self._native.pollCompletion(); if (native != CALLBACK_CANCELLATION_COMPLETE) { return native; }
+		var state = self._view.pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self._web = null; self._events = null; } return state;
+	}
+
+	public CallbackCancellation close() {
+		if (!NSThread.isMainThread()) { throw "Native web views require the main thread"; }
+		self._view.requireDetached();
+		if (!self._closing) {
+			self._closing = true;
+			string failure = "";
+			try { self.stopNative(); } catch (string error) { failure = error; }
+			try { self._view.close(); } catch (string error) { if (failure.isEmpty()) { failure = error; } }
+			if (!failure.isEmpty()) { throw failure; }
+		}
+		return self.pollClose();
+	}
+
+	/* A web view dropped without being closed still withdraws its target. */
+	public void __del__() {
+		if (self._closing || self._native == null) { return; }
+		self._closing = true; self.stopNative();
+		if (self._native.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native web view destroyed before callback drain"); }
+	}
+}
