@@ -10,6 +10,7 @@ import ./Suite.btrc;
 import ./Surfaces.btrc;
 import ./Text.btrc;
 import ./Views.btrc;
+import ./Web.btrc;
 import ./Windows.btrc;
 
 /* conformance [--list | CASE]: every case, or the one named. */
@@ -50,6 +51,10 @@ int main(Vector<string> args) {
 	suite.add(GPUFrame());
 	suite.add(TextRaster());
 	suite.add(FontFace());
+	suite.add(WebMessaging());
+	suite.add(WebBundleFiles());
+	suite.add(WebNavigation());
+	suite.add(MixOrder());
 	if (args.length == 1 && args.get(0) == "--list") {
 		suite.list();
 		return 0;

@@ -111,6 +111,8 @@
             # Wayland a wlroots compositor's virtual pointer and keyboard, which
             # weston does not offer (headless-session.sh --wlroots runs labwc).
             libxtst labwc
+            # webkitgtk-6.0.pc: the web engine behind the GTK provider's IWebView.
+            webkitgtk_6_0.dev
           ];
       };
       files = import ./nix { inherit cfg lib; };

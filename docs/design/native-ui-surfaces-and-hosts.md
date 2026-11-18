@@ -36,18 +36,27 @@ laid out, clipped, hidden, reparented and closed by the same contract.
 ### `IWebView`
 
 A small contract. Message passing only; no synchronous calls into the page.
+It is `src/stdlib/GUI/IWebView.btrc`, as built on Linux first:
 
-- `GUI.createWebView()` returns an `IWebView`.
-- `load(bundle, entryPath)` serves a directory or an in-memory file map under
-  one private origin (`app://bundle/`). Nothing outside the bundle loads unless
-  the program lists the origin.
-- `post(json)` sends a message to the page. The page calls
-  `window.btrc.post(value)`; `onMessage(handler, scope)` receives it. Delivery
-  is queued and runs on the UI executor after native dispatch, exactly as
-  button actions do.
-- `onNavigation(handler, scope)` decides each navigation. The default refuses
-  everything outside the bundle and hands external links to the OS.
-- Storage is ephemeral by default. Close and drain follow `IView`.
+- `WebView.create()` returns an `IWebView` (`import Library.GUI.WebView;`).
+  It is not `GUI.createWebView()`: a facade of its own means a program that
+  shows no web view does not link the platform's web engine, the way
+  `SystemImageDecoder` is imported on its own for the native codecs.
+- `load(bundle, entryPath)` serves a `WebBundle`, a directory or an in-memory
+  file map, under one private origin (`app://bundle/`). Nothing outside the
+  bundle loads unless the program allows the origin (`allowOrigin`).
+- `post(json)` hands the page a JSON value: the page's
+  `window.btrc.onMessage` is called with it, once the page has loaded. The
+  page calls `window.btrc.post(value)`; `onMessage(handler, scope)` receives
+  the value's JSON. Delivery is queued and runs on the UI executor after
+  native dispatch, exactly as button actions do, every message in order.
+- `onNavigation(handler, scope)` is told each navigation and what became of
+  it. It does not decide: two of the four engines want the answer before
+  their callback returns, and no callback enters BTRC, so the decision is a
+  rule the provider applies at once. Inside the bundle or to an allowed
+  origin a navigation goes ahead. Anywhere else it does not; a link a person
+  clicked is handed to the system (a browser), and nothing a script does is.
+- Storage is ephemeral. Close and drain follow `IView`.
 
 | Platform | Engine | Notes |
 | --- | --- | --- |
@@ -389,6 +398,20 @@ Each step ends with something that runs.
 3. **The GTK4 gate** (section 3). Exit: a decision recorded with frame
    timings. **Done 2026-11-18:** route 1 passes, Linux moves to GTK4.
 4. **`IWebView` and the mixing rules** on Linux first, as the reference.
+   **Linux done 2026-11-18:** a `WebKitWebView` among the provider's other
+   GTK controls (`GUI/Linux/Gtk/GtkWeb.c`, linked only by programs that
+   import `Library.GUI.WebView`). Its own web context serves the bundle on
+   the `app` scheme with a content security policy that names the bundle
+   and the allowed origins; its network session keeps nothing. Four cases
+   join the suite: messages both ways and in order, a directory bundle's
+   script, style and data, a refused navigation, and the mixing order (a
+   button over a web view takes the click on it; a click beside it reaches
+   the page). All 39 cases pass on X11 and labwc with real input. Found on
+   the way: the engine counts a script the program runs as a person's
+   action, so only a clicked link is handed to the system; and the queue the
+   controls share keeps only the latest of a receiver's events, which is
+   right for a state and wrong for messages, so a web view keeps its own
+   inbox in order and the queued delivery drains it.
 5. **Linux**: the GTK4 provider, or the SDL fallback, passes the suite.
 6. **Windows**: the 40 unsupported operations, WebView2, the tray.
 7. **Android**: a new provider on the approved UI2 host attachment, not a

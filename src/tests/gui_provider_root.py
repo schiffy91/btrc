@@ -38,12 +38,12 @@ class GUIProviderRoot:
         manifest = root / "stdlib/GUI/btrc.toml"
         text = manifest.read_text(encoding="utf-8")
         exported = set(tomllib.loads(text)["package"]["exports"])
-        # GUIProvider stays private: fixtures reach the provider through GUI.
+        # The providers stay private: fixtures reach them through GUI and WebView.
         provider = [
             f"{platform}.{path.stem}"
             for platform in cls.PROVIDERS
             for path in sorted((root / "stdlib/GUI" / platform.replace(".", "/")).glob("*.btrc"))
-            if path.stem != "GUIProvider" and f"{platform}.{path.stem}" not in exported
+            if path.stem not in ("GUIProvider", "WebViewProvider") and f"{platform}.{path.stem}" not in exported
         ]
         # White-box fixtures inspect these private owners.
         for name in (
@@ -60,9 +60,12 @@ class GUIProviderRoot:
                 provider.append(name)
         assert text.count("exports = [") == 1, "the GUI manifest declares one export list"
         text = text.replace("exports = [", "exports = [" + "".join(f'"{name}", ' for name in provider))
-        shipped = 'implementation = "Linux.GUIProvider"'
-        assert text.count(shipped) == 1, "the GUI manifest names one Linux provider"
-        manifest.write_text(text.replace(shipped, f'implementation = "{linux}.GUIProvider"'), encoding="utf-8")
+        # The GUI facade and the web view facade each name one Linux provider.
+        for facade in ("GUIProvider", "WebViewProvider"):
+            shipped = f'implementation = "Linux.{facade}"'
+            assert text.count(shipped) == 1, f"the GUI manifest names one Linux {facade}"
+            text = text.replace(shipped, f'implementation = "{linux}.{facade}"')
+        manifest.write_text(text, encoding="utf-8")
         return root
 
     @classmethod

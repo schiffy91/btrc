@@ -88,7 +88,11 @@ enum BtrcGtkEventType {
 	BTRC_GTK_EVENT_CONTROL_TEXT_ACTIVATED,
 	BTRC_GTK_EVENT_CONTROL_TEXT_ESCAPED,
 	/* A scroll bar was moved to `value`; data1 is 1 for the vertical bar. */
-	BTRC_GTK_EVENT_CONTROL_SCROLLBAR_CHANGED
+	BTRC_GTK_EVENT_CONTROL_SCROLLBAR_CHANGED,
+	/* A web view's page posted the JSON in `text`; a web view decided the
+	 * navigation to the address in `text` as data1 says (GtkWeb.h). */
+	BTRC_GTK_EVENT_CONTROL_WEB_MESSAGE,
+	BTRC_GTK_EVENT_CONTROL_WEB_NAVIGATION
 };
 
 /* A BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED event's data1: how the person

@@ -1,0 +1,7 @@
+import Library.GUI.IWebView;
+
+/* Private package implementation for macOS: this provider has no web
+ * view yet, and says so with the typed unsupported error. */
+class WebViewProvider {
+	class IWebView create() { throw "unsupported: WebView.create is not implemented by the macOS GUI provider"; }
+}

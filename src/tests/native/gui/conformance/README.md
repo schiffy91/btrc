@@ -48,8 +48,10 @@ tools/ui/headless-session.sh --wayland -- python3 -m pytest -q src/tests/python/
 ```
 
 A case prints `CASE <name> PASS`, or `CASE <name> FAIL <what it found>`.
-`BTRC_CONFORMANCE_FONT` names a font file for the font face case; the driver
-supplies one.
+`BTRC_CONFORMANCE_FONT` names a font file for the font face case, and
+`BTRC_CONFORMANCE_WEB` the directory bundle (`web/`) for the web view's; the
+driver supplies both. A case with `needs` in `cases.toml` applies to the
+providers that have what it names: the web view's cases need `web`.
 
 ## Coverage
 

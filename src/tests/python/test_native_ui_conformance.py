@@ -33,6 +33,9 @@ REPO = Path(__file__).resolve().parents[3]
 SUITE = REPO / "src/tests/native/gui/conformance"
 CASES = tomllib.loads((SUITE / "cases.toml").read_text())["case"]
 NAMES = [case["name"] for case in CASES]
+# What a case needs of a provider beyond the frozen contract, and which have it.
+NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
+HAS = {"sdl": set(), "gtk": {"web"}}
 LINUX_ONLY = "requires Linux: the GUI conformance suite's Linux rows"
 # The shipped Linux provider, and the GTK provider being built beside it from a
 # copy of it (docs/design/native-ui-surfaces-and-hosts.md, section 3): both must
@@ -96,7 +99,14 @@ class ConformancePrograms:
             capture_output=True,
             text=True,
             timeout=120,
-            env=provider_environment(sanitized, UBSAN_OPTIONS="halt_on_error=1", BTRC_CONFORMANCE_FONT=self.font()),
+            env=provider_environment(
+                sanitized,
+                UBSAN_OPTIONS="halt_on_error=1",
+                BTRC_CONFORMANCE_FONT=self.font(),
+                BTRC_CONFORMANCE_WEB=str(SUITE / "web"),
+                # WebKit's own sandbox needs user namespaces a CI container does not give it.
+                WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS="1",
+            ),
         )
 
     def font(self):
@@ -113,11 +123,18 @@ def programs(tmp_path_factory):
     return ConformancePrograms(tmp_path_factory)
 
 
+ROWS = [
+    pytest.param(name, provider, id=f"{name}-{provider}")
+    for name in NAMES
+    for provider in PROVIDERS
+    if name not in NEEDS or NEEDS[name] in HAS[provider]
+]
+
+
 @pytest.mark.linux_gui
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
-@pytest.mark.parametrize("provider", PROVIDERS)
-@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize(("name", "provider"), ROWS)
 def test_linux_conformance_case(programs, request, name, provider, frontend, sanitized):
     result = programs.run(request, provider, frontend, sanitized, name)
     report = f"{name} on linux-{SESSION} ({provider}, {frontend}, {'sanitized' if sanitized else 'plain'})\n"

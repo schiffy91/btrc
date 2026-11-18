@@ -1,0 +1,13 @@
+import Library.GUI.IWebView;
+
+/* Web views are made here, not by GUI: a program that shows none does not
+ * link the platform's web engine. GUI must be initialized first; the view is
+ * then attached and closed like any other.
+ *
+ *     import Library.GUI.WebView;
+ *     var page = WebView.create();
+ *     page.load(WebBundle.fromDirectory("ui"), "index.html");
+ */
+class WebView {
+	class IWebView create() { return WebViewProvider.create(); }
+}

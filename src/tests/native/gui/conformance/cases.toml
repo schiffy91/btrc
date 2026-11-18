@@ -251,3 +251,28 @@ name = "font.face"
 operations = [
   "IFontFace.glyph", "IFontFace.metrics"
 ]
+
+# The web view and the mixing rules (docs/design/native-ui-surfaces-and-hosts.md,
+# section 2). `needs` names what a provider must have for the case to apply:
+# the drawn Linux provider has no web view and goes with the GTK one's arrival.
+# Their operations join the catalog with the evidence step.
+
+[[case]]
+name = "web.messages"
+needs = "web"
+operations = []
+
+[[case]]
+name = "web.bundle"
+needs = "web"
+operations = []
+
+[[case]]
+name = "web.navigation"
+needs = "web"
+operations = []
+
+[[case]]
+name = "mix.order"
+needs = "web"
+operations = []

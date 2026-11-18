@@ -1,0 +1,193 @@
+import Library.Bytes;
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.IButton;
+import Library.GUI.IWebView;
+import Library.GUI.WebView;
+import Library.JSON;
+import Library.Map;
+import Library.Platform;
+import Library.Testing;
+import Library.Timer;
+import Library.Vector;
+
+import ./Buttons.btrc;
+import ./Layout.btrc;
+import ./Picture.btrc;
+import ./Probe.btrc;
+import ./Suite.btrc;
+
+class WebMessages implements IWebMessageHandler {
+	public Vector<string> received = [];
+
+	public void webMessage(string json) { self.received.push(json); }
+}
+
+class WebNavigations implements IWebNavigationHandler {
+	public Vector<WebNavigationEvent> events = [];
+
+	public void webNavigation(WebNavigationEvent event) { self.events.push(event); }
+
+	public int count(WebNavigationOutcome outcome) {
+		int found = 0;
+		for event in self.events { if (event.outcome == outcome) { found++; } }
+		return found;
+	}
+}
+
+/* A page loads in its own time: turns pass until it has said enough. */
+class WebWait {
+	class void messages(Turns turns, WebMessages log, int count, string what) {
+		long long started = MonotonicClock.milliseconds();
+		while (log.received.length < count && MonotonicClock.milliseconds() - started < 20000LL) { turns.turn(); }
+		Expect.isTrue(log.received.length >= count, f"{what}: the page sent {log.received.length} of {count} messages in twenty seconds");
+	}
+
+	class Map<string, Bytes> page(string script) {
+		var files = new Map<string, Bytes>();
+		files.set("index.html", Bytes.fromString("<!doctype html><meta charset=\"utf-8\"><body><script>" + script + "</script></body>"));
+		return files;
+	}
+}
+
+/* The page and the program exchange JSON values, in order, on later turns. */
+class WebMessaging implements IConformanceCase {
+	public string name() { return "web.messages"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance web.messages", 320.0, 200.0);
+		var page = WebView.create();
+		window.attachRoot(page);
+		window.show();
+		var log = WebMessages();
+		var scope = CallbackScope();
+		page.onMessage(log, scope);
+		string script = "window.btrc.onMessage = function (value) { window.btrc.post({ sum: value.a + value.b, text: value.text }); }; window.btrc.post({ ready: true });";
+		page.load(WebBundle.fromFiles(WebWait.page(script)), "index.html");
+		Expect.intEq((long long)log.received.length, 0LL, "a message is delivered on a later turn, never inside load");
+		WebWait.messages(turns, log, 1, "the page's first message");
+		Expect.isTrue(JSONValue.parse(log.received.get(0)).get("ready").asBool(), "the page's value arrives as its JSON");
+		page.post("{\"a\": 2, \"b\": 3, \"text\": \"caf\\u00e9\"}");
+		page.post("{\"a\": 10, \"b\": 20, \"text\": \"second\"}");
+		Expect.intEq((long long)log.received.length, 1LL, "an answer is delivered on a later turn, never inside post");
+		WebWait.messages(turns, log, 3, "the page's answers");
+		var first = JSONValue.parse(log.received.get(1));
+		var second = JSONValue.parse(log.received.get(2));
+		Expect.isTrue(first.get("sum").asInt() == 5 && first.get("text").asString() == "café", "the page received the program's value and answered it");
+		Expect.isTrue(second.get("sum").asInt() == 30 && second.get("text").asString() == "second", "messages keep their order");
+		bool refused = false;
+		try { page.post("{ not json"); } catch (string error) { refused = true; }
+		Expect.isTrue(refused, "what is posted has to be JSON");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		page.post("{\"a\": 1, \"b\": 1, \"text\": \"unheard\"}");
+		turns.settle(200);
+		Expect.intEq((long long)log.received.length, 3LL, "a cancelled receiver hears nothing more");
+		window.close();
+		turns.settle();
+	}
+}
+
+/* A bundle is a directory of files under one origin: the page loads its own
+ * script, style and data from it, and nothing that is not in it. */
+class WebBundleFiles implements IConformanceCase {
+	public string name() { return "web.bundle"; }
+
+	public void run(Turns turns) {
+		string directory = Environment.get("BTRC_CONFORMANCE_WEB", "");
+		if (directory.isEmpty()) { throw "BTRC_CONFORMANCE_WEB names no bundle directory"; }
+		var window = GUI.createWindow("conformance web.bundle", 320.0, 200.0);
+		var page = WebView.create();
+		window.attachRoot(page);
+		window.show();
+		var log = WebMessages();
+		var scope = CallbackScope();
+		page.onMessage(log, scope);
+		page.load(WebBundle.fromDirectory(directory), "index.html");
+		WebWait.messages(turns, log, 1, "the bundle's page");
+		var answer = JSONValue.parse(log.received.get(0));
+		Expect.isTrue(answer.get("script").asBool(), "the page ran the bundle's script");
+		Expect.isTrue(answer.get("data").asInt() == 42, "the page read the bundle's data");
+		Expect.isTrue(answer.get("missing").asString() == "refused", "a file the bundle does not have is not served");
+		Expect.isTrue(answer.get("background").asString() == "rgb(30, 160, 60)", "the page took the bundle's style");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+	}
+}
+
+/* Nothing leaves the bundle unless the program allows the origin, and the
+ * program is told what became of each navigation. */
+class WebNavigation implements IConformanceCase {
+	public string name() { return "web.navigation"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance web.navigation", 320.0, 200.0);
+		var page = WebView.create();
+		window.attachRoot(page);
+		window.show();
+		var log = WebMessages();
+		var navigations = WebNavigations();
+		var scope = CallbackScope();
+		page.onMessage(log, scope);
+		page.onNavigation(navigations, scope);
+		string script = "window.btrc.onMessage = function (value) { if (value.go) { window.location.href = value.go; } else { window.btrc.post({ still: 'here' }); } }; window.btrc.post({ ready: true });";
+		page.load(WebBundle.fromFiles(WebWait.page(script)), "index.html");
+		WebWait.messages(turns, log, 1, "the page's first message");
+		Expect.isTrue(navigations.count(WEB_NAVIGATION_ALLOWED) >= 1 && navigations.events.get(0).url == "app://bundle/index.html", "loading the bundle's page is a navigation inside it");
+		page.post("{\"go\": \"https://outside.invalid/page\"}");
+		long long started = MonotonicClock.milliseconds();
+		while (navigations.count(WEB_NAVIGATION_REFUSED) < 1 && MonotonicClock.milliseconds() - started < 20000LL) { turns.turn(); }
+		Expect.intEq((long long)navigations.count(WEB_NAVIGATION_REFUSED), 1LL, "a navigation outside the bundle is refused");
+		Expect.isTrue(navigations.events.last().url == "https://outside.invalid/page" && navigations.count(WEB_NAVIGATION_HANDED_TO_SYSTEM) == 0, "and, not being a person's click, opens nothing");
+		page.post("{}");
+		WebWait.messages(turns, log, 2, "the page after a refused navigation");
+		Expect.isTrue(JSONValue.parse(log.received.get(1)).get("still").asString() == "here", "the page that asked is still the page shown");
+		bool refused = false;
+		try { page.allowOrigin("outside.invalid"); } catch (string error) { refused = true; }
+		Expect.isTrue(refused, "an origin is a scheme and a host");
+		page.allowOrigin("https://outside.invalid");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+	}
+}
+
+/* Sibling order is z order across the three kinds of content, and input goes
+ * to the topmost view under the pointer. */
+class MixOrder implements IConformanceCase {
+	public string name() { return "mix.order"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance mix.order", 480.0, 240.0);
+		var root = GUI.createContainer();
+		var page = WebView.create();
+		var above = GUI.createButton("Above");
+		var action = CountedAction();
+		var log = WebMessages();
+		var scope = CallbackScope();
+		window.attachRoot(root);
+		root.attach(page);
+		root.attach(above);
+		page.arrange(0.0, 0.0, 320.0, 240.0);
+		above.arrange(200.0, 80.0, 200.0, 80.0);
+		above.onAction(action, scope);
+		page.onMessage(log, scope);
+		string script = "document.addEventListener('click', function (event) { window.btrc.post({ clicked: true }); }); window.btrc.post({ ready: true });";
+		page.load(WebBundle.fromFiles(WebWait.page(script)), "index.html");
+		window.show();
+		WebWait.messages(turns, log, 1, "the page's first message");
+		turns.settle(200);
+		var probe = Probe(window);
+		probe.click(260.0, 120.0);
+		turns.settle(200);
+		Expect.intEq((long long)action.count, 1LL, "a button over a web view takes the click on it");
+		Expect.intEq((long long)log.received.length, 1LL, "and the page under the button does not hear it");
+		probe.click(80.0, 120.0);
+		WebWait.messages(turns, log, 2, "a click on the page");
+		Expect.isTrue(JSONValue.parse(log.received.get(1)).get("clicked").asBool(), "a click where only the page is reaches the page");
+		Expect.intEq((long long)action.count, 1LL, "and not the button beside it");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		window.close();
+		turns.settle();
+	}
+}

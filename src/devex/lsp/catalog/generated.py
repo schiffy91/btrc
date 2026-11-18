@@ -655,6 +655,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("SelectTypography", (
         BuiltinMemberSpec("maximumSize", "double", "method", (), "maximumSize"),
     )),
+    ("WebBundle", (
+        BuiltinMemberSpec("fromDirectory", "WebBundle", "method", (("string", "directory"),), "fromDirectory"),
+        BuiltinMemberSpec("fromFiles", "WebBundle", "method", (("Map<string, Bytes>", "files"),), "fromFiles"),
+    )),
     ("AppKitText", (
         BuiltinMemberSpec("nativeValue", "NSString", "method", (("string", "text"),), "nativeValue"),
         BuiltinMemberSpec("ownedValue", "string", "method", (("NSString", "text"),), "ownedValue"),
@@ -673,6 +677,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("fontPixels", "int", "method", (("long long", "fixedPoint"),), "fontPixels"),
         BuiltinMemberSpec("fontWidth", "int", "method", (("Font", "font"), ("string", "text"),), "fontWidth"),
         BuiltinMemberSpec("fontText", "void", "method", (("struct GUIRasterPixels*", "pixels"), ("Font", "font"), ("int", "x"), ("int", "y"), ("string", "text"), ("unsigned int", "rgba"),), "fontText"),
+    )),
+    ("WebView", (
+        BuiltinMemberSpec("create", "IWebView", "method", (), "create"),
     )),
     ("GraphCLI", (
         BuiltinMemberSpec("args", "Map<string, string>", "method", (("CLIArgs", "args"), ("int", "startIndex"),), "args"),

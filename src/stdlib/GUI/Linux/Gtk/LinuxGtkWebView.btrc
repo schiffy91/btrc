@@ -1,0 +1,129 @@
+import Library.Bytes;
+import Library.Callback;
+import Library.JSON;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+import Library.GUI.IWebView;
+import Library.GUI.ControlEventQueue;
+import Library.GUI.Linux.Gtk.LinuxGtkView;
+import Library.GUI.Linux.Gtk.LinuxGtkContext;
+import Library.GUI.Linux.Gtk.LinuxGtkPainter;
+import Library.GUI.Linux.Gtk.GtkShim;
+import Library.GUI.Linux.Gtk.GtkControls;
+import Library.GUI.Linux.Gtk.GtkWeb;
+
+/* What the engine reported and the UI executor has not delivered yet, in
+ * the order it happened. The window's queue keeps one entry per receiver
+ * that says "there is something here"; delivering it hands over everything
+ * that has arrived by then, so nothing is merged away and nothing overtakes. */
+class LinuxGtkWebInbox {
+	public Vector<string> messages = [];
+	public Vector<WebNavigationEvent> navigations = [];
+}
+
+/* A WebKitGTK view among the window's controls. The engine draws the page,
+ * serves the bundle and decides navigations; what it reports is queued for
+ * the receivers here. */
+class LinuxGtkWebView extends LinuxGtkNodeView implements IWebView {
+	private BtrcGtkControl* _control;
+	private ControlEventChannel<IWebMessageHandler, LinuxGtkWebInbox>? _messages = null;
+	private ControlEventChannel<IWebNavigationHandler, LinuxGtkWebInbox>? _navigations = null;
+	private LinuxGtkWebInbox _inbox = LinuxGtkWebInbox();
+
+	public LinuxGtkWebView(LinuxGtkContext context) {
+		self.adoptNode(LinuxGtkViewNode(context));
+		self.node().focusable = true;
+		self._control = btrcGtkWebCreate((unsigned int)self.node().id);
+		if (self._control == null) { throw "Cannot create native web view"; }
+	}
+
+	private BtrcGtkControl* control() { if (self._control == null) { throw "Native web view is closed"; } return self._control; }
+
+	public void paint(LinuxGtkPainter painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
+
+	public void load(WebBundle bundle, string entryPath) {
+		self.node().requireOpen();
+		if (bundle == null || entryPath == null || entryPath.isEmpty()) { throw "A web view loads a bundle and an entry path"; }
+		var files = bundle.files;
+		if (files == null) {
+			if (bundle.directory.isEmpty()) { throw "A web bundle is a directory or files"; }
+			btrcGtkWebServeDirectory(self.control(), bundle.directory);
+		} else {
+			btrcGtkWebServeFiles(self.control());
+			for path, contents in files { btrcGtkWebServeFile(self.control(), path, (unsigned char*)contents.data, (unsigned long long)contents.len); }
+		}
+		btrcGtkWebLoad(self.control(), entryPath);
+	}
+
+	public void allowOrigin(string origin) {
+		self.node().requireOpen();
+		if (origin == null || !(origin.startsWith("https://") || origin.startsWith("http://")) || origin.endsWith("/")) { throw "A web origin is a scheme and a host, as in https://example.org"; }
+		btrcGtkWebAllowOrigin(self.control(), origin);
+	}
+
+	public void post(string json) {
+		self.node().requireOpen();
+		if (json == null || JSONValue.parse(json).isError()) { throw "A web view is posted JSON"; }
+		btrcGtkWebPost(self.control(), json);
+	}
+
+	class void deliverMessages(IWebMessageHandler receiver, LinuxGtkWebInbox inbox) {
+		while (!inbox.messages.isEmpty()) { string json = inbox.messages.get(0); inbox.messages.remove(0); receiver.webMessage(json); }
+	}
+
+	class void deliverNavigations(IWebNavigationHandler receiver, LinuxGtkWebInbox inbox) {
+		while (!inbox.navigations.isEmpty()) { var event = inbox.navigations.get(0); inbox.navigations.remove(0); receiver.webNavigation(event); }
+	}
+
+	public ICallbackRegistration onMessage(IWebMessageHandler receiver, CallbackScope owner) {
+		self.node().context.requireSemanticRegistration(); self.node().requireOpen();
+		if (self._messages != null && self._messages.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing web message handler first"; }
+		var channel = new ControlEventChannel<IWebMessageHandler, LinuxGtkWebInbox>(self.node().events(), LinuxGtkViewObservationTarget(self.node()), receiver, LinuxGtkWebView.deliverMessages, owner, self.node().context.eventRole(CONTROL_CAPTURE_OBSERVER));
+		self.node().ownSemantic(channel); self._inbox.messages.clear(); self._messages = channel; return channel;
+	}
+
+	public ICallbackRegistration onNavigation(IWebNavigationHandler receiver, CallbackScope owner) {
+		self.node().context.requireSemanticRegistration(); self.node().requireOpen();
+		if (self._navigations != null && self._navigations.pollCompletion() != CALLBACK_CANCELLATION_COMPLETE) { throw "Cancel the existing web navigation handler first"; }
+		var channel = new ControlEventChannel<IWebNavigationHandler, LinuxGtkWebInbox>(self.node().events(), LinuxGtkViewObservationTarget(self.node()), receiver, LinuxGtkWebView.deliverNavigations, owner, self.node().context.eventRole(CONTROL_CAPTURE_OBSERVER));
+		self.node().ownSemantic(channel); self._inbox.navigations.clear(); self._navigations = channel; return channel;
+	}
+
+	/* What the engine reported: a message from the page, or a navigation it
+	 * decided. With no receiver it is not kept. */
+	public void controlEvent(BtrcGtkEvent* event) {
+		if (event->text == null) { return; }
+		string text = Strings.copy((char*)event->text);
+		long long generation = self.node().generation();
+		if (event->type == (unsigned int)BTRC_GTK_EVENT_CONTROL_WEB_MESSAGE) {
+			var channel = self._messages;
+			if (channel == null || !channel.isOpen()) { return; }
+			self._inbox.messages.push(text);
+			if (!channel.publish(self._inbox, generation, 0LL, 1LL)) { throw "Web message source is unavailable"; }
+		} else if (event->type == (unsigned int)BTRC_GTK_EVENT_CONTROL_WEB_NAVIGATION) {
+			var channel = self._navigations;
+			if (channel == null || !channel.isOpen()) { return; }
+			var navigation = WebNavigationEvent(); navigation.url = text;
+			navigation.outcome = event->data1 == (int)BTRC_GTK_WEB_NAVIGATION_ALLOWED ? WEB_NAVIGATION_ALLOWED : (event->data1 == (int)BTRC_GTK_WEB_NAVIGATION_HANDED_TO_SYSTEM ? WEB_NAVIGATION_HANDED_TO_SYSTEM : WEB_NAVIGATION_REFUSED);
+			self._inbox.navigations.push(navigation);
+			if (!channel.publish(self._inbox, generation, 0LL, 1LL)) { throw "Web navigation source is unavailable"; }
+		}
+	}
+
+	private void releaseNative() { if (self._control != null) { btrcGtkControlDestroy(self._control); self._control = null; } }
+
+	public CallbackCancellation close() {
+		var state = self.node().close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self.node().pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public void __del__() { self.releaseNative(); }
+}

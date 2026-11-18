@@ -49,15 +49,17 @@ typedef struct BtrcGtkShape {
 
 enum { BTRC_GTK_SHAPE_LINE, BTRC_GTK_SHAPE_TRIANGLE, BTRC_GTK_SHAPE_RECTANGLE, BTRC_GTK_SHAPE_CIRCLE };
 
-static void btrcGtkControlPushData(BtrcGtkControl* control, unsigned int type, int data) {
+void btrcGtkControlPushText(BtrcGtkControl* control, unsigned int type, int data, const char* text) {
 	BtrcGtkEvent event = {0};
 	if (control->destroyed) { return; }
 	event.type = type;
 	event.window = control->window == NULL ? 0u : btrcGtkWindowId(control->window);
 	event.control = control->id;
 	event.data1 = data;
-	btrcGtkPush(&event, NULL);
+	btrcGtkPush(&event, text);
 }
+
+static void btrcGtkControlPushData(BtrcGtkControl* control, unsigned int type, int data) { btrcGtkControlPushText(control, type, data, NULL); }
 
 static void btrcGtkControlPush(BtrcGtkControl* control, unsigned int type) { btrcGtkControlPushData(control, type, 0); }
 
@@ -86,7 +88,9 @@ static void btrcGtkControlFree(gpointer data) {
 	free(control);
 }
 
-static BtrcGtkControl* btrcGtkControlNew(unsigned int id, GtkWidget* widget) {
+GtkWidget* btrcGtkControlWidget(BtrcGtkControl* control) { return control->widget; }
+
+BtrcGtkControl* btrcGtkControlNew(unsigned int id, GtkWidget* widget) {
 	BtrcGtkControl* control = calloc(1, sizeof *control);
 	if (control == NULL) { g_object_ref_sink(widget); g_object_unref(widget); return NULL; }
 	control->id = id;

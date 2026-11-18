@@ -18,6 +18,13 @@ bool btrcGtkPush(const BtrcGtkEvent* event, const char* text);
 /* The canvas that is the window's content. */
 GtkWidget* btrcGtkWindowCanvas(BtrcGtkWindow* window);
 
+/* For a kind of control that has a source file of its own (GtkWeb.c): a
+ * control around a widget, the widget of a control, and an event from it. */
+struct BtrcGtkControl;
+struct BtrcGtkControl* btrcGtkControlNew(unsigned int id, GtkWidget* widget);
+GtkWidget* btrcGtkControlWidget(struct BtrcGtkControl* control);
+void btrcGtkControlPushText(struct BtrcGtkControl* control, unsigned int type, int data, const char* text);
+
 #define BTRC_GTK_TYPE_CANVAS (btrc_gtk_canvas_get_type())
 G_DECLARE_FINAL_TYPE(BtrcGtkCanvas, btrc_gtk_canvas, BTRC_GTK, CANVAS, GtkWidget)
 #define BTRC_GTK_TYPE_SLOT (btrc_gtk_slot_get_type())

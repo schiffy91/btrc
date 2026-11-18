@@ -104,6 +104,8 @@ class LinuxGtkHostAttachment implements IApplicationHostAttachment {
  * the Linux services without a class downcast. */
 interface ILinuxGtkApplication extends IApplication {
 	LinuxGtkContext context();
+	/* Take a view made outside the application (a web view) among its own. */
+	void adopt(IView view);
 	LinuxGtkWindow? firstWindow();
 	LinuxGtkWindow? windowOwning(ILinuxGtkView view);
 }
@@ -294,6 +296,8 @@ class LinuxGtkApplication implements ILinuxGtkApplication, ILinuxGtkDialogPump {
 		self._windows.push(window);
 		return window;
 	}
+
+	public void adopt(IView view) { self.requireCreation(); self.rememberView(view); }
 
 	private void rememberView(IView view) {
 		for (int index = self._views.len - 1; index >= 0; index--) {

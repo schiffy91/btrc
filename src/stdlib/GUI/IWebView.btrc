@@ -1,0 +1,65 @@
+import Library.Bytes;
+import Library.Callback;
+import Library.Map;
+import Library.GUI.IView;
+
+/* The files a web view serves, under the one private origin app://bundle/:
+ * a directory, or files held in memory by their path from the origin. */
+class WebBundle {
+	public string directory = "";
+	public Map<string, Bytes>? files = null;
+
+	class WebBundle fromDirectory(string directory) {
+		if (directory == null || directory.isEmpty()) { throw "A web bundle's directory is missing"; }
+		var bundle = WebBundle(); bundle.directory = directory; return bundle;
+	}
+
+	class WebBundle fromFiles(Map<string, Bytes> files) {
+		if (files == null) { throw "A web bundle's files are missing"; }
+		var bundle = WebBundle(); bundle.files = files; return bundle;
+	}
+}
+
+/* What became of a navigation. Inside the bundle, or to an origin the
+ * program allowed, it went ahead. Anywhere else it did not: nothing
+ * happened, or, for a link a person clicked, the system was asked to open
+ * the address (in a browser). */
+enum WebNavigationOutcome {
+	WEB_NAVIGATION_ALLOWED,
+	WEB_NAVIGATION_REFUSED,
+	WEB_NAVIGATION_HANDED_TO_SYSTEM
+};
+
+class WebNavigationEvent {
+	public string url;
+	public WebNavigationOutcome outcome;
+}
+
+interface IWebMessageHandler { void webMessage(string json); }
+
+interface IWebNavigationHandler { void webNavigation(WebNavigationEvent event); }
+
+/* A view the platform's web engine draws: HTML, CSS and JavaScript from one
+ * bundle of files. It takes its place in the view tree like any view; a
+ * later sibling draws over it and an earlier one under it.
+ *
+ * The page and the program exchange JSON values and nothing else. The page
+ * calls window.btrc.post(value); onMessage receives the value's JSON. post
+ * hands the page a JSON value: the page's window.btrc.onMessage function is
+ * called with it once the page has loaded. Both directions are queued and
+ * delivered on the UI executor after native dispatch, as a button's action
+ * is; neither side can call into the other.
+ *
+ * Nothing outside the bundle loads, and no navigation leaves it, unless the
+ * program allows the origin. The decision is made by that rule at once and
+ * cannot wait for a callback; onNavigation is told each navigation and what
+ * became of it. Storage is not kept between runs. Subscriptions have one
+ * live receiver each, no initial delivery, and scope ownership. */
+interface IWebView extends IView {
+	void load(WebBundle bundle, string entryPath);
+	/* Let pages load from, and navigate to, this origin: "https://host". */
+	void allowOrigin(string origin);
+	void post(string json);
+	ICallbackRegistration onMessage(IWebMessageHandler handler, CallbackScope owner);
+	ICallbackRegistration onNavigation(IWebNavigationHandler handler, CallbackScope owner);
+}

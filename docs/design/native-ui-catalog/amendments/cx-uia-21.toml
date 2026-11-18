@@ -1,9 +1,12 @@
 release = "ui0-source-inventory-2026-09-21"
 
+# The inventory as the source stands. The last amendment file to state it is
+# the one read, and this file sorts last: cl-web-01 added IWebView.btrc, its
+# three interfaces and their seven declarations.
 [current]
-interface_files = 20
-interfaces = 37
-interface_declarations = 202
+interface_files = 21
+interfaces = 40
+interface_declarations = 209
 facade_declarations = 29
 
 [[additions]]

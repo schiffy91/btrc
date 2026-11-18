@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["ActionMailbox", "ControlEvents", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageView", "IImageHandle", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "Raster", "TextRun"]
+exports = ["ActionMailbox", "ControlEvents", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageHandle", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWebView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "Raster", "TextRun", "WebView"]
 
 [[package.providers]]
 module = "GUI"
@@ -17,6 +17,21 @@ os = ["linux"]
 [[package.providers]]
 module = "GUI"
 implementation = "Windows.GUIProvider"
+os = ["windows"]
+
+[[package.providers]]
+module = "WebView"
+implementation = "MacOS.WebViewProvider"
+os = ["macos"]
+
+[[package.providers]]
+module = "WebView"
+implementation = "Linux.WebViewProvider"
+os = ["linux"]
+
+[[package.providers]]
+module = "WebView"
+implementation = "Windows.WebViewProvider"
 os = ["windows"]
 
 [[native.pkg-config]]
@@ -86,13 +101,14 @@ symbols = [
 	"BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED", "BTRC_GTK_EVENT_CONTROL_SLIDER_RELEASED", "BTRC_GTK_EVENT_CONTROL_SLIDER_CANCELLED",
 	"BTRC_GTK_EVENT_CONTROL_SELECT_OPENED", "BTRC_GTK_EVENT_CONTROL_SELECT_CANDIDATE", "BTRC_GTK_EVENT_CONTROL_SELECT_CHOSEN",
 	"BTRC_GTK_EVENT_CONTROL_SELECT_DISMISSED", "BTRC_GTK_EVENT_CONTROL_TEXT_CHANGED", "BTRC_GTK_EVENT_CONTROL_TEXT_ACTIVATED",
-	"BTRC_GTK_EVENT_CONTROL_TEXT_ESCAPED", "BTRC_GTK_EVENT_CONTROL_SCROLLBAR_CHANGED", "BTRC_GTK_SLIDER_JUMP", "BTRC_GTK_SLIDER_STEP_BACKWARD",
-	"BTRC_GTK_SLIDER_STEP_FORWARD", "BTRC_GTK_SLIDER_PAGE_BACKWARD", "BTRC_GTK_SLIDER_PAGE_FORWARD", "BTRC_GTK_SLIDER_START", "BTRC_GTK_SLIDER_END",
-	"BTRC_GTK_KEY_UNKNOWN", "BTRC_GTK_KEY_ESCAPE", "BTRC_GTK_KEY_RETURN", "BTRC_GTK_KEY_KP_ENTER", "BTRC_GTK_KEY_SPACE", "BTRC_GTK_KEY_LEFT",
-	"BTRC_GTK_KEY_RIGHT", "BTRC_GTK_KEY_UP", "BTRC_GTK_KEY_DOWN", "BTRC_GTK_KEY_TAB", "BTRC_GTK_KEY_BACKSPACE", "BTRC_GTK_KEY_DELETE",
-	"BTRC_GTK_KEY_HOME", "BTRC_GTK_KEY_END", "BTRC_GTK_KEY_LSHIFT", "BTRC_GTK_KEY_RSHIFT", "BTRC_GTK_KEY_LALT", "BTRC_GTK_KEY_RALT", "BTRC_GTK_KEY_A",
-	"BTRC_GTK_KEY_C", "BTRC_GTK_KEY_V", "BTRC_GTK_SCANCODE_A", "BTRC_GTK_SCANCODE_C", "BTRC_GTK_SCANCODE_D", "BTRC_GTK_SCANCODE_Q",
-	"BTRC_GTK_SCANCODE_S", "BTRC_GTK_SCANCODE_V", "BTRC_GTK_SCANCODE_W", "BTRC_GTK_SCANCODE_X", "BTRC_GTK_SCANCODE_Z", "BTRC_GTK_SCANCODE_LEFTBRACKET",
+	"BTRC_GTK_EVENT_CONTROL_TEXT_ESCAPED", "BTRC_GTK_EVENT_CONTROL_SCROLLBAR_CHANGED", "BTRC_GTK_EVENT_CONTROL_WEB_MESSAGE",
+	"BTRC_GTK_EVENT_CONTROL_WEB_NAVIGATION", "BTRC_GTK_SLIDER_JUMP", "BTRC_GTK_SLIDER_STEP_BACKWARD", "BTRC_GTK_SLIDER_STEP_FORWARD",
+	"BTRC_GTK_SLIDER_PAGE_BACKWARD", "BTRC_GTK_SLIDER_PAGE_FORWARD", "BTRC_GTK_SLIDER_START", "BTRC_GTK_SLIDER_END", "BTRC_GTK_KEY_UNKNOWN",
+	"BTRC_GTK_KEY_ESCAPE", "BTRC_GTK_KEY_RETURN", "BTRC_GTK_KEY_KP_ENTER", "BTRC_GTK_KEY_SPACE", "BTRC_GTK_KEY_LEFT", "BTRC_GTK_KEY_RIGHT",
+	"BTRC_GTK_KEY_UP", "BTRC_GTK_KEY_DOWN", "BTRC_GTK_KEY_TAB", "BTRC_GTK_KEY_BACKSPACE", "BTRC_GTK_KEY_DELETE", "BTRC_GTK_KEY_HOME",
+	"BTRC_GTK_KEY_END", "BTRC_GTK_KEY_LSHIFT", "BTRC_GTK_KEY_RSHIFT", "BTRC_GTK_KEY_LALT", "BTRC_GTK_KEY_RALT", "BTRC_GTK_KEY_A", "BTRC_GTK_KEY_C",
+	"BTRC_GTK_KEY_V", "BTRC_GTK_SCANCODE_A", "BTRC_GTK_SCANCODE_C", "BTRC_GTK_SCANCODE_D", "BTRC_GTK_SCANCODE_Q", "BTRC_GTK_SCANCODE_S",
+	"BTRC_GTK_SCANCODE_V", "BTRC_GTK_SCANCODE_W", "BTRC_GTK_SCANCODE_X", "BTRC_GTK_SCANCODE_Z", "BTRC_GTK_SCANCODE_LEFTBRACKET",
 	"BTRC_GTK_SCANCODE_RIGHTBRACKET", "BTRC_GTK_SCANCODE_BACKSPACE", "BTRC_GTK_SCANCODE_LEFT", "BTRC_GTK_SCANCODE_END", "BTRC_GTK_MOD_SHIFT",
 	"BTRC_GTK_MOD_CTRL", "BTRC_GTK_MOD_ALT", "BTRC_GTK_MOD_GUI", "BTRC_GTK_CURSOR_DEFAULT", "BTRC_GTK_CURSOR_TEXT"
 ]
@@ -117,6 +133,18 @@ symbols = [
 	"btrcGtkScrollbarCreate", "btrcGtkScrollbarSet"
 ]
 read-only-borrows = ["btrcGtkControlSetToolTip.text", "btrcGtkButtonCreate.title", "btrcGtkButtonSetTitle.title", "btrcGtkLabelCreate.text", "btrcGtkLabelSetText.text", "btrcGtkSelectAppend.title", "btrcGtkSelectShow.shown", "btrcGtkTextCreate.text", "btrcGtkTextCreate.placeholder", "btrcGtkTextSet.text", "btrcGtkTextSetPlaceholder.placeholder", "btrcGtkPictureSet.pixels"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.Gtk.GtkWeb"
+header = "Linux/Gtk/GtkWeb.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"btrcGtkWebCreate", "btrcGtkWebServeDirectory", "btrcGtkWebServeFiles", "btrcGtkWebServeFile", "btrcGtkWebAllowOrigin", "btrcGtkWebLoad", "btrcGtkWebPost",
+	"BTRC_GTK_WEB_NAVIGATION_ALLOWED", "BTRC_GTK_WEB_NAVIGATION_REFUSED", "BTRC_GTK_WEB_NAVIGATION_HANDED_TO_SYSTEM"
+]
+read-only-borrows = ["btrcGtkWebServeDirectory.directory", "btrcGtkWebServeFile.path", "btrcGtkWebServeFile.bytes", "btrcGtkWebAllowOrigin.origin", "btrcGtkWebLoad.entryPath", "btrcGtkWebPost.json"]
 os = ["linux"]
 
 [[native.sources]]
@@ -145,6 +173,18 @@ path = "Linux/Gtk/GtkControls.c"
 language = "c"
 standard = "c11"
 modules = ["Linux.Gtk.GtkShim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Gtk/GtkWeb.c"
+language = "c"
+standard = "c11"
+modules = ["Linux.Gtk.GtkWeb"]
+os = ["linux"]
+
+[[native.pkg-config]]
+name = "webkitgtk-6.0"
+modules = ["Linux.Gtk.GtkWeb"]
 os = ["linux"]
 
 [[native.pkg-config]]
