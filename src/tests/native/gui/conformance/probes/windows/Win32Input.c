@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
 static HWND titled(const char *title) {
     int length = MultiByteToWideChar(CP_UTF8, 0, title, -1, NULL, 0);
@@ -138,10 +139,28 @@ static void explain(HWND window, UINT sent) {
         (void *)window, (void *)front, name, sent, (unsigned long)GetLastError(), (unsigned long)session, input ? desktop : L"(none)");
 }
 
+/* A click on a window's title bar, in its left half: what a person does to a
+ * window they want in front. It reaches nothing in the window's content. */
+static void clickTitle(HWND window) {
+    static DWORD last;
+    RECT frame;
+    DWORD now = GetTickCount();
+    /* Two clicks in one place inside the double-click time would maximize it. */
+    if (last != 0 && now - last < 2000u) { return; }
+    if (!GetWindowRect(window, &frame) || frame.right - frame.left < 120) { return; }
+    last = now;
+    win32Move((double)(frame.left + (frame.right - frame.left) / 3), (double)(frame.top + 12));
+    win32Button(true);
+    win32Button(false);
+}
+
 /* The system lets a process bring its own window to the front only after
  * input reached it; a tap of Alt is the least input that counts. Where that
  * is not enough, the thread joins the input of the one that has the front,
- * which is allowed to hand it over. */
+ * which is allowed to hand it over. A shell surface that will not (the Start
+ * menu, the search box, a first-run panel: a host that was just started may
+ * have one open) is dismissed as a person dismisses it, with Escape and then
+ * a click on the window wanted. */
 static bool toFront(HWND window) {
     if (GetForegroundWindow() == window) { return true; }
     INPUT inputs[2];
@@ -149,13 +168,22 @@ static bool toFront(HWND window) {
     stroke(&inputs[1], VK_MENU, false);
     UINT sent = SendInput(2, inputs, sizeof *inputs);
     if (IsIconic(window)) { ShowWindow(window, SW_RESTORE); }
-    HWND front = GetForegroundWindow();
-    DWORD other = front ? GetWindowThreadProcessId(front, NULL) : 0;
-    DWORD self = GetCurrentThreadId();
-    bool joined = other != 0 && other != self && AttachThreadInput(self, other, TRUE);
-    BringWindowToTop(window);
-    SetForegroundWindow(window);
-    if (joined) { AttachThreadInput(self, other, FALSE); }
+    for (int attempt = 0; attempt < 2; attempt++) {
+        HWND front = GetForegroundWindow();
+        DWORD other = front ? GetWindowThreadProcessId(front, NULL) : 0;
+        DWORD self = GetCurrentThreadId();
+        bool joined = other != 0 && other != self && AttachThreadInput(self, other, TRUE);
+        BringWindowToTop(window);
+        SetForegroundWindow(window);
+        if (joined) { AttachThreadInput(self, other, FALSE); }
+        if (GetForegroundWindow() == window) { return true; }
+        if (attempt == 0) {
+            tap(VK_ESCAPE, false);
+            Sleep(120);
+        }
+    }
+    clickTitle(window);
+    Sleep(120);
     if (GetForegroundWindow() == window) { return true; }
     explain(window, sent);
     return false;
@@ -166,22 +194,25 @@ static bool win32Activate(const char *title) {
     return window && toFront(window);
 }
 
-/* The program's window in front: the first of its visible windows that takes
- * input. A modal disables the window it belongs to, so that is the modal. */
-static BOOL CALLBACK frontmost(HWND window, LPARAM found) {
+/* The program's own window, and the modal it has open: a modal is the
+ * enabled window its owner names while the owner itself is disabled. */
+static BOOL CALLBACK owning(HWND window, LPARAM found) {
     DWORD process = 0;
+    wchar_t name[32] = L"";
     GetWindowThreadProcessId(window, &process);
-    if (process != GetCurrentProcessId() || !IsWindowVisible(window) || !IsWindowEnabled(window)) { return TRUE; }
-    *(HWND *)found = window;
+    if (process != GetCurrentProcessId() || !IsWindowVisible(window) || !GetClassNameW(window, name, 32) || wcscmp(name, L"BtrcShimWindow") != 0) { return TRUE; }
+    HWND modal = GetWindow(window, GW_ENABLEDPOPUP);
+    if (!modal || modal == window || !IsWindowVisible(modal)) { return TRUE; }
+    *(HWND *)found = modal;
     return FALSE;
 }
 
 /* A modal a program opens while it is not the foreground program does not
  * get the keyboard: bring it to the front as a person's click would. */
 static bool win32Front(void) {
-    HWND window = NULL;
-    EnumWindows(frontmost, (LPARAM)&window);
-    return window && toFront(window);
+    HWND modal = NULL;
+    EnumWindows(owning, (LPARAM)&modal);
+    return modal && toFront(modal);
 }
 
 static bool win32Close(const char *title) {
