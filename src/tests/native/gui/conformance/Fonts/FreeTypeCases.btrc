@@ -1,0 +1,33 @@
+import Library.GUI.FreeType;
+import Library.GUI.Font;
+import Library.Platform;
+import Library.Testing;
+
+import ../Suite.btrc;
+
+/* A font face from a file: its metrics, and a glyph's bitmap and advance.
+ * BTRC_CONFORMANCE_FONT names a font the host has. */
+class FontFace implements IConformanceCase {
+	public string name() { return "font.face"; }
+
+	public void run(Turns turns) {
+		string path = Environment.get("BTRC_CONFORMANCE_FONT", "");
+		if (path.isEmpty()) { throw "BTRC_CONFORMANCE_FONT names no font file"; }
+		var font = FreeType.load(path, 24);
+		var metrics = font.metrics();
+		Expect.isTrue(metrics.heightFixed() > 0LL && metrics.ascenderFixed() > 0LL && metrics.ascenderFixed() <= metrics.heightFixed());
+		var glyph = font.glyph(65, true);
+		if (glyph == null) { throw "the font has no capital A"; }
+		Expect.isTrue(glyph.advanceFixed() > 0LL && glyph.width() > 0 && glyph.rows() > 0, "a rendered glyph has a bitmap and an advance");
+		var measured = font.glyph(65, false);
+		Expect.isTrue(measured != null && measured.advanceFixed() == glyph.advanceFixed(), "measuring and rendering agree on the advance");
+		bool refused = false;
+		try { FreeType.load("/no/such/font.ttf", 24); } catch (string error) { refused = true; }
+		Expect.isTrue(refused, "a missing font file is refused");
+	}
+}
+
+/* The font cases of a platform that has FreeType (btrc.toml chooses). */
+class FontCases {
+	class void add(Suite suite) { suite.add(FontFace()); }
+}

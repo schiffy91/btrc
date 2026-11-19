@@ -214,11 +214,14 @@ static int isClass(HWND window, const WCHAR *name) {
     int length = GetClassNameW(window, actual, 64);
     return length > 0 && _wcsicmp(actual, name) == 0;
 }
-static int isProvider(HWND window) { return isClass(window, L"BtrcWindow") || isClass(window, L"BtrcView"); }
+/* The provider's windows: a top-level window of the shim's class, and with
+ * it everything inside. The shim's hidden nursery for controls that are in
+ * no window is the toolkit's own and lives as long as the process. */
+static int isProvider(HWND window) { return isClass(window, L"BtrcShimWindow"); }
 
 static BOOL CALLBACK findShell(HWND candidate, LPARAM data) {
     WCHAR title[64];
-    if (isClass(candidate, L"BtrcWindow") && GetWindowTextW(candidate, title, 64) > 0 && wcscmp(title, L"BTRC native shell") == 0) {
+    if (isClass(candidate, L"BtrcShimWindow") && GetWindowTextW(candidate, title, 64) > 0 && wcscmp(title, L"BTRC native shell") == 0) {
         HWND *found = (HWND *)data;
         assert(*found == NULL && "two shell windows");
         *found = candidate;
@@ -233,51 +236,58 @@ static HWND window(void) {
 }
 static double scale(HWND target) { return GetDpiForWindow(target) / 96.0; }
 
-/* The fixture's root: the top-level window's one child. Its children are the
- * field, the button, the scroll viewport (the only one with a scroll bar)
- * and the GPU child, in any z-order. */
-typedef struct Controls { HWND root, field, button, scroll, document, gpu; } Controls;
+/* Every control is a child of the top-level window, above the content
+ * window the GPU surface is presented on: the field, the button, the
+ * fifty labels the scroll view clips, and the scroll view's bar. */
+typedef struct Controls { HWND field, button, scroll, gpu; int labels; } Controls;
 static Controls controls(void) {
     Controls found = {0};
     HWND top = window();
-    found.root = GetWindow(top, GW_CHILD);
-    assert(found.root && GetWindow(found.root, GW_HWNDNEXT) == NULL && isClass(found.root, L"BtrcView"));
-    int children = 0;
-    for (HWND child = GetWindow(found.root, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
-        children++;
+    for (HWND child = GetWindow(top, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
         if (isClass(child, L"Edit")) found.field = child;
         else if (isClass(child, L"Button")) found.button = child;
-        else if (isClass(child, L"BtrcView") && (GetWindowLongPtrW(child, GWL_STYLE) & WS_VSCROLL)) found.scroll = child;
-        else if (isClass(child, L"BtrcView")) found.gpu = child;
+        else if (isClass(child, L"ScrollBar")) found.scroll = child;
+        else if (isClass(child, L"BtrcShimContent")) found.gpu = child;
+        else if (isClass(child, L"Static")) found.labels++;
     }
-    assert(children == 4 && found.field && found.button && found.scroll && found.gpu);
-    found.document = GetWindow(found.scroll, GW_CHILD);
-    assert(found.document && GetWindow(found.document, GW_HWNDNEXT) == NULL);
+    assert(found.field && found.button && found.scroll && found.gpu);
     return found;
 }
 
 void shellProbeObserve(void) {
     resourcePhase("observe", drains + 1);
-    Controls found = controls();
-    int labels = 0;
-    for (HWND label = GetWindow(found.document, GW_CHILD); label; label = GetWindow(label, GW_HWNDNEXT)) {
-        assert(isClass(label, L"Static"));
-        labels++;
-    }
-    assert(labels == 50);
+    assert(controls().labels == 50);
 }
 
-/* The deepest visible child under a content point, as Win32 hit-tests a click. */
+/* Whether a child shows at a point of its parent: inside its frame and its
+ * window region, visible, and not passing the point through. */
+static int shows(HWND parent, HWND child, POINT point) {
+    RECT frame;
+    if (!IsWindowVisible(child) || !GetWindowRect(child, &frame)) return 0;
+    MapWindowPoints(NULL, parent, (POINT *)&frame, 2);
+    if (!PtInRect(&frame, point)) return 0;
+    HRGN region = CreateRectRgn(0, 0, 0, 0);
+    int kind = GetWindowRgn(child, region);
+    int inside = kind == ERROR || PtInRegion(region, point.x - frame.left, point.y - frame.top);
+    DeleteObject(region);
+    if (!inside) return 0;
+    POINT screen = point;
+    ClientToScreen(parent, &screen);
+    return SendMessageW(child, WM_NCHITTEST, 0, MAKELPARAM(screen.x, screen.y)) != HTTRANSPARENT;
+}
+
+/* The topmost child showing at a content point, as Win32 hit-tests a click. */
 void shellProbeClick(double x, double y) {
     resourcePhase("click-before-submit", drains + 1);
     HWND target = window();
     double factor = scale(target);
     POINT point = {(LONG)(x * factor + 0.5), (LONG)(y * factor + 0.5)};
-    for (;;) {
-        HWND next = ChildWindowFromPointEx(target, point, CWP_SKIPINVISIBLE | CWP_SKIPTRANSPARENT);
-        if (next == NULL || next == target) break;
-        MapWindowPoints(target, next, &point, 1);
-        target = next;
+    for (HWND child = GetWindow(target, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
+        /* Children are listed from the top of the stack down. */
+        if (!shows(target, child, point)) continue;
+        MapWindowPoints(target, child, &point, 1);
+        target = child;
+        break;
     }
     LPARAM where = MAKELPARAM(point.x, point.y);
     assert(PostMessageW(target, WM_MOUSEMOVE, 0, where));
@@ -307,11 +317,11 @@ void shellProbeText(void) {
 /* Three notches down over the viewport, in screen coordinates as Win32 sends them. */
 void shellProbeScroll(void) {
     resourcePhase("scroll-before-submit", drains + 1);
-    HWND scroll = controls().scroll;
-    RECT bounds;
-    assert(GetWindowRect(scroll, &bounds));
-    LPARAM where = MAKELPARAM((bounds.left + bounds.right) / 2, (bounds.top + bounds.bottom) / 2);
-    assert(PostMessageW(scroll, WM_MOUSEWHEEL, MAKEWPARAM(0, (WORD)(SHORT)(-3 * WHEEL_DELTA)), where));
+    HWND top = window();
+    double factor = scale(top);
+    POINT point = {(LONG)(100.0 * factor + 0.5), (LONG)(120.0 * factor + 0.5)};
+    assert(ClientToScreen(top, &point));
+    assert(PostMessageW(top, WM_MOUSEWHEEL, MAKEWPARAM(0, (WORD)(SHORT)(-3 * WHEEL_DELTA)), MAKELPARAM(point.x, point.y)));
     resourcePhase("scroll-after-submit", drains + 1);
 }
 void shellProbeClose(void) {

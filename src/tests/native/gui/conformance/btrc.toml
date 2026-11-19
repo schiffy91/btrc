@@ -4,6 +4,17 @@ manifest-version = 1
 name = "guiConformance"
 exports = ["Main"]
 
+# The font cases need FreeType, which not every platform's SDK has.
+[[package.providers]]
+module = "Main"
+implementation = "Fonts.FreeTypeCases"
+os = ["linux", "macos"]
+
+[[package.providers]]
+module = "Main"
+implementation = "Fonts.NoCases"
+os = ["windows", "android"]
+
 [[native.bindings]]
 module = "Probe"
 header = "probes/ConformanceProbe.h"
@@ -36,14 +47,14 @@ path = "probes/shim/ConformanceProbe.c"
 language = "c"
 standard = "c11"
 modules = ["Probe"]
-os = ["linux"]
+os = ["linux", "windows"]
 
 [[native.sources]]
 path = "probes/shim/ShimProbe.c"
 language = "c"
 standard = "c11"
 modules = ["Probe"]
-os = ["linux"]
+os = ["linux", "windows"]
 
 [[native.sources]]
 path = "probes/linux/X11Input.c"
@@ -94,3 +105,15 @@ os = ["linux"]
 name = "wayland-client"
 modules = ["Probe"]
 os = ["linux"]
+
+[[native.sources]]
+path = "probes/windows/Win32Input.c"
+language = "c"
+standard = "c11"
+modules = ["Probe"]
+os = ["windows"]
+
+[[native.libraries]]
+name = "user32"
+modules = ["Probe"]
+os = ["windows"]

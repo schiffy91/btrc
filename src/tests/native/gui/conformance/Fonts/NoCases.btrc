@@ -1,0 +1,8 @@
+import ../Suite.btrc;
+
+/* The font cases of a platform without FreeType: none. A font face from a
+ * file is FreeType's (Library.GUI.FreeType), which such a platform's
+ * programs bring themselves. */
+class FontCases {
+	class void add(Suite suite) {}
+}

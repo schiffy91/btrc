@@ -248,6 +248,7 @@ operations = [
 
 [[case]]
 name = "font.face"
+needs = "freetype"
 operations = [
   "IFontFace.glyph", "IFontFace.metrics"
 ]

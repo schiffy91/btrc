@@ -35,7 +35,7 @@ class ShimWebView extends ShimNodeView implements IWebView {
 		self.adoptNode(ShimViewNode(context));
 		self.node().focusable = true;
 		self._control = btrcShimWebCreate((unsigned int)self.node().id);
-		if (self._control == null) { throw "Cannot create native web view"; }
+		if (self._control == null) { throw "Cannot create native web view: " + Strings.copy((char*)btrcShimError()); }
 	}
 
 	private BtrcShimControl* control() { if (self._control == null) { throw "Native web view is closed"; } return self._control; }

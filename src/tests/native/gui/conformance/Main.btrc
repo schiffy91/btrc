@@ -50,7 +50,7 @@ int main(Vector<string> args) {
 	suite.add(ViewFitting());
 	suite.add(GPUFrame());
 	suite.add(TextRaster());
-	suite.add(FontFace());
+	FontCases.add(suite);
 	suite.add(WebMessaging());
 	suite.add(WebBundleFiles());
 	suite.add(WebNavigation());

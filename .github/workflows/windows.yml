@@ -485,7 +485,7 @@ jobs:
       - name: Build the self-hosted compiler once for every program below
         run: nix develop --command make NIX= btrcc
       - name: Build the Win32, COM, matching, console, Process, FileSystem, HTTP and GUI shell programs with both compilers for x64 and ARM64
-        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 "BTRC_TEST_BTRCC=$PWD/bin/btrcc" python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_regex_parity.py src/tests/python/test_windows_posix_overlay.py src/tests/python/test_windows_terminal.py src/tests/python/test_windows_launch_seam.py src/tests/python/test_windows_process.py src/tests/python/test_windows_filesystem_handles.py src/tests/python/test_windows_http.py src/tests/python/test_native_ui_shell_windows.py --skip-report=build/skip-report-windows-win32-native-build.json
+        run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 "BTRC_TEST_BTRCC=$PWD/bin/btrcc" python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_regex_parity.py src/tests/python/test_windows_posix_overlay.py src/tests/python/test_windows_terminal.py src/tests/python/test_windows_launch_seam.py src/tests/python/test_windows_process.py src/tests/python/test_windows_filesystem_handles.py src/tests/python/test_windows_http.py src/tests/python/test_native_ui_shell_windows.py src/tests/python/test_native_ui_conformance_windows.py --skip-report=build/skip-report-windows-win32-native-build.json
       - name: Enforce the Windows cross-build skip report
         run: nix develop --command python3 -m tools.qualification skip-gate build/skip-report-windows-win32-native-build.json
       - name: Bundle the FileSystem corpus programs with both compilers for x64 and ARM64
@@ -702,7 +702,8 @@ jobs:
       # The Win32 GUI shell journey (CX-UIA-15): 100 cycles of the shared native
       # shell fixture through each compiler's program, the window and GDI/USER
       # object counts after every teardown, 100 fresh-process restores and the
-      # UI Automation tree its COM client reads.
+      # UI Automation tree its COM client reads. Then the shared GUI
+      # conformance suite, each case its own process, with real input.
       - name: Run the Win32 GUI shell journey through each compiler's program
         if: ${{ !cancelled() }}
         env:
@@ -710,6 +711,8 @@ jobs:
         run: |
           python -m pytest -q -rs src/tests/python/test_native_ui_shell_windows.py -k "runs and ${{ matrix.target }}" --skip-report=build/skip-report-windows-win32-native-${{ matrix.target }}.json
           python -m tools.qualification skip-gate build/skip-report-windows-win32-native-${{ matrix.target }}.json
+          python -m pytest -q -rs src/tests/python/test_native_ui_conformance_windows.py -k "case and ${{ matrix.target }}" --skip-report=build/skip-report-windows-gui-conformance-${{ matrix.target }}.json
+          python -m tools.qualification skip-gate build/skip-report-windows-gui-conformance-${{ matrix.target }}.json
       - name: Retain the GUI shell evidence and UI Automation trees
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

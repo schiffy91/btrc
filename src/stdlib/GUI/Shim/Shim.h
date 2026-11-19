@@ -240,7 +240,8 @@ void btrcShimFolderDialogRelease(BtrcShimFolderDialog* dialog);
 enum BtrcShimDisplay {
 	BTRC_SHIM_DISPLAY_NONE = 0,
 	BTRC_SHIM_DISPLAY_WAYLAND = 1,
-	BTRC_SHIM_DISPLAY_X11 = 2
+	BTRC_SHIM_DISPLAY_X11 = 2,
+	BTRC_SHIM_DISPLAY_WIN32 = 3
 };
 int btrcShimAutomationDisplay(void);
 /* The id of the open window with this title, or 0. */

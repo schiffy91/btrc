@@ -307,7 +307,7 @@ window manager's close, queued for the window with a given title.
 | Platform | Probe | Status |
 | --- | --- | --- |
 | Linux | XTest under Xvfb; a virtual pointer and keyboard under headless labwc | Written; 39 cases pass on both |
-| Windows | Messages posted to the hit-tested window, as the shell fixture does | Not written |
+| Windows | `SendInput`, in the guest's and the hosted runner's own session | Written; 38 cases pass in the guest |
 | Android | Motion and key events dispatched to the window through JNI | Not written |
 
 Accessibility trees are not part of this suite: the bridges are outside this
@@ -475,6 +475,33 @@ Each step ends with something that runs.
    X11 and on Wayland, and through both compilers on the Deck's Gamescope
    session (section 4, notes).
 6. **Windows**: the 40 unsupported operations, WebView2, the tray.
+   **Suite done on x64, 2026-11-19.** Windows runs the shim provider
+   (section 3, step 6) over a Win32 implementation of its contract
+   (`GUI/Windows/Win32*.c`); the provider it had, with its unsupported
+   operations, is deleted. All 38 cases a Windows program has (every case
+   but the FreeType one) pass in the local guest through both compilers,
+   plain and under UBSan, with real input (`SendInput`): 152 rows
+   (`test_native_ui_conformance_windows.py`). The web view is WebView2, in
+   C, with the `app` scheme registered as a secure one and every request
+   to it answered from the bundle. The existing shell journey's hundred
+   cycles, its resource census and its UI Automation tree pass on the new
+   provider. Found on the way:
+   - WebView2 calls a navigation "user initiated" when a script the program
+     ran started it, as WebKitGTK does; the first version handed such a
+     navigation to the system and Edge opened in the guest. The page's
+     bridge now reports a click the browser vouches for (`isTrusted`) on a
+     link, and only that link, clicked a moment ago, is handed on.
+   - A push-like check box looks like a selected button and is a check box
+     to UI Automation; a selected button is a push button held down.
+   - A hidden window must say it lost the keyboard: the system does not,
+     when the program is not the foreground one.
+   - The census's "one more GDI object from some cycle on" was the theme's
+     fade between control states, whose buffers are made on first use; the
+     census now turns the session's control animation off before a row
+     starts (11 of 11 rows steady, where one in three had stepped).
+   - `IFontFace` (a font face from a file) is FreeType's, which the Windows
+     SDK does not carry: the suite's font case is a per-platform module, and
+     Windows has none. Still open, with the tray and the ARM64 hosted run.
 7. **Android**: a new provider on the approved UI2 host attachment, not a
    second run loop. iOS waits with macOS.
 8. **Evidence**: the catalog has no missing or unverified operation on any

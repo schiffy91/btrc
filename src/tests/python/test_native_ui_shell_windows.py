@@ -238,9 +238,69 @@ def wgpu_native(target, directory):
     return pkgconfig, dll
 
 
+WEBVIEW2 = REPO / "nix/webview2-sdk-prebuilt.nix"
+
+
+def webview2_package():
+    """The WebView2 SDK package, fetched once and checked against its pin (nix/webview2-sdk-prebuilt.nix)."""
+    text = WEBVIEW2.read_text(encoding="utf-8")
+    version = re.search(r'version = "([^"]+)";', text)[1]
+    digest = base64.b64decode(re.search(r'hash = "sha256-([^"]+)";', text)[1]).hex()
+    cache = REPO / "build/webview2" / f"Microsoft.Web.WebView2.{version}.nupkg"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    with (cache.parent / f"{cache.name}.lock").open("a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if not cache.is_file() or hashlib.sha256(cache.read_bytes()).hexdigest() != digest:
+            url = f"https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/{version}"
+            with urllib.request.urlopen(url, timeout=300) as response:
+                payload = response.read()
+            actual = hashlib.sha256(payload).hexdigest()
+            assert actual == digest, f"{url} has SHA-256 {actual}, not the pinned {digest}"
+            partial = cache.with_suffix(".partial")
+            partial.write_bytes(payload)
+            partial.replace(cache)
+    return cache, version
+
+
+def webview2_sdk(target, directory):
+    """The row's WebView2 header with its pkg-config record, and the loader DLL a program ships.
+
+    WebView2.h includes EventToken.h, a Windows SDK header MinGW-w64 does not
+    have; the one type it needs from it is written beside the header.
+    """
+    label = TARGETS[target][0]
+    package, version = webview2_package()
+    root = directory / "webview2"
+    include = root / "include"
+    include.mkdir(parents=True, exist_ok=True)
+    architecture = "x64" if target == "windows-x64" else "arm64"
+    loader = root / architecture / "WebView2Loader.dll"
+    loader.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(package) as bundle:
+        (include / "WebView2.h").write_bytes(bundle.read("build/native/include/WebView2.h"))
+        loader.write_bytes(bundle.read(f"build/native/{architecture}/WebView2Loader.dll"))
+    (include / "EventToken.h").write_text(
+        "/* MinGW-w64 has no EventToken.h; WebView2.h needs only this from it. */\n"
+        "#ifndef BTRC_EVENT_TOKEN_H\n#define BTRC_EVENT_TOKEN_H\n"
+        "typedef struct EventRegistrationToken { __int64 value; } EventRegistrationToken;\n#endif\n",
+        encoding="utf-8",
+    )
+    pkgconfig = directory / "pkgconfig"
+    pkgconfig.mkdir(parents=True, exist_ok=True)
+    (pkgconfig / f"webview2-{label}.pc").write_text(
+        f"Name: webview2-{label}\n"
+        f"Description: The WebView2 SDK {version} header for {label}\n"
+        f"Version: {version}\n"
+        f"Cflags: -I{include}\n",
+        encoding="utf-8",
+    )
+    return loader
+
+
 def cross_environment(target, tmp_path, monkeypatch):
-    """Point the header reader and the native plan at the row's sysroot and wgpu-native."""
+    """Point the header reader and the native plan at the row's sysroot, wgpu-native and WebView2 SDK."""
     pkgconfig, dll = wgpu_native(target, tmp_path / "wgpu")
+    webview2_sdk(target, tmp_path / "wgpu")
     monkeypatch.setenv("BTRC_NATIVE_TARGET", TARGETS[target][1])
     monkeypatch.setenv("BTRC_NATIVE_SYSROOT", str(zig_libc()))
     monkeypatch.setenv(
@@ -527,6 +587,33 @@ def run_shell(command, environment, timeout):
         stdout = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout or ""
         stderr = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else error.stderr or ""
         return subprocess.CompletedProcess(command, 124, stdout, stderr + f"\nShell exceeded {timeout}-second timeout")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def controls_without_animation():
+    """Themed controls fade between states, and the fade's buffers are GDI
+    objects the theme makes on first use and keeps: one appears in whichever
+    cycle a repaint first lands inside a fade, which the census then reports
+    as a count that moved. With the session's client-area animation off
+    before any row's process starts, no fade is ever drawn: measured in the
+    local guest, 11 of 11 rows held one count for 102 cycles, where about
+    one row in three had stepped once. A process reads the setting when it
+    starts, so it is set here and not in the probe. It is the session's, and
+    is put back."""
+    if sys.platform != "win32":
+        yield
+        return
+    import ctypes
+
+    get_animation, set_animation = 0x1042, 0x1043
+    parameters = ctypes.windll.user32.SystemParametersInfoW
+    previous = ctypes.c_int(1)
+    parameters(get_animation, 0, ctypes.byref(previous), 0)
+    parameters(set_animation, 0, ctypes.c_void_p(0), 0)
+    try:
+        yield
+    finally:
+        parameters(set_animation, 0, ctypes.c_void_p(previous.value), 0)
 
 
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "ubsan"])

@@ -2,13 +2,10 @@
 
 `import Library.GUI;` selects the native provider for the compilation target
 through the `[[package.providers]]` entries in `btrc.toml`: `MacOS.GUIProvider`
-(AppKit) for `macos`, `Shim.GUIProvider` (GTK4)
-for `linux` and `Windows.GUIProvider` (Win32 windows with Common Controls 6
-controls) for `windows`. The Windows provider implements the UI1 shell
-surface: windows, containers, the scroll view, text fields, buttons, labels
-and a WebGPU child window. Each of its other operations throws the typed
-error `unsupported: <operation> is not implemented by the Windows GUI
-provider`. iOS and Android fail at compile time with a missing-provider
+(AppKit) for `macos`, and `Shim.GUIProvider` for `linux` (GTK4) and `windows`
+(Win32 and Common Controls 6, with WebView2 for the web view). The shim
+provider is one portable implementation over a C contract that each of its
+platforms implements once (see "The shim provider" below). iOS and Android fail at compile time with a missing-provider
 error. Call `GUI.initialize()`, create a window and controls
 with `GUI.createWindow`, `GUI.createColumn`, `GUI.createRow`,
 `GUI.createButton`, `GUI.createTextField` and the other `GUI.create*`
@@ -262,8 +259,9 @@ document children while its public offsets count down from the top.
 portable BTRC: the application, the view tree and its layout, the windows'
 frames and captures. It reaches the platform's toolkit through one C
 contract (`Shim/Shim.h`, `ShimControls.h`, `ShimSurface.h`, `ShimWeb.h`),
-which each platform implements once. On Linux that is GTK4 (`Linux/Gtk*.c`),
-so its windows and controls are GTK4's: a button is a `GtkButton`, a text field a `GtkEntry`, a select a
+which each platform implements once: GTK4 on Linux (`Linux/Gtk*.c`), Win32
+on Windows (`Windows/Win32*.c`). On Linux its windows and controls are
+GTK4's: a button is a `GtkButton`, a text field a `GtkEntry`, a select a
 `GtkDropDown`, a slider a `GtkScale`, and they look, focus, type and speak to
 assistive technology as GTK makes them. One provider runs on X11, Wayland and
 the Deck's Gamescope session.
@@ -299,6 +297,30 @@ the Deck's Gamescope session.
   dialog (the desktop portal's, where there is one), pumped like a modal.
 - GTK is initialized once, by the first `GUI.initialize`, and stays
   initialized for the process.
+
+On Windows the same provider runs over `Windows/Win32*.c`:
+
+- A window is a top-level `HWND`; its drawn content is presented on a child
+  window that fills the client area and lies below every control. A control
+  is a child window above it (`Button`, `Edit`, `Static`, `ComboBox`,
+  `msctls_trackbar32`, `msctls_progress32`, `ScrollBar`), so each is what
+  UI Automation and the system's themes expect. Until a control is placed
+  in a window it lives in a hidden window of the shim's own.
+- A control's frame is its window's. The rectangle its ancestors clip it to,
+  and the GPU views placed after it, are cut out of its window region, which
+  is how a scroll view clips and how drawn content shows over a control
+  placed before it.
+- Common Controls 6 comes from an activation context (the manifest
+  `shell32.dll` carries), so a program needs no manifest of its own.
+- The web view is WebView2, the system's engine, reached through
+  `WebView2Loader.dll`, which a program ships beside itself as it does
+  `wgpu_native.dll`. Without the loader or the engine, `WebView.create()`
+  throws and says which is missing.
+- A slider, a select and a scroll bar show what the program gives them and
+  never change it themselves: the shim reads the mouse and keys and reports
+  what a person asked for.
+- A fill or picture that is not opaque is drawn over the window's own
+  colour: a child window has nothing behind it to blend with.
 
 The shared conformance suite (`src/tests/native/gui/conformance`) is the
 regression: each case runs through both compilers on X11 and on Wayland with
@@ -352,6 +374,7 @@ destruction; there is no opaque `Surface.handle` or native surface destructor.
 | `MacOS/` | AppKit provider: `GUIProvider`, `MacOS*` views and application, run-loop signal, composed capture, SDK headers. |
 | `Shim/` | The provider for platforms whose toolkit is reached through a C contract: `GUIProvider`, `WebViewProvider`, `Shim*` views and application, and the contract's headers. |
 | `Linux/` | The contract in GTK4: `GtkShim`, `GtkCanvas`, `GtkControls`, `GtkSurface`, `GtkWeb`. |
+| `Windows/` | The contract in Win32: `Win32Shim` (windows, events, text), `Win32Controls` (Common Controls 6 as child windows, placed and clipped by window regions), `Win32Surface`, `Win32Web` (WebView2). |
 
 ## Quick start
 

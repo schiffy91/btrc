@@ -95,9 +95,12 @@ class ButtonActivate implements IConformanceCase {
 		button.setEnabled(false);
 		Expect.isFalse(button.activate(), "a disabled button refuses a press");
 		button.setEnabled(true);
+		/* A theme may give a bordered button a least height that a few
+		 * points more do not outgrow; the unbordered one below is given a
+		 * font that does. */
 		double regular = button.fittingHeight();
 		button.setFont(18.0);
-		Expect.isTrue(button.fittingHeight() > regular, "a larger font is taller");
+		Expect.isTrue(button.fittingHeight() >= regular, "a larger font is not shorter");
 		bool refused = false;
 		try { button.setFont(ButtonTypography.borderedMaximumSize() + 1.0); } catch (string error) { refused = true; }
 		Expect.isTrue(refused, "a bordered button refuses a font that would overflow its border");
@@ -107,6 +110,9 @@ class ButtonActivate implements IConformanceCase {
 		Expect.isTrue(button.fittingWidth() > titled, "a symbol takes room beside the title");
 		button.setBordered(false);
 		button.setFont(ButtonTypography.borderedMaximumSize() + 1.0);
+		double unbordered = button.fittingHeight();
+		button.setFont(48.0);
+		Expect.isTrue(button.fittingHeight() > unbordered, "a larger font is taller");
 		button.setTransparent(true);
 		turns.settle();
 		Expect.strEq(button.title(), "Run", "appearance never changes the title");

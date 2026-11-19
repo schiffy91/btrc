@@ -144,7 +144,8 @@
       "id": "linux-native-reader-covered",
       "files": [
         "src/tests/python/test_native_linux_providers.py",
-        "src/tests/python/test_native_font_runtime.py"
+        "src/tests/python/test_native_font_runtime.py",
+        "src/tests/python/test_native_ui_linux_spike.py"
       ],
       "nodes": [
         "*::test_linux_image_decoding*",
@@ -153,7 +154,9 @@
         "*::test_linux_freetype_draws_into_owned_pixels*",
         "*::test_linux_gui_shutdown_deadline*",
         "*::test_linux_gui_gpu_view_reparent*",
-        "*::test_linux_gui_keeps_provider_modules_private*"
+        "*::test_linux_gui_keeps_provider_modules_private*",
+        "src/tests/python/test_native_ui_linux_spike.py::test_linux_event_boundary[[]*]",
+        "src/tests/python/test_native_ui_linux_spike.py::test_linux_controls_are_placed_at_show[[]*]"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
@@ -295,17 +298,19 @@
     {
       "id": "ui-shell-windows-only",
       "files": [
-        "src/tests/python/test_native_ui_shell_windows.py"
+        "src/tests/python/test_native_ui_shell_windows.py",
+        "src/tests/python/test_native_ui_conformance_windows.py"
       ],
       "nodes": [
-        "*::test_windows_native_shell_runs*"
+        "*::test_windows_native_shell_runs*",
+        "*::test_windows_conformance_case*"
       ],
       "reason": "^requires Windows: windows\\.yml's win32-native job runs the executables the build tests publish$",
       "category": "platform",
       "covered_by": [
         "windows"
       ],
-      "note": "CX-UIA-15: a Linux or macOS host cross-builds the Win32 shell rows through both compilers; windows.yml's win32-native job runs them on hosted Windows x64 and ARM64."
+      "note": "CX-UIA-15: a Linux or macOS host cross-builds the Win32 shell rows through both compilers; windows.yml's win32-native job runs them on hosted Windows x64 and ARM64. The GUI conformance suite's Windows rows are built and run the same way."
     },
     {
       "id": "ui-shell-linux-only",
