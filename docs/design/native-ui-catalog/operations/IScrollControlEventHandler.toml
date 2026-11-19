@@ -7,21 +7,21 @@ recorded_at = "2026-10-07T16:27:08.007710+00:00"
 
 [runs.ui-conformance-linux]
 source = "junit"
-recorded_at = "2026-11-19T12:29:29+00:00"
+recorded_at = "2026-11-19T13:55:02+00:00"
 runner = "linux"
-btrc_revision = "8766c2f521626eca0fd6eb63ed4e2a6026ab6e84"
+btrc_revision = "b527d7baad92f7d4193061c443f56e5d3f1e6a5f"
 
 [runs.ui-conformance-windows]
 source = "junit"
-recorded_at = "2026-11-19T12:29:29+00:00"
+recorded_at = "2026-11-19T13:55:02+00:00"
 runner = "windows"
-btrc_revision = "8766c2f521626eca0fd6eb63ed4e2a6026ab6e84"
+btrc_revision = "b527d7baad92f7d4193061c443f56e5d3f1e6a5f"
 
 [runs.ui-conformance-android]
 source = "junit"
-recorded_at = "2026-11-19T12:29:29+00:00"
+recorded_at = "2026-11-19T13:55:02+00:00"
 runner = "android"
-btrc_revision = "8766c2f521626eca0fd6eb63ed4e2a6026ab6e84"
+btrc_revision = "b527d7baad92f7d4193061c443f56e5d3f1e6a5f"
 
 [[operations]]
 id = "IScrollControlEventHandler.scrollEvent"
