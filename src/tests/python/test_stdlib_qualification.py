@@ -229,7 +229,8 @@ def test_current_inventory_has_desktop_coverage_for_every_source():
         covered.update(row["module"] for row in inventory.rows(target) if row["excluded"] is None)
     assert covered == {path.relative_to(inventory.root).as_posix() for path in inventory.modules}
     assert "GUI/MacOS/MacOSApplication.btrc" in covered
-    assert "GUI/Windows/WindowsApplication.btrc" in covered
+    assert "GUI/Shim/ShimApplication.btrc" in covered
+    assert "Terminal/Windows/TerminalProvider.btrc" in covered
 
 
 def test_ci_requires_all_matrix_reports_even_when_a_compiler_fails():

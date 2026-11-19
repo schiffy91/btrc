@@ -10,6 +10,7 @@
 #endif
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -119,20 +120,50 @@ static bool win32Text(const char *text, void (*typed)(void)) {
     return sent;
 }
 
+/* BTRC_CONFORMANCE_TRACE=1 says on stderr why a window could not be brought
+ * to the front, for a host that cannot be watched. */
+static void explain(HWND window, UINT sent) {
+    const char *wanted = getenv("BTRC_CONFORMANCE_TRACE");
+    if (!wanted || strcmp(wanted, "1") != 0) { return; }
+    HWND front = GetForegroundWindow();
+    wchar_t name[64] = L"";
+    wchar_t desktop[64] = L"";
+    DWORD session = 0;
+    DWORD needed = 0;
+    HDESK input = OpenInputDesktop(0, FALSE, GENERIC_READ);
+    if (front) { GetClassNameW(front, name, 64); }
+    if (input) { GetUserObjectInformationW(input, UOI_NAME, desktop, sizeof desktop, &needed); CloseDesktop(input); }
+    ProcessIdToSessionId(GetCurrentProcessId(), &session);
+    fprintf(stderr, "probe: wanted window %p in front, found %p (%ls); keys sent %u of 2, last error %lu; session %lu, input desktop %ls\n",
+        (void *)window, (void *)front, name, sent, (unsigned long)GetLastError(), (unsigned long)session, input ? desktop : L"(none)");
+}
+
 /* The system lets a process bring its own window to the front only after
- * input reached it; a tap of Alt is the least input that counts. */
-static bool win32Activate(const char *title) {
-    HWND window = titled(title);
-    if (!window) { return false; }
+ * input reached it; a tap of Alt is the least input that counts. Where that
+ * is not enough, the thread joins the input of the one that has the front,
+ * which is allowed to hand it over. */
+static bool toFront(HWND window) {
     if (GetForegroundWindow() == window) { return true; }
     INPUT inputs[2];
     stroke(&inputs[0], VK_MENU, true);
     stroke(&inputs[1], VK_MENU, false);
-    send(inputs, 2);
+    UINT sent = SendInput(2, inputs, sizeof *inputs);
     if (IsIconic(window)) { ShowWindow(window, SW_RESTORE); }
+    HWND front = GetForegroundWindow();
+    DWORD other = front ? GetWindowThreadProcessId(front, NULL) : 0;
+    DWORD self = GetCurrentThreadId();
+    bool joined = other != 0 && other != self && AttachThreadInput(self, other, TRUE);
     BringWindowToTop(window);
     SetForegroundWindow(window);
-    return GetForegroundWindow() == window;
+    if (joined) { AttachThreadInput(self, other, FALSE); }
+    if (GetForegroundWindow() == window) { return true; }
+    explain(window, sent);
+    return false;
+}
+
+static bool win32Activate(const char *title) {
+    HWND window = titled(title);
+    return window && toFront(window);
 }
 
 /* The program's window in front: the first of its visible windows that takes
@@ -150,15 +181,7 @@ static BOOL CALLBACK frontmost(HWND window, LPARAM found) {
 static bool win32Front(void) {
     HWND window = NULL;
     EnumWindows(frontmost, (LPARAM)&window);
-    if (!window) { return false; }
-    if (GetForegroundWindow() == window) { return true; }
-    INPUT inputs[2];
-    stroke(&inputs[0], VK_MENU, true);
-    stroke(&inputs[1], VK_MENU, false);
-    send(inputs, 2);
-    BringWindowToTop(window);
-    SetForegroundWindow(window);
-    return GetForegroundWindow() == window;
+    return window && toFront(window);
 }
 
 static bool win32Close(const char *title) {

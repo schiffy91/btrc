@@ -90,6 +90,8 @@ def test_windows_conformance_case(name, frontend, target, sanitized):
         **os.environ,
         # The probe sends real input: this session was made for tests.
         "BTRC_UI_PRIVATE_SESSION": "1",
+        # A hosted runner cannot be watched: the probe says what it found.
+        "BTRC_CONFORMANCE_TRACE": "1",
         "BTRC_CONFORMANCE_WEB": str(directory / "web"),
         "UBSAN_OPTIONS": "halt_on_error=1",
     }

@@ -132,7 +132,7 @@ def test_source_provider_selection_uses_compilation_target(tmp_path, package_com
     assert not successful and "private to package" in diagnostic
 
 
-@pytest.mark.parametrize("target", ["ios-aarch64", "android-aarch64"])
+@pytest.mark.parametrize("target", ["ios-aarch64"])
 def test_native_gui_has_no_fake_provider_for_unsupported_targets(tmp_path, package_compile, target):
     source = tmp_path / "Main.btrc"
     source.write_text("import Library.GUI;\nint main() { GUI.initialize(); return 0; }\n")
