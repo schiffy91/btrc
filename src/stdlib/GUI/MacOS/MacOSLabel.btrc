@@ -39,7 +39,7 @@ class MacOSLabel implements ILabel, IMacOSView {
 
 	/* A wrapping label measures itself at the width it was last given. */
 	public void arrange(double x, double y, double width, double height) {
-		self._view.arrange(x, y, width, height);
+		self._view.arrangeOrMeasure(x, y, width, height);
 		if (self._wrapping) { self.control().setPreferredMaxLayoutWidth(width); }
 	}
 

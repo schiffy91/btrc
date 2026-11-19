@@ -143,21 +143,26 @@ class MacOSView implements IMacOSView, IMacOSViewEligibility {
 
 	public void arrange(double x, double y, double width, double height) { self._state.requireMutation(); MacOSView.arrangeNative(self.nativeView(), x, y, width, height); }
 
+	/* For a label alone. A view with no parent has nothing to be placed in and
+	 * arranging it is refused, but a wrapping label is as tall as the width
+	 * it is given makes it, so it takes a size to measure itself at first. */
+	public void arrangeOrMeasure(double x, double y, double width, double height) {
+		self._state.requireMutation();
+		var view = self.nativeView();
+		if (view.superview() != null) { MacOSView.arrangeNative(view, x, y, width, height); return; }
+		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native view frame"; }
+		var detached = view.frame();
+		detached.origin.x = x; detached.origin.y = y; detached.size.width = width; detached.size.height = height;
+		view.setFrame(detached);
+	}
+
 	/* Provider-only projection shared by controls that already own an NSView
 	 * subtype. It does not allocate another BTRC owner for the same native view. */
 	class void arrangeNative(NSView view, double x, double y, double width, double height) {
 		if (!NSThread.isMainThread()) { throw "Native views require the main thread"; }
 		if (!Math.isFinite(x) || !Math.isFinite(y) || !Math.isFinite(width) || !Math.isFinite(height) || width < 0.0 || height < 0.0) { throw "Invalid native view frame"; }
 		var parent = view.superview();
-		if (parent == null) {
-			/* A view with no parent has nothing to be placed in, but it can
-			 * still be given a size to measure itself at: a wrapping label is
-			 * as tall as the width it is given makes it. */
-			var detached = view.frame();
-			detached.origin.x = x; detached.origin.y = y; detached.size.width = width; detached.size.height = height;
-			view.setFrame(detached);
-			return;
-		}
+		if (parent == null) { throw "Attach a native view before arranging it"; }
 		var bounds = parent.bounds();
 		double nativeX = bounds.origin.x + x;
 		double nativeY = parent.isFlipped() ? bounds.origin.y + y : bounds.origin.y + bounds.size.height - y - height;
