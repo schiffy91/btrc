@@ -19,6 +19,11 @@ class Answer {
 		if (modalProbeAnswer((int)PROBE_KEY_ESCAPE, Answer.delayMilliseconds()) != 1) { throw "the probe could not start answering a modal"; }
 	}
 
+	/* Return presses a message box's one button on every platform. */
+	class void accept() {
+		if (modalProbeAnswer((int)PROBE_KEY_RETURN, Answer.delayMilliseconds()) != 1) { throw "the probe could not start answering a modal"; }
+	}
+
 	class void done() { modalProbeDone(); }
 }
 
@@ -33,7 +38,7 @@ class WindowAlert implements IConformanceCase {
 		window.show();
 		turns.settle();
 		long long opened = MonotonicClock.milliseconds();
-		Answer.escape();
+		Answer.accept();
 		try { window.showAlert("Conformance", "An alert stays until it is dismissed."); } finally { Answer.done(); }
 		long long shown = MonotonicClock.milliseconds() - opened;
 		Expect.isTrue(shown >= (long long)Answer.delayMilliseconds() - 200LL, f"the alert returned after {shown} ms, before anyone dismissed it");
