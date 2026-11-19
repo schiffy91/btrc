@@ -1,6 +1,6 @@
 """A BTRC GUI program as an Android app: built without Gradle, run on one emulator.
 
-The app is the shim provider's activity (src/stdlib/GUI/Android/java) around
+The app is the shim provider's activity (src/stdlib/GUI/Android/Java) around
 the program, linked as libbtrcprogram.so, with wgpu-native's library beside
 it. The SDK's own tools make it: javac and d8 compile the Java, aapt2 links
 the manifest, zipalign and apksigner finish the archive. Nothing is fetched.
@@ -21,7 +21,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-SHIM_JAVA = ROOT / "src/stdlib/GUI/Android/java"
+SHIM_JAVA = ROOT / "src/stdlib/GUI/Android/Java"
 ACTIVITY = "dev.btrc.shim.ShimActivity"
 ABIS = {"x86_64": "x86_64-linux-android29", "arm64-v8a": "aarch64-linux-android29"}
 MANIFEST = """<?xml version="1.0" encoding="utf-8"?>

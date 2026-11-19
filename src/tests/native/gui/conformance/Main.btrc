@@ -6,6 +6,7 @@ import ./Controls.btrc;
 import ./Editing.btrc;
 import ./Executor.btrc;
 import ./Layout.btrc;
+import ./Modal.btrc;
 import ./Suite.btrc;
 import ./Surfaces.btrc;
 import ./Text.btrc;
@@ -55,6 +56,7 @@ int main(Vector<string> args) {
 	suite.add(WebBundleFiles());
 	suite.add(WebNavigation());
 	suite.add(MixOrder());
+	Modal.add(suite);
 	if (args.length == 1 && args.get(0) == "--list") {
 		suite.list();
 		return 0;

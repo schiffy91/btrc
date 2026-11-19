@@ -36,6 +36,13 @@ struct RealInput {
     bool (*fillsScreen)(void);
     /* Whether a window keeps the whole screen whatever it later asks for. */
     bool (*keepsScreen)(void);
+    /* Give the keyboard to whatever window is in front, where the session
+     * does not do so itself (an X display without a window manager). Unset
+     * where it does. */
+    bool (*front)(void);
+    /* A helper thread that sent input is about to end. Unset where a thread
+     * owes the system nothing. */
+    void (*leave)(void);
 };
 
 /* NULL when the display offers no way to send input. Each exists only where

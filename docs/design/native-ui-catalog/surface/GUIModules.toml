@@ -1,0 +1,231 @@
+# GUI's exported modules outside the interface catalog (I*.btrc and the GUI facade).
+# One row for every exported class, interface and enum; see ../README.md, "Surface proposals and amendments".
+schema = "btrc.ui-catalog.surface/1"
+
+[[symbols]]
+module = "GUI.ActionMailbox"
+symbol = "ActionMailbox"
+kind = "class"
+disposition = "provider-internal"
+links = ["N04"]
+reason = "The bounded queue behind IApplication.post and the control events; a program reaches it through those operations, never by name."
+
+[[symbols]]
+module = "GUI.ActionMailbox"
+symbol = "ActionMailboxBudget"
+kind = "class"
+disposition = "provider-internal"
+links = ["N04"]
+reason = "The bounded queue behind IApplication.post and the control events; a program reaches it through those operations, never by name."
+
+[[symbols]]
+module = "GUI.ActionMailbox"
+symbol = "ActionMailboxReservation"
+kind = "class"
+disposition = "provider-internal"
+links = ["N04"]
+reason = "The bounded queue behind IApplication.post and the control events; a program reaches it through those operations, never by name."
+
+[[symbols]]
+module = "GUI.ActionMailbox"
+symbol = "IQueuedAction"
+kind = "interface"
+disposition = "provider-internal"
+links = ["N04"]
+reason = "The bounded queue behind IApplication.post and the control events; a program reaches it through those operations, never by name."
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "ControlCancelReason"
+kind = "enum"
+disposition = "family"
+links = ["N05", "UI2"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "ControlEventContext"
+kind = "class"
+disposition = "family"
+links = ["N05", "UI2"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "ControlOrigin"
+kind = "enum"
+disposition = "family"
+links = ["N05", "UI2"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "ControlPhase"
+kind = "enum"
+disposition = "family"
+links = ["N05", "UI2"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "ScrollControlEvent"
+kind = "class"
+disposition = "family"
+links = ["N05", "N26", "UI6"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "ScrollOffset"
+kind = "class"
+disposition = "family"
+links = ["N05", "N26", "UI6"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "ScrollRect"
+kind = "class"
+disposition = "family"
+links = ["N05", "N26", "UI6"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "SelectAvailability"
+kind = "enum"
+disposition = "family"
+links = ["N05", "N19", "UI4"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "SelectModel"
+kind = "class"
+disposition = "family"
+links = ["N05", "N19", "UI4"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "SelectOption"
+kind = "class"
+disposition = "family"
+links = ["N05", "N19", "UI4"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "SelectionControlEvent"
+kind = "class"
+disposition = "family"
+links = ["N05", "N19", "UI4"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "SliderControlEvent"
+kind = "class"
+disposition = "family"
+links = ["N05", "N18", "UI4"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "SliderInputKind"
+kind = "enum"
+disposition = "family"
+links = ["N05", "N18", "UI4"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "SliderRange"
+kind = "class"
+disposition = "family"
+links = ["N05", "N18", "UI4"]
+
+[[symbols]]
+module = "GUI.ControlEvents"
+symbol = "TextControlEvent"
+kind = "class"
+disposition = "family"
+links = ["N05", "N15", "UI4"]
+
+[[symbols]]
+module = "GUI.Font"
+symbol = "Font"
+kind = "class"
+disposition = "family"
+links = ["N44", "N49", "UI5"]
+
+[[symbols]]
+module = "GUI.FreeType"
+symbol = "FreeType"
+kind = "class"
+disposition = "family"
+links = ["N44", "N49", "UI5"]
+
+[[symbols]]
+module = "GUI.GUICaptureLayer"
+symbol = "GUICaptureLayer"
+kind = "class"
+disposition = "family"
+links = ["N47", "N50", "UI9"]
+
+[[symbols]]
+module = "GUI.GUIInt"
+symbol = "GUIInt"
+kind = "class"
+disposition = "out-of-scope"
+links = ["N49"]
+reason = "Saturating integer geometry for the offscreen raster surface; no native family is built on it."
+
+[[symbols]]
+module = "GUI.MacOS.AppKitText"
+symbol = "AppKitText"
+kind = "class"
+disposition = "provider-internal"
+links = ["N44"]
+reason = "A module of the macOS provider, exported for that provider's own use."
+
+[[symbols]]
+module = "GUI.MacOS.MacOSRunLoop"
+symbol = "MacOSRunLoopSignal"
+kind = "class"
+disposition = "provider-internal"
+links = ["N04"]
+reason = "A module of the macOS provider, exported for that provider's own use."
+
+[[symbols]]
+module = "GUI.MacOS.MacOSRunLoop"
+symbol = "MacOSRunLoopState"
+kind = "class"
+disposition = "provider-internal"
+links = ["N04"]
+reason = "A module of the macOS provider, exported for that provider's own use."
+
+[[symbols]]
+module = "GUI.Raster"
+symbol = "GUIRaster"
+kind = "class"
+disposition = "out-of-scope"
+links = ["N49"]
+reason = "The offscreen raster surface draws into a pixel buffer of its own; no native family is built on it."
+
+[[symbols]]
+module = "GUI.Raster"
+symbol = "Surface"
+kind = "class"
+disposition = "out-of-scope"
+links = ["N49"]
+reason = "The offscreen raster surface draws into a pixel buffer of its own; no native family is built on it."
+
+[[symbols]]
+module = "GUI.TextRun"
+symbol = "TextRasterization"
+kind = "class"
+disposition = "family"
+links = ["N44", "N49", "UI5"]
+
+[[symbols]]
+module = "GUI.TextRun"
+symbol = "TextRun"
+kind = "class"
+disposition = "family"
+links = ["N44", "N49", "UI5"]
+
+[[symbols]]
+module = "GUI.WebView"
+symbol = "WebView"
+kind = "class"
+disposition = "family"
+links = ["N54", "UI11"]
+operations = ["WebView.create"]

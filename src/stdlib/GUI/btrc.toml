@@ -1116,7 +1116,7 @@ arch = ["aarch64"]
 
 
 # The shim's contract over Android's own views (android.widget, android.webkit),
-# which dev.btrc.shim makes on the activity's UI thread (Android/java): the C
+# which dev.btrc.shim makes on the activity's UI thread (Android/Java): the C
 # here reaches it through JNI. An app's build compiles that Java into the app
 # and gives the compiler and linker wgpu-native's directories, for an app has
 # no pkg-config search path.

@@ -173,6 +173,8 @@ int shimProbeText(unsigned int window, const char *title, const char *text) {
     return 1;
 }
 
+const RealInput *shimProbeInput(void) { return realInput(); }
+
 int shimProbeFillsScreen(void) { return realInput() && input->fillsScreen() ? 1 : 0; }
 
 int shimProbeKeepsScreen(void) { return realInput() && input->keepsScreen && input->keepsScreen() ? 1 : 0; }

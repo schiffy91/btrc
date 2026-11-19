@@ -20,6 +20,24 @@ recorded_at = "2026-10-04T02:27:57Z"
 btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
 runner = "github-macos"
 
+[runs.ui-conformance-linux]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "linux"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-windows]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "windows"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-android]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "android"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
 [[operations]]
 id = "IGPUView.backingScale"
 owner = "IGPUView"
@@ -33,32 +51,48 @@ note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.backi
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.backingScale. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.backingScale. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.backingScale. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-selfhost]"]
 
 [[operations]]
 id = "IGPUView.beginFrame"
@@ -75,34 +109,48 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-False]", "src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.beginFrame. Assertion candidate in src/tests/native/gui/webgpu_child/Portable.btrc: assert(self.view.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_EMPTY); REQUIRE consumer=Portable; never use Main nodes. All five executable stages run within each node.  G; P56 asserts EMPTY while hidden; P58 asserts READY after visible; P73 asserts resulting exact blue pixel with green 127–128 and alpha255. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-python]"]
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.beginFrame. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(self.view.beginFrame(red, green, blue) == GPU_SURFACE_FRAME_READY); L-reparent; R35 asserts READY; R52/R68 assert resulting colors. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-selfhost]"]
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.beginFrame. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(self.view.beginFrame(red, green, blue) == GPU_SURFACE_FRAME_READY); L-reparent; R35 asserts READY; R52/R68 assert resulting colors. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-selfhost]"]
 
 [[operations]]
 id = "IGPUView.createProgram"
@@ -119,32 +167,48 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-False]", "src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.createProgram. Assertion candidate in src/tests/native/gui/webgpu_child/Portable.btrc: assert(probePendingCompletions() == 0 && probeAdapterClaims() == 0 && probeDeviceClaims() == 0 && probeBufferClaims() == 0); REQUIRE consumer=Portable; never use Main nodes. All five executable stages run within each node. This whole-journey assertion is reached only after the operation-specific branch completes. G; P48 calls `createProgram(\"invalid WGSL\",4,false)` in stage3; P51 polls program. P89–93 asserts pending window/view close while completion remains; P119–121 asserts final complete close and zero pending completions / adapter, device, buffer claims. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.createProgram. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView.createProgram call/assertion found."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.createProgram. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView.createProgram call/assertion found."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-selfhost]"]
 
 [[operations]]
 id = "IGPUView.error"
@@ -161,34 +225,48 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-False]", "src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.error. Assertion candidate in src/tests/native/gui/webgpu_child/Portable.btrc: assert(self.view.error().isEmpty()); REQUIRE consumer=Portable; never use Main nodes. All five executable stages run within each node.  G; P43 `assert(self.view.error().isEmpty())`. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-python]"]
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.error. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(self.view.error().isEmpty()); L-reparent; R48 same assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-selfhost]"]
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.error. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(self.view.error().isEmpty()); L-reparent; R48 same assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-selfhost]"]
 
 [[operations]]
 id = "IGPUView.frameRenderer"
@@ -205,34 +283,48 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-False]", "src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.frameRenderer. Assertion candidate in src/tests/native/gui/webgpu_child/Portable.btrc: assert(pixels.width == renderer.width() && pixels.height == renderer.height()); REQUIRE consumer=Portable; never use Main nodes. All five executable stages run within each node.  G; P69 obtains renderer; P70 asserts pixel dimensions equal renderer.width/height. During closure P92 call must throw and P93 asserts rejection plus pending close. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-python]"]
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.frameRenderer. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(self.view.frameRenderer().present()); L-reparent; R36 `assert(self.view.frameRenderer().present())`; R52/R68 assert blue/green captured output before/after reparent. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-selfhost]"]
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.frameRenderer. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(self.view.frameRenderer().present()); L-reparent; R36 `assert(self.view.frameRenderer().present())`; R52/R68 assert blue/green captured output before/after reparent. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-selfhost]"]
 
 [[operations]]
 id = "IGPUView.pixelHeight"
@@ -247,32 +339,48 @@ note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.pixel
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.pixelHeight. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.pixelHeight. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.pixelHeight. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-selfhost]"]
 
 [[operations]]
 id = "IGPUView.pixelWidth"
@@ -287,32 +395,48 @@ note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.pixel
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.pixelWidth. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.pixelWidth. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.pixelWidth. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-selfhost]"]
 
 [[operations]]
 id = "IGPUView.poll"
@@ -329,34 +453,48 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-False]", "src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.poll. Assertion candidate in src/tests/native/gui/webgpu_child/Portable.btrc: assert(journey.done && view.pollClose() == CALLBACK_CANCELLATION_COMPLETE); REQUIRE consumer=Portable; never use Main nodes. All five executable stages run within each node. This whole-journey assertion is reached only after the operation-specific branch completes. G; P42 calls poll; P43 asserts empty error; the readiness branch must complete bounded journey P33 and main P119 `journey.done`. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-python]"]
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.poll. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(journey.passed); L-reparent; R47 calls poll, R48 asserts empty error; both readiness stages must reach R93 `journey.passed` before deadline. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_gpu_view_reparent[True-selfhost]"]
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.poll. Assertion candidate in src/tests/native/gui/linux/LinuxGUIReparent.btrc: assert(journey.passed); L-reparent; R47 calls poll, R48 asserts empty error; both readiness stages must reach R93 `journey.passed` before deadline. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-selfhost]"]
 
 [[operations]]
 id = "IGPUView.readback"
@@ -373,32 +511,48 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-False]", "src/tests/python/test_native_webgpu_imports.py::test_native_gpu_child_renders_and_reads_pixels[selfhost-Portable-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.readback. Assertion candidate in src/tests/native/gui/webgpu_child/Portable.btrc: assert(pixel.red == 0 && pixel.green >= 127 && pixel.green <= 128 && pixel.blue == 255 && pixel.alpha == 255); REQUIRE consumer=Portable; never use Main nodes. All five executable stages run within each node.  G; P59 obtains readback, P61 asserts submit, P65 polls; P67 READY branch leads P70–73 to dimensions/resize threshold and exact RGBA assertions. Stage4 plus P119–121 also exercises delayed readback shutdown drain. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.readback. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView.readback call/assertion found."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.readback. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView.readback call/assertion found."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-selfhost]"]
 
 [[operations]]
 id = "IGPUView.requestCapture"
@@ -413,29 +567,45 @@ note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.reque
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 note = "Source: src/stdlib/GUI/MacOS/MacOSGPUView.btrc; operation IGPUView.requestCapture. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.requestCapture. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-note = "Source: src/stdlib/GUI/Linux/LinuxGPUView.btrc; operation IGPUView.requestCapture. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. Audit detail: No IGPUView call/assertion found."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[gpu.frame-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[gpu.frame-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case gpu.frame exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[gpu.frame-selfhost]"]

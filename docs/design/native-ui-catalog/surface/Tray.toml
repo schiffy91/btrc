@@ -1,0 +1,38 @@
+# Library.Tray, the tray and status item service.
+# One row for every exported class, interface and enum; see ../README.md, "Surface proposals and amendments".
+schema = "btrc.ui-catalog.surface/1"
+
+[[symbols]]
+module = "Tray.ITray"
+symbol = "ITray"
+kind = "interface"
+disposition = "family"
+links = ["N56", "UI11"]
+
+[[symbols]]
+module = "Tray.Tray"
+symbol = "SystemTray"
+kind = "class"
+disposition = "family"
+links = ["N56", "UI11"]
+
+[[symbols]]
+module = "Tray.TrayModel"
+symbol = "Tray"
+kind = "class"
+disposition = "family"
+links = ["N56", "UI11"]
+
+[[symbols]]
+module = "Tray.TrayModel"
+symbol = "TrayItem"
+kind = "class"
+disposition = "family"
+links = ["N56", "UI11"]
+
+[[symbols]]
+module = "Tray.TrayModel"
+symbol = "TraySignal"
+kind = "class"
+disposition = "family"
+links = ["N56", "UI11"]

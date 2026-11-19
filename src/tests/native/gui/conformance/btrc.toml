@@ -15,6 +15,32 @@ module = "Main"
 implementation = "Fonts.NoCases"
 os = ["windows", "android"]
 
+# The modal cases need a probe that can answer a modal from beside the program.
+[[package.providers]]
+module = "Modal"
+implementation = "Modals.ShimCases"
+os = ["linux", "windows", "android"]
+
+[[package.providers]]
+module = "Modal"
+implementation = "Modals.NoCases"
+os = ["macos"]
+
+[[native.bindings]]
+module = "Modals.ShimCases"
+header = "probes/shim/ModalProbe.h"
+language = "c"
+standard = "c11"
+symbols = ["modalProbeAnswer", "modalProbeDone", "modalProbeHasFolderChooser"]
+os = ["linux", "windows", "android"]
+
+[[native.sources]]
+path = "probes/shim/ModalProbe.c"
+language = "c"
+standard = "c11"
+modules = ["Modals.ShimCases"]
+os = ["linux", "windows", "android"]
+
 [[native.bindings]]
 module = "Probe"
 header = "probes/ConformanceProbe.h"

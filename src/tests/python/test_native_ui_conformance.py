@@ -32,16 +32,11 @@ NAMES = [case["name"] for case in CASES]
 # What a case needs of a provider beyond the frozen contract, and what this
 # platform's provider has.
 NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
-HAS = {"web", "freetype"}
+HAS = {"web", "freetype", "modal"}
 LINUX_ONLY = "requires Linux: the GUI conformance suite's Linux rows"
 SESSION = os.environ.get("BTRC_UI_SESSION") or ("wayland" if os.environ.get("GDK_BACKEND") == "wayland" else "x11")
 # Catalog operations no case exercises yet, each with what stands in the way.
-UNCOVERED = {
-    "IWindow.showAlert": "modal: the probe cannot yet dismiss the alert it would open",
-    "GUI.chooseDirectory": "modal: the probe cannot yet answer the picker it would open",
-    "IDirectoryPicker.chooseDirectory": "modal: the probe cannot yet answer the picker it would open",
-    "IApplication.pollClose": "the facade never calls it, and the suite reaches the application through the facade only",
-}
+UNCOVERED = tomllib.loads((SUITE / "cases.toml").read_text(encoding="utf-8"))["uncovered"]
 
 
 class ConformancePrograms:

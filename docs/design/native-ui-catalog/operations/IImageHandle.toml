@@ -20,6 +20,24 @@ recorded_at = "2026-10-04T02:27:57Z"
 runner = "github-macos"
 btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
 
+[runs.ui-conformance-linux]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "linux"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-windows]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "windows"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-android]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "android"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
 [[operations]]
 id = "IImageHandle.close"
 owner = "IImageHandle"
@@ -40,40 +58,48 @@ note = "src/stdlib/GUI/MacOS/MacOSImageHandle.btrc: source implements this opera
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-[operations.linux.reference]
-implementation = "implemented"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-[operations.linux.selfhost]
-implementation = "implemented"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Closing an already-bound handle stops Linux painting, while AppKit retains its assigned NSImage; closed-handle rebinding is rejected only by AppKit. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[image.pixels-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[image.pixels-selfhost]"]
 
 [[operations]]
 id = "IImageHandle.height"
@@ -95,40 +121,48 @@ note = "src/stdlib/GUI/MacOS/MacOSImageHandle.btrc: source implements this opera
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-[operations.linux.reference]
-implementation = "implemented"
-parity = "equivalent"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Equivalent applies only to this metadata/open-state operation, not post-close view presentation. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-[operations.linux.selfhost]
-implementation = "implemented"
-parity = "equivalent"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Equivalent applies only to this metadata/open-state operation, not post-close view presentation. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[image.pixels-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[image.pixels-selfhost]"]
 
 [[operations]]
 id = "IImageHandle.isOpen"
@@ -150,40 +184,48 @@ note = "src/stdlib/GUI/MacOS/MacOSImageHandle.btrc: source implements this opera
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-[operations.linux.reference]
-implementation = "implemented"
-parity = "equivalent"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Equivalent applies only to this metadata/open-state operation, not post-close view presentation. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-[operations.linux.selfhost]
-implementation = "implemented"
-parity = "equivalent"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Equivalent applies only to this metadata/open-state operation, not post-close view presentation. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[image.pixels-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[image.pixels-selfhost]"]
 
 [[operations]]
 id = "IImageHandle.width"
@@ -205,37 +247,45 @@ note = "src/stdlib/GUI/MacOS/MacOSImageHandle.btrc: source implements this opera
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-[operations.linux.reference]
-implementation = "implemented"
-parity = "equivalent"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Equivalent applies only to this metadata/open-state operation, not post-close view presentation. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-[operations.linux.selfhost]
-implementation = "implemented"
-parity = "equivalent"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxImageView.btrc: source implements this operation. Dimensions remain metadata after close. Worker creation is tested; this does not establish simultaneous close/use safety across threads. Equivalent applies only to this metadata/open-state operation, not post-close view presentation. Assertion: LinuxGUIControls.btrc: worker-created 4x2 dimensions/open state match; close makes isOpen false and the subsequent capture no longer paints green artwork."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[image.pixels-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[image.pixels-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[image.pixels-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[image.pixels-selfhost]"]

@@ -1,6 +1,8 @@
 import Library.Callback;
+import Library.GPU.GPUProgram;
 import Library.GUI;
 import Library.GUI.IApplication;
+import Library.GUI.IGPUView;
 import Library.GUI.IWindow;
 import Library.Testing;
 import Library.Timer;
@@ -172,20 +174,55 @@ class QuitWork implements IApplicationWork {
 	}
 }
 
+/* Work that waits for a GPU view's device, starts a program on it, and asks
+ * the application to quit while that program is still being made: the view
+ * cannot close at once, so the application's close is left pending. */
+class QuitMidWork implements IApplicationWork {
+	private IGPUView view;
+	private long long started;
+	public bool wasRunning = false;
+	public bool hadDevice = false;
+	public GPUProgram? program = null;
+
+	public QuitMidWork(IGPUView view) {
+		self.view = view;
+		self.started = MonotonicClock.milliseconds();
+	}
+
+	public void run() {
+		self.wasRunning = true;
+		if (!self.view.poll() && self.view.error().isEmpty() && MonotonicClock.milliseconds() - self.started < 15000LL) { GUI.post(self); return; }
+		if (self.view.poll()) {
+			self.hadDevice = true;
+			self.program = self.view.createProgram("@vertex fn vs_main() -> @builtin(position) vec4<f32> { return vec4<f32>(0.0); }\n@fragment fn fs_main() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }\n", 4, false);
+		}
+		GUI.requestQuit();
+	}
+}
+
 /* The application's own loop: run returns after a quit is requested, having
- * closed the windows it owned, and the application can be started again. */
+ * closed the windows it owned, and the application can be started again.
+ * A subtree that cannot close at once is drained before run returns: the
+ * loop polls the application's close (IApplication.pollClose) until it is
+ * complete. */
 class AppRun implements ILoopCase {
 	public string name() { return "app.run"; }
 
 	public void run() {
 		GUI.initialize();
 		var window = GUI.createWindow("conformance app.run", 320.0, 100.0);
+		var view = GUI.createGPUView();
+		window.attachRoot(view);
 		window.show();
-		var quit = QuitWork();
+		var quit = QuitMidWork(view);
 		GUI.post(quit);
 		GUI.run();
 		Expect.isTrue(quit.wasRunning, "posted work ran inside the loop");
+		Expect.isTrue(quit.hadDevice, f"the GPU device did not arrive: {view.error()}");
 		Expect.isFalse(window.isOpen(), "run closes the application's windows before it returns");
+		Expect.isFalse(view.isOpen(), "and drains a view whose close takes turns");
+		var program = quit.program;
+		Expect.isTrue(program != null && !program.isOpen(), "the work that was in flight is closed with it");
 		Expect.isTrue(GUI.close() == CALLBACK_CANCELLATION_COMPLETE, "closing a finished application is complete");
 		GUI.initialize();
 		Expect.isTrue(GUI.close() == CALLBACK_CANCELLATION_COMPLETE, "an application can be started again after it has run");

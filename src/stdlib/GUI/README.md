@@ -324,7 +324,7 @@ On Windows the same provider runs over `Windows/Win32*.c`:
   colour: a child window has nothing behind it to blend with.
 
 On Android the same provider runs over `Android/Android*.c`, which reaches
-the system's own views through JNI (`Android/java/dev/btrc/shim`):
+the system's own views through JNI (`Android/Java`, package `dev.btrc.shim`):
 
 - The program is the shared library of an app whose one activity is
   `ShimActivity`. Its `main` runs on a thread of its own; every call of the
@@ -352,7 +352,7 @@ the system's own views through JNI (`Android/java/dev/btrc/shim`):
   it to hide itself. Back is the window's close request.
 - Dark or light is the theme controls are made in: one made before the
   appearance changed keeps the one it has. There is no folder to choose by
-  path.
+  path, so the directory picker reports that it is unavailable.
 - An app has no pkg-config search path, so its build gives the compiler and
   the linker wgpu-native's directories and packs `libwgpu_native.so` and the
   shim's Java into the app (`tools/target_hosts/android/gui.py` does this
@@ -410,7 +410,7 @@ destruction; there is no opaque `Surface.handle` or native surface destructor.
 | `MacOS/` | AppKit provider: `GUIProvider`, `MacOS*` views and application, run-loop signal, composed capture, SDK headers. |
 | `Shim/` | The provider for platforms whose toolkit is reached through a C contract: `GUIProvider`, `WebViewProvider`, `Shim*` views and application, and the contract's headers. |
 | `Linux/` | The contract in GTK4: `GtkShim`, `GtkCanvas`, `GtkControls`, `GtkSurface`, `GtkWeb`. |
-| `Android/` | The contract over Android's views through JNI: `AndroidShim` (windows, events, controls, text), `AndroidSurface`, `AndroidWeb`, and `java/dev/btrc/shim` (`ShimActivity`, `Shim`, `ShimWeb`, `Slot`), the Java an app compiles in. |
+| `Android/` | The contract over Android's views through JNI: `AndroidShim` (windows, events, controls, text), `AndroidSurface`, `AndroidWeb`, and `Java`, package `dev.btrc.shim` (`ShimActivity`, `Shim`, `ShimWeb`, `Slot`), the Java an app compiles in. |
 | `Windows/` | The contract in Win32: `Win32Shim` (windows, events, text), `Win32Controls` (Common Controls 6 as child windows, placed and clipped by window regions), `Win32Surface`, `Win32Web` (WebView2). |
 
 ## Quick start

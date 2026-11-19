@@ -1,0 +1,80 @@
+# The App package: the input events GUI's handlers carry, and the directory picker's error.
+# One row for every exported class, interface and enum; see ../README.md, "Surface proposals and amendments".
+schema = "btrc.ui-catalog.surface/1"
+
+[[symbols]]
+module = "App.App"
+symbol = "AppError"
+kind = "class"
+disposition = "family"
+links = ["N36", "UI7"]
+
+[[symbols]]
+module = "App.App"
+symbol = "AppErrorCode"
+kind = "enum"
+disposition = "family"
+links = ["N36", "UI7"]
+
+[[symbols]]
+module = "App.App"
+symbol = "AppKeyAction"
+kind = "enum"
+disposition = "family"
+links = ["N07", "UI3"]
+
+[[symbols]]
+module = "App.App"
+symbol = "AppKeyCode"
+kind = "enum"
+disposition = "family"
+links = ["N07", "UI3"]
+
+[[symbols]]
+module = "App.App"
+symbol = "AppKeyModifiers"
+kind = "class"
+disposition = "family"
+links = ["N07", "UI3"]
+
+[[symbols]]
+module = "App.App"
+symbol = "AppKeyboardEvent"
+kind = "class"
+disposition = "family"
+links = ["N07", "UI3"]
+
+[[symbols]]
+module = "App.App"
+symbol = "AppPointerAction"
+kind = "enum"
+disposition = "family"
+links = ["N08", "UI3"]
+
+[[symbols]]
+module = "App.App"
+symbol = "AppPointerButton"
+kind = "enum"
+disposition = "family"
+links = ["N08", "UI3"]
+
+[[symbols]]
+module = "App.App"
+symbol = "AppPointerEvent"
+kind = "class"
+disposition = "family"
+links = ["N08", "UI3"]
+
+[[symbols]]
+module = "App.App"
+symbol = "AppScrollEvent"
+kind = "class"
+disposition = "family"
+links = ["N26", "UI6"]
+
+[[symbols]]
+module = "App.App"
+symbol = "AppScrollPhase"
+kind = "enum"
+disposition = "family"
+links = ["N26", "UI6"]

@@ -606,7 +606,8 @@ def test_pending_and_retired_partitions_do_not_change_frozen_coverage():
     catalog = UICatalog()
     verify_catalog(catalog.frozen_records)
     pending = {record.subject.id for record in catalog.pending_records}
-    assert pending == CatalogAmendments(REPO, SHARDS).added_ids()
+    # Pending ids come from the amendments and from the surface's family rows (WebView.create).
+    assert pending == CatalogAmendments(REPO, SHARDS).added_ids() | catalog.proposals
     assert len(catalog.pending_records) == len(pending) * len(PLATFORMS) * len(FRONTENDS)
     assert {record.subject.id for record in catalog.retired_records} == {row["id"] for row in amendments()["removals"]}
     frozen = {record.subject.key for record in catalog.frozen_records}

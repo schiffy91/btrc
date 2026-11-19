@@ -20,6 +20,24 @@ recorded_at = "2026-10-04T02:27:57Z"
 runner = "github-macos"
 btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
 
+[runs.ui-conformance-linux]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "linux"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-windows]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "windows"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-android]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "android"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
 [[operations]]
 id = "IButton.activate"
 owner = "IButton"
@@ -40,38 +58,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-selfhost]"]
 
 [[operations]]
 id = "IButton.cancelPendingActions"
@@ -93,38 +121,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-selfhost]"]
 
 [[operations]]
 id = "IButton.isEnabled"
@@ -146,38 +184,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-selfhost]"]
 
 [[operations]]
 id = "IButton.isSelected"
@@ -199,38 +247,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-selfhost]"]
 
 [[operations]]
 id = "IButton.onAction"
@@ -252,40 +310,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc Journey: synthetic pointer press/release invokes the registered counter exactly once at step 4. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc Journey: synthetic pointer press/release invokes the registered counter exactly once at step 4. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.click exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.click-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.click-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.click exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.click-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.click-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.click exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.click-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.click-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.click exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.click-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.click-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.click exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.click-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.click exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.click-selfhost]"]
 
 [[operations]]
 id = "IButton.setBordered"
@@ -307,40 +373,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[selfhost-False]", "src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[selfhost-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc typography checks: bordered size above 20 is rejected, unbordered size 24 succeeds, and rebordering at 24 is rejected."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc typography checks: bordered size above 20 is rejected, unbordered size 24 succeeds, and rebordering at 24 is rejected."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-selfhost]"]
 
 [[operations]]
 id = "IButton.setCentered"
@@ -360,38 +434,48 @@ configuration = "AppKit native provider"
 note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
 evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
 run = "cx-uia-04-source"
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-selfhost]"]
 
 [[operations]]
 id = "IButton.setEnabled"
@@ -413,38 +497,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-selfhost]"]
 
 [[operations]]
 id = "IButton.setFont"
@@ -466,40 +560,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[selfhost-False]", "src/tests/python/test_native_control_sizing_runtime.py::test_native_control_sizing[selfhost-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc typography checks: bordered size above 20 is rejected, unbordered size 24 succeeds, and rebordering at 24 is rejected."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc typography checks: bordered size above 20 is rejected, unbordered size 24 succeeds, and rebordering at 24 is rejected."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-selfhost]"]
 
 [[operations]]
 id = "IButton.setSelected"
@@ -521,38 +623,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-selfhost]"]
 
 [[operations]]
 id = "IButton.setSystemSymbol"
@@ -572,40 +684,48 @@ configuration = "AppKit native provider"
 note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
 evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
 run = "cx-uia-04-source"
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc symbols: unknown symbol throws the exact unavailable error; tuningfork and quote.bubble are accepted with positive fitting width. No OS-native icon rendering is claimed."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger. Assertion: LinuxGUIControls.btrc symbols: unknown symbol throws the exact unavailable error; tuningfork and quote.bubble are accepted with positive fitting width. No OS-native icon rendering is claimed."
-evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
-run = "cx-uia-04-source"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-selfhost]"]
 
 [[operations]]
 id = "IButton.setTitle"
@@ -627,38 +747,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-selfhost]"]
 
 [[operations]]
 id = "IButton.setToolTip"
@@ -680,38 +810,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeToolTips-native control tool tips-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeToolTips-native control tool tips-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-selfhost]"]
 
 [[operations]]
 id = "IButton.setTransparent"
@@ -733,38 +873,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.activate-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.activate-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.activate exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.activate-selfhost]"]
 
 [[operations]]
 id = "IButton.title"
@@ -786,38 +936,48 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeButtons-ordered native button actions-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-selfhost]"]
 
 [[operations]]
 id = "IButton.toolTip"
@@ -839,35 +999,45 @@ note = "src/stdlib/GUI/MacOS/MacOSButton.btrc: source implements this operation.
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeToolTips-native control tool tips-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeToolTips-native control tool tips-True]"]
-[operations.linux.reference]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.linux.selfhost]
-implementation = "custom"
-parity = "adapted"
-configuration = "SDL3 custom provider on a live display; FreeType/fontconfig"
-note = "src/stdlib/GUI/Linux/LinuxButton.btrc: source implements this operation. Only the current push/toggle action API is classified; native command routing, accessibility and every symbol artwork are not implied. Bordered fonts above 20 points are rejected; unbordered fonts may be larger."
-evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
-run = "cx-uia-04-source"
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
 evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
 run = "cx-uia-04-source"
-[operations.android]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[button.state-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[button.state-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case button.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[button.state-selfhost]"]

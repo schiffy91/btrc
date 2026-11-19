@@ -1,0 +1,90 @@
+# CL-WEB-01: the web view (docs/design/native-ui-surfaces-and-hosts.md, section 2).
+# Linux is its reference provider. The Linux, Windows and Android cells are
+# written by tools/qualification/ui_conformance.py from the conformance suite's
+# cases; the macOS provider is recorded as source only, and iOS has none.
+schema = "btrc.qualification.ledger/1"
+
+[runs.cl-web-01-source]
+source = "inventory"
+recorded_at = "2026-11-19T07:00:00+00:00"
+runner = "linux"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-linux]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "linux"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-windows]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "windows"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-android]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "android"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[[operations]]
+id = "WebView.create"
+owner = "WebView"
+links = ["N54", "UI11"]
+[operations.macos.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider; WKWebView"
+note = "Source: src/stdlib/GUI/MacOS/WebViewProvider.btrc. The macOS provider is not qualified by this packet: its conformance rows are the macOS work's to record."
+evidence = { status = "implemented-unverified", reason = "No macOS evidence is recorded here." }
+run = "cl-web-01-source"
+[operations.macos.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "AppKit native provider; WKWebView"
+note = "Source: src/stdlib/GUI/MacOS/WebViewProvider.btrc. The macOS provider is not qualified by this packet: its conformance rows are the macOS work's to record."
+evidence = { status = "implemented-unverified", reason = "No macOS evidence is recorded here." }
+run = "cl-web-01-source"
+[operations.ios]
+implementation = "missing"
+parity = "missing"
+note = "No iOS provider exists."
+evidence = { status = "unavailable", covered_by = [], reason = "No iOS provider exists." }
+run = "cl-web-01-source"
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case web.messages exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[web.messages-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[web.messages-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case web.messages exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[web.messages-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[web.messages-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case web.messages exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[web.messages-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[web.messages-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case web.messages exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[web.messages-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[web.messages-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case web.messages exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[web.messages-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case web.messages exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[web.messages-selfhost]"]

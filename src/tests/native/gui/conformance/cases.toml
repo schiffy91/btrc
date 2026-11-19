@@ -3,6 +3,9 @@
 # The driver runs one process per case and holds this list to the program's
 # own `--list`, and the operations to the catalog.
 
+# The operations no case exercises, each with what stands in the way: none.
+[uncovered]
+
 [[case]]
 name = "button.state"
 operations = [
@@ -158,7 +161,7 @@ operations = [
 name = "app.run"
 operations = [
   "GUI.run", "GUI.requestQuit", "GUI.close", "IApplication.run", "IApplication.requestQuit",
-  "IApplication.isRunning", "IApplication.close"
+  "IApplication.isRunning", "IApplication.close", "IApplication.pollClose"
 ]
 
 [[case]]
@@ -254,14 +257,15 @@ operations = [
 ]
 
 # The web view and the mixing rules (docs/design/native-ui-surfaces-and-hosts.md,
-# section 2). `needs` names what a provider must have for the case to apply,
-# for the platforms whose provider does not have a web view yet. Their
-# operations join the catalog with the evidence step.
+# section 2). `needs` names what a provider must have for the case to apply.
 
 [[case]]
 name = "web.messages"
 needs = "web"
-operations = []
+operations = [
+  "IWebView.load", "IWebView.post", "IWebView.onMessage", "IWebMessageHandler.webMessage",
+  "WebView.create"
+]
 
 [[case]]
 name = "web.bundle"
@@ -271,9 +275,28 @@ operations = []
 [[case]]
 name = "web.navigation"
 needs = "web"
-operations = []
+operations = [
+  "IWebView.allowOrigin", "IWebView.onNavigation", "IWebNavigationHandler.webNavigation"
+]
 
 [[case]]
 name = "mix.order"
 needs = "web"
 operations = []
+
+# The windows that run a loop of their own. `modal` is a probe that can
+# answer one from beside the program.
+
+[[case]]
+name = "window.alert"
+needs = "modal"
+operations = [
+  "IWindow.showAlert"
+]
+
+[[case]]
+name = "picker.directory"
+needs = "modal"
+operations = [
+  "GUI.chooseDirectory", "IDirectoryPicker.chooseDirectory"
+]

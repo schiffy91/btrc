@@ -192,6 +192,10 @@ export BTRC_UI_SESSION="$mode" BTRC_UI_PRIVATE_SESSION=1
 if [[ -n "${BTRC_FONTS_CONFIG:-}" && -f "$BTRC_FONTS_CONFIG" ]]; then
   export FONTCONFIG_FILE="$BTRC_FONTS_CONFIG"
 fi
+# GTK's file chooser aborts without its settings schema; the dev shell names GTK's own.
+if [[ -n "${BTRC_GSETTINGS_SCHEMAS:-}" && -d "$BTRC_GSETTINGS_SCHEMAS" ]]; then
+  export GSETTINGS_SCHEMA_DIR="$BTRC_GSETTINGS_SCHEMAS"
+fi
 
 if [[ -n "${BTRC_LAVAPIPE_ICD:-}" && -f "$BTRC_LAVAPIPE_ICD" && -z "${VK_DRIVER_FILES:-}${VK_ICD_FILENAMES:-}" ]]; then
   export VK_DRIVER_FILES="$BTRC_LAVAPIPE_ICD"

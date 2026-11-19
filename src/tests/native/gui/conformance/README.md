@@ -65,10 +65,20 @@ providers that have what it names: the web view's cases need `web`.
 
 The driver holds `cases.toml` to the operation catalog
 (`docs/design/native-ui-catalog/operations`): every operation is exercised by
-exactly one case or named in the driver's `UNCOVERED` table with what stands
-in the way. Today that table has four entries: the alert and the directory
-picker, which are modal and need a probe that can answer them, and
-`IApplication.pollClose`, which the facade never calls.
+exactly one case, or named in the file's `[uncovered]` table with what stands
+in the way. That table is empty. `python3 -m tools.qualification.ui_conformance
+record` writes what the cases prove into the catalog: each operation's case is
+its regression on Linux, Windows and Android.
+
+An alert and the folder chooser run a loop of their own, so the program that
+opened one cannot press its keys. `probes/shim/ModalProbe.h` starts a helper
+thread that presses Escape, with the same real input as the rest of the
+probe, to whatever window is in front, until the modal has returned
+(`Modals/ShimCases.btrc`; the cases need `modal`). Android has no folder to
+choose by path: its case holds the chooser to saying so.
+`IApplication.pollClose` is the application's own to call: `app.run` quits
+while a GPU view's work is in flight, so the loop has to poll the close to
+its end before `run` returns.
 
 ## Adding a case
 

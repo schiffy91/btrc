@@ -58,6 +58,7 @@ namespaces = true
     "*.c",
     "*.ebnf",
     "*.h",
+    "*.java",
     "*.m",
     "*.md",
     "*.sh",

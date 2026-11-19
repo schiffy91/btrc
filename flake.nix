@@ -229,6 +229,10 @@
           # family, the same on a desktop and in a container that has none, so
           # text has a size wherever the GUI tests run.
           BTRC_FONTS_CONFIG = "${pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; }}";
+          # GTK's file chooser reads its settings schema, and aborts where
+          # none is installed; a private session has no system data to find
+          # one in, so it is given GTK's own.
+          BTRC_GSETTINGS_SCHEMAS = "${pkgs.gtk4}/share/gsettings-schemas/${pkgs.gtk4.name}/glib-2.0/schemas";
           # tools/ui/headless-session.sh starts the AT-SPI bus from here; the
           # launcher is a libexec program, not on PATH.
           BTRC_ATSPI_LIBEXEC = "${atSpiCore pkgs}/libexec";

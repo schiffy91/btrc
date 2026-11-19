@@ -1,0 +1,8 @@
+import ./Suite.btrc;
+
+/* The cases of the windows that run a loop of their own: an alert and the
+ * folder chooser. A person's answer to one has to come from beside the
+ * program, which not every platform's probe can send (btrc.toml chooses). */
+class Modal {
+	class void add(Suite suite) { ModalCases.add(suite); }
+}

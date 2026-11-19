@@ -135,6 +135,32 @@ static bool win32Activate(const char *title) {
     return GetForegroundWindow() == window;
 }
 
+/* The program's window in front: the first of its visible windows that takes
+ * input. A modal disables the window it belongs to, so that is the modal. */
+static BOOL CALLBACK frontmost(HWND window, LPARAM found) {
+    DWORD process = 0;
+    GetWindowThreadProcessId(window, &process);
+    if (process != GetCurrentProcessId() || !IsWindowVisible(window) || !IsWindowEnabled(window)) { return TRUE; }
+    *(HWND *)found = window;
+    return FALSE;
+}
+
+/* A modal a program opens while it is not the foreground program does not
+ * get the keyboard: bring it to the front as a person's click would. */
+static bool win32Front(void) {
+    HWND window = NULL;
+    EnumWindows(frontmost, (LPARAM)&window);
+    if (!window) { return false; }
+    if (GetForegroundWindow() == window) { return true; }
+    INPUT inputs[2];
+    stroke(&inputs[0], VK_MENU, true);
+    stroke(&inputs[1], VK_MENU, false);
+    send(inputs, 2);
+    BringWindowToTop(window);
+    SetForegroundWindow(window);
+    return GetForegroundWindow() == window;
+}
+
 static bool win32Close(const char *title) {
     HWND window = titled(title);
     return window && PostMessageW(window, WM_CLOSE, 0, 0);
@@ -160,7 +186,7 @@ static bool win32FillsScreen(void) { return false; }
 static const RealInput win32Input = {
     .move = win32Move, .button = win32Button, .wheel = win32Wheel, .key = win32Key, .text = win32Text,
     .activate = win32Activate, .close = win32Close, .origin = win32Origin, .extent = win32Extent,
-    .fillsScreen = win32FillsScreen,
+    .fillsScreen = win32FillsScreen, .front = win32Front,
 };
 
 /* Input needs a desktop to arrive on: a session without one has none. */

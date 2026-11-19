@@ -20,6 +20,24 @@ recorded_at = "2026-10-04T02:27:57Z"
 btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
 runner = "github-macos"
 
+[runs.ui-conformance-linux]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "linux"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-windows]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "windows"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
+[runs.ui-conformance-android]
+source = "junit"
+recorded_at = "2026-11-19T07:30:00+00:00"
+runner = "android"
+btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
+
 [[operations]]
 id = "IDirectoryPicker.chooseDirectory"
 owner = "IDirectoryPicker"
@@ -35,31 +53,45 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_directory_picker_appkit[False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_directory_picker_appkit[True-selfhost]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSDirectoryPicker.btrc; operation IDirectoryPicker.chooseDirectory. Assertion candidate in src/tests/native/gui/MacOSDirectoryPickerConformance.btrc: assert(result.kind == DIRECTORY_PICKER_SELECTED); Nine injected AppKit dialog modes also assert selected Unicode filesystem path ownership, cancellation, invalid request, wrong-thread and internal failure. This is fixture-controlled native behavior, not an attended user session. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.linux.reference]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-python]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-python]"]
-note = "Source: src/stdlib/GUI/Linux/LinuxDirectoryPicker.btrc; operation IDirectoryPicker.chooseDirectory. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._picker.error.equals(\"Native event dispatch is already active\")); Only nested native-dispatch rejection is asserted. Successful portal/zenity selection, cancellation and native failure outcomes remain unverified. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Only nested-dispatch rejection has an assertion; dialog acceptance/cancellation remain unverified."
-[operations.linux.selfhost]
-run = "cx-uia-03-source"
-evidence = { status = "implemented-unverified" }
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[False-selfhost]", "src/tests/python/test_native_linux_providers.py::test_linux_gui_controls[True-selfhost]"]
-note = "Source: src/stdlib/GUI/Linux/LinuxDirectoryPicker.btrc; operation IDirectoryPicker.chooseDirectory. Assertion candidate in src/tests/native/gui/linux/LinuxGUIControls.btrc: assert(self._picker.error.equals(\"Native event dispatch is already active\")); Only nested native-dispatch rejection is asserted. Successful portal/zenity selection, cancellation and native failure outcomes remain unverified. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. Only nested-dispatch rejection has an assertion; dialog acceptance/cancellation remain unverified."
-[operations.windows]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
 [operations.ios]
 implementation = "missing"
 parity = "missing"
 run = "cx-uia-03-source"
 evidence = { status = "unavailable", covered_by = [] }
 note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
-[operations.android]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.linux.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case picker.directory exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[picker.directory-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[picker.directory-python-sanitized]"]
+[operations.linux.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
+note = "The conformance suite's case picker.directory exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[picker.directory-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[picker.directory-selfhost-sanitized]"]
+[operations.windows.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case picker.directory exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[picker.directory-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[picker.directory-python-windows-x64-ubsan]"]
+[operations.windows.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
+note = "The conformance suite's case picker.directory exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[picker.directory-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[picker.directory-selfhost-windows-x64-ubsan]"]
+[operations.android.reference]
+implementation = "implemented"
+parity = "adapted"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case picker.directory exercises this operation (src/tests/native/gui/conformance). Android has no folder to choose by path: the chooser reports that it is unavailable."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[picker.directory-python]"]
+[operations.android.selfhost]
+implementation = "implemented"
+parity = "adapted"
+configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
+note = "The conformance suite's case picker.directory exercises this operation (src/tests/native/gui/conformance). Android has no folder to choose by path: the chooser reports that it is unavailable."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[picker.directory-selfhost]"]

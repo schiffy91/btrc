@@ -22,6 +22,8 @@ directories are allowed. `hosts.toml` is validated by its own host packet.
 | UI2 `operations/<Owner>.toml` | same owner rules; claim exact filenames in the PR | CX-UIA-21 |
 | UI3 `operations/<Owner>.toml` | same owner rules; claim exact filenames in the PR | CX-UIA-25 |
 | `amendments/<packet-id-lowercase>.toml` (`cx-uia-05.toml`, `cl-uia-24.toml`, `mac-c-01.toml`) | reviewed source-amendment grammar | named packet |
+| `operations/{IWebView,IWebMessageHandler,IWebNavigationHandler,WebView}.toml` | the web view's operations (amendment `cl-web-01.toml`; `WebView.create` is proposed by its surface row) | CL-WEB-01 |
+| `evidence/ui3-conformance.toml`, and the Linux, Windows and Android cells of every `operations/*.toml` | written by `python3 -m tools.qualification.ui_conformance record` from the conformance suite's cases (`src/tests/native/gui/conformance/cases.toml`): each operation's case is its regression, and the shard carries what the runs showed. `check --junit ui-conformance-<platform>=<junit.xml>` holds a run to its driver's JUnit file. It sorts after `ui1-*`, as newer evidence must | CL-WEB-01 |
 | `evidence/<lowercase-kebab-name>.toml` or `.jsonl` | ledger/1; future evidence packets claim their exact filename | named packet |
 | `README.md` | this admission and ownership reference; never parsed as data | CX-UIA-02 |
 

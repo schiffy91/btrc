@@ -245,6 +245,31 @@ static bool x11Activate(const char *title) {
     return flush();
 }
 
+/* With no window manager nothing gives a new window the keyboard: the
+ * window in front is the last one mapped, the top of the root's stack. */
+static bool x11Front(void) {
+    Window root = None;
+    Window parent = None;
+    Window *children = NULL;
+    unsigned int count = 0;
+    Window front = None;
+    if (!XQueryTree(x.display, x.root, &root, &parent, &children, &count)) { return false; }
+    for (unsigned int index = count; index > 0 && front == None; index--) {
+        XWindowAttributes attributes;
+        if (XGetWindowAttributes(x.display, children[index - 1], &attributes) && attributes.map_state == IsViewable && !attributes.override_redirect && attributes.class == InputOutput) { front = children[index - 1]; }
+    }
+    if (children) { XFree(children); }
+    if (front == None) { return false; }
+    if (x.gamescope) {
+        /* Gamescope shows and focuses the windows of the application at the head of its list. */
+        unsigned long app = GAMESCOPE_APP;
+        XChangeProperty(x.display, front, XInternAtom(x.display, "STEAM_GAME", False), XA_CARDINAL, 32, PropModeReplace, (const unsigned char *)&app, 1);
+        return flush();
+    }
+    XSetInputFocus(x.display, front, RevertToParent, CurrentTime);
+    return flush();
+}
+
 static bool x11Close(const char *title) {
     Window window = named(x.root, title, 1);
     if (window == None) { return false; }
@@ -283,7 +308,7 @@ static bool x11FillsScreen(void) { return gamescopeServer() >= 0; }
 static const RealInput x11Input = {
     .move = x11Move, .button = x11Button, .wheel = x11Wheel, .key = x11Key, .text = x11Text,
     .activate = x11Activate, .close = x11Close, .origin = x11Origin, .extent = x11Extent,
-    .fillsScreen = x11FillsScreen,
+    .fillsScreen = x11FillsScreen, .front = x11Front,
 };
 
 const RealInput *realInputX11(void) {

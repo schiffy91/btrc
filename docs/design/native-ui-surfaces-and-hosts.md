@@ -527,11 +527,28 @@ Each step ends with something that runs.
      size in points is rounded is not the size it says: a window is a whole
      number of points and the pixels that makes.
    - `IFontFace` is FreeType's here too, which the NDK does not carry; the
-     font case does not apply, as on Windows. The directory picker has no
-     path to give on Android and reports that nothing was chosen.
+     font case does not apply, as on Windows. Android has no folder to
+     choose by path: the directory picker reports that it is unavailable.
 8. **Evidence**: the catalog has no missing or unverified operation on any
    platform or frontend, and one showcase in `examples/gui` mixes all three
-   kinds on every platform. The showcase is `examples/gui/Showcase.btrc`:
+   kinds on every platform. Done for Linux, Windows and
+   Android: `python3 -m tools.qualification.ui_catalog check --strict` passes.
+   The web view's operations and every exported symbol have their rows
+   (`operations/{IWebView,IWebMessageHandler,IWebNavigationHandler,WebView}.toml`,
+   `surface/*.toml`), and `tools/qualification/ui_conformance.py` writes each
+   operation's Linux, Windows and Android cells from the suite's cases, with
+   the runs in `evidence/ui3-conformance.toml`; `check --junit` holds each
+   run to its driver's JUnit file. The four operations no case reached now
+   have one: the alert and the folder chooser are answered by a helper
+   thread of the probe (`probes/shim/ModalProbe.h`), and `app.run` drains a
+   GPU view's pending work through the application's `pollClose`. The listed
+   adaptations are `IFontFace` on Windows and Android (no FreeType in the
+   SDK), the folder chooser on Android (no path to choose), and a window's
+   size on Android (the session's). GTK's file chooser aborts where no
+   settings schema is installed: the private session is given GTK's own
+   (`BTRC_GSETTINGS_SCHEMAS`), and a packaged program needs the same from
+   its wrapper. macOS and iOS cells are left as they were.
+   The showcase is `examples/gui/Showcase.btrc`:
    a slider and labels, a GPU view that draws rings in the slider's hue, a
    page that takes the hue and posts back, and a button attached last that
    lies over both. `examples/gui/captures` holds a screenshot of it running

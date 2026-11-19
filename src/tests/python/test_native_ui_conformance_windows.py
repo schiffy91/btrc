@@ -32,7 +32,7 @@ NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
 # What the Windows provider has of what a case may need: a web view, and no
 # FreeType (a font face from a file is FreeType's, which the Windows SDK
 # does not carry).
-HAS = {"web"}
+HAS = {"web", "modal"}
 
 
 def suite_name(frontend, target, sanitized):

@@ -130,13 +130,20 @@ static void androidExtent(double *width, double *height) {
     *height = values[1] / android.density;
 }
 
+/* A thread the system's runtime knows of has to take its leave of it. */
+static void androidLeave(void) {
+    JNIEnv *env = btrcAndroidEnv();
+    JavaVM *machine = NULL;
+    if (env && (*env)->GetJavaVM(env, &machine) == JNI_OK) { (*machine)->DetachCurrentThread(machine); }
+}
+
 /* Every window has the whole screen, at first and always. */
 static bool androidFillsScreen(void) { return true; }
 
 static const RealInput androidInput = {
     .move = androidMove, .button = androidButton, .wheel = androidWheel, .key = androidKey, .text = androidText,
     .activate = androidActivate, .close = androidClose, .origin = androidOrigin, .extent = androidExtent,
-    .fillsScreen = androidFillsScreen, .keepsScreen = androidFillsScreen,
+    .fillsScreen = androidFillsScreen, .keepsScreen = androidFillsScreen, .leave = androidLeave,
 };
 
 const RealInput *realInputAndroid(void) {

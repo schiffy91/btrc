@@ -3,7 +3,7 @@
 The suite (src/tests/native/gui/conformance) is compiled for the device's
 ABI through both compilers and linked, through its native plan, into the
 shared library of an app: the shim provider's activity
-(src/stdlib/GUI/Android/java), the probe's Java
+(src/stdlib/GUI/Android/Java), the probe's Java
 (conformance/probes/android/java) and wgpu-native's pinned prebuilt library
 beside it (tools/target_hosts/android/gui.py; no Gradle, nothing fetched but
 that pinned archive). Each case then runs as its own process of the
@@ -38,7 +38,7 @@ NAMES = [case["name"] for case in CASES]
 NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
 # What the Android provider has of what a case may need: a web view, and no
 # FreeType (a font face from a file is FreeType's, which the NDK does not carry).
-HAS = {"web"}
+HAS = {"web", "modal"}
 PROBE_JAVA = SUITE / "probes/android/java"
 RUNNER = "dev.btrc.probe.Runner"
 # The pinned wgpu-native archive of each ABI (nix/wgpu-native-prebuilt.nix).

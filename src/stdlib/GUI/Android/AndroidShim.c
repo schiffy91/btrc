@@ -2,7 +2,7 @@
  * are the contract.
  *
  * The views are Android's, made and owned by dev.btrc.shim.Shim on the
- * activity's UI thread (java/dev/btrc/shim). The program runs on a thread
+ * activity's UI thread (Java, package dev.btrc.shim). The program runs on a thread
  * of its own: each function here calls one static method of that class and
  * returns when the UI thread has done the work. What a person does comes
  * back as events the Java side pushes onto the queue below, which the
@@ -538,14 +538,13 @@ bool btrcShimPushWake(void) {
 }
 
 /* The system's folder picker names a document tree, not a directory a
- * program can open by path: there is no folder to choose here. */
+ * program can open by path: there is no folder chooser here. */
 BtrcShimFolderDialog* btrcShimFolderDialogOpen(BtrcShimWindow* window, const char* initialDirectory, const char* title) {
 	(void)window;
 	(void)initialDirectory;
 	(void)title;
-	BtrcShimFolderDialog* dialog = calloc(1, sizeof *dialog);
-	if (dialog != NULL) { dialog->state = 3; }
-	return dialog;
+	btrcAndroidFail("Android has no folder to choose by path");
+	return NULL;
 }
 
 int btrcShimFolderDialogState(BtrcShimFolderDialog* dialog) { return dialog->state; }

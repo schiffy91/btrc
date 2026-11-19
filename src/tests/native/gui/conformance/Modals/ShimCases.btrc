@@ -1,0 +1,85 @@
+import Library.App;
+import Library.GUI;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.IWindow;
+import Library.Testing;
+import Library.Timer;
+
+import ../Layout.btrc;
+import ../Probe.btrc;
+import ../Suite.btrc;
+
+/* A person's answer to a modal, pressed from beside the program until the
+ * modal returns (probes/shim/ModalProbe.h). */
+class Answer {
+	/* How long the modal is left alone before the first press. */
+	class int delayMilliseconds() { return 1200; }
+
+	class void escape() {
+		if (modalProbeAnswer((int)PROBE_KEY_ESCAPE, Answer.delayMilliseconds()) != 1) { throw "the probe could not start answering a modal"; }
+	}
+
+	class void done() { modalProbeDone(); }
+}
+
+/* An alert is modal: showAlert returns when a person has dismissed it, and
+ * not before, and the window is as it was. */
+class WindowAlert implements IConformanceCase {
+	public string name() { return "window.alert"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance window.alert", 360.0, 200.0);
+		window.attachRoot(GUI.createPanel(Palette.blue()));
+		window.show();
+		turns.settle();
+		long long opened = MonotonicClock.milliseconds();
+		Answer.escape();
+		try { window.showAlert("Conformance", "An alert stays until it is dismissed."); } finally { Answer.done(); }
+		long long shown = MonotonicClock.milliseconds() - opened;
+		Expect.isTrue(shown >= (long long)Answer.delayMilliseconds() - 200LL, f"the alert returned after {shown} ms, before anyone dismissed it");
+		Expect.isTrue(window.isOpen() && window.isVisible(), "the window is still open and shown after its alert");
+		turns.settle();
+		window.close();
+		turns.settle();
+	}
+}
+
+/* The folder chooser: an invalid request fails without opening anything, and
+ * a chooser a person dismisses is a cancelled outcome. A platform with no
+ * folder to choose by path says it has no chooser. */
+class DirectoryChoice implements IConformanceCase {
+	public string name() { return "picker.directory"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance picker.directory", 360.0, 200.0);
+		window.attachRoot(GUI.createPanel(Palette.blue()));
+		window.show();
+		turns.settle();
+		var invalid = GUI.chooseDirectory(DirectoryPickerRequest(""));
+		var refused = invalid.error;
+		Expect.isTrue(invalid.kind == DIRECTORY_PICKER_FAILED && refused != null && refused.code == APP_ERROR_INVALID_ARGUMENT, "a request without a title fails as an invalid argument");
+		Expect.isTrue(invalid.directory.isEmpty());
+		if (modalProbeHasFolderChooser() != 1) {
+			var absent = GUI.chooseDirectory(DirectoryPickerRequest("Choose a folder"));
+			var reason = absent.error;
+			Expect.isTrue(absent.kind == DIRECTORY_PICKER_FAILED && reason != null && reason.code == APP_ERROR_BACKEND_UNAVAILABLE, "a platform without a folder chooser says so");
+		} else {
+			DirectoryPickerOutcome? outcome = null;
+			Answer.escape();
+			try { outcome = GUI.chooseDirectory(DirectoryPickerRequest("Choose a folder")); } finally { Answer.done(); }
+			Expect.isTrue(outcome != null && outcome.kind == DIRECTORY_PICKER_CANCELLED, "a chooser a person dismisses is cancelled");
+			Expect.isTrue(outcome != null && outcome.directory.isEmpty() && outcome.error == null, "and names no folder and no error");
+		}
+		Expect.isTrue(window.isOpen(), "the window is still open after its chooser");
+		window.close();
+		turns.settle();
+	}
+}
+
+/* The modal cases of a platform whose probe can answer a modal. */
+class ModalCases {
+	class void add(Suite suite) {
+		suite.add(WindowAlert());
+		suite.add(DirectoryChoice());
+	}
+}
