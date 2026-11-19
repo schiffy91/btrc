@@ -136,8 +136,11 @@ class GUIAppRunner:
             return True
         return True
 
-    def run(self, arguments=(), environment=None, timeout=180):
-        """(exit status or None, stdout, stderr): None when the program crashed or ran out of time."""
+    def run(self, arguments=(), environment=None, timeout=180, observe=None):
+        """(exit status or None, stdout, stderr): None when the program crashed or ran out of time.
+
+        `observe` is (seconds, callable): the callable is called once, that
+        long after the launch, if the program is still running then."""
         output = self._container() / "tmp" / "btrc-run"
         shutil.rmtree(output, ignore_errors=True)
         output.mkdir(parents=True)
@@ -165,8 +168,12 @@ class GUIAppRunner:
         deadline = time.monotonic() + timeout
         status = None
         result = output / "exit.txt"
+        started = time.monotonic()
         try:
             while time.monotonic() < deadline:
+                if observe is not None and time.monotonic() - started >= observe[0]:
+                    observe[1]()
+                    observe = None
                 if result.is_file():
                     status = int(result.read_text().strip())
                     break

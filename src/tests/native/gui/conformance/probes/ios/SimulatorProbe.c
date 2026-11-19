@@ -298,14 +298,15 @@ static void arrangeScene(void) {
     /* No window was put on show: there is no scene to speak of yet. */
     if (kind == 0) { return; }
     btrcUIKitAutomationScreen(&screenWidth, &screenHeight);
-    for (int drag = 0; drag < SCENE_DRAGS && kind != 0; drag++) {
+    int drags = 0;
+    for (; drags < SCENE_DRAGS && kind != 0; drags++) {
         bool whole = width >= screenWidth && height >= screenHeight;
         if (compact ? kind == SCENE_COMPACT : whole) { break; }
         /* Inward a step at a time; outward to the screen's own corner and past it. */
         kind = compact ? dragCorner(-80.0, -96.0, &x, &y, &width, &height) : dragCorner(screenWidth - (x + width) + 40.0, screenHeight - (y + height) + 40.0, &x, &y, &width, &height);
     }
     bool made = compact ? kind == SCENE_COMPACT : (kind != 0 && width >= screenWidth && height >= screenHeight);
-    fprintf(stderr, "probe: the scene %s %s (%.0f by %.0f)\n", made ? "is" : "would not become", compact ? "compact" : "the whole screen", width, height);
+    fprintf(stderr, "probe: the scene %s %s (%.0f by %.0f) after %d drags\n", made ? "is" : "would not become", compact ? "compact" : "the whole screen", width, height, drags);
     fflush(stderr);
     if (!made) { exit(70); }
     settled = true;

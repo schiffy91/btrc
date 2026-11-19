@@ -375,6 +375,15 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 	[super dealloc];
 }
 
+/* One request a press of Command-W, whichever of UIKit's two ways of hearing
+ * the key reaches here first. */
+- (void)closeRequested {
+	CFTimeInterval now = CACurrentMediaTime();
+	if (now - closeAsked < 0.25) { return; }
+	closeAsked = now;
+	btrcUIKitPushWindow(self, BTRC_SHIM_EVENT_WINDOW_CLOSE_REQUESTED);
+}
+
 /* The content is the safe area's whole points, once the window has been
  * shown; a new size is the program's to hear of. */
 - (void)settle {
@@ -418,16 +427,19 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 	[self.view setNeedsLayout];
 }
 
-/* Command-W is the keyboard's close request, on a phone as on a tablet. */
+/* Command-W is the keyboard's close request, on a phone as on a tablet. The
+ * command is here for the system to list among the app's shortcuts; the key
+ * itself is read with every other key (observePresses), which is what asks. */
 - (NSArray<UIKeyCommand*>*)keyCommands {
 	UIKeyCommand* close = [UIKeyCommand keyCommandWithInput:@"w" modifierFlags:UIKeyModifierCommand action:@selector(btrcCloseRequested:)];
 	close.wantsPriorityOverSystemBehavior = YES;
+	close.discoverabilityTitle = @"Close Window";
 	return @[close];
 }
 
 - (void)btrcCloseRequested:(id)sender {
 	(void)sender;
-	if (owner != nil) { btrcUIKitPushWindow(owner, BTRC_SHIM_EVENT_WINDOW_CLOSE_REQUESTED); }
+	if (owner != nil) { [owner closeRequested]; }
 }
 @end
 
@@ -517,6 +529,7 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 		pushed.modifiers = modifiers;
 		pushed.down = down ? 1 : 0;
 		btrcUIKitPush(&pushed, NULL);
+		unsigned int scancode = pushed.scancode;
 		if (down) {
 			[held addObject:code];
 			NSString* typed = key.characters;
@@ -526,7 +539,11 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 				pushed.window = owner->identifier;
 				btrcUIKitPush(&pushed, typed.UTF8String);
 			}
-			if (btrcUIKitAlertKeyDown(btrcUIKitKey(key.keyCode)) || btrcUIKitControlsKeyDown(owner, btrcUIKitKey(key.keyCode))) {
+			if (scancode == BTRC_SHIM_SCANCODE_W && modifiers == BTRC_SHIM_MOD_GUI) {
+				[owner closeRequested];
+				[taken addObject:code];
+				kept = YES;
+			} else if (btrcUIKitAlertKeyDown(btrcUIKitKey(key.keyCode)) || btrcUIKitControlsKeyDown(owner, btrcUIKitKey(key.keyCode))) {
 				[taken addObject:code];
 				kept = YES;
 			}

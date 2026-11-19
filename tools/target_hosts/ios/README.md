@@ -32,6 +32,10 @@ installed runtime is not the iOS 17 floor (MAC-P1-02).
 - `test_executor.py`: portable tests. The supervisor and fixtures are built
   with the host's C compiler and run as local processes; only simctl's
   transport is replaced, so spawn, wait, deadline and group kill are real.
+- `gui.py`: `GUIAppBuilder` and `GUIAppRunner`, for a BTRC GUI program as
+  an app (see "GUI programs" below).
+- `simhid.m`: the host's input injector for one booted simulator.
+- `compute.py`: builds the `@gpu` compute runtime for the simulator row.
 
 ## How a program runs
 
@@ -95,6 +99,60 @@ after boot its own long warm-up deadline.
 App mode (an installed app on a fresh container, with `app_roots`) is not
 implemented: corpus programs are plain executables, and an app needs the
 entry adaptation CL-P1-21 owns and the host-entry encoding CX-P2-41 owns.
+
+## GUI programs
+
+A program that imports `Library.GUI` is an app on iOS, not an executable
+`simctl spawn` can run: UIKit owns its process (src/stdlib/GUI/README.md,
+the UIKit shim). `GUIAppBuilder.package` packs a linked program into a
+bundle with the Info.plist a scene-based app needs (a launch screen, both
+device families, more than one scene on a tablet) and an ad-hoc signature;
+the program is linked with `-e _btrcUIKitMain` and wgpu-native's static
+library (`GUIAppBuilder.link_flags`). `GUIAppRunner` installs it and runs it
+one process at a time: `simctl launch` with the program's arguments, its
+environment as `SIMCTL_CHILD_<name>`, and `BTRC_SHIM_OUTPUT` naming a
+directory in the app's own container, where the program's thread leaves
+what it printed and its result. A program that leaves no result crashed or
+ran out of time, and the runner returns the simulator's last log lines of
+it.
+
+`simhid.m` sends real input to a booted simulator through SimulatorKit's
+HID client, the one Xcode's own Simulator uses: a finger, a hardware
+keyboard's keys, and on a tablet a mouse pointer, its button and its wheel.
+It needs no window and none of the Mac's own pointer, keyboard or focus,
+and works on a device booted with `simctl boot` alone. It serves a line
+protocol on a local port (its header comment lists the requests), which
+the conformance suite's probe speaks from inside the app. SimulatorKit is
+a private framework of Xcode: the message layouts are the ones Xcode 27.2
+(27B52) builds, and another Xcode may need them read again. A phone
+simulator has no pointer; `simhid` says so for `HOVER`, `PDOWN` and
+`SCROLL`.
+
+`src/tests/python/ios_simulator_fixtures.py` puts these together for
+tests: one device of each class made for the purpose (`btrc-ui-iphone`,
+an iPhone 17 Pro Max; `btrc-ui-ipad`, an iPad Air 11-inch (M4)), one booted
+at a time, where `BTRC_IOS_UI_DEVICES` asks for them:
+
+```sh
+BTRC_IOS_UI_DEVICES=iphone,ipad nix develop --command python3 -m pytest -q \
+  src/tests/python/test_native_ui_conformance_ios.py src/tests/python/test_native_ui_ios_programs.py
+```
+
+## The compute runtime
+
+Dispatching `@gpu` corpus programs link `libbtrc_gpu` over wgpu-native. The
+simulator row has it when a run builds it and hands the target runner its
+flags; without them those programs are reported missing, as before:
+
+```sh
+eval "$(python3 -m tools.target_hosts.ios.compute --wgpu-native DIR --output build/ios-compute)"
+python3 -m src.tests.target_runner --target ios-aarch64-simulator --frontend both \
+  --program 'gpu/*.btrc' --btrcc bin/btrcc --output build/target-corpus-gpu
+```
+
+`DIR` is wgpu-native's pinned simulator archive, extracted, with
+`libwgpu_native.a` moved alone into `DIR/static` (beside the shared library
+the linker would take that one, which a spawned program cannot find).
 
 ## Hosted evidence
 

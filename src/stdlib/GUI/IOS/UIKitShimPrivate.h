@@ -105,6 +105,8 @@ enum {
 	NSMutableArray<BtrcUIKitSlot*>* placed;
 	BOOL pointerInside;
 	CGPoint pointer;
+	/* When the keyboard last asked the window to close (CACurrentMediaTime). */
+	CFTimeInterval closeAsked;
 	/* The placement in progress, on the program's thread: a control (NULL for
 	 * a hole) and eight numbers each. */
 	BtrcUIKitControl** placing;
@@ -112,6 +114,10 @@ enum {
 	int placingCount;
 	int placingCapacity;
 }
+@end
+
+@interface BtrcUIKitWindow (Requests)
+- (void)closeRequested;
 @end
 
 static inline BtrcUIKitWindow* btrcUIKitWindow(BtrcShimWindow* window) { return (BtrcUIKitWindow*)(void*)window; }

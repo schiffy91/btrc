@@ -1,0 +1,34 @@
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.Image;
+import Library.Vector;
+
+class QuitScreenOrder implements IApplicationWork {
+	public void run() { GUI.requestQuit(); }
+}
+
+/* screenOrder [SECONDS]: one red panel over the window's drawn content, held
+ * on the screen for a driver to look at. A capture draws the controls over
+ * the frame itself, so only the screen says whether the system shows them
+ * there: the frame is presented on a layer of its own, and a control that
+ * ended up beneath it would be in every capture and never on the screen. */
+int main(Vector<string> args) {
+	GUI.initialize();
+	ICallbackRegistration? quit = null;
+	try {
+		var window = GUI.createWindow("screen order", 320.0, 240.0);
+		var root = GUI.createContainer();
+		var over = GUI.createPanel(RGBA(200, 30, 30));
+		window.attachRoot(root);
+		root.attach(over);
+		over.arrange(40.0, 60.0, 120.0, 80.0);
+		window.show();
+		quit = GUI.postAfter(args.length == 1 ? args.get(0).toDouble() : 5.0, QuitScreenOrder());
+		GUI.run();
+	} finally {
+		if (quit != null) { quit.cancel(); }
+		GUI.close();
+	}
+	return 0;
+}
