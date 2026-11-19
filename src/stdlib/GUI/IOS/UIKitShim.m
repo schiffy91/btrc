@@ -62,6 +62,7 @@ static UIWindowScene* btrcUIKitScene;
 static BOOL btrcUIKitActive;
 static BOOL btrcUIKitDark = YES;
 static BOOL btrcUIKitWantsSecondScene;
+static BOOL btrcUIKitAwaitsSecondScene;
 static NSMutableArray<BtrcUIKitWindow*>* btrcUIKitWindows;
 static NSMutableArray<BtrcUIKitWindow*>* btrcUIKitShown;
 static unsigned int btrcUIKitNextWindow = 1u;
@@ -561,6 +562,12 @@ static void btrcUIKitAdopt(UIWindowScene* scene) {
 	[btrcUIKitScene release];
 	btrcUIKitScene = scene;
 	btrcUIKitActive = scene.activationState == UISceneActivationStateForegroundActive;
+	if (btrcUIKitAwaitsSecondScene) {
+		/* Whoever asked for a second scene can see that the program has one. */
+		btrcUIKitAwaitsSecondScene = NO;
+		fprintf(stderr, "btrc: the program's windows live in a second scene (%lu connected)\n", (unsigned long)UIApplication.sharedApplication.connectedScenes.count);
+		fflush(stderr);
+	}
 	for (BtrcUIKitWindow* window in btrcUIKitWindows) { window->native.windowScene = scene; }
 	btrcUIKitArrange();
 	pthread_mutex_lock(&btrcUIKitSession.lock);
@@ -580,12 +587,14 @@ static void btrcUIKitAdopt(UIWindowScene* scene) {
 		/* The program's windows are to live in a second scene: this one stays
 		 * as the system made it, and the program waits for the next. */
 		btrcUIKitWantsSecondScene = NO;
+		btrcUIKitAwaitsSecondScene = YES;
 		for (UISceneSession* stale in UIApplication.sharedApplication.openSessions) {
 			if (stale != session) { [UIApplication.sharedApplication requestSceneSessionDestruction:stale options:nil errorHandler:nil]; }
 		}
 		[UIApplication.sharedApplication activateSceneSessionForRequest:[UISceneSessionActivationRequest request] errorHandler:^(NSError* error) {
 			(void)error;
 			/* No second scene is to be had: the program has this one. */
+			btrcUIKitAwaitsSecondScene = NO;
 			btrcUIKitAdopt((UIWindowScene*)scene);
 		}];
 		return;

@@ -253,6 +253,9 @@ def check(simulators, request, name, device_class, frontend, sanitized, scene):
         label = f"{device_class}-{scene}-{shell.FRONTENDS[frontend]}-{mode}-{name}.txt"
         (Path(evidence) / label).write_text(report, encoding="utf-8")
     assert status == 0, report
+    if scene == "second":
+        # The provider says so when the system gave the program a second scene to live in.
+        assert "the program's windows live in a second scene (2 connected)" in stderr, report
     assert "ERROR: AddressSanitizer" not in stderr and "runtime error:" not in stderr, report
     assert stdout.splitlines()[-2:] == [f"CASE {name} PASS", "CONFORMANCE ran=1 failed=0"], report
 
