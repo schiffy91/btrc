@@ -16,6 +16,7 @@
 #include <X11/Xutil.h>
 #include <X11/extensions/XTest.h>
 #include <X11/keysym.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -194,6 +195,14 @@ static void gamescopeList(bool listed) {
 
 static void gamescopeLeave(void) { if (x.gamescope) { gamescopeList(false); } }
 
+/* A program that is stopped leaves the list as one that ends does: Gamescope
+ * would go on giving the screen to a program that is gone. */
+static void gamescopeStopped(int number) {
+    gamescopeLeave();
+    signal(number, SIG_DFL);
+    raise(number);
+}
+
 /* This server's number among Gamescope's, or -1 when the session is not Gamescope's. */
 static int gamescopeServer(void) {
     Atom type = None;
@@ -221,7 +230,12 @@ static void gamescopeEnter(void) {
     char first[32];
     snprintf(first, sizeof first, ":%d", atoi(colon + 1) - server);
     x.gamescope = XOpenDisplay(first);
-    if (x.gamescope) { atexit(gamescopeLeave); }
+    if (x.gamescope) {
+        atexit(gamescopeLeave);
+        signal(SIGTERM, gamescopeStopped);
+        signal(SIGINT, gamescopeStopped);
+        signal(SIGHUP, gamescopeStopped);
+    }
 }
 
 static bool x11Activate(const char *title) {

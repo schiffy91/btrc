@@ -245,6 +245,16 @@ class GUIAppRunner:
             raise RuntimeError(f"cannot read the app's {name}: {result.stderr.decode(errors='replace')}")
         return result.stdout
 
+    def clear_foreground(self):
+        """Stop whatever another program left in front of the launcher.
+
+        A program may hand a link to the system, which starts the browser:
+        left alone, it comes to the front in its own time, over the next run."""
+        focused = self.adb("shell", "dumpsys", "window", check=False).stdout.decode(errors="replace")
+        found = re.search(r"mFocusedApp=ActivityRecord\{\S+ \S+ ([\w.]+)/", focused)
+        if found and found[1] != self.package and "launcher" not in found[1]:
+            self.adb("shell", "am", "force-stop", found[1], check=False)
+
     def running(self):
         return bool(self.adb("shell", "pidof", self.package, check=False).stdout.strip())
 
@@ -254,6 +264,7 @@ class GUIAppRunner:
         if any("," in value for value in values):
             raise ValueError("an argument or environment value contains a comma")
         self.adb("shell", "am", "force-stop", self.package)
+        self.clear_foreground()
         self.within("rm -f files/exit.txt files/stdout.txt files/stderr.txt")
         joined = shlex.quote(",".join(values))
         if self.instrumentation:
@@ -273,6 +284,7 @@ class GUIAppRunner:
                 break
             time.sleep(0.1)
         self.adb("shell", "am", "force-stop", self.package)
+        self.clear_foreground()
         stdout = (self.file("stdout.txt") or b"").decode(errors="replace")
         stderr = (self.file("stderr.txt") or b"").decode(errors="replace")
         if status is None:
