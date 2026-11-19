@@ -91,6 +91,10 @@ int main(int argc, const char *argv[]) {
         NSMutableArray *samples = [NSMutableArray array];
         for (int sample = 0; sample < SAMPLES && !unavailable; sample++) {
             pump(sample == 0 ? 1.0 : 0.3);
+            /* The application that just quit hands activation on; ask again until it settles here. */
+            for (int attempt = 0; attempt < 20 && !(application.active && window.keyWindow); attempt++) {
+                [application activateIgnoringOtherApps:YES]; [window makeKeyAndOrderFront:nil]; pump(0.25);
+            }
             if (!application.active || !window.keyWindow) { unavailable = @"The control's window is not key in the active application"; break; }
             [popup selectItemAtIndex:0];
             memset(&current, 0, sizeof(current)); current.active = current.key = true;
