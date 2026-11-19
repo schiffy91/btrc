@@ -14,6 +14,7 @@ the installed runtime is not the iOS 17 floor, which the build targets.
 """
 
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -69,8 +70,8 @@ class Simulators:
         self.injector = None
         self.port = 0
         self.sdk_path = None
-        # The app whose scene's window was dragged to another size since the simulator booted.
-        self.resized = None
+        # The app whose scene may be a window on the tablet's stage, by its runner's key.
+        self.windowed = None
 
     def asked(self, device_class):
         """Skip unless this host can run simulators and the run asked for this device class."""
@@ -171,6 +172,11 @@ class Simulators:
         name, model = DEVICES[device_class]
         host = IOSSimulatorHost(device_class, name=name, model=model)
         host.prepare()
+        # An app a stopped run left behind may still have a window on the stage (runner).
+        listed = host.command("listapps", host.device(), check=False).stdout.decode(errors="replace")
+        for identifier in sorted(set(re.findall(r"dev\.btrc\.testhost\.[A-Za-z0-9.-]+", listed))):
+            host.command("terminate", host.device(), identifier, check=False)
+            host.command("uninstall", host.device(), identifier, check=False)
         self.host = host
         self.start_injector()
         return host
@@ -203,33 +209,27 @@ class Simulators:
             injector.sendall(command.encode() + b"\n")
             return injector.recv(256).decode()
 
-    def runner(self, device_class, name, source, frontend, sanitized, request, variant=""):
-        """The program's app, installed on the booted simulator of this class."""
+    def runner(self, device_class, name, source, frontend, sanitized, request, variant="", windowed=False):
+        """The program's app, installed on the booted simulator of this class.
+
+        One app at a time may have its scene made a window (`windowed`): when
+        an app is launched, iPadOS starts every other app whose window shows
+        on the stage beside it, with no arguments, and a program started so
+        would run beside the one a row is watching. The last such app is
+        uninstalled before another app's runner is handed out."""
         self.asked(device_class)
         host = self.device(device_class)
         key = (device_class, name, frontend, sanitized, variant)
+        if self.windowed not in (None, key):
+            self.runners.pop(self.windowed).uninstall()
+            self.windowed = None
+        if windowed:
+            self.windowed = key
         if key not in self.runners:
             runner = GUIAppRunner(host, self.identifier(name, frontend, sanitized, variant))
             runner.install(self.bundle(name, source, frontend, sanitized, variant, request))
             self.runners[key] = runner
         return self.runners[key]
-
-    def reboot(self):
-        """Shut the booted simulator down and boot it again, keeping what is installed on it.
-
-        The simulator does not survive the resizing of a second app's scene
-        in one boot: after it, simctl's requests about apps are never
-        answered. Rows that resize another app's ask for a fresh boot."""
-        if self.injector is not None:
-            self.injector.terminate()
-            self.injector.wait(timeout=30)
-            self.injector = None
-        host = self.host
-        host.command("shutdown", host.device(), timeout=120)
-        host.command("boot", host.device(), timeout=host.BOOT_TIMEOUT_S)
-        host.command("bootstatus", host.device(), "-b", timeout=host.BOOTSTATUS_TIMEOUT_S)
-        self.resized = None
-        self.start_injector()
 
     def screenshot(self, path):
         """What the booted simulator's screen shows, as an uncompressed bitmap."""
@@ -246,7 +246,7 @@ class Simulators:
                 self.runners.pop(key).uninstall()
             self.host.close()
             self.host = None
-            self.resized = None
+            self.windowed = None
 
 
 @pytest.fixture(scope="session")

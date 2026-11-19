@@ -62,9 +62,11 @@ On iOS and iPadOS the suite is an app too.
 simulator through both compilers, plain and sanitized, installs it on one
 iPhone and one iPad simulator it makes for the purpose (`btrc-ui-iphone`,
 `btrc-ui-ipad`), and runs each case as its own process; on the iPad every
-case also runs with the program's windows in a second scene of the app. A
-press is a finger's; a move with nothing down and a wheel are a pointer's,
-which a tablet has and a phone has not.
+case also runs with the program's windows in a second scene of the app, and
+in a scene as narrow as a phone's, which the probe makes by dragging the
+corner of the scene's window (`BTRC_CONFORMANCE_SCENE`). A press is a
+finger's; a move with nothing down and a wheel are a pointer's, which a
+tablet has and a phone has not.
 
 A case prints `CASE <name> PASS`, or `CASE <name> FAIL <what it found>`.
 `BTRC_CONFORMANCE_FONT` names a font file for the font face case, and

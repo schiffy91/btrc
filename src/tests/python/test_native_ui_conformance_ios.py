@@ -14,7 +14,8 @@ app through the simulated device's own HID service.
 On the iPad the cases also run with the program's windows in a second scene
 of the app, and in a scene made as narrow as a phone's (a compact width,
 which is what a split view gives an app): the probe drags the corner of the
-scene's window, as a person would. Simulator results are never
+scene's window, as a person would, while the first of an app's cases with a
+window shows it, and the app's other cases run in the scene that left. Simulator results are never
 physical-device evidence, and the installed runtime is not the iOS 17 floor,
 which the build targets.
 
@@ -24,6 +25,7 @@ BTRC_IOS_UI_EVIDENCE names a directory that receives every case's output.
 """
 
 import os
+import re
 import tomllib
 from pathlib import Path
 
@@ -80,8 +82,17 @@ def rows():
 
 def run(simulators, device_class, frontend, sanitized, request, argument, scene="first"):  # noqa: F811
     """One process of the suite's app on the simulator of this class: (status, stdout, stderr)."""
-    variant = "compact" if scene == "compact" else ""
-    runner = simulators.runner(device_class, "conformance", SUITE / "Main.btrc", frontend, sanitized, request, variant)
+    compact = scene == "compact"
+    runner = simulators.runner(
+        device_class,
+        "conformance",
+        SUITE / "Main.btrc",
+        frontend,
+        sanitized,
+        request,
+        variant="compact" if compact else "",
+        windowed=compact,
+    )
     if not hasattr(runner, "web"):
         runner.web = runner.put(SUITE / "web", "web")
     environment = {
@@ -95,15 +106,25 @@ def run(simulators, device_class, frontend, sanitized, request, argument, scene=
         environment["BTRC_SHIM_SCENE"] = "second"
     if device_class == "ipad":
         # A tablet keeps the size a scene was left at: every row says which it runs in.
-        environment["BTRC_CONFORMANCE_SCENE"] = "compact" if scene == "compact" else "whole"
-    if scene == "compact" and simulators.resized is not runner:
-        # The first of an app's compact rows drags its scene's window to that size, and the
-        # simulator takes that of one app a boot (ios_simulator_fixtures.Simulators.reboot).
-        simulators.reboot()
-        simulators.resized = runner
+        environment["BTRC_CONFORMANCE_SCENE"] = "compact" if compact else "whole"
     # A finger a failed case left down would be down for this one too.
     assert simulators.inject("RELEASE").startswith("OK"), "simhid could not lift the finger"
-    return runner.run([argument], environment, 180)
+    if compact and not hasattr(runner, "changes"):
+        # The system keeps the size an app's scene was left at, by the app's name, beyond the
+        # app itself. An app's compact rows start from the whole screen, so that the first of
+        # them with a window sees its size class change while that window shows (check).
+        whole = runner.run(["window.state"], environment | {"BTRC_CONFORMANCE_SCENE": "whole"}, 180)
+        assert "probe: the scene is the whole screen" in whole[2], "".join(whole[1:])
+        runner.changes = 0
+    result = runner.run([argument], environment, 180)
+    if compact and argument not in WINDOWLESS:
+        dragged = re.search(r"probe: the scene is compact \(.*\) after (\d+) drags", result[2])
+        runner.changes += 1 if dragged and int(dragged.group(1)) else 0
+        # Every row after the first runs in the scene that row left compact.
+        assert runner.changes == 1, (
+            f"the scene's size class did not change once, in the first of the app's rows: {result[2]}"
+        )
+    return result
 
 
 def check(simulators, request, name, device_class, frontend, sanitized, scene):  # noqa: F811
@@ -134,7 +155,8 @@ def check(simulators, request, name, device_class, frontend, sanitized, scene): 
 def test_the_ios_program_lists_exactly_the_recorded_cases(simulators, request):  # noqa: F811
     status, stdout, stderr = run(simulators, "iphone", "python", False, request, "--list")
     assert status == 0, stderr
-    assert sorted(stdout.split()) == sorted(NAMES)
+    # The font face case is FreeType's, which this platform's build leaves out (btrc.toml, Fonts.NoCases).
+    assert sorted(stdout.split()) == sorted(name for name in NAMES if NEEDS.get(name) != "freetype")
 
 
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
@@ -151,7 +173,7 @@ def test_ipad_conformance_case_in_a_second_scene(simulators, request, name, fron
     check(simulators, request, name, "ipad", frontend, sanitized, "second")
 
 
-# One app's rows at a time: the simulator is booted afresh for each (run).
+# One app's rows at a time: one app's scene is a window at a time (ios_simulator_fixtures.Simulators.runner).
 @pytest.mark.parametrize("name", applicable("ipad"))
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "sanitized"])
 @pytest.mark.parametrize("frontend", FRONTENDS)

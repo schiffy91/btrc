@@ -271,15 +271,19 @@ static int dragCorner(double byX, double byY, double *x, double *y, double *widt
     double cornerX = *x + *width - SCENE_HANDLE_INSET;
     double cornerY = *y + *height - SCENE_HANDLE_INSET;
     unsigned long serial = btrcShimAutomationSerial();
+    /* A hand's drag: the system takes the corner when a finger rests on it,
+     * follows it, and ends the resizing when the finger has stopped and lifts. */
     bool dragged = ask("DOWN %.2f %.2f", cornerX, cornerY);
+    usleep(FRAME_MICROSECONDS * 12);
     for (int step = 1; step <= SCENE_STEPS && dragged; step++) {
         dragged = ask("MOVE %.2f %.2f", cornerX + byX * step / SCENE_STEPS, cornerY + byY * step / SCENE_STEPS);
-        usleep(FRAME_MICROSECONDS * 2);
+        usleep(FRAME_MICROSECONDS * 3);
     }
+    usleep(FRAME_MICROSECONDS * 12);
     dragged = ask("UP %.2f %.2f", cornerX + byX, cornerY + byY) && dragged;
     if (!dragged) { return 0; }
     arrived(serial, ARRIVAL_MILLISECONDS * 2);
-    usleep(FRAME_MICROSECONDS * 30);
+    usleep(FRAME_MICROSECONDS * 60);
     return btrcUIKitAutomationScene(x, y, width, height);
 }
 

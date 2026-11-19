@@ -131,7 +131,12 @@ simulator has no pointer; `simhid` says so for `HOVER`, `PDOWN` and
 `src/tests/python/ios_simulator_fixtures.py` puts these together for
 tests: one device of each class made for the purpose (`btrc-ui-iphone`,
 an iPhone 17 Pro Max; `btrc-ui-ipad`, an iPad Air 11-inch (M4)), one booted
-at a time, where `BTRC_IOS_UI_DEVICES` asks for them:
+at a time, where `BTRC_IOS_UI_DEVICES` asks for them. One app at a time
+has its scene made a window there: when an app is launched, iPadOS 26 starts
+every other app whose window shows on the stage, with no arguments, and a
+test program started so runs beside the one under test. The fixtures
+uninstall the last windowed app before another app runs, and the apps a
+stopped run left behind when a device is next prepared:
 
 ```sh
 BTRC_IOS_UI_DEVICES=iphone,ipad nix develop --command python3 -m pytest -q \
