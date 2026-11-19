@@ -91,6 +91,7 @@ class NetworkConformance {
 		server.close();
 		assert(!server.isOpen() && server.handle() == -1);
 		assert(server.read(buffer, 64, 10) == TCP_STREAM_READ_FAILED && !server.write(hello, 5, 10) && !server.setNoDelay(true));
+		assert(!server.setKeepAliveTiming(1, 1, 3) && !server.setUnacknowledgedTimeout(5000));
 		assert(client.read(buffer, 64, 1000) == TCP_STREAM_READ_CLOSED);
 		bool failed = false;
 		for (int attempt = 0; attempt < 50 && !failed; attempt++) {

@@ -225,6 +225,17 @@ class TCPStream {
 	/* Probe an idle connection so a dead peer is noticed. */
 	public bool setKeepAlive(bool enabled) { return self.option((int)SOL_SOCKET, (int)SO_KEEPALIVE, enabled); }
 
+	/* When the probes go out: the first after `idleSeconds` of silence, then
+	 * one every `intervalSeconds`, and the connection is dropped once `probes`
+	 * of them went unanswered. A system's own timing takes hours. Call
+	 * setKeepAlive(true) as well; this only sets the pace. */
+	public bool setKeepAliveTiming(int idleSeconds, int intervalSeconds, int probes) { return self.descriptor >= 0 && idleSeconds > 0 && intervalSeconds > 0 && probes > 0 && btrcSocketKeepAliveTiming(self.descriptor, idleSeconds, intervalSeconds, probes) == 0; }
+
+	/* Drop the connection when what was sent stays unacknowledged this long,
+	 * so that writing to a peer that is gone fails instead of queueing. False
+	 * where the system cannot do it. */
+	public bool setUnacknowledgedTimeout(int milliseconds) { return self.descriptor >= 0 && milliseconds > 0 && btrcSocketUnacknowledgedTimeout(self.descriptor, milliseconds) == 0; }
+
 	/* Read what has arrived, up to `capacity` bytes: the count, or a
 	 * TCPStreamRead value when the peer closed, nothing came in time, or the
 	 * connection failed. */

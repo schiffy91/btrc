@@ -16,9 +16,16 @@ away is a failed write and the process's `SIGPIPE` handling is never touched.
 `read` returns a byte count or a `TCPStreamRead` value: closed, timed out or
 failed. Failures to connect or listen throw the system's reason.
 
-`Sockets.h` holds only SDK includes. The typed binding imports what the hosted
-ABI does not carry: `getaddrinfo`, `freeaddrinfo`, `addrinfo` and
-`TCP_NODELAY`. glibc declares the resolver only under a feature macro, so the
+`setKeepAlive` turns probing of an idle connection on; `setKeepAliveTiming`
+sets its pace (first probe, interval, how many may go unanswered), where a
+system's own takes hours to notice a dead peer. `setUnacknowledgedTimeout`
+drops a connection whose sent data stays unacknowledged, so a write to a peer
+that is gone fails.
+
+`Sockets.h` holds the SDK includes and two small functions for those options,
+whose names differ between Linux and Apple's systems. The typed binding imports
+them and what the hosted ABI does not carry: `getaddrinfo`, `freeaddrinfo`,
+`addrinfo` and `TCP_NODELAY`. glibc declares the resolver only under a feature macro, so the
 manifest defines `_GNU_SOURCE` on Linux.
 
 Linux and macOS have rows. Windows has no provider yet (HTTP's Winsock seam is
