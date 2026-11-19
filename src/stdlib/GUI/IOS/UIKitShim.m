@@ -1222,6 +1222,26 @@ int btrcUIKitAutomationOrigin(unsigned int identifier, double* x, double* y) {
 	return shown;
 }
 
+/* The frame, in the screen's points, of the scene's part of the screen as
+ * the window on show fills it, once the scene has arrived there: 1 when the
+ * scene is as wide as a tablet's own (a regular width), 2 when it is as
+ * narrow as a phone's (compact), 0 when nothing is on show yet. */
+int btrcUIKitAutomationScene(double* x, double* y, double* width, double* height) {
+	__block int kind = 0;
+	btrcUIKitOnMain(^{
+		BtrcUIKitWindow* window = btrcUIKitTop();
+		if (window == nil || !btrcUIKitActive || window->native.windowScene == nil) { return; }
+		if (CACurrentMediaTime() - btrcUIKitActiveSince < BTRC_UIKIT_SCENE_ARRIVAL_SECONDS) { return; }
+		CGRect frame = [window->native convertRect:window->native.bounds toCoordinateSpace:window->native.windowScene.screen.coordinateSpace];
+		*x = frame.origin.x;
+		*y = frame.origin.y;
+		*width = frame.size.width;
+		*height = frame.size.height;
+		kind = window->native.traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassCompact ? 2 : 1;
+	});
+	return kind;
+}
+
 void btrcUIKitAutomationScreen(double* width, double* height) {
 	btrcUIKitOnMain(^{
 		CGSize size = btrcUIKitScene == nil ? CGSizeZero : btrcUIKitScene.screen.bounds.size;

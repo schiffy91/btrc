@@ -28,6 +28,8 @@ unsigned int btrcShimWindowNamed(const char *title);
 unsigned long btrcShimAutomationSerial(void);
 int btrcShimAutomationAwait(unsigned long serial, int timeoutMilliseconds);
 int btrcUIKitAutomationOrigin(unsigned int window, double *x, double *y);
+int btrcUIKitAutomationScene(double *x, double *y, double *width, double *height);
+int btrcShimAutomationWindows(void);
 void btrcUIKitAutomationScreen(double *width, double *height);
 
 enum { ARRIVAL_MILLISECONDS = 500, SEARCH_MILLISECONDS = 60, APPEARANCE_ATTEMPTS = 160, NOTCH_POINTS = 48, FRAME_MICROSECONDS = 16667 };
@@ -255,7 +257,61 @@ int conformanceProbeClose(const char *title) {
     return 1;
 }
 
+/* BTRC_CONFORMANCE_SCENE says what scene the cases are to run in on a tablet,
+ * whose system keeps a scene's size from one launch of an app to the next:
+ * "whole" is the whole screen, and "compact" a scene as narrow as a phone's,
+ * which is what a split view or a small window gives an app. The first case
+ * to show a window makes it so, as a person would: by dragging the corner of
+ * the scene's window. A scene that will not be made so ends the program: no
+ * case may pass in a scene it was not asked for. */
+enum { SCENE_REGULAR = 1, SCENE_COMPACT = 2, SCENE_DRAGS = 8, SCENE_HANDLE_INSET = 8, SCENE_ARRIVAL_ATTEMPTS = 100, SCENE_STEPS = 8 };
+
+/* Drag the scene's corner by this much, and say what the scene is then. */
+static int dragCorner(double byX, double byY, double *x, double *y, double *width, double *height) {
+    double cornerX = *x + *width - SCENE_HANDLE_INSET;
+    double cornerY = *y + *height - SCENE_HANDLE_INSET;
+    unsigned long serial = btrcShimAutomationSerial();
+    bool dragged = ask("DOWN %.2f %.2f", cornerX, cornerY);
+    for (int step = 1; step <= SCENE_STEPS && dragged; step++) {
+        dragged = ask("MOVE %.2f %.2f", cornerX + byX * step / SCENE_STEPS, cornerY + byY * step / SCENE_STEPS);
+        usleep(FRAME_MICROSECONDS * 2);
+    }
+    dragged = ask("UP %.2f %.2f", cornerX + byX, cornerY + byY) && dragged;
+    if (!dragged) { return 0; }
+    arrived(serial, ARRIVAL_MILLISECONDS * 2);
+    usleep(FRAME_MICROSECONDS * 30);
+    return btrcUIKitAutomationScene(x, y, width, height);
+}
+
+static void arrangeScene(void) {
+    static bool settled;
+    const char *wanted = getenv("BTRC_CONFORMANCE_SCENE");
+    double x = 0.0, y = 0.0, width = 0.0, height = 0.0, screenWidth = 0.0, screenHeight = 0.0;
+    if (settled || !wanted || !shimProbeInput() || btrcShimAutomationWindows() == 0) { return; }
+    bool compact = strcmp(wanted, "compact") == 0;
+    if (!compact && strcmp(wanted, "whole") != 0) { return; }
+    int kind = 0;
+    for (int attempt = 0; attempt < SCENE_ARRIVAL_ATTEMPTS && kind == 0; attempt++) {
+        kind = btrcUIKitAutomationScene(&x, &y, &width, &height);
+        if (kind == 0) { arrived(btrcShimAutomationSerial(), SEARCH_MILLISECONDS); }
+    }
+    /* No window was put on show: there is no scene to speak of yet. */
+    if (kind == 0) { return; }
+    btrcUIKitAutomationScreen(&screenWidth, &screenHeight);
+    for (int drag = 0; drag < SCENE_DRAGS && kind != 0; drag++) {
+        bool whole = width >= screenWidth && height >= screenHeight;
+        if (compact ? kind == SCENE_COMPACT : whole) { break; }
+        /* Inward a step at a time; outward to the screen's own corner and past it. */
+        kind = compact ? dragCorner(-80.0, -96.0, &x, &y, &width, &height) : dragCorner(screenWidth - (x + width) + 40.0, screenHeight - (y + height) + 40.0, &x, &y, &width, &height);
+    }
+    bool made = compact ? kind == SCENE_COMPACT : (kind != 0 && width >= screenWidth && height >= screenHeight);
+    fprintf(stderr, "probe: the scene %s %s (%.0f by %.0f)\n", made ? "is" : "would not become", compact ? "compact" : "the whole screen", width, height);
+    fflush(stderr);
+    if (!made) { exit(70); }
+    settled = true;
+}
+
 /* The provider's turn drains what the main thread queued. */
-void conformanceProbeService(void) {}
+void conformanceProbeService(void) { arrangeScene(); }
 
 int conformanceProbeWindowSizing(void) { return CONFORMANCE_WINDOW_SIZING_SCREEN_ALWAYS; }

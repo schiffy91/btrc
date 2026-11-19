@@ -31,6 +31,7 @@ from src.tests.target_runner import (
     STRICT_CFLAGS,
     ApplicabilityManifest,
     BoundedCapture,
+    BuildFailure,
     BuildResult,
     ComputeRuntime,
     CorpusProgram,
@@ -636,6 +637,27 @@ def test_a_row_without_a_compute_runtime_reports_dispatching_programs_missing():
         unbuilt = ComputeRuntime.verdict(HOST, "Compute runtime not built (run make gpu)", facility)
         assert (unbuilt.status, unbuilt.reason) == ("missing", "Compute runtime not built (run make gpu)")
         assert ComputeRuntime.verdict(HOST, (("-Ia",), ("-lb",)), facility) == (("-Ia",), ("-lb",))
+
+
+def test_a_cross_row_with_a_compute_runtime_takes_its_flags_from_the_run(monkeypatch):
+    facility = ApplicabilityManifest.load().facility(ComputeRuntime.FACILITY)
+    row = next(row for row in TARGET_ROWS if row.label == "ios-aarch64-simulator")
+    assert row.label in facility.targets
+    monkeypatch.delenv(ComputeRuntime.CROSS_CFLAGS, raising=False)
+    monkeypatch.delenv(ComputeRuntime.CROSS_LDFLAGS, raising=False)
+    unset = ComputeRuntime.verdict(row, "", facility)
+    assert (unset.status, unset.scope, unset.cites) == ("missing", "build", facility.cites)
+    assert ComputeRuntime.CROSS_CFLAGS in unset.reason and ComputeRuntime.CROSS_LDFLAGS in unset.reason
+    monkeypatch.setenv(ComputeRuntime.CROSS_CFLAGS, "-I/gpu -I'/a b/webgpu'")
+    with pytest.raises(BuildFailure, match="must be set together"):
+        ComputeRuntime.verdict(row, "", facility)
+    monkeypatch.setenv(ComputeRuntime.CROSS_LDFLAGS, "-L/out -lbtrc_gpu -framework Metal")
+    assert ComputeRuntime.verdict(row, "", facility) == (
+        ("-I/gpu", "-I/a b/webgpu"),
+        ("-L/out", "-lbtrc_gpu", "-framework", "Metal"),
+    )
+    other = next(row for row in TARGET_ROWS if row != HOST and row.label not in facility.targets)
+    assert ComputeRuntime.verdict(other, "", facility).status == "missing"
 
 
 def test_compute_flags_split_between_compile_and_link():
