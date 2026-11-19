@@ -3,8 +3,8 @@
 Status: in progress since 2026-11-18; section 6 records how far. It narrows
 [native-ui-parity.md](native-ui-parity.md) to a finish line one agent can prove,
 adds web content to the core, picks the Linux toolkit, and says which machine
-tests which platform. Items marked **unverified** are assumptions to check
-before the step that depends on them.
+tests which platform. Each item first marked unverified now says what was found, or that it
+was not checked because macOS and iOS are deferred.
 
 **macOS and iOS are deferred** (owner, 2026-11-18). Nothing below is built,
 run or recorded for them until that changes: no work on the Mac, no iOS
@@ -306,9 +306,9 @@ window manager's close, queued for the window with a given title.
 
 | Platform | Probe | Status |
 | --- | --- | --- |
-| Linux | XTest under Xvfb; a virtual pointer and keyboard under headless labwc | Written; 39 cases pass on both |
-| Windows | `SendInput`, in the guest's and the hosted runner's own session | Written; 38 cases pass in the guest |
-| Android | The system's event injection into the app's own windows, with the app started under instrumentation (`am instrument`); a press is a finger's, a hover and a wheel a mouse's | Written; 38 cases pass on the API 29 and API 36 emulators |
+| Linux | XTest under Xvfb; a virtual pointer and keyboard under headless labwc | Written; 41 cases pass on both, and in the Deck's Gamescope session |
+| Windows | `SendInput`, in the guest's and the hosted runner's own session | Written; 40 cases pass in the guest (the font face case does not apply) |
+| Android | The system's event injection into the app's own windows, with the app started under instrumentation (`am instrument`); a press is a finger's, a hover and a wheel a mouse's | Written; 40 cases pass on the API 29 and API 36 emulators, here and on the hosted runner (the font face case does not apply) |
 
 Accessibility trees are not part of this suite: the bridges are outside this
 plan.
@@ -411,7 +411,7 @@ The plan needs no sudo during a test run:
 | Log in after every restart | Owner | FileVault; there is no way around it without root |
 | Finish Xcode's first launch | Owner, once | `sudo xcodebuild -runFirstLaunch` on the Mac |
 | Anything else that turns out to need root | Owner, once | Declared in nix-darwin; applied by `git pull` and `nix-update` |
-| Download simulator runtimes (iOS 17 floor and current) | Agent | `xcodebuild -downloadPlatform iOS`, no root. **Unverified** |
+| Download simulator runtimes (iOS 17 floor and current) | Agent | `xcodebuild -downloadPlatform iOS`, no root. Not checked: deferred with macOS and iOS |
 | Android SDK and arm64 emulator | Agent | The pinned versions in `nix/platforms.nix`, in the user's home |
 | Keep the display awake during a run | Agent | `caffeinate -d` for the length of the job |
 | Allow posted input events and screen capture | Owner, once per binary, only if a test needs it | System Settings, Privacy; no declarative route. Tests prefer in-process input and capture so this is rarely needed |
@@ -503,12 +503,14 @@ Each step ends with something that runs.
      starts (11 of 11 rows steady, where one in three had stepped).
    - `IFontFace` (a font face from a file) is FreeType's, which the Windows
      SDK does not carry: the suite's font case is a per-platform module, and
-     Windows has none. Still open, with the tray and the ARM64 hosted run.
+     Windows has none, and the catalog lists it as an adaptation. The
+     hosted x64 and ARM64 runners pass the shell rows; the tray is still
+     open.
 7. **Android**: a new provider on the approved UI2 host attachment, not a
    second run loop. iOS waits with macOS. Done: the shim provider's third
    implementation (`GUI/Android`), Android's own views reached through JNI
    from the program's thread, with `android.webkit.WebView` for the web
-   view. The suite passes 38 of 38 cases through both compilers on the
+   view. The suite passes 40 of 40 cases through both compilers on the
    API 29 and API 36 x86_64 emulators (`test_native_ui_conformance_android.py`;
    `host-android.yml` runs the same file). What it found:
    - The system refuses input a program injects into its own windows
@@ -561,6 +563,18 @@ Each step ends with something that runs.
    index alone, with no vertex buffer, which is how the showcase covers its
    view. The provider's own compositor, which feeds a vertex buffer, draws
    there, and so does everything else in the window.
+9. **Products**, against this provider on Linux:
+   - Drive builds once its windows name GTK's libraries in place of SDL's
+     (`nix/package.nix`, one line), and its window and tray checks
+     (`vm-dialog`, `vm-tray`) pass.
+   - Deck Pad's `unit-deckpad`, which runs its tray and its screen on a
+     virtual display, passes as it is.
+   - BTRSmith does not build against `main`, and did not before this plan:
+     its `main` pins btrc at `05ec9cb7` (2026-09-28), and the first import
+     of its application, `Library.Datetime`, was renamed on 2026-10-01. What
+     it needs is the migration [btrsmith-rename-table-w2.md](btrsmith-rename-table-w2.md)
+     describes and everything since, which is BTRSmith's own lane. Its GUI
+     checks have therefore not run against this provider.
 
 Done when, at one commit on `main`: the shared suite passes on every row of
 section 4 through both compilers; `ui_catalog check --strict` passes with
