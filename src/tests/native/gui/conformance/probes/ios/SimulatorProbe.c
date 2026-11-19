@@ -124,6 +124,14 @@ static bool move(double x, double y) {
     if (host.down) { return ask("MOVE %.2f %.2f", x, y); }
     if (same && host.hovered) { return true; }
     unsigned long serial = btrcShimAutomationSerial();
+    /* The pointer may rest on the place already, where the last program left it, and a
+     * pointer at rest says nothing: this program's first move comes from a point beside it. */
+    if (!host.hovered) {
+        if (!ask("HOVER %.2f %.2f", x >= 1.0 ? x - 1.0 : x + 1.0, y)) { return true; }
+        arrived(serial, ARRIVAL_MILLISECONDS);
+        usleep(FRAME_MICROSECONDS * 2);
+        serial = btrcShimAutomationSerial();
+    }
     host.hovered = ask("HOVER %.2f %.2f", x, y);
     if (host.hovered) {
         arrived(serial, ARRIVAL_MILLISECONDS);

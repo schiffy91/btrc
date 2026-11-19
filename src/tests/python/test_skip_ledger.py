@@ -617,10 +617,13 @@ def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
     # in host-android.yml's emulator jobs, which write no skip report, and the
     # Windows supervisor image and transfer cases run natively only when
     # windows-arm64.yml is dispatched with focus=daemon-runtime, which writes
-    # a JUnit file and no skip report either.
+    # a JUnit file and no skip report either. The GUI rows that boot iOS
+    # simulators and send them input run where BTRC_IOS_UI_DEVICES asks, on
+    # the acceptance Mac, and no CI runner asks.
     uncovered = {rule_id for rule_id, rule in rules.items() if not rule.covered_by}
     assert uncovered == {
         "android-device-bound",
+        "ios-simulator-bound",
         "windows-daemon-native",
         "apple-target-macro-oracle",
         "linux-tray-session-bus",

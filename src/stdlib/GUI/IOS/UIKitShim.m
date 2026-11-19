@@ -324,6 +324,8 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 	/* The keys the controls took, whose release is theirs too. */
 	NSMutableSet<NSNumber*>* taken;
 	unsigned long hoverGeneration;
+	/* How far the wheel's gesture under way has turned, of which every report is the whole. */
+	CGPoint turned;
 }
 - (BOOL)observePresses:(UIPressesEvent*)event;
 - (void)observeHover:(UIHoverGestureRecognizer*)hover;
@@ -590,11 +592,15 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
  * whole of it. */
 - (void)observeScroll:(UIPanGestureRecognizer*)scroll {
 	if (owner == nil || (scroll.state != UIGestureRecognizerStateBegan && scroll.state != UIGestureRecognizerStateChanged)) { return; }
-	CGPoint moved = [scroll translationInView:owner->content];
-	[scroll setTranslation:CGPointZero inView:owner->content];
+	CGPoint whole = [scroll translationInView:owner->content];
+	if (scroll.state == UIGestureRecognizerStateBegan) { turned = CGPointZero; }
+	CGPoint moved = CGPointMake(whole.x - turned.x, whole.y - turned.y);
+	turned = whole;
 	if (moved.x == 0.0 && moved.y == 0.0) { return; }
-	/* The wheel turns where the pointer is: the gesture's own place moves with what it scrolled. */
-	CGPoint at = owner->pointerInside ? owner->pointer : [scroll locationInView:owner->content];
+	/* The wheel turns where the pointer is, which may have rested there since before the
+	 * window was: the gesture's own place has moved from it by all the gesture has turned. */
+	CGPoint place = [scroll locationInView:owner->content];
+	CGPoint at = CGPointMake(place.x - whole.x, place.y - whole.y);
 	if (![self pointAt:at]) { return; }
 	BtrcShimEvent event;
 	memset(&event, 0, sizeof event);
