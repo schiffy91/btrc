@@ -89,13 +89,20 @@ int main(int argc, const char *argv[]) {
         [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
         NSString *unavailable = CGPreflightPostEventAccess() ? nil : @"CGPreflightPostEventAccess is false";
         NSMutableArray *samples = [NSMutableArray array];
+        int activationAttempts = 0;
         for (int sample = 0; sample < SAMPLES && !unavailable; sample++) {
             pump(sample == 0 ? 1.0 : 0.3);
             /* The application that just quit hands activation on; ask again until it settles here. */
-            for (int attempt = 0; attempt < 20 && !(application.active && window.keyWindow); attempt++) {
+            int attempts = 0;
+            for (; attempts < 120 && !(application.active && window.keyWindow); attempts++) {
                 [application activateIgnoringOtherApps:YES]; [window makeKeyAndOrderFront:nil]; pump(0.25);
             }
-            if (!application.active || !window.keyWindow) { unavailable = @"The control's window is not key in the active application"; break; }
+            if (attempts > activationAttempts) { activationAttempts = attempts; }
+            if (!application.active || !window.keyWindow) {
+                unavailable = [NSString stringWithFormat:@"The control's window is not key in the active application (active=%d key=%d visible=%d frontmost=%@)",
+                    application.active, window.keyWindow, window.visible, NSWorkspace.sharedWorkspace.frontmostApplication.localizedName];
+                break;
+            }
             [popup selectItemAtIndex:0];
             memset(&current, 0, sizeof(current)); current.active = current.key = true;
             awaiting = returnPending = false; expectedHighlight = -1;
@@ -112,6 +119,7 @@ int main(int argc, const char *argv[]) {
             @"schema":@"btrc.ui2.macos-menu-dismissal-control/1", @"native_backend":@"AppKit", @"btrc_code":@NO,
             @"clock":@"mach_continuous_time nanoseconds", @"items":@(ITEMS), @"input_route":@"menu-arrow-highlight-return",
             @"interval":@"Return submitted to NSMenuDidEndTrackingNotification",
+            @"activation_attempts":@(activationAttempts),
             @"samples":samples, @"unavailable":unavailable ? (id)unavailable : (id)NSNull.null};
         NSError *error = nil;
         NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:&error];
