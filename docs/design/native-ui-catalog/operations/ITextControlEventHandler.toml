@@ -7,21 +7,21 @@ recorded_at = "2026-10-07T16:27:08.007710+00:00"
 
 [runs.ui-conformance-linux]
 source = "junit"
-recorded_at = "2026-11-19T09:33:47+00:00"
+recorded_at = "2026-11-19T10:39:34+00:00"
 runner = "linux"
-btrc_revision = "0352d2b41429b82386518e2e6898ce921651cd70"
+btrc_revision = "5179a06fbb8a69fb14698e274a7d1fabff43ab95"
 
 [runs.ui-conformance-windows]
 source = "junit"
-recorded_at = "2026-11-19T09:33:47+00:00"
+recorded_at = "2026-11-19T10:39:34+00:00"
 runner = "windows"
-btrc_revision = "0352d2b41429b82386518e2e6898ce921651cd70"
+btrc_revision = "5179a06fbb8a69fb14698e274a7d1fabff43ab95"
 
 [runs.ui-conformance-android]
 source = "junit"
-recorded_at = "2026-11-19T09:33:47+00:00"
+recorded_at = "2026-11-19T10:39:34+00:00"
 runner = "android"
-btrc_revision = "0352d2b41429b82386518e2e6898ce921651cd70"
+btrc_revision = "5179a06fbb8a69fb14698e274a7d1fabff43ab95"
 
 [[operations]]
 id = "ITextControlEventHandler.textEvent"

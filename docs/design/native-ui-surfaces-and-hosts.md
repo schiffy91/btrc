@@ -528,6 +528,9 @@ Each step ends with something that runs.
    - A point is 2.625 pixels on the emulator's phone, so a window whose
      size in points is rounded is not the size it says: a window is a whole
      number of points and the pixels that makes.
+   - A case that hands a link to the system starts the device's browser,
+     which came to the front over the next case; the runner stops whatever
+     another program left in front, before and after each run.
    - `IFontFace` is FreeType's here too, which the NDK does not carry; the
      font case does not apply, as on Windows. Android has no folder to
      choose by path: the directory picker reports that it is unavailable.
