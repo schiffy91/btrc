@@ -25,7 +25,7 @@ from src.tests.python.native_import_fixtures import native_project as native_pro
 from src.tests.python.native_ui2_e40_evidence import E40Evidence
 from tools.native_plan import NativePlanBuilder
 from tools.qualification.skips import RunnerIdentity
-from tools.ui.e40 import MacOSE40Cases, MetalPresentation
+from tools.ui.e40 import MacOSE40Cases, MenuDismissal, MetalPresentation
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "src/tests/native/gui/ui2/probes/macos/e40"
@@ -36,12 +36,13 @@ class E40NativeControl:
 
     TIMEOUT_SECONDS = 15
 
-    def __init__(self, name, command, build_command, source_sha256):
+    def __init__(self, name, command, build_command, source_sha256, timeout_seconds=TIMEOUT_SECONDS):
         self.name = name
         self.command = command
         self.executable = Path(command[0])
         self.build_command = build_command
         self.source_sha256 = source_sha256
+        self.timeout_seconds = timeout_seconds
         self.recorded = set()
 
     @classmethod
@@ -80,12 +81,12 @@ class E40NativeControl:
             "source_sha256": self.source_sha256,
             "executable_sha256": hashlib.sha256(self.executable.read_bytes()).hexdigest(),
             "command": command,
-            "timeout_seconds": self.TIMEOUT_SECONDS,
+            "timeout_seconds": self.timeout_seconds,
         }
         stdout, stderr = "", ""
         try:
             result = subprocess.run(
-                command, env=environment, capture_output=True, text=True, timeout=self.TIMEOUT_SECONDS
+                command, env=environment, capture_output=True, text=True, timeout=self.timeout_seconds
             )
             receipt.update(status="completed", returncode=result.returncode)
             stdout, stderr = result.stdout, result.stderr
@@ -120,6 +121,25 @@ def build_native_controls(tmp_path_factory):
             ("AppKit", "CoreGraphics", "QuartzCore"),
         )
         return metal, synchronized, resize
+
+    return build
+
+
+@pytest.fixture(scope="session")
+def build_menu_dismissal_control(tmp_path_factory):
+    """The bare AppKit program that measures the platform's own pop-up dismissal time."""
+
+    @cache
+    def build():
+        control = E40NativeControl.build(
+            tmp_path_factory.mktemp("e40-menu-dismissal-control"),
+            MenuDismissal.CONTROL,
+            "MenuDismissal",
+            ("AppKit", "CoreGraphics"),
+        )
+        # Five menus of 21 keys on a 100 ms cadence; a stuck menu is cancelled after 8 s.
+        control.timeout_seconds = 60
+        return control
 
     return build
 
@@ -462,11 +482,14 @@ def test_macos_ui2_e40_boundary_compile(e40_program):
 
 
 @pytest.mark.parametrize("trial", ["load"])
-def test_macos_ui2_e40_load_compile(e40_program, trial, build_native_controls, check_tracking_stimulus):
+def test_macos_ui2_e40_load_compile(
+    e40_program, trial, build_native_controls, build_menu_dismissal_control, check_tracking_stimulus
+):
     """Build the workload without starting its worker, windows or run loop."""
     executable, _ = e40_program
     assert executable.is_file()
     assert all(control.executable.is_file() for control in build_native_controls())
+    assert build_menu_dismissal_control().executable.is_file()
     check_tracking_stimulus()
 
 
@@ -478,7 +501,16 @@ def test_macos_ui2_e40_load_compile(e40_program, trial, build_native_controls, c
 )
 @pytest.mark.parametrize("trial", ["bursts", "load", "popup", "slider", "resize", "sheet"])
 @pytest.mark.parametrize("entry", ["desktop", "host"])
-def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path, build_native_controls, presentation_withheld):
+def test_macos_ui2_e40(
+    e40_program,
+    sanitized,
+    entry,
+    trial,
+    tmp_path,
+    build_native_controls,
+    build_menu_dismissal_control,
+    presentation_withheld,
+):
     executable, provenance = e40_program
     artifact_root = Path(os.environ.get("BTRC_UI2_E40_ARTIFACTS", str(tmp_path / "e40")))
     environment = apple_environment() | {"UBSAN_OPTIONS": "halt_on_error=1"}
@@ -505,6 +537,11 @@ def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path, build_nat
     if trial == "load":
         for control in build_native_controls():
             control.record(artifact_root, environment)
+    floor = None
+    if trial == "popup" and not sanitized:
+        # Measured once per cell, before its first popup trial, with nothing else running.
+        build_menu_dismissal_control().record(artifact_root, environment)
+        floor = MenuDismissal.floor(artifact_root)
     command = [str(executable), entry, *([] if trial == "bursts" else [trial]), str(report.resolve())]
     timeout = 1800 if trial == "bursts" else 900 if trial == "load" else 60
     try:
@@ -522,7 +559,7 @@ def test_macos_ui2_e40(e40_program, sanitized, entry, trial, tmp_path, build_nat
     (directory / "stderr.txt").write_text(result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
     assert report.is_file(), "Native trial returned without evidence"
-    evidence = E40Evidence(json.loads(report.read_text()), sanitized)
+    evidence = E40Evidence(json.loads(report.read_text()), sanitized, floor)
     if trial == "bursts":
         evidence.bursts()
         assert "PASS: E40 macOS native boundary bursts" in result.stdout

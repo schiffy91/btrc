@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
+from itertools import pairwise
 
 
 @dataclass(frozen=True)
@@ -12,6 +13,10 @@ class E40Evidence:
 
     report: dict
     sanitized: bool
+    # AppKit's own time to dismiss a pop-up menu after Return, as the bare
+    # control measured it on this host (MenuDismissal.m). Only the popup trial
+    # reads it, and only a plain build has a bound to apply it to.
+    menu_dismissal_floor_ns: int | None = None
 
     SIZES = (4095, 4096, 4097, 8193)
     FINALS = ("release", "text", "close")
@@ -62,7 +67,7 @@ class E40Evidence:
             assert row["pending"] == 0 and row["window_key"] is True, row
         assert seen == expected
 
-    def _class(self, row, seconds=600, *, continuous=True):
+    def _class(self, row, seconds=600, *, continuous=True, gap_bounded_by_input=False):
         counts = {
             name: self._integer(row[name])
             for name in ("accepted", "rejected", "delivered", "cancelled", "stale", "pending")
@@ -100,7 +105,32 @@ class E40Evidence:
                 "native-effect",
             }:
                 assert percentile is not None and percentile <= 100_000_000, row["name"]
-            assert max(gaps) <= 250_000_000, row["name"]
+            if not gap_bounded_by_input:
+                assert max(gaps) <= 250_000_000, row["name"]
+
+    def _popup_input_gaps(self, interval, observed):
+        """Bound the popup trial's input gaps, crediting AppKit's own dismissal once.
+
+        Return is serviced when the menu ends tracking, and AppKit animates the
+        dismissal first whatever the application does. The bare control measures
+        that time on this host with no btrc code; its smallest sample is credited
+        to the one interval that contains the dismissal. Every other interval
+        keeps the 250 ms budget, and so does what is left of that one.
+        """
+        floor = self.menu_dismissal_floor_ns
+        assert type(floor) is int and floor > 0, "The popup trial needs AppKit's measured dismissal time"
+        native = interval["native_input"]
+        waits = [row["effect_observed_ns"] - row["submitted_ns"] for row in native]
+        assert max(waits[:-1]) <= 250_000_000, "input"
+        assert waits[-1] - floor <= 250_000_000, "input"
+        # The reported gaps are these rows': no larger gap hides behind the credit.
+        assert max(self._samples(observed["runnable_service_gaps_ns"])) <= max(waits) + 1_000_000, "input"
+        services = [interval["entered_ns"], *(row["effect_observed_ns"] for row in native[:-1])]
+        steps = [after - before for before, after in pairwise(services)]
+        tail = interval["exited_ns"] - services[-1]
+        assert max(steps) <= 250_000_000, "input"
+        assert tail - floor <= 250_000_000, "input"
+        assert interval["service"]["input"]["maximum_gap_ns"] <= max(*steps, tail) + 1_000_000, "input"
 
     def presentation_attempts(self):
         attempts = self.report["presentation_attempts"]
@@ -210,7 +240,8 @@ class E40Evidence:
         observed = self.report["classes"]
         assert len(observed) == len(self.CLASSES) and {row["name"] for row in observed} == set(self.CLASSES)
         for row in observed:
-            self._class(row, seconds=10, continuous=row["name"] != "input")
+            is_input = row["name"] == "input"
+            self._class(row, seconds=10, continuous=not is_input, gap_bounded_by_input=is_input and trial == "popup")
         classes = interval["service"]
         assert set(classes) == set(self.CLASSES)
         for name, row in classes.items():
@@ -219,7 +250,7 @@ class E40Evidence:
             last = self._integer(row["last_ns"], minimum=first)
             assert first <= last <= exited, name
             gap = self._integer(row["maximum_gap_ns"])
-            if not self.sanitized:
+            if not self.sanitized and not (trial == "popup" and name == "input"):
                 assert gap <= 250_000_000, name
         native = interval["native_input"]
         assert len(native) >= 2
@@ -313,6 +344,8 @@ class E40Evidence:
                 previous_highlight = after
             assert previous_highlight == 20
             assert native[-1]["previous_highlight"] == 20 and native[-1]["resulting_highlight"] == -1
+            if not self.sanitized:
+                self._popup_input_gaps(interval, by_name["input"])
         if trial == "resize":
             assert interval["input_route"] == "native-window-edge-drag"
             assert interval["in_live_resize_observed"] is True

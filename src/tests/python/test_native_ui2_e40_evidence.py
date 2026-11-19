@@ -6,6 +6,10 @@ import pytest
 
 from src.tests.python.native_ui2_e40_evidence import E40Evidence
 
+# AppKit's own pop-up dismissal time, as the bare control reports it on a host.
+FLOOR = 355_000_000
+BUDGET = 250_000_000
+
 
 @pytest.fixture
 def header():
@@ -274,7 +278,7 @@ def tracking(load):
 
 
 def test_tracking_has_separate_native_and_semantic_evidence(tracking):
-    E40Evidence(tracking, False).tracking("popup")
+    E40Evidence(tracking, False, FLOOR).tracking("popup")
 
 
 @pytest.mark.parametrize(
@@ -338,7 +342,7 @@ def test_tracking_native_progress_is_not_a_short_semantic_command(tracking):
     row["latency_histogram"] = [0] * 10002
     row["latency_histogram"][1500] = row["delivered"]
     row["maximum_latency_ns"] = 150_000_000
-    E40Evidence(tracking, False).tracking("popup")
+    E40Evidence(tracking, False, FLOOR).tracking("popup")
 
 
 def test_tracking_semantic_latency_budget_is_preserved(tracking):
@@ -347,12 +351,12 @@ def test_tracking_semantic_latency_budget_is_preserved(tracking):
     source = tracking["tracking"]["native_input"][-1]
     receipt["delivered_ns"] = source["submitted_ns"] + receipt["latency_ns"]
     with pytest.raises(AssertionError):
-        E40Evidence(tracking, False).tracking("popup")
+        E40Evidence(tracking, False, FLOOR).tracking("popup")
     E40Evidence(tracking, True).tracking("popup")
 
 
-@pytest.mark.parametrize("trial", ["slider", "resize", "sheet"])
-def test_tracking_uses_each_interactions_native_input(tracking, trial):
+def as_trial(tracking, trial):
+    """Turn the popup fixture into another tracking trial's evidence."""
     tracking["trial"] = trial
     interval = tracking["tracking"]
     count = 40 if trial == "sheet" else 22
@@ -400,7 +404,108 @@ def test_tracking_uses_each_interactions_native_input(tracking, trial):
         for index, row in enumerate(native):
             row.update(type=1 if index % 2 == 0 else 2, window_number=11, window_key=False)
             row["semantic_delivered_ns"] = row["dequeued_ns"] + 1
+
+
+@pytest.mark.parametrize("trial", ["slider", "resize", "sheet"])
+def test_tracking_uses_each_interactions_native_input(tracking, trial):
+    as_trial(tracking, trial)
     E40Evidence(tracking, False).tracking(trial)
+
+
+def dismiss(tracking, *, pacing=90_000_000, dismissal=365_000_000):
+    """Return follows the last highlight by `pacing`; the menu ends `dismissal` after Return."""
+    interval = tracking["tracking"]
+    native = interval["native_input"]
+    submitted = native[-2]["effect_observed_ns"] + pacing
+    exited = submitted + dismissal
+    native[-1].update(submitted_ns=submitted, post_returned_ns=submitted + 10_000, effect_observed_ns=exited)
+    interval["exited_ns"] = exited
+    commit = interval["semantic_receipts"][-1]
+    commit["delivered_ns"] = submitted + commit["latency_ns"]
+    tracking["classes"][0]["runnable_service_gaps_ns"] = [dismissal]
+    interval["service"]["input"]["maximum_gap_ns"] = pacing + dismissal
+
+
+def test_popup_return_is_credited_appkits_measured_dismissal(tracking):
+    dismiss(tracking)
+    E40Evidence(tracking, False, FLOOR).tracking("popup")
+    E40Evidence(tracking, True).tracking("popup")
+    # No measurement, or one too small to explain the wait, credits nothing.
+    for floor in (None, 0, True, 100_000_000):
+        with pytest.raises(AssertionError):
+            E40Evidence(tracking, False, floor).tracking("popup")
+
+
+@pytest.mark.parametrize("excess,accepted", [(BUDGET, True), (BUDGET + 1, False)])
+def test_popup_return_keeps_the_budget_above_the_floor(tracking, excess, accepted):
+    dismiss(tracking, pacing=0, dismissal=FLOOR + excess)
+    evidence = E40Evidence(tracking, False, FLOOR)
+    if accepted:
+        evidence.tracking("popup")
+    else:
+        with pytest.raises(AssertionError):
+            evidence.tracking("popup")
+
+
+@pytest.mark.parametrize("pacing,accepted", [(BUDGET - 10_000_000, True), (BUDGET - 10_000_000 + 1, False)])
+def test_popup_credit_covers_the_dismissal_and_nothing_before_it(tracking, pacing, accepted):
+    """Time between the last highlight and Return is not AppKit's dismissal."""
+    dismiss(tracking, pacing=pacing, dismissal=FLOOR + 10_000_000)
+    evidence = E40Evidence(tracking, False, FLOOR)
+    if accepted:
+        evidence.tracking("popup")
+    else:
+        with pytest.raises(AssertionError):
+            evidence.tracking("popup")
+
+
+@pytest.mark.parametrize("wait,accepted", [(BUDGET, True), (BUDGET + 1, False)])
+def test_popup_arrow_keys_get_no_credit(tracking, wait, accepted):
+    dismiss(tracking)
+    arrow = tracking["tracking"]["native_input"][0]
+    arrow["submitted_ns"] = arrow["effect_observed_ns"] - wait
+    evidence = E40Evidence(tracking, False, FLOOR)
+    if accepted:
+        evidence.tracking("popup")
+    else:
+        with pytest.raises(AssertionError):
+            evidence.tracking("popup")
+
+
+@pytest.mark.parametrize("reported", ["class", "service"])
+def test_popup_reported_gap_is_explained_by_its_inputs(tracking, reported):
+    """A gap no input accounts for cannot hide behind the dismissal's credit."""
+    dismiss(tracking)
+    if reported == "class":
+        tracking["classes"][0]["runnable_service_gaps_ns"] = [365_000_000 + 1_000_001]
+    else:
+        tracking["tracking"]["service"]["input"]["maximum_gap_ns"] = 90_000_000 + 365_000_000 + 1_000_001
+    with pytest.raises(AssertionError):
+        E40Evidence(tracking, False, FLOOR).tracking("popup")
+
+
+@pytest.mark.parametrize("reported", ["class", "service"])
+def test_popup_credit_reaches_no_other_class(tracking, reported):
+    dismiss(tracking)
+    if reported == "class":
+        tracking["classes"][2]["runnable_service_gaps_ns"] = [BUDGET + 1]
+    else:
+        tracking["tracking"]["service"]["timer"]["maximum_gap_ns"] = BUDGET + 1
+    with pytest.raises(AssertionError):
+        E40Evidence(tracking, False, FLOOR).tracking("popup")
+
+
+@pytest.mark.parametrize("trial", ["slider", "resize", "sheet"])
+@pytest.mark.parametrize("reported", ["class", "service"])
+def test_dismissal_credit_reaches_no_other_trial(tracking, trial, reported):
+    as_trial(tracking, trial)
+    E40Evidence(tracking, False, FLOOR).tracking(trial)
+    if reported == "class":
+        tracking["classes"][0]["runnable_service_gaps_ns"] = [BUDGET + 1]
+    else:
+        tracking["tracking"]["service"]["input"]["maximum_gap_ns"] = BUDGET + 1
+    with pytest.raises(AssertionError):
+        E40Evidence(tracking, False, FLOOR).tracking(trial)
 
 
 @pytest.mark.parametrize(
@@ -443,7 +548,7 @@ def test_popup_receipts_require_their_own_native_effect(tracking, defect):
 def test_popup_commit_can_precede_native_menu_exit(tracking):
     receipt = tracking["tracking"]["semantic_receipts"][-1]
     assert receipt["delivered_ns"] < tracking["tracking"]["exited_ns"]
-    E40Evidence(tracking, False).tracking("popup")
+    E40Evidence(tracking, False, FLOOR).tracking("popup")
 
 
 @pytest.mark.parametrize("samples", [[], [-1], [True]])
@@ -451,13 +556,13 @@ def test_popup_commit_can_precede_native_menu_exit(tracking):
 def test_tracking_requires_valid_close_observation(tracking, samples, sanitized):
     tracking["close_start_ns"] = samples
     with pytest.raises(AssertionError):
-        E40Evidence(tracking, sanitized).tracking("popup")
+        E40Evidence(tracking, sanitized, FLOOR).tracking("popup")
 
 
 def test_tracking_close_budget_exempts_only_sanitized_latency(tracking):
     tracking["close_start_ns"] = [250_000_001]
     with pytest.raises(AssertionError):
-        E40Evidence(tracking, False).tracking("popup")
+        E40Evidence(tracking, False, FLOOR).tracking("popup")
     E40Evidence(tracking, True).tracking("popup")
 
 
@@ -896,9 +1001,12 @@ def test_presentation_trials_skip_only_on_a_hosted_runner_that_presents_nothing(
     trial_program.write_text("#!/bin/sh\necho 'the native trial ran' >&2\nexit 3\n")
     trial_program.chmod(0o755)
 
+    dismissal = driver.E40NativeControl("menu-dismissal", [sys.executable, "-c", "pass"], [], "")
+    measured = tmp_path / "e40/menu-dismissal-control/execution.json"
+
     def run(trial):
         program = trial_program, {"frontend": "reference"}
-        driver.test_macos_ui2_e40(program, False, "desktop", trial, tmp_path, lambda: (), withheld)
+        driver.test_macos_ui2_e40(program, False, "desktop", trial, tmp_path, lambda: (), lambda: dismissal, withheld)
 
     reason = (
         "this hosted runner's GPU presents no frames (direct Metal control: 20 acquired, 20 completed, 0 presented)"
@@ -909,13 +1017,15 @@ def test_presentation_trials_skip_only_on_a_hosted_runner_that_presents_nothing(
             # Without the hosted observation the trial runs, and its own assertions decide.
             with pytest.raises(AssertionError, match="the native trial ran"):
                 run(trial)
+            # Only a popup trial that runs measures the platform's menu dismissal.
+            assert measured.is_file() == (trial not in {"load"})
             continue
         with pytest.raises(pytest.skip.Exception) as skipped:
             run(trial)
         assert skipped.value.msg == reason
         node = f"src/tests/python/test_native_ui2_macos_e40.py::test_macos_ui2_e40[plain-reference-desktop-{trial}]"
         assert hosted.classify(node, skipped.value.msg).id == "e40-presented-frames"
-        assert not (tmp_path / "e40/reference").exists()
+        assert not (tmp_path / "e40/reference").exists() and not measured.exists()
     # The control ran once and its counts stay beside the trials' evidence.
     assert json.loads((tmp_path / "e40/metal-control/observations.json").read_text()) == counts
     script.unlink()

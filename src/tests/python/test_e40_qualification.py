@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.ui.e40 import E40Run, LinuxE40Cases, MacOSE40Cases, MetalPresentation
+from tools.ui.e40 import E40Run, LinuxE40Cases, MacOSE40Cases, MenuDismissal, MetalPresentation
 
 NODES = LinuxE40Cases.nodes("python", "plain")
 METADATA = {"frontend": "python", "variant": "plain", "session": "x11", "revision": "a" * 40, "source_changes": []}
@@ -194,11 +194,18 @@ MAC_METADATA = {**METADATA, "frontend": "reference", "provider": "macos"}
 
 @pytest.fixture
 def mac_evidence(tmp_path, monkeypatch):
-    calls = []
+    class Calls(list):
+        """The delegated checks, with the dismissal floor each tracking check was given."""
+
+        floors: list
+
+    calls = Calls()
+    calls.floors = floors = []
 
     class Evidence:
-        def __init__(self, report, sanitized):
+        def __init__(self, report, sanitized, menu_dismissal_floor_ns=None):
             self.report = report
+            self.floor = menu_dismissal_floor_ns
             assert sanitized is False
 
         def bursts(self):
@@ -208,6 +215,7 @@ def mac_evidence(tmp_path, monkeypatch):
             calls.append((self.report["entry"], "load"))
 
         def tracking(self, trial):
+            floors.append((trial, self.floor))
             calls.append((self.report["entry"], trial))
 
         def presentations(self, path):
@@ -324,6 +332,100 @@ def test_mac_native_identity_cannot_be_reused_for_another_trial(tmp_path, mac_ev
     path.write_text(json.dumps({"entry": "desktop", "trial": "sheet"}))
     with pytest.raises(RuntimeError, match="native trial identity differs"):
         MacOSE40Cases.validate_evidence(tmp_path, MAC_METADATA)
+
+
+def menu_dismissal(root, **changes):
+    """Retain a bare menu-dismissal control's files; `changes` replace report or sample fields."""
+    directory = root / "native" / f"{MenuDismissal.CONTROL}-control"
+    directory.mkdir(parents=True, exist_ok=True)
+    samples = [
+        {
+            "entered_ns": 1_000,
+            "return_submitted_ns": 2_000_001_000,
+            "tracking_ended_ns": 2_000_001_000 + dismissal,
+            "dismissal_ns": dismissal,
+            "maximum_arrow_ns": 8_000_000,
+            "keys": 21,
+            "highlight_changes": 20,
+            "selected_index": 20,
+            "application_active": True,
+            "window_key": True,
+            "forced_cleanup": False,
+        }
+        for dismissal in (362_000_000, 355_000_000, 371_000_000, 358_000_000, 366_000_000)
+    ]
+    report = {
+        "schema": "btrc.ui2.macos-menu-dismissal-control/1",
+        "native_backend": "AppKit",
+        "btrc_code": False,
+        "clock": "mach_continuous_time nanoseconds",
+        "input_route": "menu-arrow-highlight-return",
+        "items": 21,
+        "samples": samples,
+        "unavailable": None,
+    }
+    execution = {"status": "completed", "returncode": 0}
+    for name, value in changes.items():
+        if name in execution:
+            execution[name] = value
+        elif name in report:
+            report[name] = value
+        else:
+            samples[2][name] = value
+    (directory / "execution.json").write_text(json.dumps(execution))
+    (directory / "observations.json").write_text(json.dumps(report))
+    return root / "native"
+
+
+def test_menu_dismissal_floor_is_the_smallest_complete_sample(tmp_path):
+    assert MenuDismissal.floor(menu_dismissal(tmp_path)) == 355_000_000
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"status": "failed"},
+        {"returncode": 1},
+        {"schema": "btrc.ui2.macos-menu-dismissal-control/0"},
+        {"btrc_code": True},
+        {"clock": "wall"},
+        {"items": 3},
+        {"unavailable": "CGPreflightPostEventAccess is false"},
+        {"samples": []},
+        {"forced_cleanup": True},
+        {"selected_index": 19},
+        {"highlight_changes": 19},
+        {"keys": 20},
+        {"application_active": False},
+        {"window_key": False},
+        {"dismissal_ns": 1},
+        {"tracking_ended_ns": 0},
+    ],
+)
+def test_incomplete_menu_dismissal_control_gives_no_floor(tmp_path, changes):
+    assert MenuDismissal.floor(menu_dismissal(tmp_path, **changes)) is None
+
+
+def test_missing_menu_dismissal_control_gives_no_floor(tmp_path):
+    assert MenuDismissal.floor(tmp_path / "native") is None
+    menu_dismissal(tmp_path)
+    (tmp_path / "native" / f"{MenuDismissal.CONTROL}-control" / "execution.json").unlink()
+    assert MenuDismissal.floor(tmp_path / "native") is None
+
+
+def test_mac_artifact_owner_gives_the_dismissal_floor_to_the_popup_trials_alone(tmp_path, mac_evidence):
+    menu_dismissal(tmp_path)
+    MacOSE40Cases.validate_evidence(tmp_path, MAC_METADATA)
+    assert sorted(mac_evidence.floors) == sorted(
+        (trial, 355_000_000 if trial == "popup" else None)
+        for trial in ("popup", "slider", "resize", "sheet")
+        for _ in MacOSE40Cases.entries
+    )
+
+
+def test_mac_artifact_owner_invents_no_dismissal_floor(tmp_path, mac_evidence):
+    MacOSE40Cases.validate_evidence(tmp_path, MAC_METADATA)
+    assert {floor for _, floor in mac_evidence.floors} == {None}
 
 
 MAC_NODES = MacOSE40Cases.nodes("reference", "plain")

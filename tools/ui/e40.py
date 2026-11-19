@@ -124,6 +124,67 @@ class MetalPresentation:
         )
 
 
+class MenuDismissal:
+    """How long AppKit alone takes to dismiss a pop-up menu after Return on this host.
+
+    The bare control (MenuDismissal.m) links no btrc code and repeats the popup
+    trial's stimulus. The popup trial's evidence credits this time to the one
+    interval that contains the dismissal; a host without a complete measurement
+    has no credit to give, and the trial's plain bound then fails.
+    """
+
+    CONTROL = "menu-dismissal"
+    SAMPLES = 5
+    ITEMS = 21
+
+    @classmethod
+    def _complete(cls, sample: dict[str, object]) -> bool:
+        """One sample walked every item, committed the last one and ended on its own."""
+        entered, submitted, ended, dismissal = (
+            sample[name] for name in ("entered_ns", "return_submitted_ns", "tracking_ended_ns", "dismissal_ns")
+        )
+        return (
+            all(type(value) is int for value in (entered, submitted, ended, dismissal))
+            and 0 < entered < submitted < ended
+            and dismissal == ended - submitted
+            and sample["keys"] == cls.ITEMS
+            and sample["highlight_changes"] == cls.ITEMS - 1
+            and sample["selected_index"] == cls.ITEMS - 1
+            and sample["application_active"] is True
+            and sample["window_key"] is True
+            and sample["forced_cleanup"] is False
+        )
+
+    @classmethod
+    def floor(cls, artifact_root: Path) -> int | None:
+        """The smallest complete sample in nanoseconds; None unless every sample is complete.
+
+        The smallest sample is the least the platform is seen to need, so any
+        noise in the control makes the trial's bound stricter, never looser.
+        """
+        directory = artifact_root / f"{cls.CONTROL}-control"
+        try:
+            execution = json.loads((directory / "execution.json").read_text())
+            report = json.loads((directory / "observations.json").read_text())
+            samples = report["samples"]
+            usable = (
+                execution["status"] == "completed"
+                and execution["returncode"] == 0
+                and report["schema"] == "btrc.ui2.macos-menu-dismissal-control/1"
+                and report["native_backend"] == "AppKit"
+                and report["btrc_code"] is False
+                and report["clock"] == "mach_continuous_time nanoseconds"
+                and report["input_route"] == "menu-arrow-highlight-return"
+                and report["items"] == cls.ITEMS
+                and report["unavailable"] is None
+                and len(samples) == cls.SAMPLES
+                and all(cls._complete(sample) for sample in samples)
+            )
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        return min(sample["dismissal_ns"] for sample in samples) if usable else None
+
+
 class MacOSE40Cases:
     """Hosted AppKit desktop/attached-host trials for one compiler variant."""
 
@@ -131,7 +192,7 @@ class MacOSE40Cases:
     entries = ("desktop", "host")
     presented_trials = ("load", "popup", "slider", "resize", "sheet")  # their evidence requires presented frames
     trials = ("bursts", *presented_trials)
-    controls = ("metal", "metal-vsync", "resize")
+    controls = ("metal", "metal-vsync", "resize", MenuDismissal.CONTROL)
 
     @classmethod
     def nodes(cls, frontend: str, variant: str, trials: tuple[str, ...] | None = None) -> list[str]:
@@ -212,7 +273,9 @@ class MacOSE40Cases:
                 report = json.loads((directory / "observations.json").read_text())
                 if report["entry"] != entry or report["trial"] != trial:
                     raise RuntimeError(f"macOS E40 native trial identity differs: {directory}")
-                evidence = E40Evidence(report, metadata["variant"] == "sanitized")
+                sanitized = metadata["variant"] == "sanitized"
+                floor = MenuDismissal.floor(output / "native") if trial == "popup" and not sanitized else None
+                evidence = E40Evidence(report, sanitized, floor)
                 if trial == "bursts":
                     evidence.bursts()
                 elif trial == "load":
