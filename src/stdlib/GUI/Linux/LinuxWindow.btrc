@@ -413,7 +413,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 		if (state != GPU_DEVICE_READY) { return false; }
 		var renderer = GPUSurfaceRenderer(device, surface.nativeSurface(), false);
 		self._renderer = renderer;
-		self._painter = LinuxPainter(device, renderer.nativeFormat(), self._context.fonts, self._context.darkTheme);
+		self._painter = LinuxPainter(device, renderer.nativeFormat());
 		self._host.device = device;
 		self._host.format = renderer.nativeFormat();
 		self._host.invalidation.mark();
@@ -432,7 +432,7 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 	/* When a painted view asked to be redrawn (a caret blink, a spinner); zero for none. */
 	public unsigned long long wakeAt() { return !self._suspended && self.isVisible() && !btrcGtkWindowIsMinimized(self._window) ? self._wakeAt : 0ULL; }
 
-	private RGBA background() { var theme = self._dark ? self._context.darkTheme : self._context.lightTheme; return theme.dark ? RGBA(30, 30, 33, 255) : RGBA(238, 238, 240, 255); }
+	private RGBA background() { return self._dark ? RGBA(30, 30, 33, 255) : RGBA(238, 238, 240, 255); }
 
 	/* Captures paint into an offscreen target: no mapped surface is needed, so
 	 * a window captures before it is shown and never disturbs presentation. */
@@ -476,11 +476,9 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 		if (availability != GPU_SURFACE_FRAME_READY) { return null; }
 		self._host.wakeSeconds = -1.0;
 		self._paintedRevision = self._host.invalidation.revision();
-		painter.setDefaultTheme(self._dark ? self._context.darkTheme : self._context.lightTheme);
 		painter.beginFrame(surface.pixelWidth(), surface.pixelHeight(), scale);
 		self.place(painter);
 		self._wakeAt = self._host.wakeSeconds >= 0.0 ? LinuxClock.after(self._host.wakeSeconds) : 0ULL;
-		if (painter.needsCorrectiveFrame()) { self._host.invalidation.mark(); }
 		painter.render(renderer);
 		if (!offscreen) { renderer.present(); return null; }
 		renderer.finishDrawing();
@@ -646,14 +644,6 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 	}
 
 	private void deliverPointer(AppPointerAction action, AppPointerButton button, int clicks) {
-		if (self._host.overlayId != 0) {
-			var overlay = self.locate(self._host.overlayId);
-			if (overlay != null && overlay.view.pointer(self.localEvent(action, button, clicks, overlay.originX, overlay.originY))) {
-				if (action == APP_POINTER_RELEASED && button == self._captureButton) { self.forgetCapture(); }
-				self._host.invalidation.mark();
-				return;
-			}
-		}
 		var path = self.hitPath(self._pointerX, self._pointerY);
 		bool captured = self._captureButton != APP_POINTER_BUTTON_NONE && (self._captureViewId != 0 || self._captureInputViewId != 0);
 		if (action == APP_POINTER_MOVED || (action == APP_POINTER_PRESSED && !captured)) { self.updateHover(path); }
@@ -700,10 +690,6 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 	/* `precise` deltas are a touchpad's points; the others are wheel notches. */
 	private void deliverScroll(double deltaX, double deltaY, bool precise) {
 		var event = AppScrollEvent(deltaX, deltaY, 0.0, 0.0, precise, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers);
-		if (self._host.overlayId != 0) {
-			var overlay = self.locate(self._host.overlayId);
-			if (overlay != null && overlay.view.scroll(event)) { return; }
-		}
 		var path = self.hitPath(self._pointerX, self._pointerY);
 		for (int index = path.len - 1; index >= 0; index--) {
 			var hit = path.get(index);
@@ -717,10 +703,6 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 	}
 
 	private void deliverKey(AppKeyboardEvent event) {
-		if (self._host.overlayId != 0) {
-			var overlay = self.locate(self._host.overlayId);
-			if (overlay != null && overlay.view.key(event)) { self._host.invalidation.mark(); return; }
-		}
 		for (int index = self._keys.len - 1; index >= 0; index--) {
 			var keys = self._keys.get(index);
 			if (!keys.isOpen()) { self._keys.remove(index); continue; }
@@ -854,7 +836,6 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 		if (self._host.focusInvalidated) { self._host.focusInvalidated = false; self.syncTextInput(); }
 		self.applyFocus();
 		if (self._host.focusedId != 0) { var focused = self.locate(self._host.focusedId); if (focused == null || !focused.view.node().effectiveEligible()) { self.moveFocus(0); } }
-		if (self._host.overlayId != 0 && self.locate(self._host.overlayId) == null) { self._host.overlayId = 0; }
 	}
 
 	private void layoutRoot() {
@@ -932,7 +913,6 @@ class LinuxWindow implements ILinuxWindow, ILinuxDevicePoller, IControlEventTarg
 		self.cancelCapture();
 		self.clearHover();
 		if (self._host.focusedId != 0) { self.moveFocus(0); }
-		self._host.overlayId = 0;
 		try { detaching.attachTo(null); detaching.node().markInteraction(false); }
 		catch (string error) {
 			transition.abort();

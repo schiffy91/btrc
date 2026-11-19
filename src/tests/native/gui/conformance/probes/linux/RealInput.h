@@ -31,6 +31,9 @@ struct RealInput {
     bool (*origin)(const char *title, double *x, double *y);
     /* The screen's size. */
     void (*extent)(double *width, double *height);
+    /* Whether the session gives a new window the whole screen, whatever
+     * size it asks for. */
+    bool (*fillsScreen)(void);
 };
 
 /* NULL when the display offers no way to send input. */

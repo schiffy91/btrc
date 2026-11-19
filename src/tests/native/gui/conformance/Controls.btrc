@@ -233,7 +233,7 @@ class ImagePixels implements IConformanceCase {
 	public void run(Turns turns) {
 		var window = GUI.createWindow("conformance image.pixels", 320.0, 160.0);
 		var view = GUI.createImageView();
-		window.attachRoot(view);
+		Stage.hold(window, view, 320.0, 160.0);
 		window.show();
 		var pixels = Image(32, 32);
 		pixels.fill(Palette.blue());

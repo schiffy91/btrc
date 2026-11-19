@@ -33,4 +33,15 @@ int conformanceProbeClose(const char *title);
  * takes it before each turn it gives the application. A platform whose
  * application drains its own input in its turn needs nothing here. */
 void conformanceProbeService(void);
+/* What the session does with the size a window asks for. */
+enum ConformanceWindowSizing {
+    /* The window has it. */
+    CONFORMANCE_WINDOW_SIZING_ASKED = 0,
+    /* A new window is given the whole screen instead; a size asked for
+     * after that is given (a Gamescope session). */
+    CONFORMANCE_WINDOW_SIZING_SCREEN_AT_FIRST = 1,
+    /* Every window has the whole screen, always (a phone). */
+    CONFORMANCE_WINDOW_SIZING_SCREEN_ALWAYS = 2
+};
+int conformanceProbeWindowSizing(void);
 #endif

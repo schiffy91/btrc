@@ -9,6 +9,7 @@
 #include "GtkProbe.h"
 #include "RealInput.h"
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,7 +18,7 @@ unsigned long btrcGtkAutomationSerial(void);
 int btrcGtkAutomationAwait(unsigned long serial, int timeoutMilliseconds);
 int btrcGtkAutomationPointer(unsigned int window, double *x, double *y);
 
-enum { ARRIVAL_MILLISECONDS = 500, SEARCH_MILLISECONDS = 60, APPEARANCE_ATTEMPTS = 60, DISPLAY_X11 = 2 };
+enum { ARRIVAL_MILLISECONDS = 500, SEARCH_MILLISECONDS = 60, APPEARANCE_ATTEMPTS = 160, DISPLAY_X11 = 2 };
 
 static const RealInput *input;
 /* The screen position of the located window's content origin. */
@@ -37,6 +38,13 @@ static const RealInput *realInput(void) {
         }
     }
     return input;
+}
+
+/* BTRC_CONFORMANCE_TRACE=1 says on stderr where the probe pointed and what
+ * the window saw, for a host that cannot be watched. */
+static void trace(const char *what, double askedX, double askedY, double seenX, double seenY) {
+    const char *wanted = getenv("BTRC_CONFORMANCE_TRACE");
+    if (wanted && strcmp(wanted, "1") == 0) { fprintf(stderr, "probe: %s asked %.1f,%.1f saw %.1f,%.1f content at %.1f,%.1f\n", what, askedX, askedY, seenX, seenY, content.x, content.y); }
 }
 
 static void arrived(unsigned long serial, int milliseconds) { btrcGtkAutomationAwait(serial, milliseconds); }
@@ -92,7 +100,14 @@ static bool activate(unsigned int window, const char *title) {
         unsigned long serial = btrcGtkAutomationSerial();
         bool known = input->activate(title);
         arrived(serial, SEARCH_MILLISECONDS);
-        if (known) { active = window; return true; }
+        if (known) {
+            /* Where the session gives the keyboard in its own time, it has
+             * only just arrived: let the toolkit take it before any input. */
+            arrived(btrcGtkAutomationSerial(), SEARCH_MILLISECONDS);
+            arrived(btrcGtkAutomationSerial(), SEARCH_MILLISECONDS);
+            active = window;
+            return true;
+        }
     }
     return false;
 }
@@ -100,12 +115,15 @@ static bool activate(unsigned int window, const char *title) {
 /* Put the pointer on a content position. A position outside the content is
  * sent as asked: nothing will report the pointer there. */
 static bool pointer(unsigned int window, const char *title, double x, double y) {
-    if (!realInput() || !activate(window, title) || !locate(window, title)) { return false; }
+    if (!realInput()) { trace("no real input", x, y, 0.0, 0.0); return false; }
+    if (!activate(window, title)) { trace("not activated", x, y, 0.0, 0.0); return false; }
+    if (!locate(window, title)) { trace("not located", x, y, 0.0, 0.0); return false; }
     for (int attempt = 0; attempt < 2; attempt++) {
         double seenX = 0.0;
         double seenY = 0.0;
-        if (!pointAt(window, content.x + x, content.y + y, ARRIVAL_MILLISECONDS, &seenX, &seenY)) { return true; }
+        if (!pointAt(window, content.x + x, content.y + y, ARRIVAL_MILLISECONDS, &seenX, &seenY)) { trace("outside", x, y, 0.0, 0.0); return true; }
         if (fabs(seenX - x) < 1.0 && fabs(seenY - y) < 1.0) { return true; }
+        trace("elsewhere", x, y, seenX, seenY);
         /* The window moved since it was located. */
         content.window = 0;
         if (!locate(window, title)) { return false; }
@@ -146,6 +164,8 @@ int gtkProbeText(unsigned int window, const char *title, const char *text) {
     arrived(serial, ARRIVAL_MILLISECONDS);
     return 1;
 }
+
+int gtkProbeFillsScreen(void) { return realInput() && input->fillsScreen() ? 1 : 0; }
 
 int gtkProbeClose(unsigned int window, const char *title) {
     if (!realInput() || !activate(window, title)) { return 0; }

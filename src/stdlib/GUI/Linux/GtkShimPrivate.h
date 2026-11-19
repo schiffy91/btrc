@@ -33,11 +33,6 @@ struct BtrcGtkControl* btrcGtkControlNew(unsigned int id, GtkWidget* widget);
 GtkWidget* btrcGtkControlWidget(struct BtrcGtkControl* control);
 void btrcGtkControlPushText(struct BtrcGtkControl* control, unsigned int type, int data, const char* text);
 
-#define BTRC_GTK_TYPE_CANVAS (btrc_gtk_canvas_get_type())
-G_DECLARE_FINAL_TYPE(BtrcGtkCanvas, btrc_gtk_canvas, BTRC_GTK, CANVAS, GtkWidget)
-#define BTRC_GTK_TYPE_SLOT (btrc_gtk_slot_get_type())
-G_DECLARE_FINAL_TYPE(BtrcGtkSlot, btrc_gtk_slot, BTRC_GTK, SLOT, GtkWidget)
-
 /* A canvas emits "resized" (width, height) when it is allocated. */
 GtkWidget* btrcGtkCanvasNew(void);
 /* A slot holds one control and keeps the only reference to it. */

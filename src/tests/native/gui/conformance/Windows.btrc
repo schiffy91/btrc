@@ -42,15 +42,23 @@ class WindowStateCase implements IConformanceCase {
 		turns.settle();
 		Expect.isTrue(window.isVisible());
 		var shown = window.state();
-		Expect.isTrue(shown.requestedVisible && shown.width == 400.0 && shown.height == 240.0 && shown.backingScale > 0.0, "a shown window has the content size it was made with");
+		Expect.isTrue(shown.requestedVisible && shown.backingScale > 0.0);
 		Expect.isTrue(log.states.length > 0, "showing a window is a state change");
-		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 400.0, 240.0), "the root, which fills the content");
-		int reported = log.states.length;
-		window.setContentSize(480.0, 300.0);
-		turns.settle();
-		Expect.isTrue(window.contentWidth() == 480.0 && window.contentHeight() == 300.0, "a window takes the content size it is given");
-		Expect.isTrue(log.states.length > reported && log.states.get(log.states.length - 1).width == 480.0, "a new size is a state change");
-		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 480.0, 300.0), "the root after the window grew");
+		if (Probe.windowSizing() == PROBE_WINDOW_SIZING_ASKED) {
+			Expect.isTrue(shown.width == 400.0 && shown.height == 240.0, "a shown window has the content size it was made with");
+		} else {
+			/* The session's size, not the program's: the window says what it has. */
+			Expect.isTrue(shown.width >= 400.0 && shown.height >= 240.0 && window.contentWidth() == shown.width && window.contentHeight() == shown.height, "a window the session sizes reports the size it has");
+		}
+		Picture(window).expect(Palette.red(), Frame(0.0, 0.0, shown.width, shown.height), "the root, which fills the content");
+		if (Probe.windowSizing() != PROBE_WINDOW_SIZING_SCREEN_ALWAYS) {
+			int reported = log.states.length;
+			window.setContentSize(480.0, 300.0);
+			turns.settle();
+			Expect.isTrue(window.contentWidth() == 480.0 && window.contentHeight() == 300.0, "a window takes the content size it is given");
+			Expect.isTrue(log.states.length > reported && log.states.get(log.states.length - 1).width == 480.0, "a new size is a state change");
+			Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 480.0, 300.0), "the root after the window was given another size");
+		}
 		window.setMinimumContentSize(320.0, 150.0);
 		var detached = window.detachRoot();
 		Expect.isTrue(detached == panel && panel.isOpen() && window.root() == null, "detaching returns the same open root");

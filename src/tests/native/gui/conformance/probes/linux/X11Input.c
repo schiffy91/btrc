@@ -1,7 +1,14 @@
 /* Real input on X11: the XTEST extension, on the probe's own connection.
  * A bare X server has no window manager, so the probe also does that part:
  * it raises a window and gives it the keyboard, and asks it to close the way
- * a window manager does (WM_DELETE_WINDOW). */
+ * a window manager does (WM_DELETE_WINDOW).
+ *
+ * Gamescope's session (a Steam Deck's Game Mode) is a compositor over
+ * several X servers that gives the screen and its input to one application:
+ * the first on the list Steam keeps on the first server's root, matched to
+ * windows by the app id each carries. There the probe does Steam's part
+ * too: it gives the window an app id of its own and puts that id at the
+ * head of the list, and takes it off again when the process ends. */
 #include "RealInput.h"
 #include "../ConformanceProbe.h"
 #include <X11/Xatom.h>
@@ -10,14 +17,20 @@
 #include <X11/extensions/XTest.h>
 #include <X11/keysym.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* The app id the probe's windows carry in a Gamescope session: "BTRC". */
+enum { GAMESCOPE_APP = 0x42545243, GAMESCOPE_APPS = 16 };
 
 static struct {
     Display *display;
     Window root;
     /* A key the layout leaves unused, lent to each character in turn. */
     KeyCode spare;
+    /* Gamescope's first X server, where Steam's list is; NULL anywhere else. */
+    Display *gamescope;
 } x;
 
 static bool titled(Window window, const char *title) {
@@ -146,12 +159,87 @@ static bool x11Text(const char *text, void (*typed)(void)) {
         XSync(x.display, False);
         typed();
     }
+    /* The key goes back unused: the server may outlive this process, and a
+     * key left with a symbol is one fewer to lend next time. */
+    KeySym none = NoSymbol;
+    XChangeKeyboardMapping(x.display, x.spare, 1, &none, 1);
+    XSync(x.display, False);
+    typed();
     return true;
+}
+
+/* Write Steam's list without the probe's id, or with it at the head. */
+static void gamescopeList(bool listed) {
+    Window root = DefaultRootWindow(x.gamescope);
+    Atom list = XInternAtom(x.gamescope, "GAMESCOPECTRL_BASELAYER_APPID", False);
+    Atom type = None;
+    int format = 0;
+    unsigned long count = 0;
+    unsigned long remaining = 0;
+    unsigned char *value = NULL;
+    unsigned long apps[GAMESCOPE_APPS + 1];
+    int length = 0;
+    if (listed) { apps[length++] = GAMESCOPE_APP; }
+    if (XGetWindowProperty(x.gamescope, root, list, 0, GAMESCOPE_APPS, False, XA_CARDINAL, &type, &format, &count, &remaining, &value) == Success && value) {
+        const unsigned long *present = (const unsigned long *)value;
+        if (listed && count > 0 && present[0] == GAMESCOPE_APP) { XFree(value); return; }
+        for (unsigned long index = 0; format == 32 && index < count && length <= GAMESCOPE_APPS; index++) {
+            if (present[index] != GAMESCOPE_APP) { apps[length++] = present[index]; }
+        }
+        XFree(value);
+    }
+    XChangeProperty(x.gamescope, root, list, XA_CARDINAL, 32, PropModeReplace, (const unsigned char *)apps, length);
+    XSync(x.gamescope, False);
+}
+
+static void gamescopeLeave(void) { if (x.gamescope) { gamescopeList(false); } }
+
+/* This server's number among Gamescope's, or -1 when the session is not Gamescope's. */
+static int gamescopeServer(void) {
+    Atom type = None;
+    int format = 0;
+    unsigned long count = 0;
+    unsigned long remaining = 0;
+    unsigned char *value = NULL;
+    int server = -1;
+    if (XGetWindowProperty(x.display, x.root, XInternAtom(x.display, "GAMESCOPE_XWAYLAND_SERVER_ID", False), 0, 1, False, XA_CARDINAL, &type, &format, &count, &remaining, &value) == Success && value) {
+        if (format == 32 && count == 1) { server = (int)*(const unsigned long *)value; }
+        XFree(value);
+    }
+    return server;
+}
+
+/* Gamescope numbers its servers' displays in a row from the first. */
+static void gamescopeEnter(void) {
+    static bool tried;
+    if (tried) { return; }
+    tried = true;
+    int server = gamescopeServer();
+    const char *name = DisplayString(x.display);
+    const char *colon = name ? strrchr(name, ':') : NULL;
+    if (server < 0 || !colon) { return; }
+    char first[32];
+    snprintf(first, sizeof first, ":%d", atoi(colon + 1) - server);
+    x.gamescope = XOpenDisplay(first);
+    if (x.gamescope) { atexit(gamescopeLeave); }
 }
 
 static bool x11Activate(const char *title) {
     Window window = named(x.root, title, 1);
     if (window == None) { return false; }
+    gamescopeEnter();
+    if (x.gamescope) {
+        /* Gamescope gives the keyboard itself, in its own time: the window
+         * is active once it has it. */
+        unsigned long app = GAMESCOPE_APP;
+        Window focused = None;
+        int revert = 0;
+        XChangeProperty(x.display, window, XInternAtom(x.display, "STEAM_GAME", False), XA_CARDINAL, 32, PropModeReplace, (const unsigned char *)&app, 1);
+        gamescopeList(true);
+        flush();
+        XGetInputFocus(x.display, &focused, &revert);
+        return focused == window;
+    }
     XRaiseWindow(x.display, window);
     XSetInputFocus(x.display, window, RevertToParent, CurrentTime);
     return flush();
@@ -188,9 +276,14 @@ static void x11Extent(double *width, double *height) {
     *height = DisplayHeight(x.display, DefaultScreen(x.display));
 }
 
+/* Gamescope's session shows one application at a time and makes its new
+ * window the size of the screen; the window may then ask for another. */
+static bool x11FillsScreen(void) { return gamescopeServer() >= 0; }
+
 static const RealInput x11Input = {
     .move = x11Move, .button = x11Button, .wheel = x11Wheel, .key = x11Key, .text = x11Text,
     .activate = x11Activate, .close = x11Close, .origin = x11Origin, .extent = x11Extent,
+    .fillsScreen = x11FillsScreen,
 };
 
 const RealInput *realInputX11(void) {

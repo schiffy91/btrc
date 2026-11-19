@@ -1,19 +1,13 @@
 import Library.Math;
-import Library.Strings;
-import Library.Map;
 import Library.OwnedBuffer;
 import Library.Vector;
-import Library.Image;
 import Library.GPU.GPUDevice;
 import Library.GPU.GPUSurfaceRenderer;
 import Library.GPU.WebGPU;
-import Library.GUI.Linux.LinuxFonts;
 import Library.GUI.Linux.LinuxContext;
 import Library.GUI.Linux.GtkControls;
-import Library.GUI.Linux.LinuxSymbols;
 
-/* One sampled texture with its bind group; images, glyph atlases and GPU-view
- * targets all bind through the same layout. Views borrow it per frame. */
+/* One sampled texture with its bind group: a GPU view's target, borrowed per frame. */
 class LinuxTexture {
 	private GPUDevice _device;
 	private WGPUTexture _texture = null;
@@ -28,27 +22,6 @@ class LinuxTexture {
 		self._width = width;
 		self._height = height;
 		self._ownsTexture = ownsTexture;
-	}
-
-	/* An uploaded RGBA or R8 texture. */
-	class LinuxTexture create(GPUDevice device, int width, int height, WGPUTextureFormat format, WGPUBindGroupLayout layout, WGPUSampler sampler, WGPUBuffer uniform, unsigned long long uniformBytes) {
-		if (width <= 0 || height <= 0) { throw "Native texture requires positive dimensions"; }
-		var texture = LinuxTexture(device, width, height, true);
-		WGPUTextureDescriptor descriptor = {null};
-		descriptor.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
-		descriptor.dimension = WGPUTextureDimension_2D;
-		descriptor.size.width = (uint32_t)width;
-		descriptor.size.height = (uint32_t)height;
-		descriptor.size.depthOrArrayLayers = 1u;
-		descriptor.format = format;
-		descriptor.mipLevelCount = 1u;
-		descriptor.sampleCount = 1u;
-		texture._texture = wgpuDeviceCreateTexture(device.nativeDevice(), &descriptor);
-		if (texture._texture == null) { throw "Cannot allocate native texture"; }
-		texture._view = wgpuTextureCreateView(texture._texture, null);
-		if (texture._view == null) { texture.close(); throw "Cannot allocate native texture view"; }
-		texture.bind(layout, sampler, uniform, uniformBytes);
-		return texture;
 	}
 
 	/* A borrowed view, for example a GPU view's offscreen target. */
@@ -85,21 +58,6 @@ class LinuxTexture {
 
 	public WGPUBindGroup nativeGroup() { if (self._group == null) { throw "Native texture is closed"; } return self._group; }
 
-	/* Rows are tightly packed `bytesPerPixel` bytes per texel. */
-	public void upload(const unsigned char* pixels, int x, int y, int width, int height, int bytesPerPixel) {
-		if (self._texture == null || pixels == null || width <= 0 || height <= 0 || x < 0 || y < 0 || x + width > self._width || y + height > self._height) { throw "Native texture upload is out of bounds"; }
-		WGPUTexelCopyTextureInfo destination = {null};
-		destination.texture = self._texture;
-		destination.aspect = WGPUTextureAspect_All;
-		destination.origin.x = (uint32_t)x;
-		destination.origin.y = (uint32_t)y;
-		WGPUTexelCopyBufferLayout layout = {0ULL};
-		layout.bytesPerRow = (uint32_t)width * (uint32_t)bytesPerPixel;
-		layout.rowsPerImage = (uint32_t)height;
-		WGPUExtent3D extent = {(uint32_t)width, (uint32_t)height, 1u};
-		wgpuQueueWriteTexture(self._device.nativeQueue(), &destination, pixels, (size_t)width * (size_t)height * (size_t)bytesPerPixel, &layout, &extent);
-	}
-
 	public void close() {
 		if (self._group != null) { wgpuBindGroupRelease(self._group); self._group = null; }
 		if (self._ownsTexture) {
@@ -111,83 +69,6 @@ class LinuxTexture {
 	}
 
 	public void __del__() { self.close(); }
-}
-
-/* Where one glyph lives in the atlas, in texels. */
-class LinuxAtlasSlot {
-	public int x;
-	public int y;
-	public int width;
-	public int height;
-	public LinuxGlyph glyph;
-
-	public LinuxAtlasSlot(int x, int y, int width, int height, LinuxGlyph glyph) { self.x = x; self.y = y; self.width = width; self.height = height; self.glyph = glyph; }
-}
-
-/* A shelf-packed R8 coverage atlas per painter. A full atlas places no more
- * glyphs: texels already recorded this frame stay valid, and the painter
- * resets it at the start of the next frame, which re-uploads what it needs. */
-class LinuxGlyphAtlas {
-	private LinuxTexture _texture;
-	private int _size;
-	private int _shelfX = 0;
-	private int _shelfY = 0;
-	private int _shelfHeight = 0;
-	private Map<long long, LinuxAtlasSlot> _slots;
-	private OwnedBuffer<unsigned char> _staging;
-	private bool _full = false;
-
-	public LinuxGlyphAtlas(GPUDevice device, int size, WGPUBindGroupLayout layout, WGPUSampler sampler, WGPUBuffer uniform, unsigned long long uniformBytes) {
-		self._slots = new Map<long long, LinuxAtlasSlot>();
-		self._size = size;
-		self._texture = LinuxTexture.create(device, size, size, WGPUTextureFormat_R8Unorm, layout, sampler, uniform, uniformBytes);
-		self._staging = OwnedBuffer((size_t)(512 * 512));
-		if (!self._staging.opened()) { throw "Cannot allocate glyph staging"; }
-	}
-
-	public LinuxTexture texture() { return self._texture; }
-
-	public int size() { return self._size; }
-
-	public bool full() { return self._full; }
-
-	/* Only between frames: a reset mid-frame would overwrite recorded glyphs. */
-	public void reset() {
-		self._slots.clear();
-		self._shelfX = 0;
-		self._shelfY = 0;
-		self._shelfHeight = 0;
-		self._full = false;
-	}
-
-	public LinuxAtlasSlot? slot(LinuxFace face, int codepoint) {
-		long long key = (long long)face.key * 2097152LL + (long long)codepoint;
-		if (self._slots.has(key)) { return self._slots.get(key); }
-		var glyph = face.glyph(codepoint);
-		if (glyph.width <= 0 || glyph.rows <= 0 || glyph.raster == null) {
-			var empty = LinuxAtlasSlot(0, 0, 0, 0, glyph);
-			self._slots.put(key, empty);
-			return empty;
-		}
-		int width = glyph.width + 2;
-		int height = glyph.rows + 2;
-		if (width > 512 || height > 512 || width > self._size || height > self._size) { return null; }
-		if (self._shelfX + width > self._size) { self._shelfY += self._shelfHeight; self._shelfX = 0; self._shelfHeight = 0; }
-		if (self._shelfY + height > self._size) { self._full = true; return null; }
-		var slot = LinuxAtlasSlot(self._shelfX + 1, self._shelfY + 1, glyph.width, glyph.rows, glyph);
-		self._shelfX += width;
-		if (height > self._shelfHeight) { self._shelfHeight = height; }
-		var staging = self._staging.borrow();
-		memset(staging, 0, (size_t)(width * height));
-		for (int row = 0; row < glyph.rows; row++) {
-			for (int column = 0; column < glyph.width; column++) { staging[(row + 1) * width + column + 1] = (unsigned char)glyph.coverage(row, column); }
-		}
-		self._texture.upload(staging, slot.x - 1, slot.y - 1, width, height, 1);
-		self._slots.put(key, slot);
-		return slot;
-	}
-
-	public void close() { self._texture.close(); self._slots.clear(); }
 }
 
 /* Draw-list segment: a vertex range sharing one texture and scissor. */
@@ -238,14 +119,13 @@ class LinuxPlacement {
 	}
 }
 
-/* The per-window 2D painter. Everything records into one vertex stream in
- * backing pixels and replays inside the window's render pass: solid and
- * rounded rectangles, rings, images, glyphs and sampled GPU-view targets.
- * Coordinates arrive in logical points from the window's top-left. */
-class LinuxPainter implements ILinuxStrokes {
+/* The per-window compositor of drawn content. Each GPU view's target is
+ * recorded as one textured quad, in backing pixels, and the stream replays
+ * inside the window's render pass. Coordinates arrive in logical points
+ * from the window's top-left. Everything else in a window is a GTK widget. */
+class LinuxPainter {
 	private GPUDevice _device;
 	private WGPUTextureFormat _format;
-	private LinuxFonts _fonts;
 	private WGPUShaderModule _shader = null;
 	private WGPUBindGroupLayout _layout = null;
 	private WGPUPipelineLayout _pipelineLayout = null;
@@ -259,36 +139,19 @@ class LinuxPainter implements ILinuxStrokes {
 	private int _vertexCount = 0;
 	private Vector<LinuxDrawRun> _runs = [];
 	private Vector<LinuxClip> _clips = [];
-	private Vector<LinuxTheme> _themes = [];
-	private LinuxTheme _defaultTheme;
-	private LinuxGlyphAtlas _atlas;
-	private LinuxTexture _white;
-	private Map<int, LinuxTexture> _images;
-	private Map<int, unsigned long long> _imageUse;
-	private unsigned long long _frame = 0ULL;
-	private bool _freshAtlas = false;
-	private bool _atlasRetry = false;
 	private double _scale = 1.0;
 	private int _pixelWidth = 0;
 	private int _pixelHeight = 0;
 	private bool _closed = false;
 
-	public LinuxPainter(GPUDevice device, WGPUTextureFormat format, LinuxFonts fonts, LinuxTheme theme) {
+	public LinuxPainter(GPUDevice device, WGPUTextureFormat format) {
 		if (device.state() != GPU_DEVICE_READY) { throw "Native painter requires a ready device"; }
-		self._images = new Map<int, LinuxTexture>();
-		self._imageUse = new Map<int, unsigned long long>();
 		self._device = device;
 		self._format = format;
-		self._fonts = fonts;
-		self._defaultTheme = theme;
 		self._streamCapacity = (size_t)(16 * 6 * 1024);
 		self._stream = OwnedBuffer(self._streamCapacity);
 		if (!self._stream.opened()) { throw "Cannot allocate painter stream"; }
 		self.createResources();
-		self._atlas = LinuxGlyphAtlas(device, 2048, self._layout, self._sampler, self._uniform, 16ULL);
-		unsigned char white[4] = {255, 255, 255, 255};
-		self._white = LinuxTexture.create(device, 1, 1, WGPUTextureFormat_RGBA8Unorm, self._layout, self._sampler, self._uniform, 16ULL);
-		self._white.upload(white, 0, 0, 1, 1, 4);
 	}
 
 	class string shaderSource() { return "struct Uniforms { viewport: vec4<f32> };\n" + "@group(0) @binding(0) var<uniform> uniforms: Uniforms;\n" + "@group(0) @binding(1) var atlas: texture_2d<f32>;\n" + "@group(0) @binding(2) var atlasSampler: sampler;\n" + "struct VertexInput { @location(0) position: vec2<f32>, @location(1) uv: vec2<f32>, @location(2) color: vec4<f32>, @location(3) rect: vec4<f32>, @location(4) params: vec4<f32> };\n" + "struct VertexOutput { @builtin(position) clip: vec4<f32>, @location(0) uv: vec2<f32>, @location(1) color: vec4<f32>, @location(2) rect: vec4<f32>, @location(3) params: vec4<f32> };\n" + "@vertex fn vs_main(input: VertexInput) -> VertexOutput {\n" + "  var out: VertexOutput;\n" + "  out.clip = vec4<f32>(input.position.x / uniforms.viewport.x * 2.0 - 1.0, 1.0 - input.position.y / uniforms.viewport.y * 2.0, 0.0, 1.0);\n" + "  out.uv = input.uv; out.color = input.color; out.rect = input.rect; out.params = input.params;\n" + "  return out;\n" + "}\n" + "fn coverage(pixel: vec2<f32>, rect: vec4<f32>, radius: f32) -> f32 {\n" + "  let half = rect.zw * 0.5;\n" + "  let center = rect.xy + half;\n" + "  let r = min(radius, min(half.x, half.y));\n" + "  let q = abs(pixel - center) - half + vec2<f32>(r, r);\n" + "  let d = length(max(q, vec2<f32>(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;\n" + "  return clamp(0.5 - d, 0.0, 1.0);\n" + "}\n" + "@fragment fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {\n" + "  let sampled = textureSample(atlas, atlasSampler, input.uv);\n" + "  let mode = i32(input.params.y + 0.5);\n" + "  var color = input.color;\n" + "  if (mode == 1) { color = color * sampled; }\n" + "  else if (mode == 2) { color.a = color.a * sampled.r; }\n" + "  else if (mode == 3) { color.a = color.a * coverage(input.clip.xy, input.rect, input.params.x); }\n" + "  else if (mode == 4) {\n" + "    let inset = input.params.z;\n" + "    let outer = coverage(input.clip.xy, input.rect, input.params.x);\n" + "    let inner = coverage(input.clip.xy, vec4<f32>(input.rect.x + inset, input.rect.y + inset, input.rect.z - 2.0 * inset, input.rect.w - 2.0 * inset), max(input.params.x - inset, 0.0));\n" + "    color.a = color.a * clamp(outer - inner, 0.0, 1.0);\n" + "  }\n" + "  else if (mode == 5) { color = color * sampled; color.a = color.a * coverage(input.clip.xy, input.rect, input.params.x); }\n" + "  return color;\n" + "}\n"; }
@@ -405,42 +268,8 @@ class LinuxPainter implements ILinuxStrokes {
 	/* Wrap an external view (a GPU view's offscreen target) for sampling. */
 	public LinuxTexture borrowTexture(WGPUTextureView view, int width, int height) { return LinuxTexture.borrow(self._device, view, width, height, self._layout, self._sampler, self._uniform, 16ULL); }
 
-	/* Upload decoded RGBA pixels once per image identity; unused uploads
-	 * are released after a few seconds of frames so recycled artwork stays bounded. */
-	public LinuxTexture imageTexture(int identity, Image pixels) {
-		self._imageUse.put(identity, self._frame);
-		if (self._images.has(identity)) { return self._images.get(identity); }
-		if (pixels == null || pixels.isEmpty() || pixels.data == null) { throw "Native image texture requires pixels"; }
-		var texture = LinuxTexture.create(self._device, pixels.width, pixels.height, WGPUTextureFormat_RGBA8Unorm, self._layout, self._sampler, self._uniform, 16ULL);
-		texture.upload((const unsigned char*)pixels.data, 0, 0, pixels.width, pixels.height, 4);
-		self._images.put(identity, texture);
-		return texture;
-	}
-
-	public void forgetImageTexture(int identity) {
-		if (!self._images.has(identity)) { return; }
-		self._images.get(identity).close();
-		self._images.remove(identity);
-		if (self._imageUse.has(identity)) { self._imageUse.remove(identity); }
-	}
-
-	private void evictImages() {
-		if (self._frame % 64ULL != 0ULL) { return; }
-		Vector<int> stale = [];
-		for identity in self._images.keys() {
-			unsigned long long used = self._imageUse.has(identity) ? self._imageUse.get(identity) : 0ULL;
-			if (self._frame - used > 240ULL) { stale.push(identity); }
-		}
-		for identity in stale { self.forgetImageTexture(identity); }
-	}
-
 	public void beginFrame(int pixelWidth, int pixelHeight, double scale) {
 		if (self._closed) { throw "Native painter is closed"; }
-		self._frame++;
-		self.evictImages();
-		self._freshAtlas = self._atlas.full();
-		if (self._freshAtlas) { self._atlas.reset(); }
-		self._atlasRetry = false;
 		self._pixelWidth = pixelWidth;
 		self._pixelHeight = pixelHeight;
 		self._scale = scale;
@@ -448,21 +277,7 @@ class LinuxPainter implements ILinuxStrokes {
 		self._runs.clear();
 		self._clips.clear();
 		self._clips.push(LinuxClip(0.0, 0.0, (double)pixelWidth / scale, (double)pixelHeight / scale));
-		self._themes.clear();
-		self._themes.push(self._defaultTheme);
 	}
-
-	/* True when the atlas filled during this frame and dropped glyphs; one
-	 * more frame, starting from an empty atlas, draws them. */
-	public bool needsCorrectiveFrame() { return self._atlasRetry; }
-
-	public void setDefaultTheme(LinuxTheme theme) { self._defaultTheme = theme; }
-
-	public void pushTheme(LinuxTheme theme) { self._themes.push(theme); }
-
-	public void popTheme() { if (self._themes.len > 1) { self._themes.pop(); } }
-
-	public LinuxTheme theme() { return self._themes.last(); }
 
 	public void pushClip(double x, double y, double width, double height) {
 		var current = self._clips.last();
@@ -537,110 +352,10 @@ class LinuxPainter implements ILinuxStrokes {
 		run.count += 6;
 	}
 
-	/* Emit an arbitrary quad (four pixel-space corners) with a flat color. */
-	public void polygon(double x0, double y0, double x1, double y1, double x2, double y2, double x3, double y3, RGBA color) {
-		if (color.alpha == 0) { return; }
-		double s = self._scale;
-		var run = self.run(self._white);
-		self.reserve(6);
-		var stream = self._stream.borrow();
-		int base = self._vertexCount;
-		self.vertex(stream, base, x0 * s, y0 * s, 0.5, 0.5, color, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0);
-		self.vertex(stream, base + 1, x1 * s, y1 * s, 0.5, 0.5, color, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0);
-		self.vertex(stream, base + 2, x2 * s, y2 * s, 0.5, 0.5, color, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0);
-		self.vertex(stream, base + 3, x0 * s, y0 * s, 0.5, 0.5, color, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0);
-		self.vertex(stream, base + 4, x2 * s, y2 * s, 0.5, 0.5, color, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0);
-		self.vertex(stream, base + 5, x3 * s, y3 * s, 0.5, 0.5, color, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0.0);
-		self._vertexCount += 6;
-		run.count += 6;
-	}
-
-	public void triangle(double x0, double y0, double x1, double y1, double x2, double y2, RGBA color) { self.polygon(x0, y0, x1, y1, x2, y2, x2, y2, color); }
-
-	/* A stroked segment with round-ish square caps, `width` points thick. */
-	public void line(double x0, double y0, double x1, double y1, double width, RGBA color) {
-		double dx = x1 - x0;
-		double dy = y1 - y0;
-		double length = Math.sqrt((float)(dx * dx + dy * dy));
-		if (length <= 0.0001) { self.fillRect(x0 - width * 0.5, y0 - width * 0.5, width, width, color, width * 0.5); return; }
-		double nx = -dy / length * width * 0.5;
-		double ny = dx / length * width * 0.5;
-		self.polygon(x0 + nx, y0 + ny, x1 + nx, y1 + ny, x1 - nx, y1 - ny, x0 - nx, y0 - ny, color);
-	}
-
-	public void fillRect(double x, double y, double width, double height, RGBA color, double radius = 0.0) {
-		double s = self._scale;
-		self.quad(self._white, x * s, y * s, width * s, height * s, 0.5, 0.5, 0.5, 0.5, color, radius * s, radius > 0.0 ? 3 : 0, 0.0);
-	}
-
-	public void strokeRect(double x, double y, double width, double height, RGBA color, double radius, double thickness) {
-		double s = self._scale;
-		self.quad(self._white, x * s, y * s, width * s, height * s, 0.5, 0.5, 0.5, 0.5, color, radius * s, 4, thickness * s);
-	}
-
-	public void fillCircle(double centerX, double centerY, double radius, RGBA color) { self.fillRect(centerX - radius, centerY - radius, radius * 2.0, radius * 2.0, color, radius); }
-
-	public void strokeCircle(double centerX, double centerY, double radius, RGBA color, double thickness) { self.strokeRect(centerX - radius, centerY - radius, radius * 2.0, radius * 2.0, color, radius, thickness); }
-
 	/* Draw a texture stretched to a logical rectangle, optionally rounded. */
 	public void texture(LinuxTexture texture, double x, double y, double width, double height, RGBA tint, double radius = 0.0) {
 		double s = self._scale;
 		self.quad(texture, x * s, y * s, width * s, height * s, 0.0, 0.0, 1.0, 1.0, tint, radius * s, radius > 0.0 ? 5 : 1, 0.0);
-	}
-
-	/* Aspect-preserving image placement centered inside the rectangle. */
-	public void imageFit(LinuxTexture texture, double x, double y, double width, double height, RGBA tint, double radius = 0.0) {
-		if (width <= 0.0 || height <= 0.0 || texture.width() <= 0 || texture.height() <= 0) { return; }
-		double scaleX = width / (double)texture.width();
-		double scaleY = height / (double)texture.height();
-		double fit = Math.minDouble(scaleX, scaleY);
-		double drawWidth = (double)texture.width() * fit;
-		double drawHeight = (double)texture.height() * fit;
-		self.texture(texture, x + (width - drawWidth) * 0.5, y + (height - drawHeight) * 0.5, drawWidth, drawHeight, tint, radius);
-	}
-
-	/* Draw one line of text with its top-left at (x, y); returns the advance in points. */
-	public double text(string value, double x, double y, double size, bool bold, RGBA color) {
-		var face = self._fonts.face(size, self._scale, bold);
-		double s = self._scale;
-		double penX = Math.floorDouble(x * s) + 0.0;
-		double baseline = Math.floorDouble(y * s + face.ascent + 0.5);
-		int offset = 0;
-		var atlasTexture = self._atlas.texture();
-		double atlasSize = (double)self._atlas.size();
-		while (offset < value.len()) {
-			int codepoint = UTF8.decode(value, value.len(), &offset);
-			var slot = self._atlas.slot(face, codepoint);
-			if (slot == null) {
-				if (self._atlas.full() && !self._freshAtlas) { self._atlasRetry = true; }  // the reset next frame fits it
-				penX += face.glyph(codepoint).advance;
-				continue;
-			}
-			var glyph = slot.glyph;
-			if (slot.width > 0 && slot.height > 0) {
-				double gx = penX + (double)glyph.left;
-				double gy = baseline - (double)glyph.top;
-				self.quad(atlasTexture, gx, gy, (double)slot.width, (double)slot.height, (double)slot.x / atlasSize, (double)slot.y / atlasSize, (double)(slot.x + slot.width) / atlasSize, (double)(slot.y + slot.height) / atlasSize, color, 0.0, 2, 0.0);
-			}
-			penX += glyph.advance;
-		}
-		return (penX - Math.floorDouble(x * s)) / s;
-	}
-
-	public double textWidth(string value, double size, bool bold) { return self._fonts.textWidth(value, size, self._scale, bold); }
-
-	public double lineHeight(double size, bool bold) { return self._fonts.lineHeight(size, self._scale, bold); }
-
-	/* Draw text vertically centered in a box, horizontally aligned by `align`
-	 * (0 left, 1 center, 2 right), clipped to the box. */
-	public void textInBox(string value, double x, double y, double width, double height, double size, bool bold, RGBA color, int align) {
-		double textWidth = self.textWidth(value, size, bold);
-		double lineHeight = self.lineHeight(size, bold);
-		double textX = align == 1 ? x + (width - textWidth) * 0.5 : (align == 2 ? x + width - textWidth : x);
-		double textY = y + (height - lineHeight) * 0.5;
-		self.pushClip(x, y, width, height);
-		self.text(value, textX, textY, size, bold, color);
-		self.popClip();
 	}
 
 	/* Replay the recorded stream into the renderer's active pass. */
@@ -679,11 +394,6 @@ class LinuxPainter implements ILinuxStrokes {
 		if (self._closed) { return; }
 		self._closed = true;
 		self._runs.clear();
-		for identity in self._images.keys() { self._images.get(identity).close(); }
-		self._images.clear();
-		self._imageUse.clear();
-		self._atlas.close();
-		self._white.close();
 		if (self._vertices != null) { wgpuBufferRelease(self._vertices); self._vertices = null; }
 		if (self._uniform != null) { wgpuBufferRelease(self._uniform); self._uniform = null; }
 		if (self._sampler != null) { wgpuSamplerRelease(self._sampler); self._sampler = null; }

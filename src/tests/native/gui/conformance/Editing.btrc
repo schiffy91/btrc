@@ -26,14 +26,20 @@ class TextLog implements ITextControlEventHandler {
 }
 
 /* Typing into a text field is a draft until Return commits it or Escape
- * cancels it; the program's own setText is neither. */
+ * cancels it; the program's own setText is neither.
+ *
+ * Nothing here depends on a selection outliving the key that made it. In a
+ * Gamescope session it does not: Gamescope takes the X primary selection
+ * for its own clipboard as soon as a field claims it, and GTK drops a
+ * selection it no longer owns. So the field starts empty, and what is
+ * typed later is cancelled whether or not it replaced what was there. */
 class TextFieldEditing implements IConformanceCase {
 	public string name() { return "textfield.editing"; }
 
 	public void run(Turns turns) {
 		var window = GUI.createWindow("conformance textfield.editing", 320.0, 60.0);
-		var field = GUI.createTextField("saved", "");
-		window.attachRoot(field);
+		var field = GUI.createTextField("", "saved");
+		Stage.hold(window, field, 320.0, 60.0);
 		window.show();
 		turns.settle();
 		var log = TextLog();
@@ -43,12 +49,11 @@ class TextFieldEditing implements IConformanceCase {
 		field.onCancel(log, scope);
 		turns.settle();
 		Expect.intEq((long long)log.events.length, 0LL, "subscribing reports nothing");
-		field.setText("saved");
+		field.setText("");
 		turns.settle();
 		Expect.intEq((long long)log.events.length, 0LL, "setting the same text from the program is not an edit");
 		var probe = Probe(window);
 		probe.click(120.0, 30.0);
-		probe.key(PROBE_KEY_SELECT_ALL);
 		probe.text("draft");
 		turns.settle();
 		Expect.strEq(field.text(), "draft");

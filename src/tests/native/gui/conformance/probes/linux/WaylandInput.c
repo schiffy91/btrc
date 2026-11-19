@@ -279,9 +279,13 @@ static bool waylandOrigin(const char *title, double *x, double *y) { (void)title
 
 static void waylandExtent(double *width, double *height) { *width = wl.width; *height = wl.height; }
 
+/* A wlroots compositor gives a window the size it asks for. */
+static bool waylandFillsScreen(void) { return false; }
+
 static const RealInput waylandInput = {
     .move = waylandMove, .button = waylandButton, .wheel = waylandWheel, .key = waylandKey, .text = waylandText,
     .activate = waylandActivate, .close = waylandClose, .origin = waylandOrigin, .extent = waylandExtent,
+    .fillsScreen = waylandFillsScreen,
 };
 
 const RealInput *realInputWayland(void) {

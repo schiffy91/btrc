@@ -2,6 +2,7 @@ import Library.Callback;
 import Library.Console;
 import Library.GUI;
 import Library.GUI.IApplication;
+import Library.GUI.IView;
 import Library.GUI.IWindow;
 import Library.Vector;
 
@@ -33,6 +34,19 @@ class SuiteHost implements IApplicationHost {
 	}
 
 	public void scheduleTurn(unsigned long long monotonicDeadlineNs) { self.deadlines++; }
+}
+
+/* A view under test at a size of its own. A session may give a window the
+ * whole screen whatever it asked for (Probe.windowSizing), so a case whose
+ * view must have a size puts it in a root at that size instead of making it
+ * the root, which fills the window. */
+class Stage {
+	class void hold(IWindow window, IView view, double width, double height) {
+		var root = GUI.createContainer();
+		root.attach(view);
+		view.arrange(0.0, 0.0, width, height);
+		window.attachRoot(root);
+	}
 }
 
 class Turns {

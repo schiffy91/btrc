@@ -225,6 +225,10 @@
           # wgpu-native also probes OpenGL through EGL. On a virtual display the
           # host's own GPU vendor library has no screen to answer for.
           BTRC_MESA_EGL = "${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json";
+          # The fonts a private session has (tools/ui/headless-session.sh): one
+          # family, the same on a desktop and in a container that has none, so
+          # text has a size wherever the GUI tests run.
+          BTRC_FONTS_CONFIG = "${pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; }}";
           # tools/ui/headless-session.sh starts the AT-SPI bus from here; the
           # launcher is a libexec program, not on PATH.
           BTRC_ATSPI_LIBEXEC = "${atSpiCore pkgs}/libexec";

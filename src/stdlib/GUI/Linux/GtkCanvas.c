@@ -8,6 +8,13 @@
  * told. */
 #include "GtkShimPrivate.h"
 
+/* The two widget types are this file's own: everything else holds a canvas
+ * or a slot as a GtkWidget. */
+#define BTRC_GTK_TYPE_CANVAS (btrc_gtk_canvas_get_type())
+G_DECLARE_FINAL_TYPE(BtrcGtkCanvas, btrc_gtk_canvas, BTRC_GTK, CANVAS, GtkWidget)
+#define BTRC_GTK_TYPE_SLOT (btrc_gtk_slot_get_type())
+G_DECLARE_FINAL_TYPE(BtrcGtkSlot, btrc_gtk_slot, BTRC_GTK, SLOT, GtkWidget)
+
 /* A slot: one control, clipped. The slot is allocated the visible part of
  * the control's frame; the control keeps its whole frame behind it. */
 struct _BtrcGtkSlot {

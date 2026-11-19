@@ -137,7 +137,7 @@ class ScrollOffsets implements IConformanceCase {
 		marker.arrange(20.0, 300.0, 60.0, 40.0);
 		scroll.attach(content);
 		scroll.setContentSize(800.0, 600.0);
-		window.attachRoot(scroll);
+		Stage.hold(window, scroll, 320.0, 150.0);
 		window.show();
 		turns.settle();
 		var log = OffsetLog();

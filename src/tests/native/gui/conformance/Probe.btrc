@@ -12,6 +12,15 @@ enum ProbeKey {
 	PROBE_KEY_SELECT_ALL = 9
 };
 
+enum ProbeWindowSizing {
+	/* The window has the size it asks for. */
+	PROBE_WINDOW_SIZING_ASKED = 0,
+	/* A new window is given the whole screen; a size asked for later is given. */
+	PROBE_WINDOW_SIZING_SCREEN_AT_FIRST = 1,
+	/* Every window has the whole screen, always. */
+	PROBE_WINDOW_SIZING_SCREEN_ALWAYS = 2
+};
+
 /* What a person does to one window: the suite's only way around the public
  * facade (probes/ConformanceProbe.h). Coordinates are the window's content
  * points from the top left. Input is queued; the next turns deliver it. */
@@ -22,6 +31,9 @@ class Probe {
 
 	/* One bounded step of the host's own native loop, before a turn. */
 	class void service() { conformanceProbeService(); }
+
+	/* What the session does with the size a window asks for. */
+	class ProbeWindowSizing windowSizing() { return (ProbeWindowSizing)conformanceProbeWindowSizing(); }
 
 	private void queued(int result, string input) {
 		if (result != 1) { throw f"the probe could not queue {input} for the window \"{self.title}\""; }

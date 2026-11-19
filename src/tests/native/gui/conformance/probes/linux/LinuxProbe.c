@@ -44,3 +44,5 @@ int conformanceProbeClose(const char *title) {
 
 /* The provider's turn iterates GLib's main context itself. */
 void conformanceProbeService(void) {}
+
+int conformanceProbeWindowSizing(void) { return gtkProbeFillsScreen() ? CONFORMANCE_WINDOW_SIZING_SCREEN_AT_FIRST : CONFORMANCE_WINDOW_SIZING_ASKED; }

@@ -237,8 +237,8 @@ and resume at any of them:
    4). GPU views did not get surfaces of their own: one device and one
    surface per window composes them, which is what lets a capture and the
    X11 picture hold every GPU view in one readback. What is left of the
-   window's painter is that composition; its text, shapes and glyph atlas
-   have no caller any more and are deleted in the commit after the switch.
+   window's painter is that composition; its text, shapes, glyph atlas
+   and themes had no caller any more and are deleted.
 5. **The switch. Done 2026-11-18.** The provider is `GUI/Linux` again
    (classes `Linux*`), the SDL provider is deleted, and the GUI manifest
    links GTK4 for Linux and WebKitGTK only for a program that imports the web
@@ -327,6 +327,37 @@ Notes that shape the work:
   wgpu-native now names nixpkgs' loader after the driver prefix. Game Mode's
   own Wayland socket (`gamescope-0`) does not serve ordinary clients: a program
   pointed at it hangs. Programs run on its X servers.
+- **Gamescope gives the screen and its input to one application.** Steam
+  keeps a list of app ids on the first X server's root
+  (`GAMESCOPECTRL_BASELAYER_APPID`); a window is matched to it by the app id
+  it carries (`STEAM_GAME`), and a window with none is never shown or given
+  input, though it presents frames. The suite's X11 probe therefore does
+  Steam's part there: it gives its window an app id of its own, puts that
+  id at the head of the list, and takes it off when the process ends. The
+  keyboard follows about five seconds later, so the probe waits for it.
+- **A new Gamescope window is the size of the screen**, whatever it asked
+  for; a size asked for afterwards is given. The probe says which the
+  session does (`conformanceProbeWindowSizing`), `window.state` expects the
+  session's size for a new window there, and cases whose view needs a size
+  hold it in a root at that size (`Stage.hold`) instead of making it the
+  window's root. A phone will answer "always the screen".
+- **A selection does not survive on Gamescope.** It takes the X primary
+  selection back for its own clipboard two milliseconds after a GTK entry
+  claims it, and GTK drops a selection it no longer owns. `textfield.editing`
+  no longer depends on one outliving the key that made it. A person selecting
+  text in a GTK field on the Deck sees the same; that is Gamescope's.
+- **Build for the Deck with the Deck's nixpkgs.** A program built in this
+  repository's dev shell (glibc 2.42) cannot load the Deck's Mesa EGL (built
+  against 2.44) and WebKit aborts; the Vulkan driver happened to load. The
+  suite is built in the dev shell with nixpkgs overridden to the system's
+  pin, which is how the products are built there. That build (GTK 4.24,
+  WebKitGTK 2.54) also passes all 39 cases on this desktop's X11 and Wayland
+  sessions.
+- **The X11 probe gives back the key it types with.** It lends an unused
+  keycode to each character; on a server that outlives the process the
+  keycode stayed mapped, and fifteen runs used up the Deck's spare ones.
+  The probe now unmaps it after every text, and the Deck's server was put
+  back to its first server's mapping.
 - **Android locally.** The 28 host fixtures pass on an API 36 emulator on this
   desktop. Whether that emulator runs Vulkan against the NVIDIA card is
   **unverified**; the hosted emulator skips the six GPU tests, so this desktop
@@ -429,7 +460,8 @@ Each step ends with something that runs.
 5. **Linux**: the GTK4 provider, or the SDL fallback, passes the suite.
    **Done 2026-11-18:** GTK4 is the one Linux provider (section 3, step 5)
    and passes all 39 cases through both compilers, plain and sanitized, on
-   X11 and on Wayland.
+   X11 and on Wayland, and through both compilers on the Deck's Gamescope
+   session (section 4, notes).
 6. **Windows**: the 40 unsupported operations, WebView2, the tray.
 7. **Android**: a new provider on the approved UI2 host attachment, not a
    second run loop. iOS waits with macOS.

@@ -187,6 +187,12 @@ case "$mode" in
 esac
 export BTRC_UI_SESSION="$mode" BTRC_UI_PRIVATE_SESSION=1
 
+# The session's fonts are the dev shell's one family, not the machine's: a
+# container has none, and a desktop's own differ from the next one's.
+if [[ -n "${BTRC_FONTS_CONFIG:-}" && -f "$BTRC_FONTS_CONFIG" ]]; then
+  export FONTCONFIG_FILE="$BTRC_FONTS_CONFIG"
+fi
+
 if [[ -n "${BTRC_LAVAPIPE_ICD:-}" && -f "$BTRC_LAVAPIPE_ICD" && -z "${VK_DRIVER_FILES:-}${VK_ICD_FILENAMES:-}" ]]; then
   export VK_DRIVER_FILES="$BTRC_LAVAPIPE_ICD"
   export LD_LIBRARY_PATH="${BTRC_VULKAN_LOADER:+$BTRC_VULKAN_LOADER${LD_LIBRARY_PATH:+:}}${LD_LIBRARY_PATH:-}"

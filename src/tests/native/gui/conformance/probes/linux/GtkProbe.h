@@ -8,4 +8,6 @@ int gtkProbeWheel(unsigned int window, const char *title, double x, double y, do
 int gtkProbeKey(unsigned int window, const char *title, int key);
 int gtkProbeText(unsigned int window, const char *title, const char *text);
 int gtkProbeClose(unsigned int window, const char *title);
+/* 1 when the session gives a new window the whole screen. */
+int gtkProbeFillsScreen(void);
 #endif

@@ -52,7 +52,6 @@ class LinuxViewHost {
 	public double textInputY = 0.0;
 	public double textInputWidth = 0.0;
 	public double textInputHeight = 0.0;
-	public int overlayId = 0;
 	public double width = 0.0;
 	public double height = 0.0;
 	public double wakeSeconds = -1.0;

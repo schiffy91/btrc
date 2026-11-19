@@ -11,7 +11,7 @@
 #ifdef GDK_WINDOWING_WAYLAND
 #include <gdk/wayland/gdkwayland.h>
 #include <wayland-client.h>
-#include "wayland/viewporter-client-protocol.h"
+#include "Wayland/viewporter-client-protocol.h"
 #endif
 #ifdef GDK_WINDOWING_X11
 #include <gdk/x11/gdkx.h>
