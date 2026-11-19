@@ -30,11 +30,11 @@ int btrcShimAutomationAwait(unsigned long serial, int timeoutMilliseconds);
 int btrcUIKitAutomationOrigin(unsigned int window, double *x, double *y);
 void btrcUIKitAutomationScreen(double *width, double *height);
 
-enum { ARRIVAL_MILLISECONDS = 500, SEARCH_MILLISECONDS = 60, APPEARANCE_ATTEMPTS = 160 };
+enum { ARRIVAL_MILLISECONDS = 500, SEARCH_MILLISECONDS = 60, APPEARANCE_ATTEMPTS = 160, NOTCH_POINTS = 48, FRAME_MICROSECONDS = 16667 };
 /* The keyboard page's usages, and simhid's modifier for Command. */
 enum { USAGE_A = 0x04, USAGE_W = 0x1A, USAGE_RETURN = 0x28, USAGE_ESCAPE = 0x29, USAGE_BACKSPACE = 0x2A, USAGE_TAB = 0x2B, USAGE_RIGHT = 0x4F, USAGE_LEFT = 0x50, USAGE_DOWN = 0x51, USAGE_UP = 0x52, COMMAND = 8 };
 
-static struct { pthread_mutex_t lock; int socket; bool tried; bool down; double x, y; } host = { .lock = PTHREAD_MUTEX_INITIALIZER, .socket = -1 };
+static struct { pthread_mutex_t lock; int socket; bool tried; bool down; bool hovered; double x, y; } host = { .lock = PTHREAD_MUTEX_INITIALIZER, .socket = -1 };
 
 static void trace(const char *what, const char *detail) {
     const char *wanted = getenv("BTRC_CONFORMANCE_TRACE");
@@ -112,12 +112,21 @@ static bool locate(const char *title, double x, double y, double *screenX, doubl
 }
 
 /* A finger on the screen moves; with none down, the pointer of a mouse does,
- * where the device has one (a phone does not, and the move is the hand's own). */
+ * where the device has one (a phone does not, and the move is the hand's own).
+ * The system drops what follows a pointer's move within the same frame of
+ * the display, so the move is let arrive, and a frame pass, before more. */
 static bool move(double x, double y) {
+    bool same = host.x == x && host.y == y;
     host.x = x;
     host.y = y;
     if (host.down) { return ask("MOVE %.2f %.2f", x, y); }
-    ask("HOVER %.2f %.2f", x, y);
+    if (same && host.hovered) { return true; }
+    unsigned long serial = btrcShimAutomationSerial();
+    host.hovered = ask("HOVER %.2f %.2f", x, y);
+    if (host.hovered) {
+        arrived(serial, ARRIVAL_MILLISECONDS);
+        usleep(FRAME_MICROSECONDS * 4);
+    }
     return true;
 }
 
@@ -127,7 +136,8 @@ static bool button(bool down) {
     return true;
 }
 
-static bool wheel(double deltaX, double deltaY) { return ask("SCROLL %.2f %.2f %.2f %.2f", host.x, host.y, deltaX, deltaY); }
+/* A notch moves a document by this many points, as the provider's own scrolling has it. */
+static bool wheel(double deltaX, double deltaY) { return ask("SCROLL %.2f %.2f %.2f %.2f", host.x, host.y, deltaX * NOTCH_POINTS, deltaY * NOTCH_POINTS); }
 
 static bool key(int key) {
     switch (key) {
@@ -194,11 +204,13 @@ static int pointed(const char *title, double x, double y, bool (*send)(void *), 
     double screenX = 0.0;
     double screenY = 0.0;
     if (!shimProbeInput() || !locate(title, x, y, &screenX, &screenY)) { return 0; }
+    bool dragging = host.down;
     unsigned long serial = btrcShimAutomationSerial();
-    bool moved = host.x != screenX || host.y != screenY;
-    if (moved && !move(screenX, screenY)) { return 0; }
+    if (!move(screenX, screenY)) { return 0; }
+    /* A pointer's move has arrived by now; a finger's drag arrives with what follows it. */
+    if (!dragging) { serial = btrcShimAutomationSerial(); }
     if (send && !send(with)) { return 0; }
-    arrived(serial, moved || send ? ARRIVAL_MILLISECONDS : 0);
+    if (send || dragging) { arrived(serial, ARRIVAL_MILLISECONDS); }
     return 1;
 }
 

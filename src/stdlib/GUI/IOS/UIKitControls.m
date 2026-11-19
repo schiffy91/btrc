@@ -238,13 +238,9 @@ static void btrcUIKitShowButton(BtrcUIKitControl* control) {
 }
 
 /* Sliders. A slider shows the value it is given and never changes it itself:
- * the drag is read here, and what a person asks for is reported. */
-
-@interface BtrcUIKitSlider : UISlider {
-@public
-	BtrcUIKitControl* owner;
-}
-@end
+ * the drag is read here, from a touch anywhere along the slider, and what a
+ * person asks for is reported. UISlider's own gestures, which would move the
+ * thumb by themselves, are left out of it. */
 
 static void btrcUIKitShowSlider(BtrcUIKitControl* control) {
 	UISlider* slider = (UISlider*)control->view;
@@ -253,60 +249,70 @@ static void btrcUIKitShowSlider(BtrcUIKitControl* control) {
 	slider.value = (float)control->value;
 }
 
+static void btrcUIKitSliderRelease(BtrcUIKitControl* control) {
+	if (btrcUIKitDragging == control) { btrcUIKitDragging = nil; }
+	if (control->tracking) {
+		control->tracking = NO;
+		btrcUIKitPushControl(control, BTRC_SHIM_EVENT_CONTROL_SLIDER_RELEASED, 0, 0.0, nil);
+	}
+	btrcUIKitShowSlider(control);
+}
+
+@interface BtrcUIKitSlider : UISlider {
+@public
+	BtrcUIKitControl* owner;
+}
+@end
+
 @implementation BtrcUIKitSlider
+- (void)addGestureRecognizer:(UIGestureRecognizer*)recognizer {
+	recognizer.enabled = NO;
+	[super addGestureRecognizer:recognizer];
+}
+
 /* The value whose thumb would be centred at `x`, less where the thumb was grabbed. */
 - (double)valueAt:(CGFloat)x {
 	CGRect track = [self trackRectForBounds:self.bounds];
 	CGFloat low = CGRectGetMidX([self thumbRectForBounds:self.bounds trackRect:track value:self.minimumValue]);
 	CGFloat high = CGRectGetMidX([self thumbRectForBounds:self.bounds trackRect:track value:self.maximumValue]);
-	double along = high > low ? (double)((x - (CGFloat)owner->grabbed - low) / (high - low)) : 0.0;
-	if (self.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft) { along = 1.0 - along; }
+	double along = high != low ? (double)((x - (CGFloat)owner->grabbed - low) / (high - low)) : 0.0;
 	along = along < 0.0 ? 0.0 : along > 1.0 ? 1.0 : along;
 	return owner->minimum + (owner->maximum - owner->minimum) * along;
 }
 
 - (BOOL)beginTrackingWithTouch:(UITouch*)touch withEvent:(UIEvent*)event {
-	if (owner == nil || owner->cancelledDrag) { return NO; }
+	(void)event;
+	if (owner == nil || owner->cancelledDrag || owner->tracking) { return NO; }
 	CGPoint at = [touch locationInView:self];
 	CGRect thumb = [self thumbRectForBounds:self.bounds trackRect:[self trackRectForBounds:self.bounds] value:self.value];
-	/* A touch on the thumb drags it from where it was taken; one on the
-	 * track brings the thumb to the finger. */
-	BOOL onThumb = CGRectContainsPoint(CGRectInset(thumb, -8.0, -8.0), at);
+	/* A touch over the thumb drags it from where it was taken; one beside it
+	 * brings the thumb to the finger. */
+	BOOL onThumb = at.x >= CGRectGetMinX(thumb) - 8.0 && at.x <= CGRectGetMaxX(thumb) + 8.0;
 	owner->grabbed = onThumb ? (double)(at.x - CGRectGetMidX(thumb)) : 0.0;
-	[super beginTrackingWithTouch:touch withEvent:event];
 	owner->tracking = YES;
 	btrcUIKitDragging = owner;
 	btrcUIKitPushControl(owner, BTRC_SHIM_EVENT_CONTROL_SLIDER_PRESSED, 0, 0.0, nil);
 	if (!onThumb) { btrcUIKitPushControl(owner, BTRC_SHIM_EVENT_CONTROL_SLIDER_CHANGED, BTRC_SHIM_SLIDER_JUMP, [self valueAt:at.x], nil); }
-	btrcUIKitShowSlider(owner);
 	return YES;
 }
 
 - (BOOL)continueTrackingWithTouch:(UITouch*)touch withEvent:(UIEvent*)event {
 	(void)event;
-	if (owner == nil || !owner->tracking) { return owner != nil && owner->cancelledDrag; }
-	btrcUIKitPushControl(owner, BTRC_SHIM_EVENT_CONTROL_SLIDER_CHANGED, BTRC_SHIM_SLIDER_JUMP, [self valueAt:[touch locationInView:self].x], nil);
-	return YES;
-}
-
-- (void)finish {
-	if (owner == nil) { return; }
-	if (btrcUIKitDragging == owner) { btrcUIKitDragging = nil; }
-	if (owner->tracking) {
-		owner->tracking = NO;
-		btrcUIKitPushControl(owner, BTRC_SHIM_EVENT_CONTROL_SLIDER_RELEASED, 0, 0.0, nil);
-	}
-	btrcUIKitShowSlider(owner);
+	if (owner == nil) { return NO; }
+	if (owner->tracking) { btrcUIKitPushControl(owner, BTRC_SHIM_EVENT_CONTROL_SLIDER_CHANGED, BTRC_SHIM_SLIDER_JUMP, [self valueAt:[touch locationInView:self].x], nil); }
+	/* After Escape the finger is still down, and still nobody else's. */
+	return owner->tracking || owner->cancelledDrag;
 }
 
 - (void)endTrackingWithTouch:(UITouch*)touch withEvent:(UIEvent*)event {
-	[super endTrackingWithTouch:touch withEvent:event];
-	[self finish];
+	(void)touch;
+	(void)event;
+	if (owner != nil) { btrcUIKitSliderRelease(owner); }
 }
 
 - (void)cancelTrackingWithEvent:(UIEvent*)event {
-	[super cancelTrackingWithEvent:event];
-	[self finish];
+	(void)event;
+	if (owner != nil) { btrcUIKitSliderRelease(owner); }
 }
 @end
 
@@ -557,6 +563,10 @@ void btrcUIKitControlsTouchDown(void) {
 	}
 }
 
+void btrcUIKitControlsTouchUp(void) {
+	if (btrcUIKitDragging != nil) { btrcUIKitSliderRelease(btrcUIKitDragging); }
+}
+
 void btrcUIKitControlsLeave(BtrcUIKitWindow* window) {
 	if (btrcUIKitOpened != nil && btrcUIKitOpened->window == window) { btrcUIKitSelectClose(btrcUIKitOpened, YES, NO); }
 }
@@ -671,6 +681,7 @@ static BtrcShimControl* btrcUIKitControlNew(int kind, unsigned int identifier, c
 			break;
 		case BTRC_UIKIT_SLIDER:
 			((BtrcUIKitSlider*)view)->owner = made;
+			for (UIGestureRecognizer* own in view.gestureRecognizers) { own.enabled = NO; }
 			break;
 		case BTRC_UIKIT_TEXT:
 			[(UITextField*)view addTarget:made action:@selector(textChanged:) forControlEvents:UIControlEventEditingChanged];
@@ -879,8 +890,8 @@ void btrcShimWindowEndPlacement(BtrcShimWindow* handle) {
 				[slot removeFromSuperview];
 			}
 		}
-		/* The content's own layer is the drawn frame; the slots lie over it in order. */
-		NSUInteger at = 0;
+		/* The content's first subview is the drawn frame; the slots lie over it in order. */
+		NSUInteger at = 1;
 		for (BtrcUIKitSlot* slot in now) {
 			if (slot.superview != window->content || [window->content.subviews indexOfObjectIdenticalTo:slot] != at) { [window->content insertSubview:slot atIndex:(NSInteger)at]; }
 			at++;

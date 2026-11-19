@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 enum { BTRC_UIKIT_QUEUE = 16384, BTRC_UIKIT_SCENE_SECONDS = 30 };
+static const CFTimeInterval BTRC_UIKIT_SCENE_ARRIVAL_SECONDS = 1.0;
 
 struct BtrcShimFolderDialog {
 	int state;
@@ -60,6 +61,8 @@ static volatile unsigned int btrcUIKitModifiers;
 /* The main thread's. */
 static UIWindowScene* btrcUIKitScene;
 static BOOL btrcUIKitActive;
+/* When the scene last became the one a person is using (CACurrentMediaTime). */
+static CFTimeInterval btrcUIKitActiveSince;
 static BOOL btrcUIKitDark = YES;
 static BOOL btrcUIKitWantsSecondScene;
 static BOOL btrcUIKitAwaitsSecondScene;
@@ -226,6 +229,25 @@ unsigned int btrcShimModState(void) { return btrcUIKitModifiers; }
 
 static BtrcUIKitWindow* btrcUIKitTop(void) { return btrcUIKitShown.lastObject; }
 
+/* The alert on show, and what the program's thread waits on for it. */
+static UIAlertController* btrcUIKitAlert;
+static dispatch_semaphore_t btrcUIKitAlertDismissed;
+
+static void btrcUIKitAlertFinished(void) {
+	if (btrcUIKitAlert == nil) { return; }
+	[btrcUIKitAlert release];
+	btrcUIKitAlert = nil;
+	dispatch_semaphore_signal(btrcUIKitAlertDismissed);
+}
+
+/* YES when the key was the alert's: Return and Escape dismiss it. */
+static BOOL btrcUIKitAlertKeyDown(unsigned int key) {
+	if (btrcUIKitAlert == nil) { return NO; }
+	if (key != BTRC_SHIM_KEY_RETURN && key != BTRC_SHIM_KEY_KP_ENTER && key != BTRC_SHIM_KEY_ESCAPE) { return NO; }
+	if (!btrcUIKitAlert.beingDismissed) { [btrcUIKitAlert dismissViewControllerAnimated:YES completion:^{ btrcUIKitAlertFinished(); }]; }
+	return YES;
+}
+
 static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGPoint at, unsigned int button, unsigned int clicks, int down, unsigned int modifiers) {
 	BtrcShimEvent event;
 	memset(&event, 0, sizeof event);
@@ -240,13 +262,45 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 	btrcUIKitPush(&event, NULL);
 }
 
-/* The view a window's drawn content is presented on. */
-@interface BtrcUIKitContentView : UIView
+/* The view a window's drawn content is presented on: a CAMetalLayer in the
+ * view's first subview, beneath the controls' slots, which are the subviews
+ * after it. The layer is its own and no view's backing layer, because the
+ * program's thread configures and presents it, and UIKit lets only the main
+ * thread touch a layer a view answers for. */
+@interface BtrcUIKitContentView : UIView {
+@public
+	CAMetalLayer* metal;
+	UIView* surface;
+}
 @end
 
 @implementation BtrcUIKitContentView
-+ (Class)layerClass {
-	return CAMetalLayer.class;
+- (instancetype)initWithFrame:(CGRect)frame {
+	self = [super initWithFrame:frame];
+	if (self == nil) { return nil; }
+	surface = [[UIView alloc] initWithFrame:self.bounds];
+	surface.userInteractionEnabled = NO;
+	metal = [[CAMetalLayer alloc] init];
+	metal.opaque = YES;
+	metal.frame = surface.bounds;
+	/* It follows the view at once: nothing of it animates. */
+	metal.actions = @{@"bounds" : NSNull.null, @"position" : NSNull.null, @"contents" : NSNull.null, @"contentsScale" : NSNull.null, @"hidden" : NSNull.null};
+	[surface.layer addSublayer:metal];
+	[self addSubview:surface];
+	return self;
+}
+
+- (void)dealloc {
+	[metal removeFromSuperlayer];
+	[metal release];
+	[surface release];
+	[super dealloc];
+}
+
+- (void)layoutSubviews {
+	[super layoutSubviews];
+	if (!CGRectEqualToRect(surface.frame, self.bounds)) { surface.frame = self.bounds; }
+	if (!CGRectEqualToRect(metal.frame, surface.bounds)) { metal.frame = surface.bounds; }
 }
 @end
 
@@ -271,6 +325,7 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 	NSMutableSet<NSNumber*>* taken;
 	unsigned long hoverGeneration;
 }
+- (BOOL)observePresses:(UIPressesEvent*)event;
 - (void)observeHover:(UIHoverGestureRecognizer*)hover;
 - (void)observeScroll:(UIPanGestureRecognizer*)scroll;
 @end
@@ -295,8 +350,7 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 	[root release];
 	window.overrideUserInterfaceStyle = btrcUIKitDark ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
 	content = [[BtrcUIKitContentView alloc] initWithFrame:CGRectMake(0.0, 0.0, (CGFloat)width, (CGFloat)height)];
-	content.layer.opaque = YES;
-	content.layer.contentsScale = btrcUIKitScene.screen.scale;
+	((BtrcUIKitContentView*)content)->metal.contentsScale = btrcUIKitScene.screen.scale;
 	[root.view addSubview:content];
 	UIHoverGestureRecognizer* hover = [[UIHoverGestureRecognizer alloc] initWithTarget:window action:@selector(observeHover:)];
 	[content addGestureRecognizer:hover];
@@ -330,9 +384,13 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 	CGRect frame = CGRectMake(safe.origin.x, safe.origin.y, floor(safe.size.width), floor(safe.size.height));
 	if (frame.size.width <= 0.0 || frame.size.height <= 0.0) { return; }
 	CGFloat scale = native.traitCollection.displayScale;
-	BOOL changed = !CGSizeEqualToSize(content.frame.size, frame.size) || (scale > 0.0 && content.layer.contentsScale != scale);
-	if (scale > 0.0) { content.layer.contentsScale = scale; }
-	if (!CGRectEqualToRect(content.frame, frame)) { content.frame = frame; }
+	CAMetalLayer* metal = ((BtrcUIKitContentView*)content)->metal;
+	BOOL changed = !CGSizeEqualToSize(content.frame.size, frame.size) || (scale > 0.0 && metal.contentsScale != scale);
+	if (scale > 0.0) { metal.contentsScale = scale; }
+	if (!CGRectEqualToRect(content.frame, frame)) {
+		content.frame = frame;
+		[content layoutIfNeeded];
+	}
 	if (changed || !announced) {
 		announced = YES;
 		btrcUIKitPushWindow(self, BTRC_SHIM_EVENT_WINDOW_RESIZED);
@@ -468,7 +526,7 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 				pushed.window = owner->identifier;
 				btrcUIKitPush(&pushed, typed.UTF8String);
 			}
-			if (btrcUIKitControlsKeyDown(owner, btrcUIKitKey(key.keyCode))) {
+			if (btrcUIKitAlertKeyDown(btrcUIKitKey(key.keyCode)) || btrcUIKitControlsKeyDown(owner, btrcUIKitKey(key.keyCode))) {
 				[taken addObject:code];
 				kept = YES;
 			}
@@ -484,9 +542,10 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 }
 
 - (void)sendEvent:(UIEvent*)event {
-	if (owner != nil && event.type == UIEventTypeTouches) { [self observeTouches:event]; }
-	if (owner != nil && event.type == UIEventTypePresses && [event isKindOfClass:UIPressesEvent.class] && [self observePresses:(UIPressesEvent*)event]) { return; }
+	BOOL touching = owner != nil && event.type == UIEventTypeTouches;
+	if (touching) { [self observeTouches:event]; }
 	[super sendEvent:event];
+	if (touching && primary == nil) { btrcUIKitControlsTouchUp(); }
 }
 
 /* A pointer over the content with no button down. A hover ends when the
@@ -510,13 +569,15 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 }
 
 /* A wheel's notches and a trackpad's fingers arrive as the points they would
- * scroll a document by. */
+ * move a document by: a notch is a gesture of its own, which begins with the
+ * whole of it. */
 - (void)observeScroll:(UIPanGestureRecognizer*)scroll {
-	if (owner == nil || scroll.state != UIGestureRecognizerStateChanged) { return; }
+	if (owner == nil || (scroll.state != UIGestureRecognizerStateBegan && scroll.state != UIGestureRecognizerStateChanged)) { return; }
 	CGPoint moved = [scroll translationInView:owner->content];
 	[scroll setTranslation:CGPointZero inView:owner->content];
 	if (moved.x == 0.0 && moved.y == 0.0) { return; }
-	CGPoint at = [scroll locationInView:owner->content];
+	/* The wheel turns where the pointer is: the gesture's own place moves with what it scrolled. */
+	CGPoint at = owner->pointerInside ? owner->pointer : [scroll locationInView:owner->content];
 	if (![self pointAt:at]) { return; }
 	BtrcShimEvent event;
 	memset(&event, 0, sizeof event);
@@ -538,7 +599,7 @@ UIViewController* btrcUIKitPresenter(BtrcUIKitWindow* window) { return window->n
 void* btrcUIKitContentLayer(BtrcShimWindow* handle) {
 	BtrcUIKitWindow* window = btrcUIKitWindow(handle);
 	__block void* layer = NULL;
-	btrcUIKitOnMain(^{ layer = window->content.layer; });
+	btrcUIKitOnMain(^{ layer = ((BtrcUIKitContentView*)window->content)->metal; });
 	return layer;
 }
 
@@ -562,6 +623,7 @@ static void btrcUIKitAdopt(UIWindowScene* scene) {
 	[btrcUIKitScene release];
 	btrcUIKitScene = scene;
 	btrcUIKitActive = scene.activationState == UISceneActivationStateForegroundActive;
+	btrcUIKitActiveSince = CACurrentMediaTime();
 	if (btrcUIKitAwaitsSecondScene) {
 		/* Whoever asked for a second scene can see that the program has one. */
 		btrcUIKitAwaitsSecondScene = NO;
@@ -617,6 +679,7 @@ static void btrcUIKitAdopt(UIWindowScene* scene) {
 - (void)sceneDidBecomeActive:(UIScene*)scene {
 	if (scene != btrcUIKitScene || btrcUIKitActive) { return; }
 	btrcUIKitActive = YES;
+	btrcUIKitActiveSince = CACurrentMediaTime();
 	BtrcUIKitWindow* top = btrcUIKitTop();
 	if (top != nil) { btrcUIKitPushWindow(top, BTRC_SHIM_EVENT_WINDOW_FOCUS_GAINED); }
 }
@@ -652,6 +715,23 @@ static void* btrcUIKitProgram(void* unused) {
 	}
 	exit(result);
 }
+
+/* The application itself: every key of a hardware keyboard is the window on
+ * show's first, before the scene's key window or any view acts on it. */
+@interface BtrcUIKitProcess : UIApplication
+@end
+
+@implementation BtrcUIKitProcess
+/* A keyboard's keys come as presses events of a type of their own, so the
+ * class is what tells them, and a press that is a key has its key. */
+- (void)sendEvent:(UIEvent*)event {
+	if ([event isKindOfClass:UIPressesEvent.class]) {
+		BtrcUIKitWindow* top = btrcUIKitTop();
+		if (top != nil && [(BtrcUIKitNativeWindow*)top->native observePresses:(UIPressesEvent*)event]) { return; }
+	}
+	[super sendEvent:event];
+}
+@end
 
 @interface BtrcUIKitApplication : UIResponder <UIApplicationDelegate>
 @end
@@ -701,7 +781,7 @@ int btrcUIKitMain(int count, char** arguments) {
 	btrcUIKitArgumentCount = count;
 	btrcUIKitArguments = arguments;
 	@autoreleasepool {
-		return UIApplicationMain(count, arguments, nil, NSStringFromClass(BtrcUIKitApplication.class));
+		return UIApplicationMain(count, arguments, NSStringFromClass(BtrcUIKitProcess.class), NSStringFromClass(BtrcUIKitApplication.class));
 	}
 }
 
@@ -836,7 +916,10 @@ void btrcShimWindowSetSize(BtrcShimWindow* handle, int width, int height) {
 	btrcUIKitOnMain(^{
 		window->askedWidth = width;
 		window->askedHeight = height;
-		if (!window->sized) { window->content.frame = CGRectMake(0.0, 0.0, (CGFloat)width, (CGFloat)height); }
+		if (!window->sized) {
+			window->content.frame = CGRectMake(0.0, 0.0, (CGFloat)width, (CGFloat)height);
+			[window->content layoutIfNeeded];
+		}
 	});
 }
 
@@ -853,7 +936,8 @@ static void btrcUIKitExtent(BtrcShimWindow* handle, double* width, double* heigh
 		CGSize size = window->content.bounds.size;
 		*width = window->sized && size.width > 0.0 ? size.width : (double)window->askedWidth;
 		*height = window->sized && size.height > 0.0 ? size.height : (double)window->askedHeight;
-		*scale = window->content.layer.contentsScale > 0.0 ? window->content.layer.contentsScale : 1.0;
+		CGFloat pixels = ((BtrcUIKitContentView*)window->content)->metal.contentsScale;
+		*scale = pixels > 0.0 ? pixels : 1.0;
 	});
 }
 
@@ -889,9 +973,11 @@ double btrcShimWindowPixelDensity(BtrcShimWindow* window) {
 
 void btrcShimWindowSetCursor(BtrcShimWindow* window, int cursor) { (void)window; (void)cursor; }
 
-/* An alert with one button, which Return presses; the program's thread waits
- * here until it is dismissed. A window that is not on show has nowhere to
- * present one. */
+/* An alert with one button; the program's thread waits here until it is
+ * dismissed. Return presses the button and Escape dismisses the alert, as a
+ * keyboard does a message box everywhere: UIKit leaves a hardware keyboard
+ * out of an alert, so the keys are answered here. A window that is not on
+ * show has nowhere to present one. */
 void btrcShimWindowShowMessage(BtrcShimWindow* handle, const char* title, const char* message) {
 	BtrcUIKitWindow* window = btrcUIKitWindow(handle);
 	NSString* heading = btrcUIKitString(title);
@@ -900,16 +986,18 @@ void btrcShimWindowShowMessage(BtrcShimWindow* handle, const char* title, const 
 	__block BOOL presented = NO;
 	btrcUIKitOnMain(^{
 		BtrcUIKitWindow* host = [btrcUIKitShown containsObject:window] ? window : btrcUIKitTop();
-		if (host == nil) { return; }
+		if (host == nil || btrcUIKitAlert != nil) { return; }
 		UIViewController* presenter = btrcUIKitPresenter(host);
 		while (presenter.presentedViewController != nil) { presenter = presenter.presentedViewController; }
 		UIAlertController* alert = [UIAlertController alertControllerWithTitle:heading message:body preferredStyle:UIAlertControllerStyleAlert];
 		UIAlertAction* accept = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction* action) {
 			(void)action;
-			dispatch_semaphore_signal(dismissed);
+			btrcUIKitAlertFinished();
 		}];
 		[alert addAction:accept];
 		alert.preferredAction = accept;
+		btrcUIKitAlert = [alert retain];
+		btrcUIKitAlertDismissed = dismissed;
 		[presenter presentViewController:alert animated:YES completion:nil];
 		presented = YES;
 	});
@@ -1117,12 +1205,15 @@ int btrcShimAutomationTextFocused(unsigned int identifier) {
 
 /* Where the window's content is on the screen, in the screen's points, when
  * it is the window on show and the scene is the one a person is using; and
- * the screen's size. For a tool that sends input to the screen. */
+ * the screen's size. For a tool that sends input to the screen. The system
+ * brings a scene to the screen with an animation of its own, during which
+ * the scene is not yet where it will be: the answer waits that out. */
 int btrcUIKitAutomationOrigin(unsigned int identifier, double* x, double* y) {
 	__block int shown = 0;
 	btrcUIKitOnMain(^{
 		BtrcUIKitWindow* window = btrcUIKitWindowWith(identifier);
 		if (window == nil || btrcUIKitTop() != window || !btrcUIKitActive || window->native.windowScene == nil) { return; }
+		if (CACurrentMediaTime() - btrcUIKitActiveSince < BTRC_UIKIT_SCENE_ARRIVAL_SECONDS) { return; }
 		CGPoint origin = [window->content convertPoint:CGPointZero toCoordinateSpace:window->native.windowScene.screen.coordinateSpace];
 		*x = origin.x;
 		*y = origin.y;

@@ -98,8 +98,9 @@ enum {
 	BOOL announced;
 	BOOL textInput;
 	UIWindow* native;
-	/* The drawn content's view, whose layer is a CAMetalLayer; the controls'
-	 * slots are its subviews, back to front. */
+	/* The content's view: its first subview holds the CAMetalLayer drawn
+	 * content is presented on, and the controls' slots are the subviews after
+	 * it, back to front. */
 	UIView* content;
 	NSMutableArray<BtrcUIKitSlot*>* placed;
 	BOOL pointerInside;
@@ -138,6 +139,8 @@ BtrcShimControl* btrcUIKitControlAdopt(int kind, unsigned int identifier, UIView
 BOOL btrcUIKitControlsKeyDown(BtrcUIKitWindow* window, unsigned int key);
 /* A touch went down anywhere: a slider's cancelled drag is over. */
 void btrcUIKitControlsTouchDown(void);
+/* The touch lifted, and the views have heard: a slider still held is let go. */
+void btrcUIKitControlsTouchUp(void);
 /* The window is hidden or destroyed: nothing of it stays open. */
 void btrcUIKitControlsLeave(BtrcUIKitWindow* window);
 /* Whether the keyboard is in a text field of this window. */

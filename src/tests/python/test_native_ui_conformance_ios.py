@@ -25,6 +25,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 import tomllib
 import zipfile
 from pathlib import Path
@@ -197,8 +198,12 @@ class Simulators:
         line = self.injector.stdout.readline()
         assert line.startswith("PORT "), f"simhid did not start: {line}{self.injector.stderr.read()}"
         self.port = int(line.split()[1])
-        with socket.create_connection(("127.0.0.1", self.port), timeout=10):
-            pass
+        # A tablet has a pointer, which the injector makes when first asked. What is sent
+        # while the system takes the new device in is dropped, so it is made now.
+        with socket.create_connection(("127.0.0.1", self.port), timeout=30) as injector:
+            injector.sendall(b"HOVER 100 100\n")
+            injector.recv(256)
+        time.sleep(1.0)
 
     def runner(self, device_class, frontend, sanitized, request):
         host = self.device(device_class)
@@ -227,6 +232,10 @@ class Simulators:
         }
         if scene != "first":
             environment["BTRC_SHIM_SCENE"] = scene
+        # A finger a failed case left down would be down for this one too.
+        with socket.create_connection(("127.0.0.1", self.port), timeout=10) as injector:
+            injector.sendall(b"RELEASE\n")
+            assert injector.recv(64).startswith(b"OK"), "simhid could not lift the finger"
         return runner.run([argument], environment, 180)
 
     def close(self):
