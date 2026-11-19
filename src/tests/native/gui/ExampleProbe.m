@@ -5,6 +5,14 @@ static NSInteger step;
 static NSHashTable *exampleWindows;
 
 @implementation ExampleProbe
+/* A stack's native view is a host that pins its NSStackView by the padding. */
++ (NSStackView *)stackIn:(NSView *)host {
+	assert(host.subviews.count == 1);
+	NSStackView *stack = host.subviews.firstObject;
+	assert([stack isKindOfClass:NSStackView.class]);
+	return stack;
+}
+
 + (void)advance:(NSTimer *)timer {
 	NSWindow *window = exampleWindows.allObjects.firstObject;
 	if (step == 0) {
@@ -13,10 +21,9 @@ static NSHashTable *exampleWindows;
 		}
 		assert(window != nil);
 		[exampleWindows addObject:window];
-		NSStackView *column = (NSStackView *)window.contentView.subviews.firstObject;
-		assert([column isKindOfClass:NSStackView.class]);
+		NSStackView *column = [self stackIn:window.contentView.subviews.firstObject];
 		NSTextField *field = column.arrangedSubviews.firstObject;
-		NSStackView *row = column.arrangedSubviews[1];
+		NSStackView *row = [self stackIn:column.arrangedSubviews[1]];
 		assert(field.frame.size.width > 300 && field.frame.size.height >= field.intrinsicContentSize.height);
 		assert(row.arrangedSubviews.count == 2 && row.frame.size.height > 0);
 		assert([window makeFirstResponder:field]);
@@ -35,8 +42,8 @@ static NSHashTable *exampleWindows;
 	assert(bitmap != nil);
 	[content cacheDisplayInRect:content.bounds toBitmapImageRep:bitmap];
 	assert([bitmap.TIFFRepresentation writeToFile:@"NativeExample.tiff" atomically:YES]);
-	NSStackView *column = (NSStackView *)content.subviews.firstObject;
-	NSStackView *row = column.arrangedSubviews[1];
+	NSStackView *column = [self stackIn:content.subviews.firstObject];
+	NSStackView *row = [self stackIn:column.arrangedSubviews[1]];
 	[(NSButton *)row.arrangedSubviews[1] performClick:nil];
 	step = 2;
 	[timer invalidate];

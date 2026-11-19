@@ -25,7 +25,11 @@
 }
 - (NSTextField *)field { return _field; }
 - (void)begin:(NSView *)parent {
-    _parent = [parent retain]; _window.contentView = parent;
+    /* A stack's native view hosts the NSStackView that holds its children,
+     * so the field's parent is the view the container put it in. */
+    _window.contentView = parent;
+    if (_field.superview == nil || ![_field isDescendantOf:parent]) { [NSException raise:NSInternalInconsistencyException format:@"Field is not in the container"]; }
+    _parent = [_field.superview retain];
     if (![_window makeFirstResponder:_field]) { [NSException raise:NSInternalInconsistencyException format:@"No field editor"]; }
     _editor = (NSTextView *)_field.currentEditor;
     [_editor setMarkedText:@"composition" selectedRange:NSMakeRange(3, 0) replacementRange:NSMakeRange(NSNotFound, 0)];

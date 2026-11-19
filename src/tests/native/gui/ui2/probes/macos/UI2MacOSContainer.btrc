@@ -208,7 +208,10 @@ void verifySettlementFailure() {
 
 void verifyLayouts() {
 	var stack = MacOSStack(false, 0.0); var first = MacOSView(); var second = MacOSView(); stack.attach(first); stack.insert(second, 0); stack.move(first, 0);
-	assert(stack.childAt(0) == first && stack.nativeView().subviews().count() == 2UL); assert(stack.close() == CALLBACK_CANCELLATION_COMPLETE);
+	/* A stack's native view hosts one NSStackView, which holds the children. */
+	var arranged = first.nativeView().superview(); if (arranged == null) { throw "Stack child has no native parent"; }
+	assert(stack.childAt(0) == first && second.nativeView().superview() == arranged && arranged.subviews().count() == 2UL);
+	assert(arranged.superview() == stack.nativeView() && stack.nativeView().subviews().count() == 1UL); assert(stack.close() == CALLBACK_CANCELLATION_COMPLETE);
 	var fill = RGBA(0, 0, 0);
 	var panel = MacOSPanel(fill); panel.attach(MacOSView());
 	assert(panel.treeRevision() == 2LL && panel.close() == CALLBACK_CANCELLATION_COMPLETE);
