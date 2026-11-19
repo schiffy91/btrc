@@ -198,6 +198,21 @@
         "linux-devcontainer"
       ],
       "note": "Userspace filesystems have a Linux provider only; test_windows_has_no_userspace_filesystems runs on every host and pins the refusal. The Linux shard builds the mount program on both frontends and runs the unprivileged refusal, and the flake's userspace-filesystem check serves the filesystems in a VM."
+    },
+    {
+      "id": "ios-simulator-bound",
+      "files": [
+        "src/tests/python/test_native_ui_conformance_ios.py"
+      ],
+      "reason": "^requires a Mac with Xcode and iOS simulators: ",
+      "category": "platform",
+      "gating": {
+        "env": [
+          "BTRC_IOS_UI_DEVICES"
+        ]
+      },
+      "covered_by": [],
+      "note": "The GUI conformance suite's iOS and iPadOS rows build an app for the simulator, boot one iPhone and one iPad simulator and send them real input through the simulated device's HID service (src/stdlib/GUI/README.md, the UIKit shim). They run where BTRC_IOS_UI_DEVICES asks for them, on the acceptance Mac; their evidence is that run's output, not a skip report, and is never physical-device evidence."
     }
   ]
 }

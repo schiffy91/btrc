@@ -14,6 +14,9 @@ app through the simulated device's own HID service.
 On the iPad the cases also run with the program's windows in a second scene
 of the app. Simulator results are never physical-device evidence, and the
 installed runtime is not the iOS 17 floor, which the build targets.
+
+The rows boot simulators and send them input, so they run where they are
+asked for: BTRC_IOS_UI_DEVICES names the device classes ("iphone,ipad").
 BTRC_IOS_UI_EVIDENCE names a directory that receives every case's output.
 """
 
@@ -46,7 +49,9 @@ NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
 HAS = {"web", "modal"}
 APPLICABLE = [name for name in NAMES if name not in NEEDS or NEEDS[name] in HAS]
 TARGET = "ios-aarch64-simulator"
-MAC_ONLY = "requires a Mac with Xcode: the GUI conformance suite's iOS rows run on its simulators"
+SIMULATOR_BOUND = "requires a Mac with Xcode and iOS simulators: set BTRC_IOS_UI_DEVICES (iphone,ipad)"
+# One worker owns the simulator: a device is booted, installed on and sent input by one process.
+pytestmark = pytest.mark.xdist_group(name="ios_ui")
 # One device of each class, made for this suite: a phone wide enough for the
 # suite's windows, and a tablet whose system gives an app more than one scene.
 DEVICES = {"iphone": ("btrc-ui-iphone", "iPhone 17 Pro Max"), "ipad": ("btrc-ui-ipad", "iPad Air 11-inch (M4)")}
@@ -209,8 +214,9 @@ class Simulators:
         return self.runners[key]
 
     def run(self, device_class, frontend, sanitized, request, argument, scene="first"):
-        if sys.platform != "darwin" or not self.sdk():
-            pytest.skip(MAC_ONLY)
+        asked = {name.strip() for name in os.environ.get("BTRC_IOS_UI_DEVICES", "").split(",")}
+        if sys.platform != "darwin" or device_class not in asked or not self.sdk():
+            pytest.skip(SIMULATOR_BOUND)
         runner, web = self.runner(device_class, frontend, sanitized, request)
         environment = {
             "BTRC_UI_PRIVATE_SESSION": "1",
