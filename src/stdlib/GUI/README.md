@@ -285,9 +285,12 @@ the Deck's Gamescope session.
   picture drawn at the view's place in the order. Either way a control placed
   over a GPU view is over it, and one placed under is under.
 - `GUI.capture` is the GPU frame read back with GTK's own rendering of the
-  controls laid over it, so a capture is what the window shows. It fails at
-  once if the window's device is not ready rather than waiting on the UI
-  thread.
+  controls laid over it, so a capture is what the window shows, and the
+  part of it that is the view asked for. A view another one overlaps has
+  the other's pixels where they overlap, which macOS leaves out. It fails
+  at once if the window's device is not ready rather than waiting on the UI
+  thread; a program that captures straight after `show()` asks again until
+  it is, and needs no turn of the loop for the controls to be in it.
 - `WebView.create()` is a WebKitGTK view placed like any control; see
   `IWebView.btrc` for the contract (one private origin serving a bundle,
   JSON messages both ways, navigation by rule). WebKitGTK is linked only by

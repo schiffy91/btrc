@@ -306,9 +306,9 @@ window manager's close, queued for the window with a given title.
 
 | Platform | Probe | Status |
 | --- | --- | --- |
-| Linux | XTest under Xvfb; a virtual pointer and keyboard under headless labwc | Written; 42 cases pass on both. The Deck's Gamescope session passed the 41 there were at `bab433ba` |
-| Windows | `SendInput`, in the guest's and the hosted runner's own session | Written; 41 cases pass in the guest and on the hosted x64 runner (the font face case does not apply) |
-| Android | The system's event injection into the app's own windows, with the app started under instrumentation (`am instrument`); a press is a finger's, a hover and a wheel a mouse's | Written; 41 cases pass on the API 29 and API 36 emulators, here and on the hosted runner (the font face case does not apply) |
+| Linux | XTest under Xvfb; a virtual pointer and keyboard under headless labwc | Written; 43 cases pass on both. The Deck's Gamescope session passed the 41 there were at `bab433ba` |
+| Windows | `SendInput`, in the guest's and the hosted runner's own session | Written; 42 cases pass in the guest and on the hosted runners (the font face case does not apply) |
+| Android | The system's event injection into the app's own windows, with the app started under instrumentation (`am instrument`); a press is a finger's, a hover and a wheel a mouse's | Written; 42 cases pass on the API 29 and API 36 emulators, here and on the hosted runner (the font face case does not apply) |
 
 Accessibility trees are not part of this suite: the bridges are outside this
 plan.
@@ -513,11 +513,23 @@ Each step ends with something that runs.
      box) by itself, with Escape and a click on the window it wants. On the
      hosted x64 runner the folder chooser went undismissed in one row of
      four until the probe asked the program's window for the modal it owns.
+   - Two hosted faults are rare and not explained. On x64 the folder
+     chooser's row ran out of its 180 seconds once more, in one full run of
+     five, and then in none of 320 rows run for it alone; the probe now
+     says at every press which window it took for the modal and which had
+     the foreground and the focus. On ARM64 one process in twenty of one
+     row (`button.click`, reference compiler, sanitized) ended with status
+     0 and nothing printed; the suite now writes each case's line when it
+     is known, so the next one shows whether the case had finished. In the
+     guest two rows of `mix.order`, one after the other, once ran out of
+     their time with nothing printed, and not again in 100 rows after. A
+     row that runs out of time now lists the windows on the screen and the
+     one in front before it is stopped.
 7. **Android**: a new provider on the approved UI2 host attachment, not a
    second run loop. iOS waits with macOS. Done: the shim provider's third
    implementation (`GUI/Android`), Android's own views reached through JNI
    from the program's thread, with `android.webkit.WebView` for the web
-   view. The suite passes 41 of 41 cases through both compilers on the
+   view. The suite passes 42 of 42 cases through both compilers on the
    API 29 and API 36 x86_64 emulators (`test_native_ui_conformance_android.py`;
    `host-android.yml` runs the same file). What it found:
    - The system refuses input a program injects into its own windows
@@ -538,6 +550,14 @@ Each step ends with something that runs.
    - A case that hands a link to the system starts the device's browser,
      which came to the front over the next case; the runner stops whatever
      another program left in front, before and after each run.
+   - On a hosted runner the API 36 emulator refused the probe's input for
+     the first minutes after it booted (the first cases that send any
+     failed, later ones passed), and on API 29 one activity could not
+     reach the display's event source in the same minutes. The runner now
+     waits until the launcher's own window has held the focus, turns the
+     system's "isn't responding" dialogs off for the test device, and a
+     failed run says which window was in front and what the system
+     refused. What was in front those minutes has not been seen.
    - `IFontFace` is FreeType's here too, which the NDK does not carry; the
      font case does not apply, as on Windows. Android has no folder to
      choose by path: the directory picker reports that it is unavailable.
@@ -583,12 +603,23 @@ Each step ends with something that runs.
      (`vm-dialog`, `vm-tray`) pass.
    - Deck Pad's `unit-deckpad`, which runs its tray and its screen on a
      virtual display, passes as it is.
-   - BTRSmith does not build against `main`, and did not before this plan:
-     its `main` pins btrc at `05ec9cb7` (2026-09-28), and the first import
-     of its application, `Library.Datetime`, was renamed on 2026-10-01. What
-     it needs is the migration [btrsmith-rename-table-w2.md](btrsmith-rename-table-w2.md)
-     describes and everything since, which is BTRSmith's own lane. Its GUI
-     checks have therefore not run against this provider.
+   - BTRSmith's `main` pins btrc at `05ec9cb7` (2026-09-28) and does not
+     build against this `main`; its port is the branch `port/btrc-main`,
+     where the application and its 124 test programs build and its whole
+     source check passes. Of its 30 Linux release targets, run in the
+     private Wayland session, four are not green. The album grid's
+     pictures needed two things of this provider, both fixed here: a
+     capture is the view it was asked for and not the whole window, and a
+     capture taken straight after `show()` has the controls in it (the
+     case `capture.subtree`). The player's GPU check and the shared WebGPU
+     smoke count bright pixels against thresholds set on a display of
+     scale 2, and fail on BTRSmith's `main` with the old provider too; the
+     playback session check reaches into `Library.Realtime`'s private
+     runtime and is not a GUI check. Those three are BTRSmith's own.
+     Its application journey asked for a window 760 rows tall and got 692
+     and 720: the Wayland session's screen was wlroots' default 1280x720,
+     not the 1280x1024 `headless-session.sh` declares and Xvfb has. The
+     session now sets it (`wlr-randr`), and the journey passes.
 
 Done when, at one commit on `main`: the shared suite passes on every row of
 section 4 through both compilers; `ui_catalog check --strict` passes with

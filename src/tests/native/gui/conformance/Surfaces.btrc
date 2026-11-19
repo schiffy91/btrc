@@ -14,6 +14,62 @@ import ./Layout.btrc;
 import ./Picture.btrc;
 import ./Suite.btrc;
 
+/* A capture is the picture of the view it is asked for, at that view's own
+ * size, and it follows show() without a turn of the loop: what was attached
+ * and arranged before it is in it, a native control as much as a panel. */
+class CaptureSubtree implements IConformanceCase {
+	public string name() { return "capture.subtree"; }
+
+	/* A provider whose window draws with a GPU device refuses a capture until
+	 * the device has arrived. Nothing here turns the loop meanwhile. */
+	class Image straightAway(IView view) {
+		long long started = MonotonicClock.milliseconds();
+		while (true) {
+			try { return GUI.capture(view, []); } catch (string refused) {
+				if (MonotonicClock.milliseconds() - started > 15000LL) { throw refused; }
+				Timer.sleepMillis(5);
+			}
+		}
+		throw "unreachable";
+	}
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance capture.subtree", 320.0, 200.0);
+		var root = GUI.createContainer();
+		var group = GUI.createContainer();
+		var ground = GUI.createPanel(Palette.green());
+		var image = GUI.createImageView();
+		var outside = GUI.createPanel(Palette.red());
+		var pixels = Image(32, 32);
+		pixels.fill(Palette.blue());
+		image.setImage(pixels);
+		window.attachRoot(root);
+		root.attach(group);
+		root.attach(outside);
+		group.attach(ground);
+		group.attach(image);
+		group.arrange(40.0, 30.0, 200.0, 120.0);
+		ground.arrange(0.0, 0.0, 200.0, 120.0);
+		image.arrange(20.0, 10.0, 60.0, 60.0);
+		outside.arrange(250.0, 160.0, 60.0, 30.0);
+		window.show();
+		var whole = CaptureSubtree.straightAway(root);
+		var part = CaptureSubtree.straightAway(group);
+		double scale = (double)whole.width / window.contentWidth();
+		Expect.isTrue(Picture.same(whole.pixel((int)(280.0 * scale), (int)(175.0 * scale)), Palette.red()), "the window's picture has the panel beside the group");
+		Expect.isTrue(Frame.close((double)part.width, 200.0 * scale, 1.0) && Frame.close((double)part.height, 120.0 * scale, 1.0), f"a view's capture is the view's size: {part.width} by {part.height} at scale {scale}");
+		Expect.isTrue(Picture.same(part.pixel((int)(150.0 * scale), (int)(100.0 * scale)), Palette.green()), "and its own picture, from its own corner");
+		Expect.isTrue(Picture.same(part.pixel((int)(50.0 * scale), (int)(40.0 * scale)), Palette.blue()), "with a native control that was attached before the loop turned");
+		bool beside = false;
+		for (int y = 0; y < part.height && !beside; y++) {
+			for (int x = 0; x < part.width && !beside; x++) { beside = Picture.same(part.pixel(x, y), Palette.red()); }
+		}
+		Expect.isFalse(beside, "and nothing of a view outside it");
+		window.close();
+		turns.settle();
+	}
+}
+
 /* A GPU view is an ordinary child whose content the program draws: its device
  * arrives over turns, a frame clears to the colour asked for, a readback
  * returns those pixels, and a capture shows them in the window's picture. */

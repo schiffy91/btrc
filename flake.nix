@@ -84,7 +84,7 @@
             # with the AT-SPI accessibility bus. The GUI conformance probe
             # sends real input in it: XTEST on X11, and on Wayland a wlroots
             # compositor's virtual pointer and keyboard.
-            xvfb dbus (atSpiCore pkgs) libxtst labwc
+            xvfb dbus (atSpiCore pkgs) libxtst labwc wlr-randr
             # gtk4.pc: the Linux GUI provider's windows and controls.
             gtk4.dev glib.dev
             # webkitgtk-6.0.pc: the web engine behind the provider's IWebView.

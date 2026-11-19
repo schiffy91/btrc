@@ -217,6 +217,11 @@ class GUIAppRunner:
         return self.adb("shell", "-T", shlex.join(["run-as", self.package, "sh", "-c", script]), **options)
 
     def install(self, apk):
+        # A device made for tests shows no "isn't responding" dialog over the
+        # program: on a slow host a freshly booted system raises them for its
+        # own apps, and the system refuses input aimed at a window under one.
+        self.adb("shell", "settings", "put", "global", "hide_error_dialogs", "1", check=False)
+        self.settle(180, 3.0)
         self.adb("uninstall", self.package, check=False)
         self.adb("install", "-r", str(apk), timeout=180)
         self.within("mkdir -p files")
@@ -245,15 +250,41 @@ class GUIAppRunner:
             raise RuntimeError(f"cannot read the app's {name}: {result.stderr.decode(errors='replace')}")
         return result.stdout
 
+    def front(self):
+        """What the system says is in front: the focused window and the focused app."""
+        state = self.adb("shell", "dumpsys", "window", check=False).stdout.decode(errors="replace")
+        return " ".join(
+            line.strip() for line in state.splitlines() if re.match(r"\s*m(CurrentFocus|FocusedApp)=", line)
+        )
+
     def clear_foreground(self):
         """Stop whatever another program left in front of the launcher.
 
         A program may hand a link to the system, which starts the browser:
         left alone, it comes to the front in its own time, over the next run."""
-        focused = self.adb("shell", "dumpsys", "window", check=False).stdout.decode(errors="replace")
-        found = re.search(r"mFocusedApp=ActivityRecord\{\S+ \S+ ([\w.]+)/", focused)
+        found = re.search(r"mFocusedApp=ActivityRecord\{\S+ \S+ ([\w.]+)/", self.front())
         if found and found[1] != self.package and "launcher" not in found[1]:
             self.adb("shell", "am", "force-stop", found[1], check=False)
+
+    def settle(self, timeout, held):
+        """Wait until the launcher's own window has held the focus for `held` seconds.
+
+        A device that has just booted is still putting its own windows up,
+        and a system dialog may be over the launcher: Home is what a person
+        presses to get past them. Whether it settled; a run goes on either
+        way, and a failure says what was in front."""
+        deadline, since = time.monotonic() + timeout, None
+        while time.monotonic() < deadline:
+            focus = re.search(r"mCurrentFocus=Window\{[^}]*\}", self.front())
+            if focus and "launcher" in focus[0].lower():
+                since = since or time.monotonic()
+                if time.monotonic() - since >= held:
+                    return True
+            else:
+                since = None
+                self.adb("shell", "input", "keyevent", "KEYCODE_HOME", check=False)
+            time.sleep(0.5)
+        return False
 
     def running(self):
         return bool(self.adb("shell", "pidof", self.package, check=False).stdout.strip())
@@ -265,6 +296,8 @@ class GUIAppRunner:
             raise ValueError("an argument or environment value contains a comma")
         self.adb("shell", "am", "force-stop", self.package)
         self.clear_foreground()
+        settled = self.settle(30, 0.0)
+        self.adb("logcat", "-c", check=False)
         self.within("rm -f files/exit.txt files/stdout.txt files/stderr.txt")
         joined = shlex.quote(",".join(values))
         if self.instrumentation:
@@ -283,11 +316,18 @@ class GUIAppRunner:
             if started and not alive and self.file("exit.txt") is None:
                 break
             time.sleep(0.1)
+        front = self.front()
         self.adb("shell", "am", "force-stop", self.package)
         self.clear_foreground()
         stdout = (self.file("stdout.txt") or b"").decode(errors="replace")
         stderr = (self.file("stderr.txt") or b"").decode(errors="replace")
-        if status is None:
-            crash = self.adb("logcat", "-d", "-t", "200", "-s", "AndroidRuntime:E", "DEBUG:F", "libc:F", check=False)
+        if status != 0:
+            # A host that cannot be watched: what was in front when it ended,
+            # what the system refused of the probe's input, and a crash's trace.
+            tags = ["AndroidRuntime:E", "DEBUG:F", "libc:F", "btrc-probe:E"]
+            crash = self.adb("logcat", "-d", "-t", "200", "-s", *tags, check=False)
+            stderr += f"\nin front when it ended: {front}\n" + (
+                "" if settled else "the launcher never had the focus before it started\n"
+            )
             stderr += crash.stdout.decode(errors="replace")
         return status, stdout, stderr

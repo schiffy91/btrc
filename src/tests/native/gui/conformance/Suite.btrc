@@ -124,7 +124,9 @@ class Suite {
 		if (!released) { throw "the application did not finish closing after the case"; }
 	}
 
-	/* One line per case and a summary, which the driver reads. */
+	/* One line per case and a summary, which the driver reads. Each is written
+	 * out when it is known: a process that ends badly afterwards has still
+	 * said what it found. */
 	public int run(string only = "") {
 		int ran = 0;
 		int failed = 0;
@@ -139,8 +141,10 @@ class Suite {
 				failed++;
 				Console.log(f"CASE {entry.name()} FAIL {error}");
 			}
+			Console.flush();
 		}
 		Console.log(f"CONFORMANCE ran={ran} failed={failed}");
+		Console.flush();
 		return failed == 0 && ran > 0 ? 0 : 1;
 	}
 

@@ -576,22 +576,61 @@ def uia_summary(trees):
     return summary
 
 
+def desktop():
+    """What a person would see on the screen, as text: the foreground window and
+    every visible top-level one, each with its class, title, process and whether
+    it takes input. A program that stopped answering has no other witness."""
+    if sys.platform != "win32":
+        return ""
+    import ctypes
+    from ctypes import wintypes
+
+    user = ctypes.WinDLL("user32", use_last_error=True)
+    user.GetForegroundWindow.restype = wintypes.HWND
+    user.IsWindowVisible.argtypes = user.IsWindowEnabled.argtypes = [wintypes.HWND]
+    user.GetClassNameW.argtypes = user.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+
+    def describe(window):
+        name, title, process = ctypes.create_unicode_buffer(128), ctypes.create_unicode_buffer(128), wintypes.DWORD()
+        user.GetClassNameW(window, name, 128)
+        user.GetWindowTextW(window, title, 128)
+        user.GetWindowThreadProcessId(window, ctypes.byref(process))
+        disabled = "" if user.IsWindowEnabled(window) else " disabled"
+        return f"[{name.value}] {title.value!r} process {process.value}{disabled}"
+
+    lines = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def each(window, _):
+        if user.IsWindowVisible(window):
+            lines.append("  " + describe(window))
+        return True
+
+    user.EnumWindows(each, 0)
+    front = user.GetForegroundWindow()
+    return "\nforeground: " + (describe(front) if front else "none") + "\nvisible windows:\n" + "\n".join(lines)
+
+
 def run_shell(command, environment, timeout):
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+    )
     try:
-        return subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=environment,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as error:
-        stdout = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout or ""
-        stderr = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else error.stderr or ""
-        return subprocess.CompletedProcess(command, 124, stdout, stderr + f"\nShell exceeded {timeout}-second timeout")
+        stdout, stderr = process.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        # Before it is stopped: its own process number, and what was on the screen.
+        seen = f"\nShell exceeded {timeout}-second timeout (process {process.pid}){desktop()}"
+        process.kill()
+        stdout, stderr = process.communicate()
+        return subprocess.CompletedProcess(command, 124, stdout or "", (stderr or "") + seen)
 
 
 @pytest.fixture(scope="module", autouse=True)

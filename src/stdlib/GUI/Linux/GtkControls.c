@@ -180,8 +180,21 @@ void btrcShimWindowEndPlacement(BtrcShimWindow* window) {
 	btrcGtkCanvasEnd(canvas);
 }
 
+/* A window that was shown and has not been laid out yet has no frames for its
+ * controls: its first layout follows the display's answer, which only the
+ * loop hears. A capture taken straight after show() turns the loop until
+ * that layout, as a person's first look at the window would follow it. */
+static void btrcGtkCanvasAwaitLayout(GtkWidget* canvas) {
+	GtkRoot* shown = gtk_widget_get_root(canvas);
+	gint64 deadline = g_get_monotonic_time() + 2 * G_TIME_SPAN_SECOND;
+	while (shown != NULL && gtk_widget_get_visible(GTK_WIDGET(shown)) && (gtk_widget_get_width(canvas) <= 0 || gtk_widget_get_height(canvas) <= 0) && g_get_monotonic_time() < deadline) {
+		if (!g_main_context_iteration(NULL, FALSE)) { g_usleep(1000); }
+	}
+}
+
 bool btrcShimWindowDrawControls(BtrcShimWindow* window, unsigned char* pixels, int pixelWidth, int pixelHeight) {
 	GtkWidget* canvas = btrcGtkWindowCanvas(window);
+	btrcGtkCanvasAwaitLayout(canvas);
 	int width = gtk_widget_get_width(canvas);
 	int height = gtk_widget_get_height(canvas);
 	if (pixels == NULL || pixelWidth <= 0 || pixelHeight <= 0) { return false; }

@@ -183,6 +183,11 @@ case "$mode" in
     await '[[ -S "$XDG_RUNTIME_DIR/wayland-0" ]]' "$!" "$session/labwc.log" || fail "labwc did not start"
     export WAYLAND_DISPLAY=wayland-0
     export GDK_BACKEND=wayland
+    # A headless output is 1280x720 until it is told otherwise, and a window
+    # taller than its screen is cut to it.
+    command -v wlr-randr >/dev/null || fail "wlr-randr is not installed"
+    wlr-randr --output HEADLESS-1 --custom-mode "${SCREEN_WIDTH}x${SCREEN_HEIGHT}" >"$session/output.log" 2>&1 ||
+      fail "the Wayland output could not be set to ${SCREEN_WIDTH}x${SCREEN_HEIGHT}: $(cat "$session/output.log")"
     ;;
 esac
 export BTRC_UI_SESSION="$mode" BTRC_UI_PRIVATE_SESSION=1

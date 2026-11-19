@@ -25,7 +25,7 @@ name = "view.arrange"
 operations = [
   "IView.arrange", "IView.isVisible", "IView.setVisible", "IView.isOpen", "IView.pollClose",
   "GUI.createContainer", "IApplication.createContainer", "GUI.createPanel",
-  "IApplication.createPanel", "GUI.capture", "IContainer.attach"
+  "IApplication.createPanel", "IContainer.attach"
 ]
 
 [[case]]
@@ -250,6 +250,10 @@ operations = [
   "IGPUView.backingScale", "IGPUView.pixelWidth", "IGPUView.pixelHeight", "IGPUView.frameRenderer",
   "IGPUView.beginFrame", "IGPUView.createProgram", "IGPUView.readback", "IGPUView.requestCapture"
 ]
+
+[[case]]
+name = "capture.subtree"
+operations = ["GUI.capture"]
 
 [[case]]
 name = "text.raster"

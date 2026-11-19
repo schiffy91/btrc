@@ -71,9 +71,10 @@ class GUIProvider {
 	}
 
 	/* The window composites every GPU child itself, so the readback is the
-	 * composed capture. Layers must name GPU views inside the root; their
-	 * pixels are not needed. The device request is asynchronous, and capture
-	 * fails at once rather than waiting for it on the UI thread. */
+	 * composed capture, and the root's own part of it is what is returned.
+	 * Layers must name GPU views inside the root; their pixels are not
+	 * needed. The device request is asynchronous, and capture fails at once
+	 * rather than waiting for it on the UI thread. */
 	class Image capture(IApplication application, IView root, Vector<GUICaptureLayer> layers) {
 		var native = (IShimView?)root;
 		if (native == null) { throw "Capture root belongs to another GUI provider"; }
@@ -89,6 +90,6 @@ class GUIProvider {
 		if (!window.pollDevice()) { throw "Capture window GPU device is not ready"; }
 		var image = window.render(true);
 		if (image == null) { throw "Capture window produced no frame"; }
-		return image;
+		return window.pictureOf(native, image);
 	}
 }

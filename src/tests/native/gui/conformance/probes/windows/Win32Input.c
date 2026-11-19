@@ -207,11 +207,43 @@ static BOOL CALLBACK owning(HWND window, LPARAM found) {
     return FALSE;
 }
 
+static bool traced(void) {
+    const char *wanted = getenv("BTRC_CONFORMANCE_TRACE");
+    return wanted && strcmp(wanted, "1") == 0;
+}
+
+/* BTRC_CONFORMANCE_TRACE=1: what a press to a modal is about to meet. */
+static void describe(const char *what, HWND window) {
+    wchar_t name[64] = L"";
+    wchar_t title[64] = L"";
+    DWORD process = 0;
+    if (window) {
+        GetClassNameW(window, name, 64);
+        GetWindowTextW(window, title, 64);
+        GetWindowThreadProcessId(window, &process);
+    }
+    fprintf(stderr, " %s %p [%ls] '%ls'%s%s%s;", what, (void *)window, name, title,
+        window && process == GetCurrentProcessId() ? " ours" : "",
+        window && !IsWindowVisible(window) ? " hidden" : "", window && !IsWindowEnabled(window) ? " disabled" : "");
+}
+
 /* A modal a program opens while it is not the foreground program does not
  * get the keyboard: bring it to the front as a person's click would. */
 static bool win32Front(void) {
     HWND modal = NULL;
     EnumWindows(owning, (LPARAM)&modal);
+    if (traced()) {
+        HWND front = GetForegroundWindow();
+        GUITHREADINFO threads = { .cbSize = sizeof threads };
+        fprintf(stderr, "probe:");
+        describe("modal", modal);
+        describe("foreground", front);
+        if (front && GetGUIThreadInfo(GetWindowThreadProcessId(front, NULL), &threads)) {
+            describe("focus", threads.hwndFocus);
+            fprintf(stderr, "%s", threads.flags & (GUI_INMENUMODE | GUI_SYSTEMMENUMODE | GUI_POPUPMENUMODE) ? " in a menu;" : "");
+        }
+        fprintf(stderr, "\n");
+    }
     return modal && toFront(modal);
 }
 

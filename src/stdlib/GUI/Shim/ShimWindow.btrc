@@ -393,6 +393,21 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 
 	public bool owns(int viewId) { return self.locate(viewId) != null; }
 
+	/* A capture is of the view it was asked for: that view's own part of the
+	 * window's picture, at the picture's scale. */
+	public Image pictureOf(IShimView view, Image picture) {
+		var hit = self.locate(view.node().id);
+		if (hit == null) { throw "Capture root is not attached to this window"; }
+		double scale = self._host.scale;
+		var node = view.node();
+		int left = Math.clamp((int)Math.floorDouble(hit.originX * scale + 0.5), 0, picture.width);
+		int top = Math.clamp((int)Math.floorDouble(hit.originY * scale + 0.5), 0, picture.height);
+		int right = Math.clamp((int)Math.floorDouble((hit.originX + node.width) * scale + 0.5), left, picture.width);
+		int bottom = Math.clamp((int)Math.floorDouble((hit.originY + node.height) * scale + 0.5), top, picture.height);
+		if (left == 0 && top == 0 && right == picture.width && bottom == picture.height) { return picture; }
+		return picture.crop(left, top, right - left, bottom - top);
+	}
+
 	private void requireOpen() { if (self._window == null || self._closing || self._closed) { throw "Window shutdown has started"; } }
 
 	public bool isOpen() { return self._window != null && !self._closing && !self._closed; }

@@ -51,6 +51,8 @@ WAITER = 'printf "%s" "$XDG_RUNTIME_DIR" > "$1.tmp" && mv "$1.tmp" "$1" && exec 
 def _require_session_tools(*tools: str) -> None:
     if sys.platform != "linux":
         pytest.skip("headless GUI sessions are Linux-only")
+    # The Wayland session sets its output's size with wlr-randr.
+    tools += ("wlr-randr",) if "labwc" in tools else ()
     missing = [tool for tool in ("dbus-daemon", *tools) if shutil.which(tool) is None]
     missing += [] if os.environ.get("BTRC_ATSPI_LIBEXEC") else ["BTRC_ATSPI_LIBEXEC"]
     if not missing:
@@ -117,6 +119,22 @@ def test_x11_session_offers_a_display_and_the_accessibility_bus():
     # The session stopped Xvfb and removed its private runtime directory.
     assert _stopped(seen["socket"], seen["inode"])
     assert not Path(seen["environ"]["XDG_RUNTIME_DIR"]).exists()
+
+
+def test_wayland_session_has_the_screen_the_x11_session_has():
+    """A headless output is 1280x720 until it is told otherwise: a window
+    taller than that was cut to it, on Wayland only."""
+    _require_session_tools("labwc")
+    result = subprocess.run(
+        [str(SESSION), "--wayland", "--", "wlr-randr"],
+        cwd=ROOT,
+        env=_session_environment(),
+        capture_output=True,
+        text=True,
+        timeout=TIMEOUT,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "1280x1024 px (current)" in result.stdout, result.stdout
 
 
 def test_wayland_session_offers_a_compositor_and_the_accessibility_bus():
