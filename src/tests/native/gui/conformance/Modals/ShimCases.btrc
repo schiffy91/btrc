@@ -69,9 +69,12 @@ class DirectoryChoice implements IConformanceCase {
 			var reason = absent.error;
 			Expect.isTrue(absent.kind == DIRECTORY_PICKER_FAILED && reason != null && reason.code == APP_ERROR_BACKEND_UNAVAILABLE, "a platform without a folder chooser says so");
 		} else {
+			/* It opens on an empty folder of the case's own, which it has done
+			 * listing long before anyone dismisses it. */
+			var folder = TestDir("btrc-conformance-");
 			DirectoryPickerOutcome? outcome = null;
 			Answer.escape();
-			try { outcome = GUI.chooseDirectory(DirectoryPickerRequest("Choose a folder")); } finally { Answer.done(); }
+			try { outcome = GUI.chooseDirectory(DirectoryPickerRequest("Choose a folder", folder.path)); } finally { Answer.done(); }
 			Expect.isTrue(outcome != null && outcome.kind == DIRECTORY_PICKER_CANCELLED, "a chooser a person dismisses is cancelled");
 			Expect.isTrue(outcome != null && outcome.directory.isEmpty() && outcome.error == null, "and names no folder and no error");
 		}
