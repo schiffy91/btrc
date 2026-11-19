@@ -54,7 +54,7 @@ def event_boundary_program(tmp_path_factory, request, frontend, sanitized):
             "eventBoundaryAccepted",
             "eventBoundaryRejected",
         ),
-        ("btrcGtkPollEvent", "wgpuSurfacePresent", "btrcGtkWindowShowPicture"),
+        ("btrcShimPollEvent", "wgpuSurfacePresent", "btrcShimWindowShowPicture"),
     )
 
 
@@ -69,7 +69,7 @@ def placement_program(tmp_path_factory, request, frontend, sanitized):
         "src/tests/native/gui/linux/LinuxPlacement.btrc",
         "src/tests/native/gui/linux/Placement",
         ("placementPlaced", "placementPasses", "placementFrames"),
-        ("btrcGtkWindowBeginPlacement", "btrcGtkWindowPlace", "wgpuSurfacePresent", "btrcGtkWindowShowPicture"),
+        ("btrcShimWindowBeginPlacement", "btrcShimWindowPlace", "wgpuSurfacePresent", "btrcShimWindowShowPicture"),
     )
 
 

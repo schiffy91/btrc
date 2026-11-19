@@ -1,0 +1,75 @@
+import Library.Callback;
+import Library.Math;
+import Library.GUI.ILabel;
+import Library.GUI.Shim.ShimView;
+import Library.GUI.Shim.ShimContext;
+import Library.GUI.Shim.ShimPainter;
+import Library.GUI.Shim.ShimControls;
+
+/* A GTK label: GTK lays the text out, wraps it and draws it. */
+class ShimLabel extends ShimNodeView implements ILabel {
+	private BtrcShimControl* _control;
+	private string _text;
+	private bool _wrapping = false;
+
+	public ShimLabel(ShimContext context, string text) {
+		self.adoptNode(ShimViewNode(context));
+		self._text = text;
+		self._control = btrcShimLabelCreate((unsigned int)self.node().id, text);
+		if (self._control == null) { throw "Cannot create native label"; }
+		btrcShimControlSetFont(self._control, 13.0, false);
+	}
+
+	private BtrcShimControl* control() { if (self._control == null) { throw "Native label is closed"; } return self._control; }
+
+	public void paint(ShimPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
+
+	public double fittingWidth() { self.node().requireOpen(); return (double)btrcShimControlNaturalWidth(self.control()); }
+
+	/* Wrapped text is as tall as the width it has been given makes it. */
+	public double fittingHeight() {
+		self.node().requireOpen();
+		if (self._wrapping && self.node().width > 0.0) { return (double)btrcShimControlNaturalHeightFor(self.control(), (int)self.node().width); }
+		return (double)btrcShimControlNaturalHeight(self.control());
+	}
+
+	public void setText(string text) {
+		self.node().requireOpen();
+		if (text == null) { throw "Native label text is missing"; }
+		if (self._text.equals(text)) { return; }
+		self._text = text;
+		btrcShimLabelSetText(self.control(), text);
+		self.node().invalidate();
+	}
+
+	public string text() { self.node().requireOpen(); return self._text; }
+
+	public void setFont(double size, bool bold = false) {
+		self.node().requireOpen();
+		if (!Math.isFinite(size) || size <= 0.0 || size > 512.0) { throw "Invalid native label font size"; }
+		btrcShimControlSetFont(self.control(), size, bold);
+		self.node().invalidate();
+	}
+
+	public void setSecondary(bool secondary) { self.node().requireOpen(); btrcShimLabelSetSecondary(self.control(), secondary); }
+
+	public void setCentered(bool centered) { self.node().requireOpen(); btrcShimLabelSetCentered(self.control(), centered); }
+
+	public void setWrapping(bool wrapping) { self.node().requireOpen(); self._wrapping = wrapping; btrcShimLabelSetWrapping(self.control(), wrapping); self.node().invalidate(); }
+
+	private void releaseNative() { if (self._control != null) { btrcShimControlDestroy(self._control); self._control = null; } }
+
+	public CallbackCancellation close() {
+		var state = self.node().close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self.node().pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public void __del__() { self.releaseNative(); }
+}

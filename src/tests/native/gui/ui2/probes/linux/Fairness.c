@@ -1,5 +1,5 @@
 #include "Fairness.h"
-#include "GUI/Linux/GtkShim.h"
+#include "GUI/Shim/Shim.h"
 #include <webgpu.h>
 #include <assert.h>
 #include <pthread.h>
@@ -20,7 +20,7 @@
 #define SEQUENCE_MARK 0x45343022
 
 /* The provider shim's queue, as its own sources see it (GtkShimPrivate.h). */
-bool btrcGtkPush(const BtrcGtkEvent *event, const char *text);
+bool btrcGtkPush(const BtrcShimEvent *event, const char *text);
 int btrcGtkQueued(unsigned int firstType, unsigned int lastType);
 struct Receipt { long long sequence; uint64_t admitted, due; int bytes; };
 struct Metrics {
@@ -50,14 +50,14 @@ static bool measuring;
 
 void e40Phase(const char *phase, int window) {
     fprintf(stderr, "E40_PHASE phase=%s window=%d monotonic_ns=%llu\n", phase, window,
-            (unsigned long long)btrcGtkTicksNS());
+            (unsigned long long)btrcShimTicksNS());
     fflush(stderr);
 }
 
-bool __real_btrcGtkWindowShow(BtrcGtkWindow *window);
-bool __wrap_btrcGtkWindowShow(BtrcGtkWindow *window) {
+bool __real_btrcShimWindowShow(BtrcShimWindow *window);
+bool __wrap_btrcShimWindowShow(BtrcShimWindow *window) {
     e40Phase("native-window-show-begin", -1);
-    bool result = __real_btrcGtkWindowShow(window);
+    bool result = __real_btrcShimWindowShow(window);
     e40Phase("native-window-show-end", -1);
     return result;
 }
@@ -114,7 +114,7 @@ void e40Begin(int kind, long long sequence, unsigned long long due, int payloadB
     struct Metrics *m = &metrics[kind];
     struct Receipt *r = &m->receipts[(uint64_t)sequence % SLOTS];
     assert(r->sequence == 0 && m->pending < SLOTS);
-    r->sequence = sequence; r->admitted = btrcGtkTicksNS();
+    r->sequence = sequence; r->admitted = btrcShimTicksNS();
     r->due = due > r->admitted ? due : r->admitted; r->bytes = payloadBytes;
     m->accepted++; m->pending++; m->bytes += payloadBytes;
     int second = activitySecond(r->admitted);
@@ -135,10 +135,10 @@ void e40Reject(int kind, long long sequence) {
 }
 void e40Deliver(int kind, long long sequence) {
     requireKind(kind); pthread_mutex_lock(&mutex);
-    delivered(kind, sequence, btrcGtkTicksNS()); pthread_mutex_unlock(&mutex);
+    delivered(kind, sequence, btrcShimTicksNS()); pthread_mutex_unlock(&mutex);
 }
 void e40Handler(int kind, unsigned long long began) {
-    requireKind(kind); uint64_t elapsed = btrcGtkTicksNS() - began;
+    requireKind(kind); uint64_t elapsed = btrcShimTicksNS() - began;
     pthread_mutex_lock(&mutex);
     if (elapsed > metrics[kind].handlerMaximum) { metrics[kind].handlerMaximum = elapsed; }
     pthread_mutex_unlock(&mutex);
@@ -156,7 +156,7 @@ static void presented(const void *presenter) {
     }
     frameCounts[index]++;
     if (measuring) {
-        uint64_t now = btrcGtkTicksNS();
+        uint64_t now = btrcShimTicksNS();
         pthread_mutex_lock(&mutex);
         if (metrics[5 + index].pending > 0) { delivered(5 + index, frameSequence[index], now); }
         pthread_mutex_unlock(&mutex);
@@ -169,23 +169,23 @@ WGPUStatus __wrap_wgpuSurfacePresent(WGPUSurface surface) {
     if (result == WGPUStatus_Success) { presented(surface); }
     return result;
 }
-void __real_btrcGtkWindowShowPicture(BtrcGtkWindow *window, const unsigned char *pixels, int pixelWidth, int pixelHeight);
-void __wrap_btrcGtkWindowShowPicture(BtrcGtkWindow *window, const unsigned char *pixels, int pixelWidth, int pixelHeight) {
-    __real_btrcGtkWindowShowPicture(window, pixels, pixelWidth, pixelHeight);
+void __real_btrcShimWindowShowPicture(BtrcShimWindow *window, const unsigned char *pixels, int pixelWidth, int pixelHeight);
+void __wrap_btrcShimWindowShowPicture(BtrcShimWindow *window, const unsigned char *pixels, int pixelWidth, int pixelHeight) {
+    __real_btrcShimWindowShowPicture(window, pixels, pixelWidth, pixelHeight);
     presented(window);
 }
-static void observed(const BtrcGtkEvent *event, int result) {
-    latestInput = result && event != NULL && event->type == BTRC_GTK_EVENT_KEY_DOWN &&
+static void observed(const BtrcShimEvent *event, int result) {
+    latestInput = result && event != NULL && event->type == BTRC_SHIM_EVENT_KEY_DOWN &&
         event->data2 == SEQUENCE_MARK && (event->window == windows[0] || event->window == windows[1])
         ? (long long)event->data1 : 0;
 }
-int __real_btrcGtkPollEvent(BtrcGtkEvent *event);
-int __wrap_btrcGtkPollEvent(BtrcGtkEvent *event) {
-    int result = __real_btrcGtkPollEvent(event); observed(event, result); return result;
+int __real_btrcShimPollEvent(BtrcShimEvent *event);
+int __wrap_btrcShimPollEvent(BtrcShimEvent *event) {
+    int result = __real_btrcShimPollEvent(event); observed(event, result); return result;
 }
-int __real_btrcGtkWaitEvent(BtrcGtkEvent *event, int timeout);
-int __wrap_btrcGtkWaitEvent(BtrcGtkEvent *event, int timeout) {
-    int result = __real_btrcGtkWaitEvent(event, timeout); observed(event, result); return result;
+int __real_btrcShimWaitEvent(BtrcShimEvent *event, int timeout);
+int __wrap_btrcShimWaitEvent(BtrcShimEvent *event, int timeout) {
+    int result = __real_btrcShimWaitEvent(event, timeout); observed(event, result); return result;
 }
 void e40InputDelivery(void) { if (latestInput > 0) { e40Deliver(0, latestInput); } }
 int e40PushInput(int window) {
@@ -194,9 +194,9 @@ int e40PushInput(int window) {
      * explicitly, without allowing the measurement ledger itself to overflow. */
     if (e40Pending(0) >= 64) { inputPauses++; return 0; }
     long long sequence = inputSequence + 1;
-    e40Begin(0, sequence, 0, (int)sizeof(BtrcGtkEvent));
-    BtrcGtkEvent event; memset(&event, 0, sizeof event); event.type = BTRC_GTK_EVENT_KEY_DOWN;
-    event.window = windows[window]; event.scancode = BTRC_GTK_SCANCODE_A;
+    e40Begin(0, sequence, 0, (int)sizeof(BtrcShimEvent));
+    BtrcShimEvent event; memset(&event, 0, sizeof event); event.type = BTRC_SHIM_EVENT_KEY_DOWN;
+    event.window = windows[window]; event.scancode = BTRC_SHIM_SCANCODE_A;
     event.data1 = (int)sequence; event.data2 = SEQUENCE_MARK; event.down = 1;
     if (!btrcGtkPush(&event, NULL)) { e40Reject(0, sequence); return 0; }
     inputSequence = sequence;
@@ -205,8 +205,8 @@ int e40PushInput(int window) {
     return 1;
 }
 int e40PushClose(void) {
-    e40Begin(7, 1, 0, (int)sizeof(BtrcGtkEvent));
-    BtrcGtkEvent event; memset(&event, 0, sizeof event); event.type = BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED; event.window = windows[0];
+    e40Begin(7, 1, 0, (int)sizeof(BtrcShimEvent));
+    BtrcShimEvent event; memset(&event, 0, sizeof event); event.type = BTRC_SHIM_EVENT_WINDOW_CLOSE_REQUESTED; event.window = windows[0];
     if (!btrcGtkPush(&event, NULL)) { e40Reject(7, 1); return 0; } return 1;
 }
 void e40Frame(int window) {
@@ -218,18 +218,18 @@ void e40Start(unsigned int first, unsigned int second, const char *presentations
     memset(metrics, 0, sizeof(metrics)); windows[0] = first; windows[1] = second;
     presentationFile = fopen(presentations, "w"); assert(presentationFile != NULL);
     assert(fputs("window,monotonic_ns\n", presentationFile) >= 0);
-    measurementStarted = btrcGtkTicksNS(); measuring = true;
+    measurementStarted = btrcShimTicksNS(); measuring = true;
 }
 unsigned long long e40LoadBegin(int seconds) {
     assert(seconds == 10 || seconds == ACTIVITY_SECONDS);
     assert(loadStarted == 0 && measuring);
-    loadSeconds = seconds; loadStarted = btrcGtkTicksNS();
+    loadSeconds = seconds; loadStarted = btrcShimTicksNS();
     loadEnds = loadStarted + (uint64_t)seconds * 1000000000ULL;
     return loadStarted;
 }
 void e40ProducerTick(void) {
     pthread_mutex_lock(&mutex);
-    uint64_t now = btrcGtkTicksNS();
+    uint64_t now = btrcShimTicksNS();
     int second = activitySecond(now);
     if (second >= 0) {
         uint64_t previous = producerLastTick == 0 ? loadStarted : producerLastTick;
@@ -244,9 +244,9 @@ void e40Report(unsigned long long duration, int qualifying, int sanitized) {
     uint64_t tail = loadEnds - (producerLastTick == 0 ? loadStarted : producerLastTick);
     if (tail > producerMaximumGap) { producerMaximumGap = tail; }
     printf("E40_LOAD {\"duration_ns\":%llu,\"measurement_ns\":%llu,\"qualifying\":%s,\"sanitized\":%s,\"source_backpressure_pauses\":%llu,\"native_sampled_peak_depth\":%d,\"native_sampled_peak_event_bytes\":%llu,\"activity_bucket_ns\":1000000000,\"load_started_ns\":%llu,\"load_ends_ns\":%llu,\"producer_iterations\":%llu,\"producer_max_gap_ns\":%llu,\"producer_by_second\":[",
-           duration, (unsigned long long)(btrcGtkTicksNS() - measurementStarted),
+           duration, (unsigned long long)(btrcShimTicksNS() - measurementStarted),
            qualifying ? "true" : "false", sanitized ? "true" : "false", inputPauses, nativePeakDepth,
-           (unsigned long long)nativePeakDepth * sizeof(BtrcGtkEvent),
+           (unsigned long long)nativePeakDepth * sizeof(BtrcShimEvent),
            (unsigned long long)loadStarted, (unsigned long long)loadEnds,
            producerIterations, (unsigned long long)producerMaximumGap);
     for (int second = 0; second < loadSeconds; second++) {

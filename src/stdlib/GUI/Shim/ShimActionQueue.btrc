@@ -1,0 +1,115 @@
+import Library.Callback;
+import Library.GUI.IButton;
+import Library.GUI.ActionMailbox;
+
+interface IShimActionTarget { bool effectiveEligible(); }
+
+/* Stable BTRC identity for one button's action subscription. Each queued
+ * click snapshots its generation; cancellation or replacement invalidates
+ * older clicks without touching the ring. No path leads back to the scope. */
+class ShimAction implements IQueuedAction {
+	private ActionMailbox _mailbox;
+	private int _generation = 0;
+	private bool _open = true;
+	private IShimActionTarget? _target;
+	private long long _ineligible = 0LL;
+	private CallbackContext<IButtonAction, ShimAction>? _handler;
+
+	public ShimAction(ActionMailbox mailbox, IShimActionTarget? target = null) { self._mailbox = mailbox; self._target = target; }
+
+	private bool eligible() { return self._handler == null || self._target == null || self._target.effectiveEligible(); }
+
+	public long long ineligibleCount() { return self._ineligible; }
+
+	public void eligibilityLost() { self._mailbox.prune(); }
+
+	public bool accepts(int generation) {
+		if (!self._open || self._generation != generation) { return false; }
+		if (!self.eligible()) { self._ineligible++; return false; }
+		return true;
+	}
+
+	/* Called by the button on a completed click. */
+	public void invoke() { if (self._open) { self._mailbox.enqueue(self, self._generation); } }
+
+	public ICallbackRegistration onAction(IButtonAction receiver, CallbackScope scope) {
+		if (!self._open) { throw "Native action is closed"; }
+		if (self._handler != null) { throw "Cancel the existing button action before replacing it"; }
+		self.discard();
+		var handler = new CallbackContext<IButtonAction, ShimAction>(receiver, ShimAction.unregisterHandler);
+		handler.activate(scope);
+		self._handler = handler;
+		handler.publish(self);
+		return handler;
+	}
+
+	class bool unregisterHandler(ShimAction action) {
+		action.discard();
+		action._handler = null;
+		return true;
+	}
+
+	public void deliver() {
+		if (!self._open) { return; }
+		if (!self.eligible()) { self._ineligible++; return; }
+		var handler = self._handler;
+		if (handler == null) { return; }
+		var receiver = handler.enter();
+		if (receiver == null) { return; }
+		try { receiver.invoke(); }
+		finally { handler.leave(); handler.pollCompletion(); }
+	}
+
+	public void discard() {
+		if (self._generation == 2147483647) { throw "Native action generation is exhausted"; }
+		self._generation++;
+		self._mailbox.prune();
+	}
+
+	public void close() {
+		self._open = false;
+		self._mailbox.prune();
+		if (self._handler != null) { self._handler.cancel(); }
+	}
+}
+
+/* The application's click queue. Buttons bind one action each; dispatch runs
+ * on the UI thread after native events, in click order. */
+class ShimActionQueue {
+	private ActionMailbox _mailbox;
+	private int _bound = 0;
+	private int _capacity;
+	private bool _closed = false;
+
+	public ShimActionQueue(int capacity = 256) { self._mailbox = ActionMailbox(capacity); self._capacity = capacity; }
+
+	private void requireOpen() { if (self._closed) { throw "Native action queue is closed"; } }
+
+	public ShimAction bind(IShimActionTarget? target = null) {
+		self.requireOpen();
+		self._bound++;
+		return ShimAction(self._mailbox, target);
+	}
+
+	public void unbind(ShimAction action) {
+		self.requireOpen();
+		action.close();
+		self._bound--;
+	}
+
+	public bool canCapture() { self.requireOpen(); return self._mailbox.pendingCount() < self._capacity; }
+
+	public int pendingCount() { self.requireOpen(); return self._mailbox.pendingCount(); }
+
+	public void dispatchOne() {
+		self.requireOpen();
+		var action = self._mailbox.take();
+		if (action != null) { action.deliver(); }
+	}
+
+	public void close() {
+		if (self._closed) { return; }
+		if (self._bound != 0) { throw "Close native controls before their action queue"; }
+		self._closed = true;
+	}
+}

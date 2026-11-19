@@ -1,16 +1,16 @@
 /* D24: recovered lossless-delivery reproduction; never merge the fixture-only
  * commit without the event-pump fix. The native observer only isolates the input
- * queue and peeks its length; LinuxApplication owns every dequeue. */
+ * queue and peeks its length; ShimApplication owns every dequeue. */
 import Library.App;
 import Library.Callback;
 import Library.Vector;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.ITextField;
-import Library.GUI.Linux.GtkShim;
-import Library.GUI.Linux.LinuxApplication;
-import Library.GUI.Linux.LinuxView;
-import Library.GUI.Linux.LinuxWindow;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.ShimApplication;
+import Library.GUI.Shim.ShimView;
+import Library.GUI.Shim.ShimWindow;
 
 #include <assert.h>
 #include <stdio.h>
@@ -35,7 +35,7 @@ class BoundaryTrial {
 	class int run(int count, int terminal) {
 		assert(count == 4095 || count == 4096 || count == 4097 || count == 8193);
 		assert(terminal >= 0 && terminal <= 3);
-		var owner = LinuxApplication(16);
+		var owner = ShimApplication(16);
 		IApplication application = owner;
 		var window = application.createWindow("E40 boundary", 160.0, 80.0);
 		var native = owner.firstWindow();
@@ -43,7 +43,7 @@ class BoundaryTrial {
 		var field = application.createTextField("", "");
 		window.attachRoot(field);
 		unsigned int id = native == null ? 0u : native.nativeId();
-		ILinuxView? fieldView = (ILinuxView?)field;
+		IShimView? fieldView = (IShimView?)field;
 		assert(fieldView != null);
 		unsigned int fieldControl = fieldView == null ? 0u : (unsigned int)fieldView.node().id;
 		var keys = BoundaryKeys();
@@ -51,8 +51,8 @@ class BoundaryTrial {
 		window.onKey(keys, scope);
 		int setupFrames = eventBoundaryFrames();
 		window.show();
-		unsigned long long readyDeadline = btrcGtkTicksNS() + 10000000000ULL;
-		while (eventBoundaryFrames() == setupFrames && btrcGtkTicksNS() < readyDeadline) { owner.pumpOnce(10); }
+		unsigned long long readyDeadline = btrcShimTicksNS() + 10000000000ULL;
+		while (eventBoundaryFrames() == setupFrames && btrcShimTicksNS() < readyDeadline) { owner.pumpOnce(10); }
 		assert(eventBoundaryFrames() > setupFrames);
 		eventBoundaryArm(id);
 		Vector<int> expected = [];
@@ -84,8 +84,8 @@ class BoundaryTrial {
 		bool frameProgress;
 		if (terminal == 3 && !window.isOpen()) { frameProgress = true; }
 		else { frameProgress = eventBoundaryFrames() > framesBefore; }
-		unsigned long long drainDeadline = btrcGtkTicksNS() + 10000000000ULL;
-		while (eventBoundaryQueued() > 0 && btrcGtkTicksNS() < drainDeadline) { owner.pumpOnce(0); }
+		unsigned long long drainDeadline = btrcShimTicksNS() + 10000000000ULL;
+		while (eventBoundaryQueued() > 0 && btrcShimTicksNS() < drainDeadline) { owner.pumpOnce(0); }
 		int mismatch = 0;
 		for (int index = 0; index < keys.codes.len; index++) {
 			if (index >= expected.len || keys.codes.get(index) != expected.get(index)) { mismatch = index + 1; break; }
@@ -107,8 +107,8 @@ class BoundaryTrial {
 		eventBoundaryDisarm();
 		scope.cancel();
 		var closing = application.close();
-		unsigned long long deadline = btrcGtkTicksNS() + 10000000000ULL;
-		while (closing == CALLBACK_CANCELLATION_PENDING && btrcGtkTicksNS() < deadline) { owner.pumpOnce(10); closing = application.pollClose(); }
+		unsigned long long deadline = btrcShimTicksNS() + 10000000000ULL;
+		while (closing == CALLBACK_CANCELLATION_PENDING && btrcShimTicksNS() < deadline) { owner.pumpOnce(10); closing = application.pollClose(); }
 		assert(closing == CALLBACK_CANCELLATION_COMPLETE);
 		return passed ? 0 : 1;
 	}
@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
 	assert(argc == 3 || argc == 4);
 	int repetitions = argc == 4 ? atoi(argv[3]) : 1;
 	assert(repetitions >= 1 && repetitions <= 100);  // 100 qualifies; a gate may repeat less often
-	assert(btrcGtkInit());
+	assert(btrcShimInit());
 	for (int iteration = 0; iteration < repetitions; iteration++) { assert(BoundaryTrial.run(atoi(argv[1]), atoi(argv[2])) == 0); }
 	return 0;
 }

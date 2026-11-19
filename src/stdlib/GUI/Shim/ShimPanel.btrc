@@ -1,0 +1,64 @@
+import Library.Callback;
+import Library.Console;
+import Library.Image;
+import Library.Math;
+import Library.GUI.IPanel;
+import Library.GUI.Shim.ShimView;
+import Library.GUI.Shim.ShimContainer;
+import Library.GUI.Shim.ShimContext;
+import Library.GUI.Shim.ShimPainter;
+import Library.GUI.Shim.ShimControls;
+
+/* A filled, optionally rounded container: GTK draws the fill, under the
+ * panel's children. Children clip to the panel's rectangular bounds; the
+ * corner radius shapes only the fill. GTK has one colour scheme for the
+ * whole application, so a panel's own dark or light appearance is kept and
+ * changes nothing its controls show. */
+class ShimPanel extends ShimContainerView implements IPanel {
+	private BtrcShimControl* _control;
+	private RGBA _fill;
+	private double _radius;
+	private int _appearance = 0;
+
+	public ShimPanel(ShimContext context, RGBA fill, double radius) {
+		self.adoptNode(ShimViewNode(context));
+		self.node().clipsChildren = true;
+		if (fill == null) { throw "Native panel fill is missing"; }
+		self._fill = fill;
+		self._control = btrcShimFillCreate((unsigned int)self.node().id);
+		if (self._control == null) { throw "Cannot create native panel"; }
+		self.setCornerRadius(radius);
+	}
+
+	private BtrcShimControl* control() { if (self._control == null) { throw "Native panel is closed"; } return self._control; }
+
+	private void show() { btrcShimFillSet(self.control(), self._fill.red, self._fill.green, self._fill.blue, self._fill.alpha, self._radius); }
+
+	public void paint(ShimPlacer painter, double x, double y) {
+		painter.place(self.control(), x, y, self.node().width, self.node().height);
+		ShimComposite.paintChildren(self.node(), painter, x, y);
+	}
+
+	public void setFill(RGBA fill) {
+		self.node().requireOpen();
+		if (fill == null) { throw "Native panel fill is missing"; }
+		self._fill = fill;
+		self.show();
+	}
+
+	public void setCornerRadius(double radius) {
+		self.node().requireOpen();
+		if (!Math.isFinite(radius) || radius < 0.0 || radius > 4096.0) { throw "Invalid native panel corner radius"; }
+		self._radius = radius;
+		self.show();
+	}
+
+	public void setDarkAppearance(bool dark) { self.node().requireOpen(); self._appearance = dark ? 2 : 1; self.node().invalidate(); }
+
+	public void inheritAppearance() { self.node().requireOpen(); self._appearance = 0; self.node().invalidate(); }
+
+	public void __del__() {
+		if (self.node() != null && self.close() != CALLBACK_CANCELLATION_COMPLETE) { Console.fatal("Native panel destroyed before subtree cleanup completed"); }
+		if (self._control != null) { btrcShimControlDestroy(self._control); self._control = null; }
+	}
+}

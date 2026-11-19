@@ -11,7 +11,7 @@ os = ["macos"]
 
 [[package.providers]]
 module = "GUI"
-implementation = "Linux.GUIProvider"
+implementation = "Shim.GUIProvider"
 os = ["linux"]
 
 [[package.providers]]
@@ -26,7 +26,7 @@ os = ["macos"]
 
 [[package.providers]]
 module = "WebView"
-implementation = "Linux.WebViewProvider"
+implementation = "Shim.WebViewProvider"
 os = ["linux"]
 
 [[package.providers]]
@@ -36,171 +36,161 @@ os = ["windows"]
 
 [[native.pkg-config]]
 name = "wgpu-native"
-modules = ["Linux.WebGPUSurface"]
+modules = ["Shim.ShimSurface"]
 os = ["linux"]
 
 [[native.bindings]]
-module = "Linux.GtkShim"
-header = "Linux/GtkShim.h"
+module = "Shim.Shim"
+header = "Shim/Shim.h"
 language = "c"
 standard = "c11"
 symbols = [
-	"BtrcGtkWindow", "BtrcGtkEvent", "BtrcGtkFolderDialog", "btrcGtkInit", "btrcGtkError", "btrcGtkSetDarkAppearance", "btrcGtkIsMainThread",
-	"btrcGtkTicksNS", "btrcGtkWindowCreate", "btrcGtkWindowDestroy", "btrcGtkWindowId", "btrcGtkWindowShow", "btrcGtkWindowHide",
-	"btrcGtkWindowIsHidden", "btrcGtkWindowIsMinimized", "btrcGtkWindowSetTitle", "btrcGtkWindowSetSize", "btrcGtkWindowSetMinimumSize",
-	"btrcGtkWindowWidth", "btrcGtkWindowHeight", "btrcGtkWindowPixelWidth", "btrcGtkWindowPixelHeight", "btrcGtkWindowPixelDensity",
-	"btrcGtkWindowSetCursor", "btrcGtkWindowShowMessage", "btrcGtkWindowWaylandDisplay", "btrcGtkWindowWaylandSurface", "btrcGtkWindowX11Display",
-	"btrcGtkWindowX11Window", "btrcGtkWindowShowsPictures", "btrcGtkWindowShowPicture", "btrcGtkWindowStartTextInput", "btrcGtkWindowStopTextInput",
-	"btrcGtkWindowTextInputActive", "btrcGtkWindowClearComposition", "btrcGtkWindowSetTextInputArea", "btrcGtkModState", "btrcGtkSetClipboardText",
-	"btrcGtkHasClipboardText", "btrcGtkGetClipboardText", "btrcGtkFree", "btrcGtkPollEvent", "btrcGtkWaitEvent", "btrcGtkPushWake",
-	"btrcGtkFolderDialogOpen", "btrcGtkFolderDialogState", "btrcGtkFolderDialogPath", "btrcGtkFolderDialogRelease", "BTRC_GTK_EVENT_NONE",
-	"BTRC_GTK_EVENT_QUIT", "BTRC_GTK_EVENT_USER", "BTRC_GTK_EVENT_WINDOW_SHOWN", "BTRC_GTK_EVENT_WINDOW_HIDDEN", "BTRC_GTK_EVENT_WINDOW_EXPOSED",
-	"BTRC_GTK_EVENT_WINDOW_RESIZED", "BTRC_GTK_EVENT_WINDOW_PIXEL_SIZE_CHANGED", "BTRC_GTK_EVENT_WINDOW_DISPLAY_SCALE_CHANGED",
-	"BTRC_GTK_EVENT_WINDOW_MINIMIZED", "BTRC_GTK_EVENT_WINDOW_RESTORED", "BTRC_GTK_EVENT_WINDOW_MOUSE_ENTER", "BTRC_GTK_EVENT_WINDOW_MOUSE_LEAVE",
-	"BTRC_GTK_EVENT_WINDOW_FOCUS_GAINED", "BTRC_GTK_EVENT_WINDOW_FOCUS_LOST", "BTRC_GTK_EVENT_WINDOW_CLOSE_REQUESTED", "BTRC_GTK_EVENT_KEY_DOWN",
-	"BTRC_GTK_EVENT_KEY_UP", "BTRC_GTK_EVENT_TEXT_EDITING", "BTRC_GTK_EVENT_TEXT_INPUT", "BTRC_GTK_EVENT_MOUSE_MOTION",
-	"BTRC_GTK_EVENT_MOUSE_BUTTON_DOWN", "BTRC_GTK_EVENT_MOUSE_BUTTON_UP", "BTRC_GTK_EVENT_MOUSE_WHEEL", "BTRC_GTK_EVENT_CONTROL_ACTIVATED",
-	"BTRC_GTK_EVENT_CONTROL_FOCUS_GAINED", "BTRC_GTK_EVENT_CONTROL_FOCUS_LOST", "BTRC_GTK_EVENT_CONTROL_SLIDER_PRESSED",
-	"BTRC_GTK_EVENT_CONTROL_SLIDER_CHANGED", "BTRC_GTK_EVENT_CONTROL_SLIDER_RELEASED", "BTRC_GTK_EVENT_CONTROL_SLIDER_CANCELLED",
-	"BTRC_GTK_EVENT_CONTROL_SELECT_OPENED", "BTRC_GTK_EVENT_CONTROL_SELECT_CANDIDATE", "BTRC_GTK_EVENT_CONTROL_SELECT_CHOSEN",
-	"BTRC_GTK_EVENT_CONTROL_SELECT_DISMISSED", "BTRC_GTK_EVENT_CONTROL_TEXT_CHANGED", "BTRC_GTK_EVENT_CONTROL_TEXT_ACTIVATED",
-	"BTRC_GTK_EVENT_CONTROL_TEXT_ESCAPED", "BTRC_GTK_EVENT_CONTROL_SCROLLBAR_CHANGED", "BTRC_GTK_EVENT_CONTROL_WEB_MESSAGE",
-	"BTRC_GTK_EVENT_CONTROL_WEB_NAVIGATION", "BTRC_GTK_SLIDER_JUMP", "BTRC_GTK_SLIDER_STEP_BACKWARD", "BTRC_GTK_SLIDER_STEP_FORWARD",
-	"BTRC_GTK_SLIDER_PAGE_BACKWARD", "BTRC_GTK_SLIDER_PAGE_FORWARD", "BTRC_GTK_SLIDER_START", "BTRC_GTK_SLIDER_END", "BTRC_GTK_KEY_UNKNOWN",
-	"BTRC_GTK_KEY_ESCAPE", "BTRC_GTK_KEY_RETURN", "BTRC_GTK_KEY_KP_ENTER", "BTRC_GTK_KEY_SPACE", "BTRC_GTK_KEY_LEFT", "BTRC_GTK_KEY_RIGHT",
-	"BTRC_GTK_KEY_UP", "BTRC_GTK_KEY_DOWN", "BTRC_GTK_KEY_TAB", "BTRC_GTK_KEY_BACKSPACE", "BTRC_GTK_KEY_DELETE", "BTRC_GTK_KEY_HOME",
-	"BTRC_GTK_KEY_END", "BTRC_GTK_KEY_LSHIFT", "BTRC_GTK_KEY_RSHIFT", "BTRC_GTK_KEY_LALT", "BTRC_GTK_KEY_RALT", "BTRC_GTK_KEY_A", "BTRC_GTK_KEY_C",
-	"BTRC_GTK_KEY_V", "BTRC_GTK_SCANCODE_A", "BTRC_GTK_SCANCODE_C", "BTRC_GTK_SCANCODE_D", "BTRC_GTK_SCANCODE_Q", "BTRC_GTK_SCANCODE_S",
-	"BTRC_GTK_SCANCODE_V", "BTRC_GTK_SCANCODE_W", "BTRC_GTK_SCANCODE_X", "BTRC_GTK_SCANCODE_Z", "BTRC_GTK_SCANCODE_LEFTBRACKET",
-	"BTRC_GTK_SCANCODE_RIGHTBRACKET", "BTRC_GTK_SCANCODE_BACKSPACE", "BTRC_GTK_SCANCODE_LEFT", "BTRC_GTK_SCANCODE_END", "BTRC_GTK_MOD_SHIFT",
-	"BTRC_GTK_MOD_CTRL", "BTRC_GTK_MOD_ALT", "BTRC_GTK_MOD_GUI", "BTRC_GTK_CURSOR_DEFAULT", "BTRC_GTK_CURSOR_TEXT"
+	"BtrcShimWindow", "BtrcShimEvent", "BtrcShimFolderDialog", "btrcShimInit", "btrcShimError", "btrcShimSetDarkAppearance", "btrcShimIsMainThread",
+	"btrcShimTicksNS", "btrcShimWindowCreate", "btrcShimWindowDestroy", "btrcShimWindowId", "btrcShimWindowShow", "btrcShimWindowHide",
+	"btrcShimWindowIsHidden", "btrcShimWindowIsMinimized", "btrcShimWindowSetTitle", "btrcShimWindowSetSize", "btrcShimWindowSetMinimumSize",
+	"btrcShimWindowWidth", "btrcShimWindowHeight", "btrcShimWindowPixelWidth", "btrcShimWindowPixelHeight", "btrcShimWindowPixelDensity",
+	"btrcShimWindowSetCursor", "btrcShimWindowShowMessage", "btrcShimWindowShowsPictures", "btrcShimWindowShowPicture", "btrcShimWindowStartTextInput",
+	"btrcShimWindowStopTextInput", "btrcShimWindowTextInputActive", "btrcShimWindowClearComposition", "btrcShimWindowSetTextInputArea",
+	"btrcShimModState", "btrcShimSetClipboardText", "btrcShimHasClipboardText", "btrcShimRasterizeText", "btrcShimFreePixels",
+	"btrcShimGetClipboardText", "btrcShimFree", "btrcShimPollEvent", "btrcShimWaitEvent", "btrcShimPushWake", "btrcShimFolderDialogOpen",
+	"btrcShimFolderDialogState", "btrcShimFolderDialogPath", "btrcShimFolderDialogRelease", "BTRC_SHIM_EVENT_NONE", "BTRC_SHIM_EVENT_QUIT",
+	"BTRC_SHIM_EVENT_USER", "BTRC_SHIM_EVENT_WINDOW_SHOWN", "BTRC_SHIM_EVENT_WINDOW_HIDDEN", "BTRC_SHIM_EVENT_WINDOW_EXPOSED",
+	"BTRC_SHIM_EVENT_WINDOW_RESIZED", "BTRC_SHIM_EVENT_WINDOW_PIXEL_SIZE_CHANGED", "BTRC_SHIM_EVENT_WINDOW_DISPLAY_SCALE_CHANGED",
+	"BTRC_SHIM_EVENT_WINDOW_MINIMIZED", "BTRC_SHIM_EVENT_WINDOW_RESTORED", "BTRC_SHIM_EVENT_WINDOW_MOUSE_ENTER", "BTRC_SHIM_EVENT_WINDOW_MOUSE_LEAVE",
+	"BTRC_SHIM_EVENT_WINDOW_FOCUS_GAINED", "BTRC_SHIM_EVENT_WINDOW_FOCUS_LOST", "BTRC_SHIM_EVENT_WINDOW_CLOSE_REQUESTED", "BTRC_SHIM_EVENT_KEY_DOWN",
+	"BTRC_SHIM_EVENT_KEY_UP", "BTRC_SHIM_EVENT_TEXT_EDITING", "BTRC_SHIM_EVENT_TEXT_INPUT", "BTRC_SHIM_EVENT_MOUSE_MOTION",
+	"BTRC_SHIM_EVENT_MOUSE_BUTTON_DOWN", "BTRC_SHIM_EVENT_MOUSE_BUTTON_UP", "BTRC_SHIM_EVENT_MOUSE_WHEEL", "BTRC_SHIM_EVENT_CONTROL_ACTIVATED",
+	"BTRC_SHIM_EVENT_CONTROL_FOCUS_GAINED", "BTRC_SHIM_EVENT_CONTROL_FOCUS_LOST", "BTRC_SHIM_EVENT_CONTROL_SLIDER_PRESSED",
+	"BTRC_SHIM_EVENT_CONTROL_SLIDER_CHANGED", "BTRC_SHIM_EVENT_CONTROL_SLIDER_RELEASED", "BTRC_SHIM_EVENT_CONTROL_SLIDER_CANCELLED",
+	"BTRC_SHIM_EVENT_CONTROL_SELECT_OPENED", "BTRC_SHIM_EVENT_CONTROL_SELECT_CANDIDATE", "BTRC_SHIM_EVENT_CONTROL_SELECT_CHOSEN",
+	"BTRC_SHIM_EVENT_CONTROL_SELECT_DISMISSED", "BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED", "BTRC_SHIM_EVENT_CONTROL_TEXT_ACTIVATED",
+	"BTRC_SHIM_EVENT_CONTROL_TEXT_ESCAPED", "BTRC_SHIM_EVENT_CONTROL_SCROLLBAR_CHANGED", "BTRC_SHIM_EVENT_CONTROL_WEB_MESSAGE",
+	"BTRC_SHIM_EVENT_CONTROL_WEB_NAVIGATION", "BTRC_SHIM_SLIDER_JUMP", "BTRC_SHIM_SLIDER_STEP_BACKWARD", "BTRC_SHIM_SLIDER_STEP_FORWARD",
+	"BTRC_SHIM_SLIDER_PAGE_BACKWARD", "BTRC_SHIM_SLIDER_PAGE_FORWARD", "BTRC_SHIM_SLIDER_START", "BTRC_SHIM_SLIDER_END", "BTRC_SHIM_KEY_UNKNOWN",
+	"BTRC_SHIM_KEY_ESCAPE", "BTRC_SHIM_KEY_RETURN", "BTRC_SHIM_KEY_KP_ENTER", "BTRC_SHIM_KEY_SPACE", "BTRC_SHIM_KEY_LEFT", "BTRC_SHIM_KEY_RIGHT",
+	"BTRC_SHIM_KEY_UP", "BTRC_SHIM_KEY_DOWN", "BTRC_SHIM_KEY_TAB", "BTRC_SHIM_KEY_BACKSPACE", "BTRC_SHIM_KEY_DELETE", "BTRC_SHIM_KEY_HOME",
+	"BTRC_SHIM_KEY_END", "BTRC_SHIM_KEY_LSHIFT", "BTRC_SHIM_KEY_RSHIFT", "BTRC_SHIM_KEY_LALT", "BTRC_SHIM_KEY_RALT", "BTRC_SHIM_KEY_A",
+	"BTRC_SHIM_KEY_C", "BTRC_SHIM_KEY_V", "BTRC_SHIM_SCANCODE_A", "BTRC_SHIM_SCANCODE_C", "BTRC_SHIM_SCANCODE_D", "BTRC_SHIM_SCANCODE_Q",
+	"BTRC_SHIM_SCANCODE_S", "BTRC_SHIM_SCANCODE_V", "BTRC_SHIM_SCANCODE_W", "BTRC_SHIM_SCANCODE_X", "BTRC_SHIM_SCANCODE_Z",
+	"BTRC_SHIM_SCANCODE_LEFTBRACKET", "BTRC_SHIM_SCANCODE_RIGHTBRACKET", "BTRC_SHIM_SCANCODE_BACKSPACE", "BTRC_SHIM_SCANCODE_LEFT",
+	"BTRC_SHIM_SCANCODE_END", "BTRC_SHIM_MOD_SHIFT", "BTRC_SHIM_MOD_CTRL", "BTRC_SHIM_MOD_ALT", "BTRC_SHIM_MOD_GUI", "BTRC_SHIM_CURSOR_DEFAULT",
+	"BTRC_SHIM_CURSOR_TEXT"
 ]
-read-only-borrows = ["btrcGtkWindowCreate.title", "btrcGtkWindowSetTitle.title", "btrcGtkWindowShowMessage.title", "btrcGtkWindowShowMessage.message", "btrcGtkWindowShowPicture.pixels", "btrcGtkSetClipboardText.text", "btrcGtkFolderDialogOpen.initialDirectory", "btrcGtkFolderDialogOpen.title"]
+read-only-borrows = ["btrcShimWindowCreate.title", "btrcShimWindowSetTitle.title", "btrcShimWindowShowMessage.title", "btrcShimWindowShowMessage.message", "btrcShimWindowShowPicture.pixels", "btrcShimSetClipboardText.text", "btrcShimRasterizeText.text", "btrcShimFolderDialogOpen.initialDirectory", "btrcShimFolderDialogOpen.title"]
 os = ["linux"]
 
 [[native.bindings]]
-module = "Linux.GtkControls"
-header = "Linux/GtkControls.h"
+module = "Shim.ShimControls"
+header = "Shim/ShimControls.h"
 language = "c"
 standard = "c11"
 symbols = [
-	"BtrcGtkControl", "btrcGtkControlDestroy", "btrcGtkControlSetEnabled", "btrcGtkControlSetToolTip", "btrcGtkControlSetFont",
-	"btrcGtkControlNaturalWidth", "btrcGtkControlNaturalHeight", "btrcGtkControlNaturalHeightFor", "btrcGtkWindowBeginPlacement", "btrcGtkWindowPlace",
-	"btrcGtkWindowPlaceHole", "btrcGtkWindowEndPlacement", "btrcGtkWindowDrawControls", "btrcGtkButtonCreate", "btrcGtkButtonSetTitle",
-	"btrcGtkButtonSetCentered", "btrcGtkButtonBeginSymbol", "btrcGtkButtonSymbolLine", "btrcGtkButtonSymbolTriangle", "btrcGtkButtonSymbolRectangle",
-	"btrcGtkButtonSymbolCircle", "btrcGtkButtonSetBordered", "btrcGtkButtonSetSelected", "btrcGtkButtonSetTransparent", "btrcGtkLabelCreate",
-	"btrcGtkLabelSetText", "btrcGtkLabelSetSecondary", "btrcGtkLabelSetCentered", "btrcGtkLabelSetWrapping", "btrcGtkSpinnerCreate",
-	"btrcGtkSpinnerSetRunning", "btrcGtkLevelCreate", "btrcGtkLevelSetValue", "btrcGtkSliderCreate", "btrcGtkSliderSet", "btrcGtkSelectCreate",
-	"btrcGtkSelectClear", "btrcGtkSelectAppend", "btrcGtkSelectShow", "btrcGtkSelectDismiss", "btrcGtkSelectNaturalWidth", "btrcGtkTextCreate",
-	"btrcGtkTextSet", "btrcGtkTextSetPlaceholder", "btrcGtkPictureCreate", "btrcGtkPictureSet", "btrcGtkFillCreate", "btrcGtkFillSet",
-	"btrcGtkScrollbarCreate", "btrcGtkScrollbarSet"
+	"BtrcShimControl", "btrcShimControlDestroy", "btrcShimControlSetEnabled", "btrcShimControlSetToolTip", "btrcShimControlSetFont",
+	"btrcShimControlNaturalWidth", "btrcShimControlNaturalHeight", "btrcShimControlNaturalHeightFor", "btrcShimWindowBeginPlacement",
+	"btrcShimWindowPlace", "btrcShimWindowPlaceHole", "btrcShimWindowEndPlacement", "btrcShimWindowDrawControls", "btrcShimButtonCreate",
+	"btrcShimButtonSetTitle", "btrcShimButtonSetCentered", "btrcShimButtonBeginSymbol", "btrcShimButtonSymbolLine", "btrcShimButtonSymbolTriangle",
+	"btrcShimButtonSymbolRectangle", "btrcShimButtonSymbolCircle", "btrcShimButtonSetBordered", "btrcShimButtonSetSelected",
+	"btrcShimButtonSetTransparent", "btrcShimLabelCreate", "btrcShimLabelSetText", "btrcShimLabelSetSecondary", "btrcShimLabelSetCentered",
+	"btrcShimLabelSetWrapping", "btrcShimSpinnerCreate", "btrcShimSpinnerSetRunning", "btrcShimLevelCreate", "btrcShimLevelSetValue",
+	"btrcShimSliderCreate", "btrcShimSliderSet", "btrcShimSelectCreate", "btrcShimSelectClear", "btrcShimSelectAppend", "btrcShimSelectShow",
+	"btrcShimSelectDismiss", "btrcShimSelectNaturalWidth", "btrcShimTextCreate", "btrcShimTextSet", "btrcShimTextSetPlaceholder",
+	"btrcShimPictureCreate", "btrcShimPictureSet", "btrcShimFillCreate", "btrcShimFillSet", "btrcShimScrollbarCreate", "btrcShimScrollbarSet"
 ]
-read-only-borrows = ["btrcGtkControlSetToolTip.text", "btrcGtkButtonCreate.title", "btrcGtkButtonSetTitle.title", "btrcGtkLabelCreate.text", "btrcGtkLabelSetText.text", "btrcGtkSelectAppend.title", "btrcGtkSelectShow.shown", "btrcGtkTextCreate.text", "btrcGtkTextCreate.placeholder", "btrcGtkTextSet.text", "btrcGtkTextSetPlaceholder.placeholder", "btrcGtkPictureSet.pixels"]
+read-only-borrows = ["btrcShimControlSetToolTip.text", "btrcShimButtonCreate.title", "btrcShimButtonSetTitle.title", "btrcShimLabelCreate.text", "btrcShimLabelSetText.text", "btrcShimSelectAppend.title", "btrcShimSelectShow.shown", "btrcShimTextCreate.text", "btrcShimTextCreate.placeholder", "btrcShimTextSet.text", "btrcShimTextSetPlaceholder.placeholder", "btrcShimPictureSet.pixels"]
 os = ["linux"]
 
 [[native.bindings]]
-module = "Linux.GtkWeb"
-header = "Linux/GtkWeb.h"
+module = "Shim.ShimWeb"
+header = "Shim/ShimWeb.h"
 language = "c"
 standard = "c11"
 symbols = [
-	"btrcGtkWebCreate", "btrcGtkWebServeDirectory", "btrcGtkWebServeFiles", "btrcGtkWebServeFile", "btrcGtkWebAllowOrigin", "btrcGtkWebLoad", "btrcGtkWebPost",
-	"BTRC_GTK_WEB_NAVIGATION_ALLOWED", "BTRC_GTK_WEB_NAVIGATION_REFUSED", "BTRC_GTK_WEB_NAVIGATION_HANDED_TO_SYSTEM"
+	"btrcShimWebCreate", "btrcShimWebServeDirectory", "btrcShimWebServeFiles", "btrcShimWebServeFile", "btrcShimWebAllowOrigin", "btrcShimWebLoad", "btrcShimWebPost",
+	"BTRC_SHIM_WEB_NAVIGATION_ALLOWED", "BTRC_SHIM_WEB_NAVIGATION_REFUSED", "BTRC_SHIM_WEB_NAVIGATION_HANDED_TO_SYSTEM"
 ]
-read-only-borrows = ["btrcGtkWebServeDirectory.directory", "btrcGtkWebServeFile.path", "btrcGtkWebServeFile.bytes", "btrcGtkWebAllowOrigin.origin", "btrcGtkWebLoad.entryPath", "btrcGtkWebPost.json"]
+read-only-borrows = ["btrcShimWebServeDirectory.directory", "btrcShimWebServeFile.path", "btrcShimWebServeFile.bytes", "btrcShimWebAllowOrigin.origin", "btrcShimWebLoad.entryPath", "btrcShimWebPost.json"]
 os = ["linux"]
 
 [[native.sources]]
 path = "Linux/GtkShim.c"
 language = "c"
 standard = "c11"
-modules = ["Linux.GtkShim"]
+modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.sources]]
 path = "Linux/Wayland/viewporter-protocol.c"
 language = "c"
 standard = "c11"
-modules = ["Linux.GtkShim"]
+modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.sources]]
 path = "Linux/GtkCanvas.c"
 language = "c"
 standard = "c11"
-modules = ["Linux.GtkShim"]
+modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.sources]]
 path = "Linux/GtkControls.c"
 language = "c"
 standard = "c11"
-modules = ["Linux.GtkShim"]
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/GtkSurface.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.ShimSurface"]
 os = ["linux"]
 
 [[native.sources]]
 path = "Linux/GtkWeb.c"
 language = "c"
 standard = "c11"
-modules = ["Linux.GtkWeb"]
+modules = ["Shim.ShimWeb"]
 os = ["linux"]
 
 [[native.pkg-config]]
 name = "webkitgtk-6.0"
-modules = ["Linux.GtkWeb"]
+modules = ["Shim.ShimWeb"]
 os = ["linux"]
 
 [[native.pkg-config]]
 name = "gtk4"
-modules = ["Linux.GtkShim"]
+modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.pkg-config]]
 name = "gtk4-wayland"
-modules = ["Linux.GtkShim"]
+modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.pkg-config]]
 name = "gtk4-x11"
-modules = ["Linux.GtkShim"]
+modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.pkg-config]]
 name = "wayland-client"
-modules = ["Linux.GtkShim"]
+modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.pkg-config]]
 name = "x11"
-modules = ["Linux.GtkShim"]
-os = ["linux"]
-
-[[native.pkg-config]]
-name = "fontconfig"
-modules = ["Linux.LinuxFonts"]
+modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.bindings]]
-module = "Linux.LinuxFonts"
-header = "Linux/Fontconfig.h"
+module = "Shim.ShimSurface"
+header = "Shim/ShimSurface.h"
 language = "c"
 standard = "c11"
-symbols = [
-	"FcPattern", "FcConfig", "FcChar8", "FcResult", "FcResultMatch", "FcResultNoMatch", "FcMatchPattern",
-	"FcInit", "FcNameParse", "FcPatternAddInteger", "FcConfigSubstitute", "FcDefaultSubstitute", "FcFontMatch", "FcPatternGetString",
-	"FcPatternDestroy", "FC_FILE", "FC_WEIGHT", "FC_WEIGHT_REGULAR", "FC_WEIGHT_BOLD"
-]
-read-only-borrows = ["FcNameParse.name", "FcPatternAddInteger.object", "FcPatternGetString.object"]
-os = ["linux"]
-
-[[native.bindings]]
-module = "Linux.WebGPUSurface"
-header = "Linux/WebGPUSurface.h"
-language = "c"
-standard = "c11"
-symbols = ["WGPUInstance", "WGPUSurface", "wgpuCreateInstance", "wgpuInstanceAddRef", "wgpuInstanceRelease", "wgpuInstanceCreateSurface", "wgpuSurfaceAddRef", "wgpuSurfaceRelease", "WGPUSurfaceDescriptor", "WGPUSurfaceSourceWaylandSurface", "WGPUSurfaceSourceXlibWindow", "WGPUSType_SurfaceSourceWaylandSurface", "WGPUSType_SurfaceSourceXlibWindow"]
-owned-results = ["wgpuCreateInstance", "wgpuInstanceCreateSurface"]
-borrowed-parameters = ["wgpuInstanceCreateSurface.instance"]
+symbols = ["WGPUInstance", "WGPUSurface", "wgpuCreateInstance", "wgpuInstanceAddRef", "wgpuInstanceRelease", "wgpuSurfaceAddRef", "wgpuSurfaceRelease", "btrcShimWindowCreateSurface"]
+owned-results = ["wgpuCreateInstance", "btrcShimWindowCreateSurface"]
+borrowed-parameters = ["btrcShimWindowCreateSurface.instance"]
 os = ["linux"]
 [native.bindings.resources.WGPUInstance]
 ownership = "reference-counted"

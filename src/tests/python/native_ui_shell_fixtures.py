@@ -126,7 +126,7 @@ def build_shell(tmp_path, frontend, sanitized, request):
     )
     units = [probe.with_suffix(".m" if system == "macos" else ".c"), SHELL / "ShellState.c"]
     if system == "linux":
-        units += [real_input / name for name in ("GtkProbe.c", "X11Input.c", "WaylandInput.c")]
+        units += [real_input.parent / "shim/ShimProbe.c", real_input / "X11Input.c", real_input / "WaylandInput.c"]
         units += sorted((real_input / "wayland").glob("*.c"))
     objects = []
     for unit in units:

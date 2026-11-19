@@ -7,15 +7,15 @@ import Library.GUI.IApplication;
 import Library.GUI.IButton;
 import Library.GUI.IContainer;
 import Library.GUI.IWindow;
-import Library.GUI.Linux.GtkShim;
-import Library.GUI.Linux.LinuxApplication;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.ShimApplication;
 
 #include <assert.h>
 #include <stdio.h>
 
 int main() {
-	assert(btrcGtkInit());
-	var owner = LinuxApplication(16);
+	assert(btrcShimInit());
+	var owner = ShimApplication(16);
 	IApplication application = owner;
 	var window = application.createWindow("Linux placement", 320.0, 160.0);
 	var root = application.createContainer();
@@ -31,20 +31,20 @@ int main() {
 	int placedAtShow = placementPlaced();
 	int framesAtShow = placementFrames();
 	assert(placementPasses() == 1 && placedAtShow == 2 && framesAtShow == 0);
-	unsigned long long deadline = btrcGtkTicksNS() + 10000000000ULL;
-	while (placementFrames() == 0 && btrcGtkTicksNS() < deadline) { owner.pumpOnce(10); }
+	unsigned long long deadline = btrcShimTicksNS() + 10000000000ULL;
+	while (placementFrames() == 0 && btrcShimTicksNS() < deadline) { owner.pumpOnce(10); }
 	assert(placementFrames() > 0 && placementPlaced() == 2);
 	var detached = root.detach(second);
 	int passes = placementPasses();
-	deadline = btrcGtkTicksNS() + 10000000000ULL;
-	while (placementPasses() == passes && btrcGtkTicksNS() < deadline) { owner.pumpOnce(10); }
+	deadline = btrcShimTicksNS() + 10000000000ULL;
+	while (placementPasses() == passes && btrcShimTicksNS() < deadline) { owner.pumpOnce(10); }
 	assert(placementPlaced() == 1);
 	printf("PASS: Linux placement at_show=%d frames_at_show=%d after_detach=%d\n", placedAtShow, framesAtShow, placementPlaced());
 	fflush(stdout);
 	assert(detached.close() == CALLBACK_CANCELLATION_COMPLETE);
 	var closing = application.close();
-	deadline = btrcGtkTicksNS() + 10000000000ULL;
-	while (closing == CALLBACK_CANCELLATION_PENDING && btrcGtkTicksNS() < deadline) { owner.pumpOnce(10); closing = application.pollClose(); }
+	deadline = btrcShimTicksNS() + 10000000000ULL;
+	while (closing == CALLBACK_CANCELLATION_PENDING && btrcShimTicksNS() < deadline) { owner.pumpOnce(10); closing = application.pollClose(); }
 	assert(closing == CALLBACK_CANCELLATION_COMPLETE);
 	return 0;
 }

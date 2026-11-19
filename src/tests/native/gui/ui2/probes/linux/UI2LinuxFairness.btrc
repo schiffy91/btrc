@@ -4,9 +4,9 @@ import Library.BackgroundJobs.NativeWorker;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.ILabel;
-import Library.GUI.Linux.LinuxApplication;
-import Library.GUI.Linux.LinuxWindow;
-import Library.GUI.Linux.GtkShim;
+import Library.GUI.Shim.ShimApplication;
+import Library.GUI.Shim.ShimWindow;
+import Library.GUI.Shim.Shim;
 import Library.Timer;
 
 #include <assert.h>
@@ -48,7 +48,7 @@ class FairnessReceiver implements IApplicationPublicationHandler, IWindowKeyHand
 	public FairnessProducer? producer;
 	public int closes = 0;
 	public void deliver(ApplicationPublication publication) {
-		unsigned long long began = btrcGtkTicksNS(); assert(btrcGtkIsMainThread());
+		unsigned long long began = btrcShimTicksNS(); assert(btrcShimIsMainThread());
 		assert(publication.generation == 1LL && publication.sequence == publication.payload);
 		e40Deliver(1, publication.sequence);
 		var producer = self.producer; assert(producer != null); producer.ready.store(true, MemoryOrder.RELEASE);
@@ -56,27 +56,27 @@ class FairnessReceiver implements IApplicationPublicationHandler, IWindowKeyHand
 	}
 
 	public bool key(AppKeyboardEvent event) {
-		unsigned long long began = btrcGtkTicksNS(); assert(btrcGtkIsMainThread());
+		unsigned long long began = btrcShimTicksNS(); assert(btrcShimIsMainThread());
 		e40InputDelivery(); e40Handler(0, began); return true;
 	}
 
 	public void closeRequested(IWindowCloseTransaction transaction) {
-		unsigned long long began = btrcGtkTicksNS(); assert(btrcGtkIsMainThread());
+		unsigned long long began = btrcShimTicksNS(); assert(btrcShimIsMainThread());
 		e40Deliver(7, 1LL); self.closes++;
 		assert(transaction.decide(WINDOW_CLOSE_DECISION_CANCEL, 1LL).state == WINDOW_CLOSE_CANCELLED);
 		e40Handler(7, began);
 	}
 }
 class FairnessWork implements IApplicationWork {
-	private LinuxApplication _application;
+	private ShimApplication _application;
 	private int _kind;
 	private long long _sequence = 0LL;
 	public bool running = true;
-	public FairnessWork(LinuxApplication application, int kind) { self._application = application; self._kind = kind; }
+	public FairnessWork(ShimApplication application, int kind) { self._application = application; self._kind = kind; }
 
 	public void arm() {
 		double delay = self._kind == 2 ? 0.005 : (self._kind == 4 ? 0.001 : 0.0);
-		unsigned long long due = btrcGtkTicksNS() + (unsigned long long)(delay * 1000000000.0);
+		unsigned long long due = btrcShimTicksNS() + (unsigned long long)(delay * 1000000000.0);
 		long long next = self._sequence + 1LL; e40Begin(self._kind, next, due, (int)sizeof(void*));
 		try {
 			if (self._kind == 3) { self._application.post(self); }
@@ -87,7 +87,7 @@ class FairnessWork implements IApplicationWork {
 	}
 
 	public void run() {
-		unsigned long long began = btrcGtkTicksNS(); assert(btrcGtkIsMainThread());
+		unsigned long long began = btrcShimTicksNS(); assert(btrcShimIsMainThread());
 		e40Deliver(self._kind, self._sequence);
 		if (self.running) { self.arm(); }
 		e40Handler(self._kind, began);
@@ -106,11 +106,11 @@ class FairnessPresentation {
 	}
 }
 class FairnessChecks {
-	class void ready(LinuxApplication application, int window) {
+	class void ready(ShimApplication application, int window) {
 		e40Phase("warmup-begin", window);
-		unsigned long long deadline = btrcGtkTicksNS() + 10000000000ULL;
+		unsigned long long deadline = btrcShimTicksNS() + 10000000000ULL;
 		int pumps = 0;
-		while (e40Frames(window) == 0 && btrcGtkTicksNS() < deadline) {
+		while (e40Frames(window) == 0 && btrcShimTicksNS() < deadline) {
 			// Bound startup output even if a failing surface never presents.
 			if (pumps < 32) { e40Phase("warmup-pump-begin", window); }
 			application.pumpOnce(10);
@@ -128,10 +128,10 @@ int main(int argc, char** argv) {
 	assert(argc == 4); int seconds = atoi(argv[1]); int sanitized = atoi(argv[2]);
 	assert(seconds == 10 || seconds == 600); assert(sanitized == 0 || sanitized == 1);
 	e40Phase("native-init-begin", -1);
-	assert(btrcGtkInit());
+	assert(btrcShimInit());
 	e40Phase("native-init-end", -1);
 	e40Phase("application-create-begin", -1);
-	var application = LinuxApplication(128);
+	var application = ShimApplication(128);
 	e40Phase("application-create-end", -1);
 	e40Phase("window-create-begin", 0);
 	var first = application.createWindow("E40 first", 200.0, 100.0);
@@ -161,7 +161,7 @@ int main(int argc, char** argv) {
 	second.show();
 	e40Phase("window-show-end", 1);
 	FairnessChecks.ready(application, 1);
-	var firstNative = (ILinuxWindow?)first; var secondNative = (ILinuxWindow?)second;
+	var firstNative = (IShimWindow?)first; var secondNative = (IShimWindow?)second;
 	assert(firstNative != null && secondNative != null);
 	e40Phase("measurement-start-begin", -1);
 	e40Start(firstNative.nativeId(), secondNative.nativeId(), argv[3]);
@@ -176,20 +176,20 @@ int main(int argc, char** argv) {
 	timer.arm(); immediate.arm(); delayed.arm();
 	assert(worker.start(producer) == NATIVE_WORKER_STARTED);
 	var presentation = FairnessPresentation(firstLabel, secondLabel);
-	while (btrcGtkTicksNS() < until) { presentation.invalidate(); application.pumpOnce(0); }
-	unsigned long long duration = btrcGtkTicksNS() - began;
+	while (btrcShimTicksNS() < until) { presentation.invalidate(); application.pumpOnce(0); }
+	unsigned long long duration = btrcShimTicksNS() - began;
 	// Close begins under the same live input/completion/timer/presentation load.
-	assert(e40PushClose() == 1); unsigned long long closeDeadline = btrcGtkTicksNS() + 5000000000ULL;
-	while (receiver.closes == 0 && btrcGtkTicksNS() < closeDeadline) { presentation.invalidate(); application.pumpOnce(0); }
+	assert(e40PushClose() == 1); unsigned long long closeDeadline = btrcShimTicksNS() + 5000000000ULL;
+	while (receiver.closes == 0 && btrcShimTicksNS() < closeDeadline) { presentation.invalidate(); application.pumpOnce(0); }
 	assert(receiver.closes == 1 && first.isOpen() && second.isOpen());
 	producer.stop.store(true, MemoryOrder.RELEASE); timer.running = false; immediate.running = false; delayed.running = false;
-	unsigned long long drainDeadline = btrcGtkTicksNS() + 10000000000ULL;
-	while ((!producer.done.load(MemoryOrder.ACQUIRE) || FairnessChecks.pending()) && btrcGtkTicksNS() < drainDeadline) { application.pumpOnce(0); }
+	unsigned long long drainDeadline = btrcShimTicksNS() + 10000000000ULL;
+	while ((!producer.done.load(MemoryOrder.ACQUIRE) || FairnessChecks.pending()) && btrcShimTicksNS() < drainDeadline) { application.pumpOnce(0); }
 	assert(producer.done.load(MemoryOrder.ACQUIRE) && !FairnessChecks.pending());
 	assert(worker.join() && !worker.workerFailed() && producer.failure == 0);
 	e40Report(duration, seconds == 600 ? 1 : 0, sanitized);
 	receiver.producer = null; assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
-	var closing = application.close(); unsigned long long cleanupDeadline = btrcGtkTicksNS() + 10000000000ULL;
-	while (closing == CALLBACK_CANCELLATION_PENDING && btrcGtkTicksNS() < cleanupDeadline) { application.pumpOnce(0); closing = application.pollClose(); }
+	var closing = application.close(); unsigned long long cleanupDeadline = btrcShimTicksNS() + 10000000000ULL;
+	while (closing == CALLBACK_CANCELLATION_PENDING && btrcShimTicksNS() < cleanupDeadline) { application.pumpOnce(0); closing = application.pollClose(); }
 	assert(closing == CALLBACK_CANCELLATION_COMPLETE); return 0;
 }

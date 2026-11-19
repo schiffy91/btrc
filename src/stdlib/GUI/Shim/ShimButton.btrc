@@ -1,0 +1,167 @@
+import Library.Callback;
+import Library.Math;
+import Library.App;
+import Library.Image;
+import Library.GUI.IButton;
+import Library.GUI.Shim.ShimView;
+import Library.GUI.Shim.ShimContext;
+import Library.GUI.Shim.ShimPainter;
+import Library.GUI.Shim.ShimSymbols;
+import Library.GUI.Shim.ShimActionQueue;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.ShimControls;
+
+/* A GTK push button. GTK tracks the pointer and draws the button; a click
+ * arrives as an event and queues one action, which the application delivers
+ * after native dispatch. Setters only change model state. */
+class ShimButton extends ShimNodeView implements IButton {
+	private BtrcShimControl* _control;
+	private string _title;
+	private ShimAction? _action;
+	private double _size = 13.0;
+	private bool _enabled = true;
+	private bool _selectable = false;
+	private bool _selected = false;
+	private bool _bordered = true;
+	private int _symbol = -1;
+
+	public ShimButton(ShimContext context, string title) {
+		self.adoptNode(ShimViewNode(context));
+		if (title == null) { throw "Native button title is missing"; }
+		self._title = title;
+		self._control = btrcShimButtonCreate((unsigned int)self.node().id, title);
+		if (self._control == null) { throw "Cannot create native button"; }
+		btrcShimControlSetFont(self._control, self._size, false);
+		self._action = context.actions.bind(self.node());
+	}
+
+	private BtrcShimControl* control() { if (self._control == null) { throw "Native button is closed"; } return self._control; }
+
+	public void paint(ShimPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
+
+	public void controlEvent(BtrcShimEvent* event) {
+		if (event->type != (unsigned int)BTRC_SHIM_EVENT_CONTROL_ACTIVATED || !self._enabled || !self.node().effectiveEligible()) { return; }
+		self.fire();
+	}
+
+	private void fire() { var action = self._action; if (action != null) { action.invoke(); } }
+
+	public double fittingWidth() { self.node().requireOpen(); return (double)btrcShimControlNaturalWidth(self.control()); }
+
+	public double fittingHeight() { self.node().requireOpen(); return (double)btrcShimControlNaturalHeight(self.control()); }
+
+	public string title() { self.node().requireOpen(); return self._title; }
+
+	public void setTitle(string title) {
+		self.node().requireOpen();
+		if (title == null) { throw "Native button title is missing"; }
+		if (self._title.equals(title)) { return; }
+		self._title = title;
+		btrcShimButtonSetTitle(self.control(), title);
+		self.node().invalidate();
+	}
+
+	public bool locallyEnabled() { return self._enabled; }
+
+	public void eligibilityLost() { if (self._action != null) { self._action.eligibilityLost(); } self.node().cancelOwnPointerCapture(); }
+
+	public bool isEnabled() { self.node().requireOpen(); return self._enabled; }
+
+	public void setEnabled(bool enabled) {
+		self.node().requireOpen();
+		if (enabled == self._enabled) { return; }
+		self._enabled = enabled; self.node().localEligibilityChanged();
+		btrcShimControlSetEnabled(self.control(), enabled);
+	}
+
+	public void setFont(double size) {
+		self.node().requireOpen();
+		if (!Math.isFinite(size) || size <= 0.0 || size > ButtonTypography.maximumSize()) { throw "Invalid native button font size"; }
+		if (self._bordered && size > ButtonTypography.borderedMaximumSize()) { throw "Native bordered buttons support font sizes up to 20 points"; }
+		self._size = size;
+		btrcShimControlSetFont(self.control(), size, false);
+		self.drawSymbol();
+		self.node().invalidate();
+	}
+
+	/* The symbol is drawn once per size, a little larger than the title's letters. */
+	private void drawSymbol() {
+		if (self._symbol < 0) { return; }
+		double side = Math.ceilDouble(self._size * 1.15);
+		ShimSymbols.paint(ShimButtonSymbol(self.control(), side), self._symbol, 0.0, 0.0, side, RGBA(0, 0, 0, 255));
+	}
+
+	public void setCentered(bool centered) { self.node().requireOpen(); btrcShimButtonSetCentered(self.control(), centered); }
+
+	public void setSystemSymbol(string name) {
+		self.node().requireOpen();
+		int symbol = ShimSymbols.symbol(name);
+		if (symbol < 0) { throw "Native button system symbol is unavailable"; }
+		self._symbol = symbol;
+		self.drawSymbol();
+		self.node().invalidate();
+	}
+
+	public void setToolTip(string text) { self.node().requireOpen(); self.node().toolTip = text == null ? "" : text; btrcShimControlSetToolTip(self.control(), self.node().toolTip); }
+
+	public string toolTip() { self.node().requireOpen(); return self.node().toolTip; }
+
+	public void setSelected(bool selected) {
+		self.node().requireOpen();
+		self._selectable = true;
+		if (selected == self._selected) { return; }
+		self._selected = selected;
+		btrcShimButtonSetSelected(self.control(), selected);
+	}
+
+	public bool isSelected() { self.node().requireOpen(); return self._selectable && self._selected; }
+
+	public void setTransparent(bool transparent) { self.node().requireOpen(); btrcShimButtonSetTransparent(self.control(), transparent); }
+
+	public void setBordered(bool bordered) {
+		self.node().requireOpen();
+		if (bordered && self._size > ButtonTypography.borderedMaximumSize()) { throw "Native bordered buttons support font sizes up to 20 points"; }
+		self._bordered = bordered;
+		btrcShimButtonSetBordered(self.control(), bordered);
+		self.node().invalidate();
+	}
+
+	public void cancelPendingActions() { self.node().requireOpen(); var action = self._action; if (action != null) { action.discard(); } }
+
+	public bool activate() {
+		self.node().requireOpen();
+		if (!self._enabled || !self.node().effectiveEligible()) { return false; }
+		self.fire();
+		return true;
+	}
+
+	public ICallbackRegistration onAction(IButtonAction action, CallbackScope scope) {
+		self.node().requireOpen();
+		var bound = self._action;
+		if (bound == null) { throw "Native button action is closed"; }
+		var registration = bound.onAction(action, scope); self.node().ownCallback(registration); return registration;
+	}
+
+	public CallbackCancellation close() {
+		var state = self.node().close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	private void releaseNative() {
+		var action = self._action;
+		if (action != null) { self._action = null; self.node().context.actions.unbind(action); }
+		if (self._control != null) { btrcShimControlDestroy(self._control); self._control = null; }
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self.node().pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public void __del__() {
+		if (self._action != null && self.node() != null && !self.node().attached) { self.close(); }
+		if (self._control != null) { btrcShimControlDestroy(self._control); self._control = null; }
+	}
+}

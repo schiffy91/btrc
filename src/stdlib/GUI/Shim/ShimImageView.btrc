@@ -1,0 +1,113 @@
+import Library.Callback;
+import Library.Image;
+import Library.GUI.IImageView;
+import Library.GUI.IImageHandle;
+import Library.GUI.Shim.ShimView;
+import Library.GUI.Shim.ShimContext;
+import Library.GUI.Shim.ShimPainter;
+import Library.GUI.Shim.ShimControls;
+
+/* Image identities come from one process-wide counter, so any thread creates
+ * a handle without reaching the application. Static Atomic<T> storage is
+ * zero-initialized before program entry. */
+static Atomic<int> linuxGtkImageIdentities;
+
+/* Decoded pixels with a stable identity. Any thread may create one; a view
+ * hands them to GTK when it is given the handle. */
+interface IShimImageHandle extends IImageHandle {
+	int identity();
+	Image pixels();
+}
+
+class ShimImageHandle implements IShimImageHandle {
+	private Mutex<Image?> _pixels;
+	private int _identity;
+	private int _width;
+	private int _height;
+
+	private ShimImageHandle(int identity, Image pixels) {
+		self._identity = identity;
+		Image? snapshot = pixels;
+		self._pixels = Mutex(snapshot);
+		self._width = pixels.width;
+		self._height = pixels.height;
+	}
+
+	class ShimImageHandle create(Image pixels, int maximumPixels = 16777216) {
+		if (pixels == null || pixels.isEmpty() || pixels.data == null) { throw "Native image handle requires decoded pixels"; }
+		if (maximumPixels <= 0 || maximumPixels > 16777216 || (long long)pixels.width * (long long)pixels.height > (long long)maximumPixels) { throw "Native artwork exceeds image limits"; }
+		var copy = Image(pixels.width, pixels.height);
+		memcpy(copy.data, pixels.data, (size_t)pixels.width * (size_t)pixels.height * (size_t)4);
+		return ShimImageHandle(ShimImageHandle.nextIdentity(), copy);
+	}
+
+	class int nextIdentity() {
+		int id = linuxGtkImageIdentities.fetchAdd(1, MemoryOrder.RELAXED) + 1;
+		if (id <= 0 || id == 2147483647) { throw "Native image identities are exhausted"; }
+		return id;
+	}
+
+	public int identity() { return self._identity; }
+
+	public Image pixels() { var pixels = self._pixels.get(); if (pixels == null) { throw "Native image handle is closed"; } return pixels; }
+
+	public int width() { return self._width; }
+
+	public int height() { return self._height; }
+
+	public bool isOpen() { return self._pixels.get() != null; }
+
+	public void close() { self._pixels.set(null); }
+}
+
+/* Aspect-preserving presentation of one image handle: a GTK picture. */
+class ShimImageView extends ShimNodeView implements IImageView {
+	private BtrcShimControl* _control;
+	private IShimImageHandle? _handle = null;
+	private Image? _pixels = null;
+
+	public ShimImageView(ShimContext context) {
+		self.adoptNode(ShimViewNode(context));
+		self._control = btrcShimPictureCreate((unsigned int)self.node().id);
+		if (self._control == null) { throw "Cannot create native image view"; }
+	}
+
+	private BtrcShimControl* control() { if (self._control == null) { throw "Native image view is closed"; } return self._control; }
+
+	public void paint(ShimPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
+
+	public double fittingWidth() { self.node().requireOpen(); var pixels = self._pixels; return pixels == null ? 0.0 : (double)pixels.width; }
+
+	public double fittingHeight() { self.node().requireOpen(); var pixels = self._pixels; return pixels == null ? 0.0 : (double)pixels.height; }
+
+	public void setImage(Image? pixels, int maximumPixels = 16777216) {
+		self.node().requireOpen();
+		if (pixels == null) { self.setImageHandle(null); return; }
+		self.setImageHandle(ShimImageHandle.create(pixels, maximumPixels));
+	}
+
+	public void setImageHandle(IImageHandle? handle) {
+		self.node().requireOpen();
+		if (handle == null) { self._handle = null; self._pixels = null; btrcShimPictureSet(self.control(), null, 0, 0); self.node().invalidate(); return; }
+		IShimImageHandle? native = (IShimImageHandle?)handle;
+		if (native == null) { throw "Native image view requires an image handle of this provider"; }
+		/* Presentation owns its pixels independently of the publication handle.
+		 * Capture before the alias check, so a closed alias still rejects. */
+		var pixels = native.pixels();
+		if (self._handle == native) { return; }
+		self._handle = native; self._pixels = pixels;
+		btrcShimPictureSet(self.control(), pixels.data, pixels.width, pixels.height);
+		self.node().invalidate();
+	}
+
+	private void releaseNative() {
+		self._handle = null; self._pixels = null;
+		if (self._control != null) { btrcShimControlDestroy(self._control); self._control = null; }
+	}
+
+	public CallbackCancellation close() { var state = self.node().close(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); } return state; }
+
+	public CallbackCancellation pollClose() { var state = self.node().pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); } return state; }
+
+	public void __del__() { self.releaseNative(); }
+}

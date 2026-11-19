@@ -255,6 +255,18 @@ and resume at any of them:
    patched SDL and libdecor; the only Wayland session is labwc. Drive, Deck
    Pad and BTRSmith are rebuilt against it in section 6 step 8.
 
+6. **One provider for every platform a shim can reach. Done 2026-11-18.**
+   The provider's BTRC layer never named GTK: it called a C contract of a
+   hundred-odd functions and WebGPU. It is now `GUI/Shim` (classes `Shim*`,
+   contract `Shim.h`, `ShimControls.h`, `ShimSurface.h`, `ShimWeb.h`), and
+   GTK4 is one implementation of the contract (`GUI/Linux/Gtk*.c`). Two
+   things that were BTRC over Linux libraries became contract functions, so
+   no platform branch is left above the contract: the window's WebGPU
+   surface, and one line of system text (Pango on Linux; fontconfig and the
+   provider's own FreeType path are gone). Windows and Android implement
+   the same contract, in section 6 steps 6 and 7, instead of each getting a
+   provider of its own.
+
 Input for the suite's probe, since GTK4 offers no way to synthesize events:
 on X11, XTest; on Wayland, the `wlr-virtual-pointer` and `virtual-keyboard`
 protocols of labwc's headless backend, which Weston does not offer. Both are

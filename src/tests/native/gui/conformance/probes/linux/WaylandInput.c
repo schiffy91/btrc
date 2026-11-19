@@ -6,7 +6,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
-#include "RealInput.h"
+#include "../shim/RealInput.h"
 #include "../ConformanceProbe.h"
 #include "wayland/wlr-virtual-pointer-unstable-v1-client-protocol.h"
 #include "wayland/virtual-keyboard-unstable-v1-client-protocol.h"

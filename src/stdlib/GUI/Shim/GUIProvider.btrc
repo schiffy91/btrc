@@ -1,0 +1,94 @@
+import Library.Strings;
+import Library.Vector;
+import Library.Image;
+import Library.GUI.IView;
+import Library.GUI.IApplication;
+import Library.GUI.IImageHandle;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.GUICaptureLayer;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.ShimApplication;
+import Library.GUI.Shim.ShimView;
+import Library.GUI.Shim.ShimImageView;
+import Library.GUI.Shim.ShimDirectoryPicker;
+import Library.GUI.TextRun;
+
+/* Private package implementation for every platform whose toolkit is
+ * reached through the shim (Shim.h): the native services behind the GUI
+ * facade. The facade validates requests and owns the application. The
+ * toolkit is started once and kept for the process: a later initialize
+ * reuses it and its thread stays fixed. */
+class GUIProvider {
+	class bool toolkitReady = false;
+
+	/* The toolkit's thread is the one that first started it: GUI.initialize. */
+	class void requireUIThread() { if (!btrcShimIsMainThread()) { throw "GUI requires the main thread"; } }
+
+	class IApplication createApplication(int workCapacity) {
+		if (!GUIProvider.toolkitReady) {
+			if (!btrcShimInit()) { throw "Cannot initialize native windowing: " + Strings.copy((char*)btrcShimError()); }
+			GUIProvider.toolkitReady = true;
+		}
+		return ShimApplication(workCapacity);
+	}
+
+	class IShimApplication shimApplication(IApplication? application) {
+		var shim = (IShimApplication?)application;
+		if (shim == null) { throw "GUI application belongs to another provider"; }
+		return shim;
+	}
+
+	/* Worker-safe and independent of initialization: needs no application. */
+	class IImageHandle createImageHandle(Image pixels, int maximumPixels) { return ShimImageHandle.create(pixels, maximumPixels); }
+
+	class DirectoryPickerOutcome chooseDirectory(IApplication application, DirectoryPickerRequest request) {
+		var shim = GUIProvider.shimApplication(application);
+		shim.context().requireNoCloseDecision();
+		var window = shim.firstWindow();
+		var pump = (IShimDialogPump?)shim;
+		if (pump == null) { throw "GUI application cannot run native dialogs"; }
+		return ShimDirectoryPicker(window == null ? null : window.nativeWindow(), pump).chooseDirectory(request);
+	}
+
+	/* The shim's picture of a run, copied into an image the caller owns. */
+	class Image rasterized(TextRun run) {
+		int width = 0;
+		int height = 0;
+		unsigned char* pixels = btrcShimRasterizeText(run.text(), (double)run.fontSize(), run.weight() >= 600, run.lineHeight(), &width, &height);
+		if (pixels == null) { throw "System text cannot be drawn: " + Strings.copy((char*)btrcShimError()); }
+		if (width <= 0 || height <= 0 || width > 4096 || height > 4096) { btrcShimFreePixels(pixels); throw "System text exceeds raster limits"; }
+		var image = Image(width, height);
+		memcpy(image.data, pixels, (size_t)width * (size_t)height * (size_t)4);
+		btrcShimFreePixels(pixels);
+		return image;
+	}
+
+	class void rasterizeText(IApplication? application, TextRasterization request) {
+		if (application == null) { throw "Initialize GUI before creating views or running work"; }
+		GUIProvider.shimApplication(application);
+		var run = request.run();
+		request.complete(run.text().isEmpty() ? Image.empty() : GUIProvider.rasterized(run));
+	}
+
+	/* The window composites every GPU child itself, so the readback is the
+	 * composed capture. Layers must name GPU views inside the root; their
+	 * pixels are not needed. The device request is asynchronous, and capture
+	 * fails at once rather than waiting for it on the UI thread. */
+	class Image capture(IApplication application, IView root, Vector<GUICaptureLayer> layers) {
+		var native = (IShimView?)root;
+		if (native == null) { throw "Capture root belongs to another GUI provider"; }
+		var window = GUIProvider.shimApplication(application).windowOwning(native);
+		if (window == null) { throw "Capture root is not attached to a window"; }
+		if (layers == null) { throw "Capture layers are missing"; }
+		for layer in layers {
+			if (layer == null) { throw "Capture layer is missing"; }
+			var gpu = (IShimView?)layer.view;
+			if (gpu == null) { throw "Capture layer belongs to another GPU provider"; }
+			if (gpu.node() != native.node() && !native.node().contains(gpu.node())) { throw "Capture layer is outside the capture root"; }
+		}
+		if (!window.pollDevice()) { throw "Capture window GPU device is not ready"; }
+		var image = window.render(true);
+		if (image == null) { throw "Capture window produced no frame"; }
+		return image;
+	}
+}

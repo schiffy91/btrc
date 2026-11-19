@@ -9,7 +9,7 @@
  * windows by the app id each carries. There the probe does Steam's part
  * too: it gives the window an app id of its own and puts that id at the
  * head of the list, and takes it off again when the process ends. */
-#include "RealInput.h"
+#include "../shim/RealInput.h"
 #include "../ConformanceProbe.h"
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>

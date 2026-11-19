@@ -1,0 +1,17 @@
+import Library.GUI.ApplicationSlot;
+import Library.GUI.IWebView;
+import Library.GUI.Shim.ShimApplication;
+import Library.GUI.Shim.ShimWebView;
+
+/* Private package implementation for the shim's platforms: the web view
+ * behind the WebView facade, the platform's own web engine among the
+ * application's other views (ShimWeb.h). */
+class WebViewProvider {
+	class IWebView create() {
+		var application = (IShimApplication?)GUIApplicationSlot.require();
+		if (application == null) { throw "The web view needs the GUI application it was made for"; }
+		var view = ShimWebView(application.context());
+		application.adopt(view);
+		return view;
+	}
+}

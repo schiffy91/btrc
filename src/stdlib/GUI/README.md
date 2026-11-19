@@ -2,7 +2,7 @@
 
 `import Library.GUI;` selects the native provider for the compilation target
 through the `[[package.providers]]` entries in `btrc.toml`: `MacOS.GUIProvider`
-(AppKit) for `macos`, `Linux.GUIProvider` (GTK4)
+(AppKit) for `macos`, `Shim.GUIProvider` (GTK4)
 for `linux` and `Windows.GUIProvider` (Win32 windows with Common Controls 6
 controls) for `windows`. The Windows provider implements the UI1 shell
 surface: windows, containers, the scroll view, text fields, buttons, labels
@@ -246,7 +246,7 @@ Every other `MacOS.*` module and every `Linux.*` module is private to the
 package; the Linux Tray talks to the StatusNotifierItem bus itself and needs no
 GUI seam. The providers' own conformance fixtures, which assert native state
 through their modules (AppKit readback on macOS; the provider's own event queue and a
-stalled `LinuxNodeView` on Linux), compile against a test data root whose copy
+stalled `ShimNodeView` on Linux), compile against a test data root whose copy
 of this manifest re-exports them (`src/tests/gui_provider_root.py`); products
 cannot. Inside the provider,
 `MacOSButton(title, actions)` reports clicks through a
@@ -256,18 +256,22 @@ coalesced, overflow latched and reported by `take()` after native dispatch,
 matched by `button.matches(action)`; close buttons before their queue. `MacOSScrollView` keeps AppKit's unflipped coordinates for native
 document children while its public offsets count down from the top.
 
-## Linux provider
+## The shim provider, and GTK4 on Linux
 
-`Linux/GUIProvider` is selected for `linux` targets. Its windows and controls
-are GTK4's: a button is a `GtkButton`, a text field a `GtkEntry`, a select a
+`Shim/GUIProvider` is selected for `linux` targets. Everything in `Shim/` is
+portable BTRC: the application, the view tree and its layout, the windows'
+frames and captures. It reaches the platform's toolkit through one C
+contract (`Shim/Shim.h`, `ShimControls.h`, `ShimSurface.h`, `ShimWeb.h`),
+which each platform implements once. On Linux that is GTK4 (`Linux/Gtk*.c`),
+so its windows and controls are GTK4's: a button is a `GtkButton`, a text field a `GtkEntry`, a select a
 `GtkDropDown`, a slider a `GtkScale`, and they look, focus, type and speak to
 assistive technology as GTK makes them. One provider runs on X11, Wayland and
 the Deck's Gamescope session.
 
-- A C shim owns every GTK object (`GtkShim.c` windows and events,
+- The shim owns every GTK object (`GtkShim.c` windows and events,
   `GtkCanvas.c` the window's content, `GtkControls.c` the controls,
-  `GtkWeb.c` the web view). No GTK callback enters BTRC: a signal becomes an
-  event in a bounded queue the shim owns, and `LinuxApplication.run()` polls
+  `GtkSurface.c` the WebGPU surface, `GtkWeb.c` the web view). No GTK callback enters BTRC: a signal becomes an
+  event in a bounded queue the shim owns, and `ShimApplication.run()` polls
   it, iterating GLib's main context between events. A control's event names
   the view that owns it, and the window routes it there.
 - Layout stays portable. The window's content is one canvas that measures
@@ -302,7 +306,7 @@ real input (XTEST; a wlroots compositor's virtual pointer and keyboard) in a
 private session from `tools/ui/headless-session.sh`. `LinuxGUIShutdown.btrc`
 proves a subtree that never finishes closing fails `run()` after the drain
 deadline, `LinuxEventBoundary.btrc` that a burst of input is delivered
-losslessly in bounded turns, and `LinuxPlacement.btrc` that controls are
+losslessly in bounded turns, and `ShimPlacement.btrc` that controls are
 placed at `show()`. Linux CI runs every shard in such a session with Mesa's
 lavapipe Vulkan driver, so they run there as they do locally.
 
@@ -346,7 +350,8 @@ destruction; there is no opaque `Surface.handle` or native surface destructor.
 | `Font.btrc` / `IFontFace.btrc` | Managed per-surface selection, the `IFontFace` contract and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
 | `FreeType.btrc` / `FreeType/FreeTypeFace.btrc` | Optional `FreeType.load` factory and the private FreeType face (unique SDK owners, admitted glyph snapshots). |
 | `MacOS/` | AppKit provider: `GUIProvider`, `MacOS*` views and application, run-loop signal, composed capture, SDK headers. |
-| `Linux/` | GTK4 provider: `GUIProvider`, `WebViewProvider`, `Linux*` views and application, the C shim that owns every GTK object (`GtkShim`, `GtkCanvas`, `GtkControls`, `GtkWeb`), fonts and the WebGPU surface binding. |
+| `Shim/` | The provider for platforms whose toolkit is reached through a C contract: `GUIProvider`, `WebViewProvider`, `Shim*` views and application, and the contract's headers. |
+| `Linux/` | The contract in GTK4: `GtkShim`, `GtkCanvas`, `GtkControls`, `GtkSurface`, `GtkWeb`. |
 
 ## Quick start
 

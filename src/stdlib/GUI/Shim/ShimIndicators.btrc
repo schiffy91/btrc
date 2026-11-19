@@ -1,0 +1,96 @@
+import Library.Callback;
+import Library.Math;
+import Library.GUI.IProgressIndicator;
+import Library.GUI.ILevelIndicator;
+import Library.GUI.Shim.ShimView;
+import Library.GUI.Shim.ShimContext;
+import Library.GUI.Shim.ShimPainter;
+import Library.GUI.Shim.ShimControls;
+
+/* An indeterminate spinner: GTK's, which turns while it is running. */
+class ShimProgressIndicator extends ShimNodeView implements IProgressIndicator {
+	private BtrcShimControl* _control;
+	private bool _running = false;
+
+	public ShimProgressIndicator(ShimContext context) {
+		self.adoptNode(ShimViewNode(context));
+		self._control = btrcShimSpinnerCreate((unsigned int)self.node().id);
+		if (self._control == null) { throw "Cannot create native progress indicator"; }
+	}
+
+	private BtrcShimControl* control() { if (self._control == null) { throw "Native progress indicator is closed"; } return self._control; }
+
+	public void paint(ShimPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
+
+	public double fittingWidth() { self.node().requireOpen(); return (double)btrcShimControlNaturalWidth(self.control()); }
+
+	public double fittingHeight() { self.node().requireOpen(); return (double)btrcShimControlNaturalHeight(self.control()); }
+
+	public bool isRunning() { self.node().requireOpen(); return self._running; }
+
+	public void setRunning(bool running) { self.node().requireOpen(); if (running != self._running) { self._running = running; btrcShimSpinnerSetRunning(self.control(), running); } }
+
+	private void releaseNative() { if (self._control != null) { btrcShimControlDestroy(self._control); self._control = null; } }
+
+	public CallbackCancellation close() {
+		var state = self.node().close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self.node().pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public void __del__() { self.releaseNative(); }
+}
+
+/* A read-only capacity bar with warning and critical thresholds: GTK's level bar. */
+class ShimLevelIndicator extends ShimNodeView implements ILevelIndicator {
+	private BtrcShimControl* _control;
+	private double _value = 0.0;
+
+	public ShimLevelIndicator(ShimContext context, double warning, double critical) {
+		self.adoptNode(ShimViewNode(context));
+		if (!Math.isFinite(warning) || !Math.isFinite(critical) || warning < 0.0 || critical > 1.0 || warning > critical) { throw "Invalid native level thresholds"; }
+		self._control = btrcShimLevelCreate((unsigned int)self.node().id, warning, critical);
+		if (self._control == null) { throw "Cannot create native level indicator"; }
+	}
+
+	private BtrcShimControl* control() { if (self._control == null) { throw "Native level indicator is closed"; } return self._control; }
+
+	public void paint(ShimPlacer painter, double x, double y) { painter.place(self.control(), x, y, self.node().width, self.node().height); }
+
+	/* GTK's level bar asks for almost no width of its own: a bar is as long as it is given. */
+	public double fittingWidth() { self.node().requireOpen(); return Math.maxDouble(ShimMetrics.levelWidth(), (double)btrcShimControlNaturalWidth(self.control())); }
+
+	public double fittingHeight() { self.node().requireOpen(); return (double)btrcShimControlNaturalHeight(self.control()); }
+
+	public void setValue(double value) {
+		self.node().requireOpen();
+		if (!Math.isFinite(value) || value < 0.0 || value > 1.0) { throw "Native level must be between zero and one"; }
+		if (value == self._value) { return; }
+		self._value = value;
+		btrcShimLevelSetValue(self.control(), value);
+	}
+
+	public double value() { self.node().requireOpen(); return self._value; }
+
+	private void releaseNative() { if (self._control != null) { btrcShimControlDestroy(self._control); self._control = null; } }
+
+	public CallbackCancellation close() {
+		var state = self.node().close();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public CallbackCancellation pollClose() {
+		var state = self.node().pollClose();
+		if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); }
+		return state;
+	}
+
+	public void __del__() { self.releaseNative(); }
+}

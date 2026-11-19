@@ -62,7 +62,7 @@ def burst_program(tmp_path_factory, request, frontend, sanitized):
             "eventBoundaryAccepted",
             "eventBoundaryRejected",
         ),
-        ("btrcGtkPollEvent", "wgpuSurfacePresent", "btrcGtkWindowShowPicture"),
+        ("btrcShimPollEvent", "wgpuSurfacePresent", "btrcShimWindowShowPicture"),
     )
 
 
@@ -92,7 +92,13 @@ def load_program(tmp_path_factory, request, frontend, sanitized):
             "e40Frame",
             "e40Report",
         ),
-        ("btrcGtkPollEvent", "btrcGtkWaitEvent", "btrcGtkWindowShow", "wgpuSurfacePresent", "btrcGtkWindowShowPicture"),
+        (
+            "btrcShimPollEvent",
+            "btrcShimWaitEvent",
+            "btrcShimWindowShow",
+            "wgpuSurfacePresent",
+            "btrcShimWindowShowPicture",
+        ),
     )
 
 
@@ -113,7 +119,7 @@ def provenance(frontend, sanitized):
         "machine": platform.machine(),
         "session": "headless GTK; input queued in the provider's own queue; real frames, presented or handed to GTK",
         "physical_device_latency": "not measured",
-        "clock": "btrcGtkTicksNS monotonic nanoseconds",
+        "clock": "btrcShimTicksNS monotonic nanoseconds",
         "compiler": subprocess.check_output(["cc", "--version"], text=True, timeout=30).splitlines()[0],
         "selfhost_binary": os.environ.get("BTRC_TEST_BTRCC") if frontend == "selfhost" else None,
         "limits": {

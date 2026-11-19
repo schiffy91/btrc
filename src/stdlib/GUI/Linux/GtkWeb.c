@@ -1,5 +1,5 @@
 /* The provider's web view; GtkWeb.h is the contract. */
-#include "GtkWeb.h"
+#include "../Shim/ShimWeb.h"
 #include "GtkShimPrivate.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -8,7 +8,7 @@
 
 /* What one web view serves and may reach. It lives as long as its widget. */
 typedef struct BtrcGtkWeb {
-	BtrcGtkControl* control;
+	BtrcShimControl* control;
 	/* The bundle: a directory, or files in memory by their path. */
 	char* directory;
 	GHashTable* files;
@@ -28,7 +28,7 @@ static void btrcGtkWebFree(gpointer data) {
 	g_free(web);
 }
 
-static BtrcGtkWeb* btrcGtkWebOf(BtrcGtkControl* control) { return g_object_get_data(G_OBJECT(btrcGtkControlWidget(control)), "btrc-web"); }
+static BtrcGtkWeb* btrcGtkWebOf(BtrcShimControl* control) { return g_object_get_data(G_OBJECT(btrcGtkControlWidget(control)), "btrc-web"); }
 
 static const char* btrcGtkWebType(const char* path) {
 	static const struct { const char* extension; const char* type; } types[] = {
@@ -113,12 +113,12 @@ static gboolean btrcGtkOnWebDecide(WebKitWebView* view, WebKitPolicyDecision* de
 	if (type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION && type != WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) { return FALSE; }
 	WebKitNavigationAction* action = webkit_navigation_policy_decision_get_navigation_action(WEBKIT_NAVIGATION_POLICY_DECISION(decision));
 	const char* uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(action));
-	int outcome = BTRC_GTK_WEB_NAVIGATION_ALLOWED;
+	int outcome = BTRC_SHIM_WEB_NAVIGATION_ALLOWED;
 	if (type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION && btrcGtkWebReaches(web, uri)) {
 		webkit_policy_decision_use(decision);
 	} else {
 		webkit_policy_decision_ignore(decision);
-		outcome = BTRC_GTK_WEB_NAVIGATION_REFUSED;
+		outcome = BTRC_SHIM_WEB_NAVIGATION_REFUSED;
 		/* A link a person clicked, and nothing a script did: the engine counts
 		 * a script the program itself runs as a person's doing. */
 		bool clicked = webkit_navigation_action_get_navigation_type(action) == WEBKIT_NAVIGATION_TYPE_LINK_CLICKED && webkit_navigation_action_is_user_gesture(action);
@@ -127,10 +127,10 @@ static gboolean btrcGtkOnWebDecide(WebKitWebView* view, WebKitPolicyDecision* de
 			GtkRoot* root = gtk_widget_get_root(GTK_WIDGET(view));
 			gtk_uri_launcher_launch(launcher, GTK_IS_WINDOW(root) ? GTK_WINDOW(root) : NULL, NULL, NULL, NULL);
 			g_object_unref(launcher);
-			outcome = BTRC_GTK_WEB_NAVIGATION_HANDED_TO_SYSTEM;
+			outcome = BTRC_SHIM_WEB_NAVIGATION_HANDED_TO_SYSTEM;
 		}
 	}
-	btrcGtkControlPushText(web->control, BTRC_GTK_EVENT_CONTROL_WEB_NAVIGATION, outcome, uri);
+	btrcGtkControlPushText(web->control, BTRC_SHIM_EVENT_CONTROL_WEB_NAVIGATION, outcome, uri);
 	return TRUE;
 }
 
@@ -155,11 +155,11 @@ static void btrcGtkOnWebMessage(WebKitUserContentManager* manager, JSCValue* val
 	BtrcGtkWeb* web = data;
 	(void)manager;
 	char* json = jsc_value_to_string(value);
-	btrcGtkControlPushText(web->control, BTRC_GTK_EVENT_CONTROL_WEB_MESSAGE, 0, json);
+	btrcGtkControlPushText(web->control, BTRC_SHIM_EVENT_CONTROL_WEB_MESSAGE, 0, json);
 	g_free(json);
 }
 
-BtrcGtkControl* btrcGtkWebCreate(unsigned int id) {
+BtrcShimControl* btrcShimWebCreate(unsigned int id) {
 	BtrcGtkWeb* web = g_new0(BtrcGtkWeb, 1);
 	web->files = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)g_bytes_unref);
 	web->origins = g_ptr_array_new_with_free_func(g_free);
@@ -190,28 +190,28 @@ BtrcGtkControl* btrcGtkWebCreate(unsigned int id) {
 	return web->control;
 }
 
-void btrcGtkWebServeDirectory(BtrcGtkControl* control, const char* directory) {
+void btrcShimWebServeDirectory(BtrcShimControl* control, const char* directory) {
 	BtrcGtkWeb* web = btrcGtkWebOf(control);
 	g_hash_table_remove_all(web->files);
 	g_free(web->directory);
 	web->directory = g_strdup(directory);
 }
 
-void btrcGtkWebServeFiles(BtrcGtkControl* control) {
+void btrcShimWebServeFiles(BtrcShimControl* control) {
 	BtrcGtkWeb* web = btrcGtkWebOf(control);
 	g_hash_table_remove_all(web->files);
 	g_clear_pointer(&web->directory, g_free);
 }
 
-void btrcGtkWebServeFile(BtrcGtkControl* control, const char* path, const unsigned char* bytes, unsigned long long length) {
+void btrcShimWebServeFile(BtrcShimControl* control, const char* path, const unsigned char* bytes, unsigned long long length) {
 	BtrcGtkWeb* web = btrcGtkWebOf(control);
 	while (path[0] == '/') { path++; }
 	g_hash_table_insert(web->files, g_strdup(path), g_bytes_new(bytes, (gsize)length));
 }
 
-void btrcGtkWebAllowOrigin(BtrcGtkControl* control, const char* origin) { g_ptr_array_add(btrcGtkWebOf(control)->origins, g_strdup(origin)); }
+void btrcShimWebAllowOrigin(BtrcShimControl* control, const char* origin) { g_ptr_array_add(btrcGtkWebOf(control)->origins, g_strdup(origin)); }
 
-void btrcGtkWebLoad(BtrcGtkControl* control, const char* entryPath) {
+void btrcShimWebLoad(BtrcShimControl* control, const char* entryPath) {
 	BtrcGtkWeb* web = btrcGtkWebOf(control);
 	while (entryPath[0] == '/') { entryPath++; }
 	char* uri = g_strconcat("app://bundle/", entryPath, NULL);
@@ -221,7 +221,7 @@ void btrcGtkWebLoad(BtrcGtkControl* control, const char* entryPath) {
 	g_free(uri);
 }
 
-void btrcGtkWebPost(BtrcGtkControl* control, const char* json) {
+void btrcShimWebPost(BtrcShimControl* control, const char* json) {
 	BtrcGtkWeb* web = btrcGtkWebOf(control);
 	if (web->loaded) { btrcGtkWebDeliver(web, json); }
 	else { g_ptr_array_add(web->waiting, g_strdup(json)); }

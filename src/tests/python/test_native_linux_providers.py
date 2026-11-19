@@ -206,26 +206,25 @@ def test_linux_gui_gpu_view_reparent(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize(
     "declaration, body, diagnostic",
     [
-        ("import Library.GUI.Linux.GtkShim;", "return 0;", "private to package"),
-        ('#include "GUI/Linux/GtkShim.btrc"', "return 0;", "private to package"),
-        ("import Library.GUI.Linux.GtkControls;", "return 0;", "private to package"),
-        ("import Library.GUI.Linux.GtkWeb;", "return 0;", "private to package"),
-        ("import Library.GUI.Linux.WebGPUSurface;", "return 0;", "private to package"),
-        ("import Library.GUI.Linux.LinuxApplication;", "return 0;", "private to package"),
-        ("import Library.GUI.Linux.LinuxWindow;", "return 0;", "private to package"),
-        ('#include "GUI/Linux/LinuxWindow.btrc"', "return 0;", "private to package"),
-        ("import Library.GUI.Linux.LinuxView;", "return 0;", "private to package"),
-        ("import Library.GUI.Linux.LinuxContext;", "return 0;", "private to package"),
-        ("import Library.GUI.Linux.LinuxActionQueue;", "return 0;", "private to package"),
-        ("import Library.GUI.Linux.LinuxSystemText;", "return 0;", "private to package"),
-        ("import Library.GUI.Linux.GUIProvider;", "return 0;", "private to package"),
-        ("import Library.GUI.Linux.WebViewProvider;", "return 0;", "private to package"),
+        ("import Library.GUI.Shim.Shim;", "return 0;", "private to package"),
+        ('#include "GUI/Shim/Shim.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI.Shim.ShimControls;", "return 0;", "private to package"),
+        ("import Library.GUI.Shim.ShimWeb;", "return 0;", "private to package"),
+        ("import Library.GUI.Shim.ShimSurface;", "return 0;", "private to package"),
+        ("import Library.GUI.Shim.ShimApplication;", "return 0;", "private to package"),
+        ("import Library.GUI.Shim.ShimWindow;", "return 0;", "private to package"),
+        ('#include "GUI/Shim/ShimWindow.btrc"', "return 0;", "private to package"),
+        ("import Library.GUI.Shim.ShimView;", "return 0;", "private to package"),
+        ("import Library.GUI.Shim.ShimContext;", "return 0;", "private to package"),
+        ("import Library.GUI.Shim.ShimActionQueue;", "return 0;", "private to package"),
+        ("import Library.GUI.Shim.GUIProvider;", "return 0;", "private to package"),
+        ("import Library.GUI.Shim.WebViewProvider;", "return 0;", "private to package"),
         # A provider type reached by name through Library.GUI: the provider
         # analyzes with the program, so this case needs the header reader.
         (
             "import Library.GUI;",
-            "var queue = LinuxActionQueue(16); return 0;",
-            "'LinuxActionQueue' is defined in LinuxActionQueue.btrc but Program.btrc does not import it",
+            "var queue = ShimActionQueue(16); return 0;",
+            "'ShimActionQueue' is defined in ShimActionQueue.btrc but Program.btrc does not import it",
         ),
     ],
 )
@@ -249,14 +248,14 @@ def test_linux_gui_keeps_provider_modules_private(tmp_path, request, frontend, d
 
 
 def test_gui_provider_root_exports_the_linux_provider(gui_provider_root):
-    """The white-box root re-exports every Linux provider module but the two facades' own."""
+    """The white-box root re-exports every module of the shim provider but the two facades' own."""
     exported = set(tomllib.loads((gui_provider_root / "stdlib/GUI/btrc.toml").read_text())["package"]["exports"])
-    modules = {f"Linux.{path.stem}" for path in (ROOT / "src/stdlib/GUI/Linux").glob("*.btrc")}
-    factories = {"Linux.GUIProvider", "Linux.WebViewProvider"}
+    modules = {f"Shim.{path.stem}" for path in (ROOT / "src/stdlib/GUI/Shim").glob("*.btrc")}
+    factories = {"Shim.GUIProvider", "Shim.WebViewProvider"}
     assert modules - factories <= exported
     assert not factories & exported
     public = set(tomllib.loads((ROOT / "src/stdlib/GUI/btrc.toml").read_text())["package"]["exports"])
-    assert not {name for name in public if name.startswith("Linux.")}
+    assert not {name for name in public if name.startswith(("Shim.", "Linux."))}
 
 
 @pytest.mark.parametrize("target", ["android-aarch64", "ios-aarch64"])

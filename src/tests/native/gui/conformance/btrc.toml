@@ -32,14 +32,14 @@ read-only-borrows = [
 ]
 
 [[native.sources]]
-path = "probes/linux/LinuxProbe.c"
+path = "probes/shim/ConformanceProbe.c"
 language = "c"
 standard = "c11"
 modules = ["Probe"]
 os = ["linux"]
 
 [[native.sources]]
-path = "probes/linux/GtkProbe.c"
+path = "probes/shim/ShimProbe.c"
 language = "c"
 standard = "c11"
 modules = ["Probe"]

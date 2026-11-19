@@ -2,7 +2,7 @@
 #define BTRC_GTK_SHIM_PRIVATE_H
 /* What the shim's own sources share. BTRC binds GtkShim.h and GtkControls.h,
  * never this. */
-#include "GtkShim.h"
+#include "../Shim/Shim.h"
 /* GTK's headers are not pedantic C11 (a stray semicolon after a type
  * declaration), and the shim is compiled with -pedantic-errors. */
 #pragma GCC diagnostic push
@@ -15,23 +15,33 @@
 
 /* Queue one event for BTRC's next poll; false when the queue is full, or a
  * filter refuses it. Any thread may call it. */
-bool btrcGtkPush(const BtrcGtkEvent* event, const char* text);
+bool btrcGtkPush(const BtrcShimEvent* event, const char* text);
 /* For the provider's own load fixtures, which flood the queue to hold its
  * dispatch to its bounds: how many queued events have a type in a range,
  * drop what is queued, and let only the events a filter accepts enter (NULL
  * lets everything in again). */
 int btrcGtkQueued(unsigned int firstType, unsigned int lastType);
 void btrcGtkQueueFlush(void);
-void btrcGtkQueueFilter(bool (*accept)(const BtrcGtkEvent* event));
+void btrcGtkQueueFilter(bool (*accept)(const BtrcShimEvent* event));
 /* The canvas that is the window's content. */
-GtkWidget* btrcGtkWindowCanvas(BtrcGtkWindow* window);
+GtkWidget* btrcGtkWindowCanvas(BtrcShimWindow* window);
 
 /* For a kind of control that has a source file of its own (GtkWeb.c): a
  * control around a widget, the widget of a control, and an event from it. */
-struct BtrcGtkControl;
-struct BtrcGtkControl* btrcGtkControlNew(unsigned int id, GtkWidget* widget);
-GtkWidget* btrcGtkControlWidget(struct BtrcGtkControl* control);
-void btrcGtkControlPushText(struct BtrcGtkControl* control, unsigned int type, int data, const char* text);
+struct BtrcShimControl;
+struct BtrcShimControl* btrcGtkControlNew(unsigned int id, GtkWidget* widget);
+GtkWidget* btrcGtkControlWidget(struct BtrcShimControl* control);
+void btrcGtkControlPushText(struct BtrcShimControl* control, unsigned int type, int data, const char* text);
+
+/* What a WebGPU surface for the window's drawn content is made on
+ * (GtkSurface.c). Exactly one pair is non-null/non-zero. The Wayland one
+ * lies below the window and is where frames are presented. The X11 one is
+ * never shown: there a frame is drawn off screen and handed over as a
+ * picture, which GTK draws under the window's controls. */
+void* btrcGtkWindowWaylandDisplay(BtrcShimWindow* window);
+void* btrcGtkWindowWaylandSurface(BtrcShimWindow* window);
+void* btrcGtkWindowX11Display(BtrcShimWindow* window);
+unsigned long btrcGtkWindowX11Window(BtrcShimWindow* window);
 
 /* A canvas emits "resized" (width, height) when it is allocated. */
 GtkWidget* btrcGtkCanvasNew(void);

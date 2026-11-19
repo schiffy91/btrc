@@ -5,7 +5,7 @@ exports no provider module beyond the AppKit seam ``Library.Tray`` uses. The
 providers' own conformance fixtures still assert native state through their
 modules: on macOS the action queue, view capture, the GPU surface and AppKit
 readback through ``IMacOSView``; on Linux the provider's own event queue and a
-``LinuxNodeView`` whose shutdown stalls. They compile against this copy of
+``ShimNodeView`` whose shutdown stalls. They compile against this copy of
 ``src/``, which differs only in that manifest's export list. Shared semantic and numeric owners are also exposed solely for these
 white-box fixtures.
 
@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 class GUIProviderRoot:
     """Build and use the white-box data root for native provider fixtures."""
 
-    PROVIDERS = ("MacOS", "Linux")
+    PROVIDERS = ("MacOS", "Shim")
 
     @classmethod
     def create(cls, root: Path) -> Path:

@@ -5,8 +5,8 @@ import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IView;
 import Library.GUI.IWindow;
-import Library.GUI.Linux.LinuxView;
-import Library.GUI.Linux.LinuxContext;
+import Library.GUI.Shim.ShimView;
+import Library.GUI.Shim.ShimContext;
 import Library.Callback;
 import Library.Console;
 import Library.Timer;
@@ -15,11 +15,11 @@ import Library.Timer;
 
 /* A drawn view whose shutdown stays Pending until the test releases it, like
  * a GPU device that never reports CLOSED. */
-class StuckView extends LinuxNodeView {
+class StuckView extends ShimNodeView {
 	public bool released = false;
 	public int polls = 0;
 
-	public StuckView(LinuxContext context) { self.adoptNode(LinuxViewNode(context)); }
+	public StuckView(ShimContext context) { self.adoptNode(ShimViewNode(context)); }
 
 	public CallbackCancellation close() { self.node().close(); return self.pollClose(); }
 
@@ -37,7 +37,7 @@ int main() {
 	GUI.initialize(8);
 	var window = GUI.createWindow("BTRC Linux shutdown", 200.0, 120.0);
 	var root = GUI.createContainer();
-	ILinuxView? native = (ILinuxView?)root;
+	IShimView? native = (IShimView?)root;
 	assert(native != null);
 	var stuck = StuckView(native == null ? null : native.node().context);
 	root.attach(stuck);

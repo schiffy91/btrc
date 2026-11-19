@@ -70,7 +70,7 @@ closes, drains and releases the owner on the UI thread.
 
 `UI2LinuxFinalRelease` uses
 `test_native_ui_core_linux.py::test_linux_ui2_final_release_requires_executor`.
-An open real `LinuxApplication` must abort with
+An open real `ShimApplication` must abort with
 `Native application destroyed before subtree cleanup completed` when its last
 reference is released by a worker. A closed application without a callback
 scope may be released there. `UI2LinuxAffineRelease`, through

@@ -1,7 +1,7 @@
 /* Portable directory-picker contract. Applications call
  * GUI.chooseDirectory(request) on the UI thread of an initialized GUI; the
  * target's GUI provider builds its picker (MacOSDirectoryPicker over
- * NSOpenPanel, LinuxDirectoryPicker over GTK's folder dialog)
+ * NSOpenPanel, ShimDirectoryPicker over GTK's folder dialog)
  * and runs it modally. A picker owns its modal resources and reports an
  * invalid request, an unavailable dialog or a native failure as a failed
  * outcome; a user dismissal, or an application Quit that aborts the modal,
