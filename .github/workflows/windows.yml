@@ -517,6 +517,7 @@ jobs:
             build/win32/*.stderr
             build/win32/process-corpus-*/
             build/win32/native-shell-*/
+            build/win32/gui-conformance-*/
             build/win32/http-corpus-*/
           if-no-files-found: error
           retention-days: 7

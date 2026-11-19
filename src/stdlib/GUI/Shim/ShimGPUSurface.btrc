@@ -17,7 +17,7 @@ class ShimGPUSurface {
 	public ShimGPUSurface(BtrcShimWindow* window) {
 		if (window == null) { throw "GPU surface requires a native window"; }
 		self._window = window;
-		self._instance = wgpuCreateInstance(null);
+		self._instance = btrcShimCreateInstance();
 		if (self._instance == null) { throw "Cannot create WebGPU instance"; }
 		self._surface = btrcShimWindowCreateSurface(window, self._instance);
 		if (self._surface == null) { self.close(); throw "Cannot create native WebGPU surface"; }

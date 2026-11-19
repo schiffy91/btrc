@@ -19,7 +19,7 @@ unsigned long btrcShimAutomationSerial(void);
 int btrcShimAutomationAwait(unsigned long serial, int timeoutMilliseconds);
 int btrcShimAutomationPointer(unsigned int window, double *x, double *y);
 
-enum { ARRIVAL_MILLISECONDS = 500, SEARCH_MILLISECONDS = 60, APPEARANCE_ATTEMPTS = 160, DISPLAY_WAYLAND = 1, DISPLAY_X11 = 2, DISPLAY_WIN32 = 3 };
+enum { ARRIVAL_MILLISECONDS = 500, SEARCH_MILLISECONDS = 60, APPEARANCE_ATTEMPTS = 160, DISPLAY_WAYLAND = 1, DISPLAY_X11 = 2, DISPLAY_WIN32 = 3, DISPLAY_ANDROID = 4 };
 
 static const RealInput *input;
 /* The screen position of the located window's content origin. */
@@ -37,6 +37,8 @@ static const RealInput *realInput(void) {
         if (allowed && strcmp(allowed, "1") == 0) {
 #ifdef _WIN32
             input = btrcShimAutomationDisplay() == DISPLAY_WIN32 ? realInputWin32() : NULL;
+#elif defined(__ANDROID__)
+            input = btrcShimAutomationDisplay() == DISPLAY_ANDROID ? realInputAndroid() : NULL;
 #else
             int display = btrcShimAutomationDisplay();
             input = display == DISPLAY_X11 ? realInputX11() : display == DISPLAY_WAYLAND ? realInputWayland() : NULL;
@@ -172,6 +174,8 @@ int shimProbeText(unsigned int window, const char *title, const char *text) {
 }
 
 int shimProbeFillsScreen(void) { return realInput() && input->fillsScreen() ? 1 : 0; }
+
+int shimProbeKeepsScreen(void) { return realInput() && input->keepsScreen && input->keepsScreen() ? 1 : 0; }
 
 int shimProbeClose(unsigned int window, const char *title) {
     if (!realInput() || !activate(window, title)) { return 0; }

@@ -45,4 +45,7 @@ int conformanceProbeClose(const char *title) {
 /* The provider's turn runs the toolkit's own loop itself. */
 void conformanceProbeService(void) {}
 
-int conformanceProbeWindowSizing(void) { return shimProbeFillsScreen() ? CONFORMANCE_WINDOW_SIZING_SCREEN_AT_FIRST : CONFORMANCE_WINDOW_SIZING_ASKED; }
+int conformanceProbeWindowSizing(void) {
+    if (shimProbeKeepsScreen()) { return CONFORMANCE_WINDOW_SIZING_SCREEN_ALWAYS; }
+    return shimProbeFillsScreen() ? CONFORMANCE_WINDOW_SIZING_SCREEN_AT_FIRST : CONFORMANCE_WINDOW_SIZING_ASKED;
+}

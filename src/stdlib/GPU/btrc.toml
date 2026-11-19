@@ -26,6 +26,14 @@ modules = ["WebGPU"]
 os = ["windows"]
 arch = ["aarch64"]
 
+# An Android app has no pkg-config search path: its build gives the compiler
+# and the linker the directories of wgpu-native's pinned prebuilt archive
+# (nix/wgpu-native-prebuilt.nix), and packs libwgpu_native.so into the app.
+[[native.libraries]]
+name = "wgpu_native"
+modules = ["WebGPU"]
+os = ["android"]
+
 [[native.bindings]]
 module = "WebGPU"
 header = "WebGPUImports.h"
@@ -75,7 +83,7 @@ borrowed-parameters = [
 ]
 owned-records = ["WGPURequestAdapterOptions", "WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPUSurfaceConfiguration", "WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo"]
 record-inputs = ["wgpuInstanceRequestAdapter.options", "wgpuInstanceRequestAdapter.callbackInfo", "wgpuAdapterRequestDevice.callbackInfo", "wgpuSurfaceConfigure.config", "wgpuDevicePopErrorScope.callbackInfo", "wgpuBufferMapAsync.callbackInfo"]
-os = ["macos", "linux", "windows"]
+os = ["macos", "linux", "windows", "android"]
 [native.bindings.resources.WGPUInstance]
 ownership = "reference-counted"
 retain = "wgpuInstanceAddRef"

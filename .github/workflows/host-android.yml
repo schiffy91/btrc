@@ -14,6 +14,8 @@ name: Host Android
 # runs interop step 4's checked JNI round trip on its API (CL-P2-09), which
 # also carries step 7's Java -> BTRC natives round trip (RegisterNatives),
 # primitive arrays and spans, JavaWeak and the main Looper's executor.
+# The GUI conformance suite then runs there as an app, through both compilers
+# (src/tests/python/test_native_ui_conformance_android.py).
 #
 # The whole language and stdlib corpus runs here too, through both compilers
 # (CX-P1-09): the scope job plans those jobs from ci/tiers.toml, and they run
@@ -34,6 +36,11 @@ on:
       - src/stdlib/Java/**
       - src/tests/python/jni_adoption_fixtures.py
       - src/tests/python/test_native_jni_android.py
+      - src/stdlib/GUI/**
+      - src/stdlib/GPU/**
+      - src/tests/native/gui/conformance/**
+      - src/tests/python/test_native_ui_conformance_android.py
+      - nix/wgpu-native-prebuilt.nix
       - "**/Android/**"
       - src/tests/target_runner.py
       - src/tests/fixtures/target-applicability.toml
@@ -51,6 +58,11 @@ on:
       - src/stdlib/Java/**
       - src/tests/python/jni_adoption_fixtures.py
       - src/tests/python/test_native_jni_android.py
+      - src/stdlib/GUI/**
+      - src/stdlib/GPU/**
+      - src/tests/native/gui/conformance/**
+      - src/tests/python/test_native_ui_conformance_android.py
+      - nix/wgpu-native-prebuilt.nix
       - "**/Android/**"
       - src/tests/target_runner.py
       - src/tests/fixtures/target-applicability.toml
@@ -210,6 +222,21 @@ jobs:
           BTRC_TEST_BTRCC="$PWD/build/btrcc/bin/btrcc" python3 -m pytest -q -rA -p no:cacheprovider --compilers btrc \
             src/tests/python/test_native_jni_android.py --skip-report=build/skip-report-android-jni-btrc.json
           python3 -m tools.qualification skip-gate build/skip-report-android-jni-btrc.json
+      - name: Run the GUI conformance suite on API ${{ matrix.api }} through both compilers
+        if: ${{ !cancelled() }}
+        run: |
+          BTRC_TEST_BTRCC="$PWD/build/btrcc/bin/btrcc" BTRC_ANDROID_UI_EVIDENCE="$PWD/build/android-ui-api${{ matrix.api }}" \
+            python3 -m pytest -q -rA -p no:cacheprovider src/tests/python/test_native_ui_conformance_android.py \
+            --skip-report=build/skip-report-android-ui.json
+          python3 -m tools.qualification skip-gate build/skip-report-android-ui.json
+      - name: Retain the GUI conformance run
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-ui-api${{ matrix.api }}
+          path: build/android-ui-api${{ matrix.api }}
+          if-no-files-found: warn
+          retention-days: 30
       - name: Retain the JNI round trip
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

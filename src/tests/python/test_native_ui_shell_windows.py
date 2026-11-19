@@ -181,7 +181,12 @@ status = "hresult"
 
 
 def prebuilt_archive(target):
-    """The row's wgpu-native release archive, fetched once and checked against its pin.
+    """The row's wgpu-native release archive (pinned_archive)."""
+    return pinned_archive(TARGETS[target][3])
+
+
+def pinned_archive(slice_name):
+    """One slice's wgpu-native release archive, fetched once and checked against its pin.
 
     nix/wgpu-native-prebuilt.nix is the one record of each archive's name and
     SHA-256; the devcontainer has no Nix, so the test fetches the same release
@@ -190,8 +195,8 @@ def prebuilt_archive(target):
     """
     text = PREBUILT.read_text(encoding="utf-8")
     version = re.search(r'version = "([^"]+)";', text)[1]
-    pin = re.search(rf'^\s*{re.escape(TARGETS[target][3])} = archive "([^"]+)" "sha256-([^"]+)";', text, re.MULTILINE)
-    assert pin, f"{PREBUILT} pins no archive for {target}"
+    pin = re.search(rf'^\s*{re.escape(slice_name)} = archive "([^"]+)" "sha256-([^"]+)";', text, re.MULTILINE)
+    assert pin, f"{PREBUILT} pins no archive for {slice_name}"
     name, digest = pin[1], base64.b64decode(pin[2]).hex()
     cache = REPO / "build/wgpu-native" / name
     cache.parent.mkdir(parents=True, exist_ok=True)

@@ -24,7 +24,7 @@ platform implements it once, in C, beside the suite:
 
 | Platform | Source | How input arrives |
 | --- | --- | --- |
-| Linux, Windows (the shim provider) | `probes/shim/ConformanceProbe.c`, `ShimProbe.c` | Real input: XTEST on X11 (`probes/linux/X11Input.c`), a wlroots compositor's virtual pointer and keyboard on Wayland (`probes/linux/WaylandInput.c`), `SendInput` on Windows (`probes/windows/Win32Input.c`) |
+| Linux, Windows, Android (the shim provider) | `probes/shim/ConformanceProbe.c`, `ShimProbe.c` | Real input: XTEST on X11 (`probes/linux/X11Input.c`), a wlroots compositor's virtual pointer and keyboard on Wayland (`probes/linux/WaylandInput.c`), `SendInput` on Windows (`probes/windows/Win32Input.c`), the system's event injection on Android (`probes/android/AndroidInput.c` and `probes/android/java`) |
 
 The probe is the input itself: it moves the session's one pointer and types
 on its one keyboard, so it runs only where `BTRC_UI_PRIVATE_SESSION=1` says
@@ -44,6 +44,16 @@ tools/ui/headless-session.sh --x11 -- python3 -m pytest -q src/tests/python/test
 tools/ui/headless-session.sh --wlroots -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
 tools/ui/headless-session.sh --wayland -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
 ```
+
+On Android the suite is an app.
+`src/tests/python/test_native_ui_conformance_android.py` builds it for the
+device's ABI through both compilers, installs it on the emulator
+`BTRC_ANDROID_SERIAL` names (or boots one from `BTRC_ANDROID_AVD_STATE`),
+and runs each case as its own process, started with `am instrument`: the
+system lets a program send input to its own windows only under
+instrumentation, which lends it the test host's right to. A press is a
+finger's, as it is on a phone; a move with nothing down and a wheel are a
+mouse's.
 
 A case prints `CASE <name> PASS`, or `CASE <name> FAIL <what it found>`.
 `BTRC_CONFORMANCE_FONT` names a font file for the font face case, and

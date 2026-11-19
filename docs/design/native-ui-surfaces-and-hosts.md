@@ -308,7 +308,7 @@ window manager's close, queued for the window with a given title.
 | --- | --- | --- |
 | Linux | XTest under Xvfb; a virtual pointer and keyboard under headless labwc | Written; 39 cases pass on both |
 | Windows | `SendInput`, in the guest's and the hosted runner's own session | Written; 38 cases pass in the guest |
-| Android | Motion and key events dispatched to the window through JNI | Not written |
+| Android | The system's event injection into the app's own windows, with the app started under instrumentation (`am instrument`); a press is a finger's, a hover and a wheel a mouse's | Written; 38 cases pass on the API 29 and API 36 emulators |
 
 Accessibility trees are not part of this suite: the bridges are outside this
 plan.
@@ -371,9 +371,11 @@ Notes that shape the work:
   The probe now unmaps it after every text, and the Deck's server was put
   back to its first server's mapping.
 - **Android locally.** The 28 host fixtures pass on an API 36 emulator on this
-  desktop. Whether that emulator runs Vulkan against the NVIDIA card is
-  **unverified**; the hosted emulator skips the six GPU tests, so this desktop
-  may be the only place Android GPU evidence comes from.
+  desktop, and so does the conformance suite, GPU cases included, on API 29
+  and API 36. The emulator runs with `-gpu swiftshader_indirect`, so nothing
+  reaches the NVIDIA card: the API 29 image offers the guest no Vulkan
+  adapter and the window's surface is OpenGL ES there, and the API 36 image
+  offers one. The hosted emulator is started the same way.
 - **One heavy workload at a time**, each in a limited systemd scope: an
   emulator, a VM and a compiler bootstrap do not run together.
 
@@ -503,10 +505,42 @@ Each step ends with something that runs.
      SDK does not carry: the suite's font case is a per-platform module, and
      Windows has none. Still open, with the tray and the ARM64 hosted run.
 7. **Android**: a new provider on the approved UI2 host attachment, not a
-   second run loop. iOS waits with macOS.
+   second run loop. iOS waits with macOS. Done: the shim provider's third
+   implementation (`GUI/Android`), Android's own views reached through JNI
+   from the program's thread, with `android.webkit.WebView` for the web
+   view. The suite passes 38 of 38 cases through both compilers on the
+   API 29 and API 36 x86_64 emulators (`test_native_ui_conformance_android.py`;
+   `host-android.yml` runs the same file). What it found:
+   - The system refuses input a program injects into its own windows
+     unless the program runs under instrumentation (API 33 and later), so
+     the suite's app is started with `am instrument`.
+   - A mouse press alone does not reach a page in the web view, which
+     wants the button events only the system can make; the probe presses
+     with a finger, as a phone's user does.
+   - On API 29 Vulkan connects a native window the moment a surface is
+     asked for, which leaves none for OpenGL ES, the only API that image
+     has an adapter for: the shim now makes the WebGPU instance, with one
+     graphics API (`btrcShimCreateInstance`).
+   - The soft keyboard takes Escape to hide itself before a text field
+     hears it; the field takes it first.
+   - A point is 2.625 pixels on the emulator's phone, so a window whose
+     size in points is rounded is not the size it says: a window is a whole
+     number of points and the pixels that makes.
+   - `IFontFace` is FreeType's here too, which the NDK does not carry; the
+     font case does not apply, as on Windows. The directory picker has no
+     path to give on Android and reports that nothing was chosen.
 8. **Evidence**: the catalog has no missing or unverified operation on any
    platform or frontend, and one showcase in `examples/gui` mixes all three
-   kinds on every platform.
+   kinds on every platform. The showcase is `examples/gui/Showcase.btrc`:
+   a slider and labels, a GPU view that draws rings in the slider's hue, a
+   page that takes the hue and posts back, and a button attached last that
+   lies over both. `examples/gui/captures` holds a screenshot of it running
+   on Linux (a private X session), Windows (the guest's desktop) and Android
+   (the API 36 emulator), each taken by the host, not by the program. On
+   the API 29 emulator, whose only adapter is OpenGL ES 3.0, the same
+   program shows the GPU view's clear colour and not what its shader draws:
+   the suite's GPU case, a clear and a readback, passes there, so a
+   program's draw in a GPU view on OpenGL ES is **unverified**.
 
 Done when, at one commit on `main`: the shared suite passes on every row of
 section 4 through both compilers; `ui_catalog check --strict` passes with

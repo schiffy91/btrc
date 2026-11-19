@@ -438,7 +438,8 @@
     {
       "id": "android-device-bound",
       "files": [
-        "src/tests/python/test_native_jni_android.py"
+        "src/tests/python/test_native_jni_android.py",
+        "src/tests/python/test_native_ui_conformance_android.py"
       ],
       "reason": "^requires an Android SDK and device: ",
       "category": "platform",

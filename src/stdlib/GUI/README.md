@@ -260,7 +260,8 @@ portable BTRC: the application, the view tree and its layout, the windows'
 frames and captures. It reaches the platform's toolkit through one C
 contract (`Shim/Shim.h`, `ShimControls.h`, `ShimSurface.h`, `ShimWeb.h`),
 which each platform implements once: GTK4 on Linux (`Linux/Gtk*.c`), Win32
-on Windows (`Windows/Win32*.c`). On Linux its windows and controls are
+on Windows (`Windows/Win32*.c`), Android's views through JNI
+(`Android/Android*.c`). On Linux its windows and controls are
 GTK4's: a button is a `GtkButton`, a text field a `GtkEntry`, a select a
 `GtkDropDown`, a slider a `GtkScale`, and they look, focus, type and speak to
 assistive technology as GTK makes them. One provider runs on X11, Wayland and
@@ -322,6 +323,41 @@ On Windows the same provider runs over `Windows/Win32*.c`:
 - A fill or picture that is not opaque is drawn over the window's own
   colour: a child window has nothing behind it to blend with.
 
+On Android the same provider runs over `Android/Android*.c`, which reaches
+the system's own views through JNI (`Android/java/dev/btrc/shim`):
+
+- The program is the shared library of an app whose one activity is
+  `ShimActivity`. Its `main` runs on a thread of its own; every call of the
+  contract does its work on the activity's UI thread and returns when it is
+  done, and what a person does comes back as events the program polls. No
+  callback enters BTRC.
+- A window is one layer of the activity's frame, and the session gives it
+  the whole of it: the last window shown is the one on the screen, and a
+  window keeps the size it asked for only until it is first shown. A window
+  is a whole number of points each way, since a point is rarely a whole
+  number of pixels.
+- A control is an `android.widget` view (`Button`, `TextView`, `EditText`,
+  `SeekBar`, `ProgressBar`, `ImageView`; a select is a button that opens a
+  list) in a slot that clips it to its ancestors and cuts out the GPU views
+  placed after it. Drawn content is presented on a `SurfaceView` beneath
+  the controls.
+- A window's surface is made in one graphics API, Vulkan where the device
+  has it and OpenGL ES where it does not: a native window is connected to
+  the first API that makes a surface on it.
+- The web view is `android.webkit.WebView`. Its engine fetches only over
+  http and https, so the bundle's page lives at a host that resolves to
+  nothing and whose every request the provider answers; the program is told
+  of `app://bundle/` all the same.
+- Escape in a text field is the field's, before the soft keyboard can take
+  it to hide itself. Back is the window's close request.
+- Dark or light is the theme controls are made in: one made before the
+  appearance changed keeps the one it has. There is no folder to choose by
+  path.
+- An app has no pkg-config search path, so its build gives the compiler and
+  the linker wgpu-native's directories and packs `libwgpu_native.so` and the
+  shim's Java into the app (`tools/target_hosts/android/gui.py` does this
+  for tests, with the SDK's own tools).
+
 The shared conformance suite (`src/tests/native/gui/conformance`) is the
 regression: each case runs through both compilers on X11 and on Wayland with
 real input (XTEST; a wlroots compositor's virtual pointer and keyboard) in a
@@ -374,6 +410,7 @@ destruction; there is no opaque `Surface.handle` or native surface destructor.
 | `MacOS/` | AppKit provider: `GUIProvider`, `MacOS*` views and application, run-loop signal, composed capture, SDK headers. |
 | `Shim/` | The provider for platforms whose toolkit is reached through a C contract: `GUIProvider`, `WebViewProvider`, `Shim*` views and application, and the contract's headers. |
 | `Linux/` | The contract in GTK4: `GtkShim`, `GtkCanvas`, `GtkControls`, `GtkSurface`, `GtkWeb`. |
+| `Android/` | The contract over Android's views through JNI: `AndroidShim` (windows, events, controls, text), `AndroidSurface`, `AndroidWeb`, and `java/dev/btrc/shim` (`ShimActivity`, `Shim`, `ShimWeb`, `Slot`), the Java an app compiles in. |
 | `Windows/` | The contract in Win32: `Win32Shim` (windows, events, text), `Win32Controls` (Common Controls 6 as child windows, placed and clipped by window regions), `Win32Surface`, `Win32Web` (WebView2). |
 
 ## Quick start

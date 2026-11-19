@@ -7,6 +7,8 @@
 void* btrcWinContentWindow(BtrcShimWindow* window);
 void* btrcWinContentModule(void);
 
+WGPUInstance btrcShimCreateInstance(void) { return wgpuCreateInstance(NULL); }
+
 WGPUSurface btrcShimWindowCreateSurface(BtrcShimWindow* window, WGPUInstance instance) {
 	WGPUSurfaceDescriptor descriptor;
 	WGPUSurfaceSourceWindowsHWND source;

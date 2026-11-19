@@ -5,6 +5,10 @@
 #include <webgpu.h>
 #include "Shim.h"
 
+/* The WebGPU instance a window's surface is made in: the platform's choice
+ * of the graphics APIs it may use. NULL when there is none. */
+WGPUInstance btrcShimCreateInstance(void);
+
 /* A surface on `instance` for the window's drawn content, or NULL when the
  * window has nothing a surface can be made on. The caller releases it
  * before the window is destroyed. */

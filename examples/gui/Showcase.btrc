@@ -1,0 +1,196 @@
+import Library.Bytes;
+import Library.Callback;
+import Library.GPU.GPUProgram;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUUniformBuffer;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IButton;
+import Library.GUI.IContainer;
+import Library.GUI.IGPUView;
+import Library.GUI.ILabel;
+import Library.GUI.ISlider;
+import Library.GUI.IWebView;
+import Library.GUI.IWindow;
+import Library.GUI.WebView;
+import Library.JSON;
+import Library.Map;
+import Library.Vector;
+
+/* Three kinds of content in one window, each drawn by what draws it best:
+ * the system's own controls, a view the program draws with the GPU, and a
+ * page the system's web engine draws. They are siblings in one view tree,
+ * so a later one lies over an earlier one whatever kind each is: the Reset
+ * button is attached last and straddles the GPU view and the page.
+ *
+ * The slider's hue tints the GPU view and is posted to the page; the page's
+ * own button posts back, and the label says what arrived. */
+class Showcase implements IApplicationWork, ISliderControlEventHandler, IButtonAction, IWebMessageHandler, IWindowStateHandler {
+	private IWindow _window;
+	private IContainer _root;
+	private ILabel _name;
+	private ISlider _hue;
+	private ILabel _heard;
+	private IGPUView _drawn;
+	private IWebView _page;
+	private IButton _reset;
+	private GPUProgram? _program = null;
+	private GPUUniformBuffer? _tint = null;
+	private ICallbackRegistration? _next = null;
+	private double _laidWidth = 0.0;
+	private double _laidHeight = 0.0;
+
+	public Showcase(CallbackScope scope) {
+		self._window = GUI.createWindow("BTRC showcase", 760.0, 440.0);
+		self._root = GUI.createContainer();
+		self._name = GUI.createLabel("Hue");
+		self._hue = GUI.createSlider(0.0, 1.0);
+		self._heard = GUI.createLabel("The page has said nothing yet.");
+		self._drawn = GUI.createGPUView();
+		self._page = WebView.create();
+		self._reset = GUI.createButton("Reset");
+		self._heard.setSecondary(true);
+		self._hue.setValue(0.58);
+		self._window.attachRoot(self._root);
+		self._root.attach(self._name);
+		self._root.attach(self._hue);
+		self._root.attach(self._heard);
+		self._root.attach(self._drawn);
+		self._root.attach(self._page);
+		self._root.attach(self._reset);
+		self._hue.onPreview(self, scope);
+		self._hue.onCommit(self, scope);
+		self._reset.onAction(self, scope);
+		self._page.onMessage(self, scope);
+		self._window.onStateChanged(self, scope);
+		var files = new Map<string, Bytes>();
+		files.set("index.html", Bytes.fromString(Showcase.pageSource()));
+		self._page.load(WebBundle.fromFiles(files), "index.html");
+	}
+
+	class string pageSource() { return "<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" + "<style>body { margin: 0; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;" + " font: 15px system-ui, sans-serif; color: white; background: hsl(209 60% 40%); transition: background 120ms; }" + " button { font: inherit; padding: 8px 14px; border: 0; border-radius: 8px; } p { margin: 0; }</style>" + "<body><p>HTML, CSS and JavaScript</p><p id=\"hue\">hue 0.58</p><button id=\"tell\">Tell the program</button>" + "<script>let clicks = 0;" + " document.getElementById('tell').addEventListener('click', function () { clicks += 1; window.btrc.post({ clicks: clicks }); });" + " window.btrc.onMessage = function (value) { document.body.style.background = 'hsl(' + Math.round(value.hue * 360) + ' 60% 40%)';" + " document.getElementById('hue').textContent = 'hue ' + value.hue.toFixed(2); };</script></body>"; }
+
+	/* One triangle that covers the view: a ring of the hue, moving outward. */
+	class string shaderSource() { return "struct Tint { value: vec4<f32> };\n" + "@group(0) @binding(0) var<uniform> tint: Tint;\n" + "struct Corner { @builtin(position) position: vec4<f32>, @location(0) at: vec2<f32> };\n" + "@vertex fn vs_main(@builtin(vertex_index) index: u32) -> Corner {\n" + "  var corners = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));\n" + "  var corner: Corner;\n" + "  corner.position = vec4<f32>(corners[index], 0.0, 1.0);\n" + "  corner.at = corners[index];\n" + "  return corner;\n" + "}\n" + "fn channel(hue: f32, offset: f32) -> f32 { return 0.5 + 0.5 * cos(6.2831853 * (hue + offset)); }\n" + "@fragment fn fs_main(corner: Corner) -> @location(0) vec4<f32> {\n" + "  let distance = length(corner.at * vec2<f32>(tint.value.z, 1.0));\n" + "  let ring = 0.5 + 0.5 * cos(18.0 * distance - tint.value.y);\n" + "  let hue = tint.value.x;\n" + "  let colour = vec3<f32>(channel(hue, 0.0), channel(hue, 0.6667), channel(hue, 0.3333));\n" + "  return vec4<f32>(colour * (0.35 + 0.65 * ring), 1.0);\n" + "}\n"; }
+
+	public void show() {
+		self._window.show();
+		self.layout();
+		self.tellPage();
+		self.run();
+	}
+
+	/* The window's size is the session's on a phone and the program's on a
+	 * desk: side by side where there is room, one above the other where not. */
+	private void layout() {
+		double width = self._window.contentWidth();
+		double height = self._window.contentHeight();
+		if (width == self._laidWidth && height == self._laidHeight) { return; }
+		self._laidWidth = width;
+		self._laidHeight = height;
+		double margin = 16.0;
+		self._name.arrange(margin, margin, 44.0, 32.0);
+		self._hue.arrange(margin + 52.0, margin, width - margin * 2.0 - 52.0, 32.0);
+		self._heard.arrange(margin, margin + 40.0, width - margin * 2.0, 24.0);
+		double top = margin + 76.0;
+		double tall = height - top - margin;
+		double wide = width - margin * 2.0;
+		if (wide >= 560.0) {
+			double half = (wide - margin) / 2.0;
+			self._drawn.arrange(margin, top, half, tall);
+			self._page.arrange(margin + half + margin, top, half, tall);
+			self._reset.arrange(margin + half - 44.0, top + 12.0, 104.0, 36.0);
+		} else {
+			double half = (tall - margin) / 2.0;
+			self._drawn.arrange(margin, top, wide, half);
+			self._page.arrange(margin, top + half + margin, wide, half);
+			self._reset.arrange(margin + 12.0, top + half - 12.0, 104.0, 36.0);
+		}
+	}
+
+	private void tellPage() { self._page.post(f"{{\"hue\": {self._hue.value()}}}"); }
+
+	public void stateChanged(WindowState state) { self.layout(); }
+
+	public void sliderEvent(SliderControlEvent event) { self.tellPage(); }
+
+	public void invoke() {
+		self._hue.setValue(0.58);
+		self._heard.setText("The page has said nothing yet.");
+		self.tellPage();
+	}
+
+	public void webMessage(string json) {
+		long long clicks = JSONValue.parse(json).get("clicks").asInt();
+		self._heard.setText(clicks == 1LL ? "The page's button was pressed once." : f"The page's button was pressed {clicks} times.");
+	}
+
+	/* One frame, and the next one thirty times a second. */
+	public void run() {
+		if (!self._window.isOpen()) { return; }
+		self.draw();
+		self._next = GUI.postAfter(1.0 / 30.0, self);
+	}
+
+	private void draw() {
+		var view = self._drawn;
+		if (!view.poll()) {
+			if (!view.error().isEmpty()) { self._heard.setText(f"The GPU view has no device: {view.error()}"); }
+			return;
+		}
+		var program = self._program;
+		if (program == null) {
+			self._program = view.createProgram(Showcase.shaderSource(), 4, false);
+			self._tint = GPUUniformBuffer(view.frameRenderer().device(), 4);
+			return;
+		}
+		var tint = self._tint;
+		if (tint == null || program.poll() != GPU_PROGRAM_READY) { return; }
+		if (view.beginFrame(0.05, 0.05, 0.07) != GPU_SURFACE_FRAME_READY) { return; }
+		var renderer = view.frameRenderer();
+		double seconds = (double)(renderer.frameNumber() % 100000ULL) / 30.0;
+		tint.set(0, (float)self._hue.value());
+		tint.set(1, (float)(seconds * 2.0));
+		tint.set(2, view.pixelHeight() > 0 ? (float)view.pixelWidth() / (float)view.pixelHeight() : 1.0f);
+		tint.set(3, 0.0f);
+		program.draw(renderer, tint, 3);
+		renderer.present();
+	}
+
+	public void close() {
+		var next = self._next;
+		self._next = null;
+		if (next != null) { next.cancel(); }
+		var program = self._program;
+		self._program = null;
+		if (program != null) { program.close(); }
+		var tint = self._tint;
+		self._tint = null;
+		if (tint != null) { tint.close(); }
+	}
+}
+
+class QuitShowcase implements IApplicationWork {
+	public void run() { GUI.requestQuit(); }
+}
+
+/* showcase [--seconds N]: runs until its window is closed, or for N seconds. */
+int main(Vector<string> args) {
+	GUI.initialize();
+	var scope = CallbackScope();
+	Showcase? showcase = null;
+	ICallbackRegistration? quit = null;
+	try {
+		var made = Showcase(scope);
+		showcase = made;
+		made.show();
+		if (args.length == 2 && args.get(0) == "--seconds") { quit = GUI.postAfter(args.get(1).toDouble(), QuitShowcase()); }
+		GUI.run();
+	} finally {
+		if (quit != null) { quit.cancel(); }
+		if (showcase != null) { showcase.close(); }
+		scope.cancel();
+		GUI.close();
+	}
+	return 0;
+}

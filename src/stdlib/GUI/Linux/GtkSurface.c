@@ -10,6 +10,8 @@ void* btrcGtkWindowWaylandSurface(BtrcShimWindow* window);
 void* btrcGtkWindowX11Display(BtrcShimWindow* window);
 unsigned long btrcGtkWindowX11Window(BtrcShimWindow* window);
 
+WGPUInstance btrcShimCreateInstance(void) { return wgpuCreateInstance(NULL); }
+
 WGPUSurface btrcShimWindowCreateSurface(BtrcShimWindow* window, WGPUInstance instance) {
 	WGPUSurfaceDescriptor descriptor;
 	WGPUSurfaceSourceWaylandSurface wayland;

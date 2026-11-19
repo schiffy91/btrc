@@ -10,4 +10,6 @@ int shimProbeText(unsigned int window, const char *title, const char *text);
 int shimProbeClose(unsigned int window, const char *title);
 /* 1 when the session gives a new window the whole screen. */
 int shimProbeFillsScreen(void);
+/* 1 when a window keeps the whole screen whatever it asks for. */
+int shimProbeKeepsScreen(void);
 #endif

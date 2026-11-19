@@ -12,7 +12,7 @@ os = ["macos"]
 [[package.providers]]
 module = "GUI"
 implementation = "Shim.GUIProvider"
-os = ["linux", "windows"]
+os = ["linux", "windows", "android"]
 
 [[package.providers]]
 module = "WebView"
@@ -22,7 +22,7 @@ os = ["macos"]
 [[package.providers]]
 module = "WebView"
 implementation = "Shim.WebViewProvider"
-os = ["linux", "windows"]
+os = ["linux", "windows", "android"]
 
 [[native.pkg-config]]
 name = "wgpu-native"
@@ -67,7 +67,7 @@ symbols = [
 	"BTRC_SHIM_CURSOR_TEXT"
 ]
 read-only-borrows = ["btrcShimWindowCreate.title", "btrcShimWindowSetTitle.title", "btrcShimWindowShowMessage.title", "btrcShimWindowShowMessage.message", "btrcShimWindowShowPicture.pixels", "btrcShimSetClipboardText.text", "btrcShimRasterizeText.text", "btrcShimFolderDialogOpen.initialDirectory", "btrcShimFolderDialogOpen.title"]
-os = ["linux", "windows"]
+os = ["linux", "windows", "android"]
 
 [[native.bindings]]
 module = "Shim.ShimControls"
@@ -87,7 +87,7 @@ symbols = [
 	"btrcShimPictureCreate", "btrcShimPictureSet", "btrcShimFillCreate", "btrcShimFillSet", "btrcShimScrollbarCreate", "btrcShimScrollbarSet"
 ]
 read-only-borrows = ["btrcShimControlSetToolTip.text", "btrcShimButtonCreate.title", "btrcShimButtonSetTitle.title", "btrcShimLabelCreate.text", "btrcShimLabelSetText.text", "btrcShimSelectAppend.title", "btrcShimSelectShow.shown", "btrcShimTextCreate.text", "btrcShimTextCreate.placeholder", "btrcShimTextSet.text", "btrcShimTextSetPlaceholder.placeholder", "btrcShimPictureSet.pixels"]
-os = ["linux", "windows"]
+os = ["linux", "windows", "android"]
 
 [[native.bindings]]
 module = "Shim.ShimWeb"
@@ -99,7 +99,7 @@ symbols = [
 	"BTRC_SHIM_WEB_NAVIGATION_ALLOWED", "BTRC_SHIM_WEB_NAVIGATION_REFUSED", "BTRC_SHIM_WEB_NAVIGATION_HANDED_TO_SYSTEM"
 ]
 read-only-borrows = ["btrcShimWebServeDirectory.directory", "btrcShimWebServeFile.path", "btrcShimWebServeFile.bytes", "btrcShimWebAllowOrigin.origin", "btrcShimWebLoad.entryPath", "btrcShimWebPost.json"]
-os = ["linux", "windows"]
+os = ["linux", "windows", "android"]
 
 [[native.sources]]
 path = "Linux/GtkShim.c"
@@ -178,10 +178,10 @@ module = "Shim.ShimSurface"
 header = "Shim/ShimSurface.h"
 language = "c"
 standard = "c11"
-symbols = ["WGPUInstance", "WGPUSurface", "wgpuCreateInstance", "wgpuInstanceAddRef", "wgpuInstanceRelease", "wgpuSurfaceAddRef", "wgpuSurfaceRelease", "btrcShimWindowCreateSurface"]
-owned-results = ["wgpuCreateInstance", "btrcShimWindowCreateSurface"]
+symbols = ["WGPUInstance", "WGPUSurface", "btrcShimCreateInstance", "wgpuInstanceAddRef", "wgpuInstanceRelease", "wgpuSurfaceAddRef", "wgpuSurfaceRelease", "btrcShimWindowCreateSurface"]
+owned-results = ["btrcShimCreateInstance", "btrcShimWindowCreateSurface"]
 borrowed-parameters = ["btrcShimWindowCreateSurface.instance"]
-os = ["linux", "windows"]
+os = ["linux", "windows", "android"]
 [native.bindings.resources.WGPUInstance]
 ownership = "reference-counted"
 retain = "wgpuInstanceAddRef"
@@ -1114,3 +1114,39 @@ modules = ["Shim.ShimSurface"]
 os = ["windows"]
 arch = ["aarch64"]
 
+
+# The shim's contract over Android's own views (android.widget, android.webkit),
+# which dev.btrc.shim makes on the activity's UI thread (Android/java): the C
+# here reaches it through JNI. An app's build compiles that Java into the app
+# and gives the compiler and linker wgpu-native's directories, for an app has
+# no pkg-config search path.
+[[native.sources]]
+path = "Android/AndroidShim.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["android"]
+
+[[native.sources]]
+path = "Android/AndroidSurface.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.ShimSurface"]
+os = ["android"]
+
+[[native.sources]]
+path = "Android/AndroidWeb.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.ShimWeb"]
+os = ["android"]
+
+[[native.libraries]]
+name = "android"
+modules = ["Shim.Shim", "Shim.ShimSurface"]
+os = ["android"]
+
+[[native.libraries]]
+name = "log"
+modules = ["Shim.Shim"]
+os = ["android"]

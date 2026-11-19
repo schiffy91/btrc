@@ -4,7 +4,7 @@
  * to whatever window is under the pointer or has the keyboard. Positions are
  * the screen's, in pixels from its top left. One backend serves a process:
  * XTest on an X display, a wlroots compositor's virtual pointer and keyboard
- * on Wayland, SendInput on Windows.
+ * on Wayland, SendInput on Windows, the system's input injection on Android.
  *
  * This moves the session's one pointer. It is only ever opened in a private
  * headless session or on a dedicated test host, never a person's desktop. */
@@ -34,6 +34,8 @@ struct RealInput {
     /* Whether the session gives a new window the whole screen, whatever
      * size it asks for. */
     bool (*fillsScreen)(void);
+    /* Whether a window keeps the whole screen whatever it later asks for. */
+    bool (*keepsScreen)(void);
 };
 
 /* NULL when the display offers no way to send input. Each exists only where
@@ -41,4 +43,5 @@ struct RealInput {
 const RealInput *realInputWayland(void);
 const RealInput *realInputX11(void);
 const RealInput *realInputWin32(void);
+const RealInput *realInputAndroid(void);
 #endif
