@@ -4,7 +4,8 @@
 requested device class at or above the row's minimum (17.0), subject to any
 explicit runtime option, then finds or creates one
 named device of the requested class (``btrc-host-iphone``,
-``btrc-host-ipad``), boots it and waits for its boot status. It shuts the
+``btrc-host-ipad``, or the name and model a caller gives), boots it and
+waits for its boot status. It shuts the
 device down only when it booted it, and never erases one implicitly.
 
 Every simctl call goes through Xcode's own ``/usr/bin/xcrun`` with its own
@@ -77,6 +78,8 @@ class IOSSimulatorHost:
         *,
         minimum: tuple[int, ...] = (17, 0),
         runtime: str | None = None,
+        name: str | None = None,
+        model: str | None = None,
         runner: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
         spawner: Callable[..., subprocess.Popen[bytes]] = subprocess.Popen,
         xcrun: Path = AppleEnvironment.XCRUN,
@@ -86,6 +89,10 @@ class IOSSimulatorHost:
         self.device_class = device_class
         self.minimum = minimum
         self.requested_runtime = runtime
+        # The device's name, and the device type a new one is made as (its
+        # name as simctl lists it); the defaults are the corpus host's.
+        self.name = name or f"btrc-host-{device_class}"
+        self.model = model
         self.runner = runner
         self.spawner = spawner
         self.xcrun = xcrun
@@ -194,7 +201,7 @@ class IOSSimulatorHost:
         return max(available, key=self.version)
 
     def select_device(self, inventory: Mapping[str, Any]) -> dict[str, Any]:
-        name = f"btrc-host-{self.device_class}"
+        name = self.name
         family = self.FAMILIES[self.device_class]
         types = {row["identifier"]: row for row in inventory.get("devicetypes", [])}
         candidates = [
@@ -209,11 +216,16 @@ class IOSSimulatorHost:
             device_type = types.get(device.get("deviceTypeIdentifier"))
             if device_type is None or not device_type["name"].startswith(family):
                 raise SimulatorError(f"{name} is not an {family} device")
+            if self.model and device_type["name"] != self.model:
+                raise SimulatorError(f"{name} is an {device_type['name']}, not an {self.model}; remove it")
             self.device_type = device_type
             return device
         matching = self.matching_device_types(inventory, self.runtime)
+        if self.model:
+            matching = [row for row in matching if row["name"] == self.model]
         if not matching:
-            raise SimulatorError(f"the {self.runtime['identifier']} runtime supports no {family} device type")
+            wanted = self.model or f"{family} device type"
+            raise SimulatorError(f"the {self.runtime['identifier']} runtime supports no {wanted}")
         # simctl lists device types in its SDK's order, newest models last.
         self.device_type = matching[-1]
         created = self.command("create", name, self.device_type["identifier"], self.runtime["identifier"])

@@ -12,7 +12,7 @@ os = ["macos"]
 [[package.providers]]
 module = "GUI"
 implementation = "Shim.GUIProvider"
-os = ["linux", "windows", "android"]
+os = ["linux", "windows", "android", "ios"]
 
 [[package.providers]]
 module = "WebView"
@@ -22,7 +22,7 @@ os = ["macos"]
 [[package.providers]]
 module = "WebView"
 implementation = "Shim.WebViewProvider"
-os = ["linux", "windows", "android"]
+os = ["linux", "windows", "android", "ios"]
 
 [[native.pkg-config]]
 name = "wgpu-native"
@@ -67,7 +67,7 @@ symbols = [
 	"BTRC_SHIM_CURSOR_TEXT"
 ]
 read-only-borrows = ["btrcShimWindowCreate.title", "btrcShimWindowSetTitle.title", "btrcShimWindowShowMessage.title", "btrcShimWindowShowMessage.message", "btrcShimWindowShowPicture.pixels", "btrcShimSetClipboardText.text", "btrcShimRasterizeText.text", "btrcShimFolderDialogOpen.initialDirectory", "btrcShimFolderDialogOpen.title"]
-os = ["linux", "windows", "android"]
+os = ["linux", "windows", "android", "ios"]
 
 [[native.bindings]]
 module = "Shim.ShimControls"
@@ -87,7 +87,7 @@ symbols = [
 	"btrcShimPictureCreate", "btrcShimPictureSet", "btrcShimFillCreate", "btrcShimFillSet", "btrcShimScrollbarCreate", "btrcShimScrollbarSet"
 ]
 read-only-borrows = ["btrcShimControlSetToolTip.text", "btrcShimButtonCreate.title", "btrcShimButtonSetTitle.title", "btrcShimLabelCreate.text", "btrcShimLabelSetText.text", "btrcShimSelectAppend.title", "btrcShimSelectShow.shown", "btrcShimTextCreate.text", "btrcShimTextCreate.placeholder", "btrcShimTextSet.text", "btrcShimTextSetPlaceholder.placeholder", "btrcShimPictureSet.pixels"]
-os = ["linux", "windows", "android"]
+os = ["linux", "windows", "android", "ios"]
 
 [[native.bindings]]
 module = "Shim.ShimWeb"
@@ -99,7 +99,7 @@ symbols = [
 	"BTRC_SHIM_WEB_NAVIGATION_ALLOWED", "BTRC_SHIM_WEB_NAVIGATION_REFUSED", "BTRC_SHIM_WEB_NAVIGATION_HANDED_TO_SYSTEM"
 ]
 read-only-borrows = ["btrcShimWebServeDirectory.directory", "btrcShimWebServeFile.path", "btrcShimWebServeFile.bytes", "btrcShimWebAllowOrigin.origin", "btrcShimWebLoad.entryPath", "btrcShimWebPost.json"]
-os = ["linux", "windows", "android"]
+os = ["linux", "windows", "android", "ios"]
 
 [[native.sources]]
 path = "Linux/GtkShim.c"
@@ -181,7 +181,7 @@ standard = "c11"
 symbols = ["WGPUInstance", "WGPUSurface", "btrcShimCreateInstance", "wgpuInstanceAddRef", "wgpuInstanceRelease", "wgpuSurfaceAddRef", "wgpuSurfaceRelease", "btrcShimWindowCreateSurface"]
 owned-results = ["btrcShimCreateInstance", "btrcShimWindowCreateSurface"]
 borrowed-parameters = ["btrcShimWindowCreateSurface.instance"]
-os = ["linux", "windows", "android"]
+os = ["linux", "windows", "android", "ios"]
 [native.bindings.resources.WGPUInstance]
 ownership = "reference-counted"
 retain = "wgpuInstanceAddRef"
@@ -1150,3 +1150,71 @@ os = ["android"]
 name = "log"
 modules = ["Shim.Shim"]
 os = ["android"]
+
+# The shim's contract over UIKit, for iOS and iPadOS (IOS/UIKit*.m): windows
+# of the app's scene, the system's own controls, a CAMetalLayer for drawn
+# content and WKWebView for the web view. An app links with
+# -e _btrcUIKitMain, and its build gives the compiler and the linker
+# wgpu-native's directories, for an app has no pkg-config search path.
+[[native.sources]]
+path = "IOS/UIKitShim.m"
+language = "objective-c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["ios"]
+
+[[native.sources]]
+path = "IOS/UIKitControls.m"
+language = "objective-c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["ios"]
+
+[[native.sources]]
+path = "IOS/UIKitSurface.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.ShimSurface"]
+os = ["ios"]
+
+[[native.sources]]
+path = "IOS/UIKitWeb.m"
+language = "objective-c"
+standard = "c11"
+modules = ["Shim.ShimWeb"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "UIKit"
+modules = ["Shim.Shim", "Shim.ShimWeb"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "Foundation"
+modules = ["Shim.Shim", "Shim.ShimWeb"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "CoreGraphics"
+modules = ["Shim.Shim"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "CoreText"
+modules = ["Shim.Shim"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "QuartzCore"
+modules = ["Shim.Shim", "Shim.ShimSurface"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "Metal"
+modules = ["Shim.ShimSurface"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "WebKit"
+modules = ["Shim.ShimWeb"]
+os = ["ios"]

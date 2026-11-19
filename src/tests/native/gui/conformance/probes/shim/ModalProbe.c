@@ -72,7 +72,7 @@ void modalProbeDone(void) {
 }
 
 int modalProbeHasFolderChooser(void) {
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || (defined(__APPLE__) && defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__))
     return 0;
 #else
     return 1;
