@@ -39,7 +39,7 @@ PLATFORMS = {
         "run": "ui-conformance-linux",
         "runner": "linux",
         "configuration": "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view",
-        "has": {"web", "freetype", "modal"},
+        "has": {"web", "freetype", "modal", "wheel"},
         "tests": lambda case, frontend: [
             f"{TESTS}/test_native_ui_conformance.py::test_linux_conformance_case[{case}-{frontend}-{mode}]"
             for mode in ("plain", "sanitized")
@@ -49,7 +49,7 @@ PLATFORMS = {
         "run": "ui-conformance-windows",
         "runner": "windows",
         "configuration": "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view",
-        "has": {"web", "modal"},
+        "has": {"web", "modal", "wheel"},
         "tests": lambda case, frontend: [
             f"{TESTS}/test_native_ui_conformance_windows.py::test_windows_conformance_case[{case}-{frontend}-windows-x64-{mode}]"
             for mode in ("plain", "ubsan")
@@ -59,7 +59,7 @@ PLATFORMS = {
         "run": "ui-conformance-android",
         "runner": "android",
         "configuration": "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view",
-        "has": {"web", "modal"},
+        "has": {"web", "modal", "wheel"},
         "tests": lambda case, frontend: [
             f"{TESTS}/test_native_ui_conformance_android.py::test_android_conformance_case[{case}-{frontend}]"
         ],
@@ -81,6 +81,7 @@ ADAPTED = {
 
 # What a platform's provider does not have, by what a case needs.
 WITHOUT = {
+    "wheel": "The device has no pointer and no wheel.",
     "freetype": "A font face from a file is FreeType's, and this platform's SDK does not carry FreeType: text here is the system's own, and Library.GUI.FreeType has no provider.",
 }
 

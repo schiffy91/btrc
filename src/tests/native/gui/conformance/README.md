@@ -59,7 +59,9 @@ A case prints `CASE <name> PASS`, or `CASE <name> FAIL <what it found>`.
 `BTRC_CONFORMANCE_FONT` names a font file for the font face case, and
 `BTRC_CONFORMANCE_WEB` the directory bundle (`web/`) for the web view's; the
 driver supplies both. A case with `needs` in `cases.toml` applies to the
-providers that have what it names: the web view's cases need `web`.
+providers that have what it names: the web view's cases need `web`, the
+alert's and the folder chooser's `modal`, and the wheel's `wheel`, a pointer
+device a phone does not have.
 
 ## Coverage
 

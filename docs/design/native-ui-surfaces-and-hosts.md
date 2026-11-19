@@ -306,9 +306,9 @@ window manager's close, queued for the window with a given title.
 
 | Platform | Probe | Status |
 | --- | --- | --- |
-| Linux | XTest under Xvfb; a virtual pointer and keyboard under headless labwc | Written; 41 cases pass on both, and in the Deck's Gamescope session |
-| Windows | `SendInput`, in the guest's and the hosted runner's own session | Written; 40 cases pass in the guest (the font face case does not apply) |
-| Android | The system's event injection into the app's own windows, with the app started under instrumentation (`am instrument`); a press is a finger's, a hover and a wheel a mouse's | Written; 40 cases pass on the API 29 and API 36 emulators, here and on the hosted runner (the font face case does not apply) |
+| Linux | XTest under Xvfb; a virtual pointer and keyboard under headless labwc | Written; 42 cases pass on both. The Deck's Gamescope session passed the 41 there were at `bab433ba` |
+| Windows | `SendInput`, in the guest's and the hosted runner's own session | Written; 41 cases pass in the guest and on the hosted x64 runner (the font face case does not apply) |
+| Android | The system's event injection into the app's own windows, with the app started under instrumentation (`am instrument`); a press is a finger's, a hover and a wheel a mouse's | Written; 41 cases pass on the API 29 and API 36 emulators, here and on the hosted runner (the font face case does not apply) |
 
 Accessibility trees are not part of this suite: the bridges are outside this
 plan.
@@ -504,13 +504,20 @@ Each step ends with something that runs.
    - `IFontFace` (a font face from a file) is FreeType's, which the Windows
      SDK does not carry: the suite's font case is a per-platform module, and
      Windows has none, and the catalog lists it as an adaptation. The
-     hosted x64 and ARM64 runners pass the shell rows; the tray is still
-     open.
+     tray is still open.
+   - The hosted ARM64 image opens a "Microsoft account" panel at sign-in,
+     a shell window the size of the screen that keeps the foreground: every
+     case that needs real input failed under it while the x64 runner passed.
+     The workflow closes it before the GUI rows, as a person would, and the
+     probe gets past a lesser shell surface (the Start menu, the search
+     box) by itself, with Escape and a click on the window it wants. On the
+     hosted x64 runner the folder chooser went undismissed in one row of
+     four until the probe asked the program's window for the modal it owns.
 7. **Android**: a new provider on the approved UI2 host attachment, not a
    second run loop. iOS waits with macOS. Done: the shim provider's third
    implementation (`GUI/Android`), Android's own views reached through JNI
    from the program's thread, with `android.webkit.WebView` for the web
-   view. The suite passes 40 of 40 cases through both compilers on the
+   view. The suite passes 41 of 41 cases through both compilers on the
    API 29 and API 36 x86_64 emulators (`test_native_ui_conformance_android.py`;
    `host-android.yml` runs the same file). What it found:
    - The system refuses input a program injects into its own windows

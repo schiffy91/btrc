@@ -191,7 +191,15 @@ operations = [
 [[case]]
 name = "view.pointer"
 operations = [
-  "IView.onPointer", "IView.onScroll", "IViewPointerHandler.pointer", "IViewScrollHandler.scroll"
+  "IView.onPointer", "IViewPointerHandler.pointer"
+]
+
+# `wheel` is a pointer device with a wheel: a phone has neither.
+[[case]]
+name = "view.wheel"
+needs = "wheel"
+operations = [
+  "IView.onScroll", "IViewScrollHandler.scroll"
 ]
 
 [[case]]

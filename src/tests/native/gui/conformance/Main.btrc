@@ -43,6 +43,7 @@ int main(Vector<string> args) {
 	suite.add(WindowClose());
 	suite.add(WindowKey());
 	suite.add(ViewPointer());
+	suite.add(ViewWheel());
 	suite.add(ViewInteraction());
 	suite.add(TextFieldEditing());
 	suite.add(SelectChoosing());

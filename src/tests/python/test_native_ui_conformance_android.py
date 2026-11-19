@@ -38,7 +38,7 @@ NAMES = [case["name"] for case in CASES]
 NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
 # What the Android provider has of what a case may need: a web view, and no
 # FreeType (a font face from a file is FreeType's, which the NDK does not carry).
-HAS = {"web", "modal"}
+HAS = {"web", "modal", "wheel"}
 PROBE_JAVA = SUITE / "probes/android/java"
 RUNNER = "dev.btrc.probe.Runner"
 # The pinned wgpu-native archive of each ABI (nix/wgpu-native-prebuilt.nix).

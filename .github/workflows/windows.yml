@@ -705,6 +705,14 @@ jobs:
       # object counts after every teardown, 100 fresh-process restores and the
       # UI Automation tree its COM client reads. Then the shared GUI
       # conformance suite, each case its own process, with real input.
+      # The ARM64 image opens a "Microsoft account" panel at sign-in (WWAHost,
+      # a CoreWindow the size of the screen) that keeps the foreground and
+      # covers every window, so no real input reaches a program under it. A
+      # person would close it before using the desktop; the x64 image has none.
+      - name: Close the sign-in panel that covers the desktop
+        if: ${{ !cancelled() }}
+        shell: powershell
+        run: Get-Process WWAHost -ErrorAction SilentlyContinue | Stop-Process -Force
       - name: Run the Win32 GUI shell journey through each compiler's program
         if: ${{ !cancelled() }}
         env:

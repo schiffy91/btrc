@@ -75,7 +75,7 @@ class WheelLog implements IViewScrollHandler {
 	}
 }
 
-/* A view hears the pointer and the wheel over it, in its own coordinates. */
+/* A view hears the pointer over it, in its own coordinates. */
 class ViewPointer implements IConformanceCase {
 	public string name() { return "view.pointer"; }
 
@@ -89,10 +89,8 @@ class ViewPointer implements IConformanceCase {
 		window.show();
 		turns.settle();
 		var pointers = PointerLog();
-		var wheels = WheelLog();
 		var scope = CallbackScope();
 		target.onPointer(pointers, scope);
-		target.onScroll(wheels, scope);
 		var probe = Probe(window);
 		probe.click(130.0, 70.0);
 		turns.settle();
@@ -107,9 +105,6 @@ class ViewPointer implements IConformanceCase {
 			if (event.action == APP_POINTER_RELEASED) { released = true; }
 		}
 		Expect.isTrue(pressed && released, "a click is a press and a release");
-		probe.wheel(130.0, 70.0, 0.0, -2.0);
-		turns.settle();
-		Expect.isTrue(wheels.events.length >= 1 && wheels.events.get(0).deltaY != 0.0, "a wheel turn over the view reaches it");
 		int presses = pointers.presses();
 		probe.click(20.0, 20.0);
 		turns.settle();
@@ -119,6 +114,37 @@ class ViewPointer implements IConformanceCase {
 		probe.click(130.0, 70.0);
 		turns.settle();
 		Expect.intEq((long long)pointers.events.length, (long long)heard, "a cancelled handler hears nothing more");
+		window.close();
+		turns.settle();
+	}
+}
+
+/* A view hears the wheel turned over it. A device with no pointer has no
+ * wheel: the case needs `wheel`. */
+class ViewWheel implements IConformanceCase {
+	public string name() { return "view.wheel"; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance view.wheel", 320.0, 200.0);
+		var root = GUI.createContainer();
+		var target = GUI.createPanel(RGBA(30, 160, 60));
+		window.attachRoot(root);
+		root.attach(target);
+		target.arrange(100.0, 50.0, 120.0, 80.0);
+		window.show();
+		turns.settle();
+		var wheels = WheelLog();
+		var scope = CallbackScope();
+		target.onScroll(wheels, scope);
+		var probe = Probe(window);
+		probe.wheel(130.0, 70.0, 0.0, -2.0);
+		turns.settle();
+		Expect.isTrue(wheels.events.length >= 1 && wheels.events.get(0).deltaY != 0.0, "a wheel turn over the view reaches it");
+		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
+		int heard = wheels.events.length;
+		probe.wheel(130.0, 70.0, 0.0, -2.0);
+		turns.settle();
+		Expect.intEq((long long)wheels.events.length, (long long)heard, "a cancelled handler hears nothing more");
 		window.close();
 		turns.settle();
 	}

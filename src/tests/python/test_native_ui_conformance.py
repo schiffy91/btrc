@@ -32,7 +32,7 @@ NAMES = [case["name"] for case in CASES]
 # What a case needs of a provider beyond the frozen contract, and what this
 # platform's provider has.
 NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
-HAS = {"web", "freetype", "modal"}
+HAS = {"web", "freetype", "modal", "wheel"}
 LINUX_ONLY = "requires Linux: the GUI conformance suite's Linux rows"
 SESSION = os.environ.get("BTRC_UI_SESSION") or ("wayland" if os.environ.get("GDK_BACKEND") == "wayland" else "x11")
 # Catalog operations no case exercises yet, each with what stands in the way.

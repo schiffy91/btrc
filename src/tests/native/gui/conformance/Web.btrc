@@ -172,7 +172,10 @@ class MixOrder implements IConformanceCase {
 		above.arrange(200.0, 80.0, 200.0, 80.0);
 		above.onAction(action, scope);
 		page.onMessage(log, scope);
-		string script = "document.addEventListener('click', function (event) { window.btrc.post({ clicked: true }); }); window.btrc.post({ ready: true });";
+		/* Ready is said once the page has drawn: an engine may run a page's
+		 * script well before it shows the page, and a tap on a page that is
+		 * not yet on the screen is no click. */
+		string script = "document.addEventListener('click', function (event) { window.btrc.post({ clicked: true }); }); requestAnimationFrame(function () { requestAnimationFrame(function () { window.btrc.post({ ready: true }); }); });";
 		page.load(WebBundle.fromFiles(WebWait.page(script)), "index.html");
 		window.show();
 		WebWait.messages(turns, log, 1, "the page's first message");
