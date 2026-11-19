@@ -793,6 +793,20 @@ def test_nix_runtime_packages_use_the_filtered_runtime_source():
     flake = (REPO_ROOT / "flake.nix").read_text()
 
     assert 'export PYTHONPATH="${runtimeSource}' in flake
+    # The compiler's package holds what the compiler imports and no more: every
+    # program a consumer builds has it among its inputs, so the language server
+    # in it would rebuild them all on an editor-only commit.
+    compiler = flake[flake.index("btrcpy = pkgs.writeShellApplication") : flake.index("btrccExecutable = ")]
+    assert 'export PYTHONPATH="${compilerSource}' in compiler and "runtimeSource" not in compiler
+    prefixes = flake[flake.index("compilerPrefixes = [") : flake.index("runtimePrefixes = ")]
+    assert '"src/compiler/python/"' in prefixes and "src/devex" not in prefixes
+    imported = {
+        line.split()[1].split(".")[1]
+        for path in (REPO_ROOT / "src" / "compiler" / "python").rglob("*.py")
+        for line in path.read_text().splitlines()
+        if line.startswith(("from src.", "import src."))
+    }
+    assert imported <= {"compiler", "language", "runtime", "stdlib"}, imported
     assert "runtimeInputs = [ pkgs.python314 pkgs.git ];" in flake
     assert "runtimeInputs = [ lspPython pkgs.git ];" in flake
     assert '"src/compiler/python/"' in flake

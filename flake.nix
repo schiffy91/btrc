@@ -262,13 +262,17 @@
       });
       packages = eachSystem (pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
-        runtimePrefixes = [
+        # What the reference compiler runs from. Every program a consumer builds
+        # with btrcpy has this source among its inputs, so nothing the compiler
+        # does not import belongs here: with the language server in it, an
+        # editor-only commit rebuilt every program of every consumer.
+        compilerPrefixes = [
           "src/compiler/python/"
-          "src/devex/lsp/"
           "src/language/"
           "src/runtime/c/"
           "src/stdlib/"
         ];
+        runtimePrefixes = compilerPrefixes ++ [ "src/devex/lsp/" ];
         sourceSubset = { prefixes, files ? [ ], excludedPrefixes ? [ ] }:
           lib.cleanSourceWith {
             src = ./.;
@@ -293,6 +297,10 @@
                   ];
               in (needed || parent) && !derived;
           };
+        compilerSource = sourceSubset {
+          prefixes = compilerPrefixes;
+          excludedPrefixes = [ ];
+        };
         runtimeSource = sourceSubset {
           prefixes = runtimePrefixes;
           excludedPrefixes = [ ];
@@ -380,7 +388,7 @@
           # the installed app must not rely on an ambient host Git executable.
           runtimeInputs = [ pkgs.python314 pkgs.git ];
           text = ''
-            export PYTHONPATH="${runtimeSource}''${PYTHONPATH:+:$PYTHONPATH}"
+            export PYTHONPATH="${compilerSource}''${PYTHONPATH:+:$PYTHONPATH}"
             ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: value:
               ''export ${name}="''${${name}-${value}}"''
             ) (nativeHeaderEnvironment pkgs))}
