@@ -143,10 +143,8 @@ class Simulators:
                 compile_flags=[f"-I{include}", *flags],
                 link_flags=[*GUIAppBuilder.link_flags(libraries), *flags, "-Wl,-rpath,@executable_path/Frameworks"],
             )
-        resources = {}
-        if sanitized:
-            resources = {f"Frameworks/{self.runtime(name).name}": self.runtime(name) for name in ("asan", "ubsan")}
-            (work / "Frameworks").mkdir()
+        # The address sanitizer's runtime is a library the app carries; the other's is linked in.
+        resources = {f"Frameworks/{self.runtime('asan').name}": self.runtime("asan")} if sanitized else {}
         return GUIAppBuilder.package(
             program=program,
             identifier=f"dev.btrc.testhost.conformance.{shell.FRONTENDS[frontend]}-{mode}",
@@ -171,7 +169,16 @@ class Simulators:
         tool = self.base / "simhid"
         if not tool.is_file():
             built = xcrun(
-                "clang", "-fobjc-arc", "-O2", "-framework", "Foundation", "-framework", "CoreGraphics", str(SIMHID), "-o", str(tool)
+                "clang",
+                "-fobjc-arc",
+                "-O2",
+                "-framework",
+                "Foundation",
+                "-framework",
+                "CoreGraphics",
+                str(SIMHID),
+                "-o",
+                str(tool),
             )
             assert built.returncode == 0, built.stderr
         self.injector = subprocess.Popen(
@@ -193,7 +200,9 @@ class Simulators:
         key = (device_class, frontend, sanitized)
         if key not in self.runners:
             bundle = self.bundle(frontend, sanitized, request)
-            identifier = f"dev.btrc.testhost.conformance.{shell.FRONTENDS[frontend]}-{'sanitized' if sanitized else 'plain'}"
+            identifier = (
+                f"dev.btrc.testhost.conformance.{shell.FRONTENDS[frontend]}-{'sanitized' if sanitized else 'plain'}"
+            )
             runner = GUIAppRunner(host, identifier)
             runner.install(bundle)
             self.runners[key] = (runner, runner.put(SUITE / "web", "web"))
@@ -269,4 +278,3 @@ def test_the_ios_program_lists_exactly_the_recorded_cases(simulators, request):
     status, stdout, stderr = simulators.run("iphone", "python", False, request, "--list")
     assert status == 0, stderr
     assert sorted(stdout.split()) == sorted(NAMES)
-

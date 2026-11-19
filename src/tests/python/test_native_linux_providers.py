@@ -258,9 +258,9 @@ def test_gui_provider_root_exports_the_linux_provider(gui_provider_root):
     assert not {name for name in public if name.startswith(("Shim.", "Linux."))}
 
 
-@pytest.mark.parametrize("target", ["ios-aarch64"])
-def test_gui_unsupported_target(target, tmp_path):
-    """A portable GUI program (Library.GUI only) names the missing provider on a target without one."""
+@pytest.mark.parametrize("target", ["ios-aarch64", "ios-aarch64-simulator"])
+def test_gui_selects_a_provider_on_the_last_target_to_get_one(target, tmp_path):
+    """A portable GUI program (Library.GUI only) has a provider on every target: on iOS it stops at the row's SDK."""
     result = subprocess.run(
         [
             sys.executable,
@@ -280,4 +280,5 @@ def test_gui_unsupported_target(target, tmp_path):
         timeout=60,
     )
     assert result.returncode != 0
-    assert "provider" in result.stderr.lower()
+    assert "provider" not in result.stderr.lower()
+    assert f"native imports for {target} require BTRC_NATIVE_TARGET" in result.stderr

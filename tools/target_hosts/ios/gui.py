@@ -53,6 +53,7 @@ class GUIAppBuilder:
         (bundle / EXECUTABLE).chmod(0o755)
         for name, source in (resources or {}).items():
             target = bundle / name
+            target.parent.mkdir(parents=True, exist_ok=True)
             if Path(source).is_dir():
                 shutil.copytree(source, target)
             else:
@@ -79,15 +80,17 @@ class GUIAppBuilder:
                 }
             )
         )
-        signed = subprocess.run(
-            [str(AppleEnvironment.XCRUN), "codesign", "--force", "--sign", "-", str(bundle)],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=AppleEnvironment.variables(),
-        )
-        if signed.returncode:
-            raise RuntimeError(f"codesign failed ({signed.returncode}): {signed.stderr}")
+        # What the bundle carries is signed before the bundle that seals it.
+        for item in [*sorted(bundle.glob("Frameworks/*.dylib")), bundle]:
+            signed = subprocess.run(
+                [str(AppleEnvironment.XCRUN), "codesign", "--force", "--sign", "-", str(item)],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=AppleEnvironment.variables(),
+            )
+            if signed.returncode:
+                raise RuntimeError(f"codesign failed ({signed.returncode}): {signed.stderr}")
         return bundle
 
 
@@ -140,7 +143,14 @@ class GUIAppRunner:
         output.mkdir(parents=True)
         values = {**(environment or {}), "BTRC_SHIM_OUTPUT": str(output)}
         launched = self.host.runner(
-            [*self.host.tool(), "launch", "--terminate-running-process", self.host.device(), self.identifier, *arguments],
+            [
+                *self.host.tool(),
+                "launch",
+                "--terminate-running-process",
+                self.host.device(),
+                self.identifier,
+                *arguments,
+            ],
             capture_output=True,
             timeout=120,
             env=AppleEnvironment.child(values),
