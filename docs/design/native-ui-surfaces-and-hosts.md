@@ -549,7 +549,11 @@ Each step ends with something that runs.
    size on Android (the session's). GTK's file chooser aborts where no
    settings schema is installed: the private session is given GTK's own
    (`BTRC_GSETTINGS_SCHEMAS`), and a packaged program needs the same from
-   its wrapper. macOS and iOS cells are left as they were.
+   its wrapper. Once in some twenty sanitized runs GTK 4.22.4 crashed in
+   its own listing callback (`thaw_updates`) when the chooser was dismissed;
+   the case opens the chooser on an empty folder, and a program whose user
+   dismisses a chooser mid-listing can still meet it. macOS and iOS cells
+   are left as they were.
    The showcase is `examples/gui/Showcase.btrc`:
    a slider and labels, a GPU view that draws rings in the slider's hue, a
    page that takes the hue and posts back, and a button attached last that
