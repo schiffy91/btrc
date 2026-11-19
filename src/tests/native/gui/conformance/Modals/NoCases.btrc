@@ -1,6 +1,0 @@
-import ../Suite.btrc;
-
-/* The modal cases of a platform whose probe cannot answer a modal: none. */
-class ModalCases {
-	class void add(Suite suite) {}
-}

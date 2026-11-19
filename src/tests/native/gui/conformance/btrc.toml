@@ -19,12 +19,7 @@ os = ["windows", "android"]
 [[package.providers]]
 module = "Modal"
 implementation = "Modals.ShimCases"
-os = ["linux", "windows", "android"]
-
-[[package.providers]]
-module = "Modal"
-implementation = "Modals.NoCases"
-os = ["macos"]
+os = ["linux", "windows", "android", "macos"]
 
 [[native.bindings]]
 module = "Modals.ShimCases"
@@ -32,7 +27,7 @@ header = "probes/shim/ModalProbe.h"
 language = "c"
 standard = "c11"
 symbols = ["modalProbeAnswer", "modalProbeDone", "modalProbeHasFolderChooser"]
-os = ["linux", "windows", "android"]
+os = ["linux", "windows", "android", "macos"]
 
 [[native.sources]]
 path = "probes/shim/ModalProbe.c"
@@ -153,7 +148,14 @@ os = ["macos"]
 
 [[native.frameworks]]
 name = "AppKit"
-modules = ["Probe"]
+modules = ["Probe", "Modals.ShimCases"]
+os = ["macos"]
+
+[[native.sources]]
+path = "probes/macos/AppKitModalProbe.m"
+language = "objective-c"
+standard = "c11"
+modules = ["Modals.ShimCases"]
 os = ["macos"]
 
 [[native.sources]]
