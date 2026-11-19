@@ -555,9 +555,12 @@ Each step ends with something that runs.
    on Linux (a private X session), Windows (the guest's desktop) and Android
    (the API 36 emulator), each taken by the host, not by the program. On
    the API 29 emulator, whose only adapter is OpenGL ES 3.0, the same
-   program shows the GPU view's clear colour and not what its shader draws:
-   the suite's GPU case, a clear and a readback, passes there, so a
-   program's draw in a GPU view on OpenGL ES is **unverified**.
+   program shows the GPU view's clear colour and not its rings. The shader
+   is made without an error and every frame is presented; what that
+   emulator's OpenGL ES does not draw is geometry made from the vertex
+   index alone, with no vertex buffer, which is how the showcase covers its
+   view. The provider's own compositor, which feeds a vertex buffer, draws
+   there, and so does everything else in the window.
 
 Done when, at one commit on `main`: the shared suite passes on every row of
 section 4 through both compilers; `ui_catalog check --strict` passes with
