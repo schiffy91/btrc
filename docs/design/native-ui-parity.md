@@ -1195,7 +1195,7 @@ contains 100,000 stable records without requiring 100,000 media files.
 | --- | --- |
 | Inventory / coverage | 300 classified family/platform cells; 100% operation and journey classification; no hidden skipped evidence |
 | User action to visible response | p95 ≤100 ms, excluding explicitly pending I/O; report input/debounce/dispatch/render components separately |
-| Executor progress under declared sustained load (E40) | Short semantic-command admission-to-delivery p95 ≤100 ms; runnable work-class maximum service gap ≤250 ms; close starts within 250 ms; 0 unexplained event losses at dispatch boundaries |
+| Executor progress under declared sustained load (E40) | Short semantic-command admission-to-delivery p95 ≤100 ms; runnable work-class maximum service gap ≤250 ms (on AppKit, above the platform's own measured pop-up dismissal time for the Return that ends a menu); close starts within 250 ms; 0 unexplained event losses at dispatch boundaries |
 | Library search/filter | p95 ≤100 ms after separately reported debounce on the shared catalog |
 | Scroll/resize/Player presentation at 60 Hz | p95 ≤16.7 ms, p99 ≤33.3 ms over 10 minutes; report missed presents and longest stall |
 | Reference 120 Hz device | Report 8.3 ms frame-budget misses separately; 60 Hz qualification is not a claim of 120 Hz parity |

@@ -776,7 +776,7 @@ The new-id count rises from 52 to 53.
 | Packet acceptance additions | E40 is added to CX-UIA-22, including the macOS tracking trials. E31 is added to CX-UIA-23 |
 | UI2 partial contributions, recorded as implemented-unverified and not closed | E24 (saturation and terminal survival); E30 (the monotonic deadline and wall-clock rows, plus injected test-host suspension; native suspension goes to Stage 35/CL-UIA-22); E33 and E34 (the model and event subset; UI3/UI4/UI7/UI8 own the rest); E42 (the window-state subset; hosted timings are diagnostic, LC:302–304) |
 | Waiting | The Wayland halves wait for the libdecor fix and a re-run of all four rows (ui1-feasibility.md:17) |
-| Numeric budgets | E40's p95 ≤100 ms, service gaps ≤250 ms and close start ≤250 ms apply to plain builds. Sanitized runs check counts and losses only |
+| Numeric budgets | E40's p95 ≤100 ms, service gaps ≤250 ms and close start ≤250 ms apply to plain builds. Sanitized runs check counts and losses only. On AppKit, the popup trial's Return input is serviced when the menu ends tracking; its gap is bounded at 250 ms above the platform's own dismissal time, measured in the same cell by a bare AppKit control (`MenuDismissal.m`) |
 
 ## Provisional rows
 
