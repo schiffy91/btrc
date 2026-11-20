@@ -37,11 +37,15 @@ class WebNavigations implements IWebNavigationHandler {
 
 /* A page loads in its own time: turns pass until it has said enough. */
 class WebWait {
-	class void messages(Turns turns, WebMessages log, int count, string what) {
+	class void messages(Turns turns, WebMessages log, int count, string what, int seconds = 20) {
 		long long started = MonotonicClock.milliseconds();
-		while (log.received.length < count && MonotonicClock.milliseconds() - started < 20000LL) { turns.turn(); }
-		Expect.isTrue(log.received.length >= count, f"{what}: the page sent {log.received.length} of {count} messages in twenty seconds");
+		while (log.received.length < count && MonotonicClock.milliseconds() - started < (long long)seconds * 1000LL) { turns.turn(); }
+		Expect.isTrue(log.received.length >= count, f"{what}: the page sent {log.received.length} of {count} messages in {seconds} seconds");
 	}
+
+	/* A process's first page waits for the engine to start as well, and an
+	 * engine that has never run for this user sets up its profile first. */
+	class void firstPage(Turns turns, WebMessages log, string what) { WebWait.messages(turns, log, 1, what, 60); }
 
 	class Map<string, Bytes> page(string script) {
 		var files = new Map<string, Bytes>();
@@ -65,7 +69,7 @@ class WebMessaging implements IConformanceCase {
 		string script = "window.btrc.onMessage = function (value) { window.btrc.post({ sum: value.a + value.b, text: value.text }); }; window.btrc.post({ ready: true });";
 		page.load(WebBundle.fromFiles(WebWait.page(script)), "index.html");
 		Expect.intEq((long long)log.received.length, 0LL, "a message is delivered on a later turn, never inside load");
-		WebWait.messages(turns, log, 1, "the page's first message");
+		WebWait.firstPage(turns, log, "the page's first message");
 		Expect.isTrue(JSONValue.parse(log.received.get(0)).get("ready").asBool(), "the page's value arrives as its JSON");
 		page.post("{\"a\": 2, \"b\": 3, \"text\": \"caf\\u00e9\"}");
 		page.post("{\"a\": 10, \"b\": 20, \"text\": \"second\"}");
@@ -103,7 +107,7 @@ class WebBundleFiles implements IConformanceCase {
 		var scope = CallbackScope();
 		page.onMessage(log, scope);
 		page.load(WebBundle.fromDirectory(directory), "index.html");
-		WebWait.messages(turns, log, 1, "the bundle's page");
+		WebWait.firstPage(turns, log, "the bundle's page");
 		var answer = JSONValue.parse(log.received.get(0));
 		Expect.isTrue(answer.get("script").asBool(), "the page ran the bundle's script");
 		Expect.isTrue(answer.get("data").asInt() == 42, "the page read the bundle's data");
@@ -132,7 +136,7 @@ class WebNavigation implements IConformanceCase {
 		page.onNavigation(navigations, scope);
 		string script = "window.btrc.onMessage = function (value) { if (value.go) { window.location.href = value.go; } else { window.btrc.post({ still: 'here' }); } }; window.btrc.post({ ready: true });";
 		page.load(WebBundle.fromFiles(WebWait.page(script)), "index.html");
-		WebWait.messages(turns, log, 1, "the page's first message");
+		WebWait.firstPage(turns, log, "the page's first message");
 		Expect.isTrue(navigations.count(WEB_NAVIGATION_ALLOWED) >= 1 && navigations.events.get(0).url == "app://bundle/index.html", "loading the bundle's page is a navigation inside it");
 		page.post("{\"go\": \"https://outside.invalid/page\"}");
 		long long started = MonotonicClock.milliseconds();
@@ -178,7 +182,7 @@ class MixOrder implements IConformanceCase {
 		string script = "document.addEventListener('click', function (event) { window.btrc.post({ clicked: true }); }); requestAnimationFrame(function () { requestAnimationFrame(function () { window.btrc.post({ ready: true }); }); });";
 		page.load(WebBundle.fromFiles(WebWait.page(script)), "index.html");
 		window.show();
-		WebWait.messages(turns, log, 1, "the page's first message");
+		WebWait.firstPage(turns, log, "the page's first message");
 		turns.settle(200);
 		var probe = Probe(window);
 		probe.click(260.0, 120.0);

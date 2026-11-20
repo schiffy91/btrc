@@ -720,7 +720,7 @@ jobs:
         run: |
           python -m pytest -q -rs src/tests/python/test_native_ui_shell_windows.py -k "runs and ${{ matrix.target }}" --skip-report=build/skip-report-windows-win32-native-${{ matrix.target }}.json
           python -m tools.qualification skip-gate build/skip-report-windows-win32-native-${{ matrix.target }}.json
-          python -m pytest -q -rs src/tests/python/test_native_ui_conformance_windows.py -k "case and ${{ matrix.target }}" --skip-report=build/skip-report-windows-gui-conformance-${{ matrix.target }}.json
+          python -m pytest -q -rs --durations=12 src/tests/python/test_native_ui_conformance_windows.py -k "case and ${{ matrix.target }}" --skip-report=build/skip-report-windows-gui-conformance-${{ matrix.target }}.json
           python -m tools.qualification skip-gate build/skip-report-windows-gui-conformance-${{ matrix.target }}.json
       - name: Retain the GUI shell evidence and UI Automation trees
         if: always()
