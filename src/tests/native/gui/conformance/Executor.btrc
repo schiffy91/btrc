@@ -54,6 +54,9 @@ class AppPostAfter implements IConformanceCase {
 		Vector<int> order = [];
 		var late = Step(order, 1);
 		var dropped = Step(order, 2);
+		/* A host's first turns may be slow (an application activates): the
+		 * delays start after them. */
+		turns.settle();
 		long long started = MonotonicClock.milliseconds();
 		GUI.postAfter(0.15, late);
 		var registration = GUI.postAfter(0.15, dropped);
