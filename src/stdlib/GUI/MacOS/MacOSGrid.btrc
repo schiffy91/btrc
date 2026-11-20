@@ -12,8 +12,16 @@ import Library.GUI.MacOS.MacOSView;
 /* AppKit owns cell layout and intrinsic sizing. Children may themselves be
  * containers. Cells own their attached subtrees as IGrid specifies: replacing
  * or clearing a cell detaches its old child, and closing the grid closes every
- * occupied cell. */
+ * occupied cell.
+ *
+ * A grid's columns and rows give it its size, which is not the size of the
+ * place it is given. Its host view has that place and holds the grid at its
+ * top left, never smaller than the grid. Left to itself the host is the
+ * grid's size, as a child of a stack is; that wish is weaker than a window's
+ * hold on its own size (AppKit's 500), so a grid that is a window's root does
+ * not shrink the window to itself. */
 class MacOSGridLayout implements IMacOSContainerLayout {
+	private NSView? _host;
 	private NSGridView? _grid;
 	private int _column = 0;
 	private int _row = 0;
@@ -23,8 +31,22 @@ class MacOSGridLayout implements IMacOSContainerLayout {
 		if (columns <= 0 || rows <= 0) { throw "Native grid dimensions must be positive"; }
 		self.validateSpacing(columnSpacing, rowSpacing);
 		var grid = NSGridView.gridViewWithNumberOfColumns(columns, rows);
-		if (grid == null) { throw "Cannot create native grid"; }
+		var host = NSView.new();
+		if (grid == null || host == null) { throw "Cannot create native grid"; }
 		self._grid = grid;
+		self._host = host;
+		NSView pinned = grid;
+		pinned.setTranslatesAutoresizingMaskIntoConstraints(false);
+		host.addSubview(pinned, NSWindowAbove, null);
+		/* Auto Layout's priorities: one that must hold, and one below a window's hold on its size. */
+		float required = 1000.0f;
+		float hugging = 490.0f;
+		self.pin(pinned, NSLayoutAttributeTop, NSLayoutRelationEqual, host, NSLayoutAttributeTop, required);
+		self.pin(pinned, NSLayoutAttributeLeft, NSLayoutRelationEqual, host, NSLayoutAttributeLeft, required);
+		self.pin(host, NSLayoutAttributeBottom, NSLayoutRelationGreaterThanOrEqual, pinned, NSLayoutAttributeBottom, required);
+		self.pin(host, NSLayoutAttributeRight, NSLayoutRelationGreaterThanOrEqual, pinned, NSLayoutAttributeRight, required);
+		self.pin(host, NSLayoutAttributeBottom, NSLayoutRelationEqual, pinned, NSLayoutAttributeBottom, hugging);
+		self.pin(host, NSLayoutAttributeRight, NSLayoutRelationEqual, pinned, NSLayoutAttributeRight, hugging);
 		grid.setXPlacement(NSGridCellPlacementFill);
 		grid.setYPlacement(NSGridCellPlacementCenter);
 		grid.setColumnSpacing(columnSpacing);
@@ -41,7 +63,18 @@ class MacOSGridLayout implements IMacOSContainerLayout {
 		if (!Math.isFinite(columnSpacing) || !Math.isFinite(rowSpacing) || columnSpacing < 0.0 || rowSpacing < 0.0) { throw "Invalid native grid spacing"; }
 	}
 
-	public NSView nativeView() { return self.control(); }
+	private void pin(NSView first, long firstAttribute, long relation, NSView second, long secondAttribute, float priority) {
+		var constraint = NSLayoutConstraint.constraintWithItem(first, firstAttribute, relation, second, secondAttribute, 1.0, 0.0);
+		if (constraint == null) { throw "Cannot pin native grid"; }
+		constraint.setPriority(priority);
+		constraint.setActive(true);
+	}
+
+	public NSView nativeView() {
+		if (!NSThread.isMainThread()) { throw "Native grids require the main thread"; }
+		if (self._host == null) { throw "Native grid is closed"; }
+		return self._host;
+	}
 
 	public NSView childParent() { return self.control(); }
 
@@ -136,6 +169,7 @@ class MacOSGridLayout implements IMacOSContainerLayout {
 	public void close() {
 		if (!NSThread.isMainThread()) { throw "Native grids require the main thread"; }
 		self._grid = null;
+		self._host = null;
 	}
 }
 

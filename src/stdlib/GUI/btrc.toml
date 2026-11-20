@@ -582,7 +582,11 @@ symbols = [
 	"NSGridCellPlacementFill", "NSGridCellPlacementCenter", "NSGridViewSizeForContent",
 	"-[NSGridView setColumnSpacing:]", "-[NSGridView setRowSpacing:]", "-[NSGridColumn setWidth:]", "-[NSGridColumn setHidden:]", "-[NSGridRow setHeight:]", "-[NSGridRow setHidden:]",
 	"-[NSGridCell contentView]", "-[NSGridCell setContentView:]", "-[NSGridCell setYPlacement:]", "-[NSView superview]", "-[NSView layoutSubtreeIfNeeded]",
-	"-[NSView intrinsicContentSize]"
+	"-[NSView intrinsicContentSize]",
+	"+[NSView new]", "-[NSView addSubview:positioned:relativeTo:]", "NSWindowAbove", "-[NSView setTranslatesAutoresizingMaskIntoConstraints:]",
+	"+[NSLayoutConstraint constraintWithItem:attribute:relatedBy:toItem:attribute:multiplier:constant:]", "-[NSLayoutConstraint setActive:]",
+	"-[NSLayoutConstraint setPriority:]", "NSLayoutRelationEqual", "NSLayoutRelationGreaterThanOrEqual",
+	"NSLayoutAttributeTop", "NSLayoutAttributeLeft", "NSLayoutAttributeBottom", "NSLayoutAttributeRight"
 ]
 os = ["macos"]
 
