@@ -1,5 +1,26 @@
-/* Thread count on Apple's systems (macOS, iOS, iPadOS): the threads Mach
- * lists for this task. */
+/* Thread count on Apple's systems. macOS asks the kernel's task info through
+ * libproc, from system headers alone: the portable compiler imports this
+ * module, and its cross-release C must stand without a macOS SDK or a file of
+ * this tree. iOS and iPadOS, whose SDK has no libproc.h, count the threads
+ * Mach lists for the task (ProcessThreads.c). */
+#if TARGET_OS_OSX
+#include <libproc.h>
+#include <sys/proc_info.h>
+#include <unistd.h>
+#else
+import ./ProcessThreads.c
+extern int btrcProcessThreadCount();
+#endif
+
 class ProcessThreadsProvider {
-	class int count() { return btrcProcessThreadCount(); }
+	class int count() {
+#if TARGET_OS_OSX
+		struct proc_taskinfo info;
+		int size = (int)sizeof(struct proc_taskinfo);
+		if ((int)proc_pidinfo(getpid(), (int)PROC_PIDTASKINFO, 0ULL, &info, size) != size) { return -1; }
+		return (int)info.pti_threadnum;
+#else
+		return btrcProcessThreadCount();
+#endif
+	}
 }

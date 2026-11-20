@@ -96,8 +96,13 @@ and it reports no usage.
 
 `ProcessThreads.count()` is the process's live thread count, or -1 where the
 host cannot tell: one `/proc/self/task` entry per thread on linux
-(`Linux/ProcessThreadsProvider`), and the threads Mach lists for the task on
-macOS, iOS and iPadOS (`Apple/ProcessThreadsProvider`).
+(`Linux/ProcessThreadsProvider`), and on Apple's systems
+(`Apple/ProcessThreadsProvider`) `proc_pidinfo` task info on macOS and the
+threads Mach lists for the task on iOS and iPadOS, whose SDK has no libproc
+(`Apple/ProcessThreads.c`, a C file the provider imports there). The macOS
+half uses system headers alone and has no native binding: the portable
+compiler imports the module, and its cross-release C must stand without a
+macOS SDK or a file of this tree.
 
 `HostWorkerPools` is the factory a host entry point hands to its owners. The
 `[[package.providers]]` entries in `btrc.toml` select its `WorkerPoolProvider`
