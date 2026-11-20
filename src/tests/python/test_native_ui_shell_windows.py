@@ -621,6 +621,9 @@ def run_shell(command, environment, timeout):
         encoding="utf-8",
         errors="replace",
         env=environment,
+        # These GUI test programs are console-subsystem executables. When the
+        # runner has no console, a new Terminal window can interrupt a drag.
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     try:
         stdout, stderr = process.communicate(timeout=timeout)
