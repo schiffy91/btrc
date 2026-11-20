@@ -5,6 +5,7 @@ import Library.GUI.IView;
 import Library.Vector;
 import Library.Image;
 import Library.Testing;
+import Library.Timer;
 
 import ./Probe.btrc;
 import ./Picture.btrc;
@@ -170,6 +171,12 @@ class ViewInteraction implements IConformanceCase {
 		button.arrange(20.0, 20.0, 100.0, 40.0);
 		window.show();
 		turns.settle();
+		/* The system says in its own time that a shown window is on screen (AppKit's
+		 * occlusion state can arrive many turns later on a loaded machine), and a
+		 * view's state carries its window's exposure: the subscription starts once
+		 * the window is presentable, so that nothing is still due to change. */
+		long long shownAt = MonotonicClock.milliseconds();
+		while (!window.state().presentable && MonotonicClock.milliseconds() - shownAt < 10000LL) { turns.turn(); }
 		var log = InteractionLog();
 		var scope = CallbackScope();
 		button.onInteractionStateChanged(log, scope);

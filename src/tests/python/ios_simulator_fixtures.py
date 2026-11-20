@@ -131,6 +131,11 @@ class Simulators:
             source = NativeBindingPackage.write(source, work / "package", probe[0], probe[1])
         include, libraries = self.wgpu_native()
         row = PackageTarget.parse(TARGET).row
+        if frontend == "selfhost":
+            # The self-hosted compiler is a host program, keyed by the stdlib it
+            # resolves for the host: it is found before the simulator's
+            # environment below would make the host's native imports refuse.
+            request.getfixturevalue("immutable_btrcc")
         with pytest.MonkeyPatch.context() as environment:
             environment.setenv("BTRC_NATIVE_TARGET", row.triple)
             environment.setenv("BTRC_NATIVE_SYSROOT", self.sdk())
