@@ -688,7 +688,7 @@ def test_native_capture_composes_with_image_io(native_project, native_compile, g
         "import Library.GUI.MacOS.MacOSTextField;",
         "import Library.GUI.MacOS.MacOSScrollView;",
         "import Library.GUI.MacOS.MacOSViewCapture;",
-        "import Library.Image.MacOS.MacOSEncodedImageDecoder;",
+        "import Library.Image.Apple.AppleEncodedImageDecoder;",
     ]
     source.write_text(
         "\n".join(reversed(imports) if reverse else imports)
@@ -708,7 +708,7 @@ int main() {
 	var captured = MacOSViewCapture.captureTiff(window.contentView());
 	window.close();
 	assert(!editor.isOpen());
-	var result = MacOSEncodedImageDecoder().decode(captured, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL));
+	var result = AppleEncodedImageDecoder().decode(captured, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL));
 	assert(result.succeeded());
 	var image = result.image();
 	assert(image.width == (int)backing.size.width && image.height == (int)backing.size.height);

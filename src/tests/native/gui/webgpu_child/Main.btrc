@@ -11,7 +11,7 @@ import Library.Image;
 import Library.Image.EncodedImage;
 import Library.IO;
 import Library.Vector;
-import Library.Image.MacOS.MacOSEncodedImageDecoder;
+import Library.Image.Apple.AppleEncodedImageDecoder;
 import Library.GUI.MacOS.MacOSComposedCapture;
 import Library.GPU.GPUDevice;
 import Library.GPU.GPUSurfaceRenderer;
@@ -361,7 +361,7 @@ int main() {
 		var output = File(f"Composed{step}.tiff", "wb");
 		assert(output.ok() && output.writeBytes(captured));
 		output.close();
-		var decoded = MacOSEncodedImageDecoder().decode(captured, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL));
+		var decoded = AppleEncodedImageDecoder().decode(captured, EncodedImageDecodeLimits(32000000, 4096, 4096, 4000000LL));
 		assert(decoded.succeeded());
 		var composed = decoded.image();
 		int headerInk = 0;

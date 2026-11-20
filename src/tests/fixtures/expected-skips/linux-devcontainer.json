@@ -82,7 +82,7 @@
     {
       "id": "imageio-runtime",
       "files": [
-        "src/tests/python/test_macos_encoded_image_decoder_runtime.py"
+        "src/tests/python/test_apple_encoded_image_decoder_runtime.py"
       ],
       "reason": "^ImageIO is available only on macOS$",
       "category": "platform",

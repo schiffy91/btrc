@@ -13,11 +13,14 @@ BTRC_IOS_UI_DEVICES names the device classes ("iphone,ipad").
 """
 
 import hashlib
+import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
+from src.tests.python import test_apple_encoded_image_decoder_runtime as image_decoder
 from src.tests.python import test_background_jobs_runtime as background_jobs
 from src.tests.python.ios_simulator_fixtures import FRONTENDS, MODES, simulators  # noqa: F401
 
@@ -38,6 +41,19 @@ class Program:
     # Its own driver on the host accepts the nullability warnings its source raises; so do these rows.
     warns: bool = False
     environment: tuple[tuple[str, str], ...] = ()
+    # Files the program reads, made on the host into a directory it is given: their paths are its arguments.
+    prepared: Callable[[Path], tuple[str, ...]] | None = None
+
+
+def two_frame_tiff(directory: Path) -> tuple[str, ...]:
+    """The decoder's TIFF, written by the host's own ImageIO: a file is the same file on either system."""
+
+    encoder, tiff = directory / "tiff-encoder", directory / "two-frames.tiff"
+    frameworks = [{"name": name} for name in ("CoreFoundation", "CoreGraphics", "ImageIO")]
+    image_decoder._build(image_decoder.FIXTURES / "ImageIoTiffFixture.c", encoder, frameworks)
+    made = subprocess.run([str(encoder), str(tiff)], capture_output=True, text=True, timeout=60, check=False)
+    assert made.returncode == 0 and tiff.is_file(), made.stderr
+    return (str(tiff),)
 
 
 PROGRAMS = {
@@ -55,6 +71,13 @@ PROGRAMS = {
         REPO / "src/tests/btrc/fixtures/NativeDigestDriver.btrc",
         hashlib.sha256(DIGESTED.read_bytes()).hexdigest(),
         arguments=(str(DIGESTED),),
+        warns=True,
+    ),
+    # ImageIO's PNG, JPEG, GIF and TIFF, with the portable DDS decoder, the limits and the refusals.
+    "image": Program(
+        image_decoder.FIXTURES / "AppleEncodedImageDecoderConformance.btrc",
+        "PASS AppleEncodedImageDecoderConformance",
+        prepared=two_frame_tiff,
         warns=True,
     ),
     # The program forks its client, which a simulator's process may do and an
@@ -81,8 +104,9 @@ pytestmark = pytest.mark.xdist_group(name="ios_ui")
 @pytest.mark.parametrize("frontend", FRONTENDS)
 @pytest.mark.parametrize("name", sorted(PROGRAMS))
 @pytest.mark.parametrize("device_class", ["iphone", "ipad"])
-def test_ios_stdlib_program(simulators, request, device_class, name, frontend, sanitized):  # noqa: F811
+def test_ios_stdlib_program(simulators, request, tmp_path, device_class, name, frontend, sanitized):  # noqa: F811
     program = PROGRAMS[name]
+    arguments = program.arguments + (program.prepared(tmp_path) if program.prepared else ())
     status, stdout, stderr = simulators.spawned(
         device_class,
         name,
@@ -90,7 +114,7 @@ def test_ios_stdlib_program(simulators, request, device_class, name, frontend, s
         frontend,
         sanitized,
         request,
-        program.arguments,
+        arguments,
         program.probe,
         quiet=not program.warns,
         environment=dict(program.environment),

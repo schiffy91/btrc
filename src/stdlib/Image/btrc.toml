@@ -2,12 +2,13 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_image"
-exports = ["DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "Image", "Pixels", "MacOS.MacOSEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
+exports = ["DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "Image", "Pixels", "Apple.AppleEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
 
 [[package.providers]]
 module = "SystemImageDecoder"
-implementation = "MacOS.SystemImageDecoderProvider"
-os = ["macos"]
+# ImageIO and CoreGraphics are on every Apple system.
+implementation = "Apple.SystemImageDecoderProvider"
+os = ["macos", "ios"]
 
 [[package.providers]]
 module = "SystemImageDecoder"
@@ -33,8 +34,8 @@ symbols = ["btrcPngHeader", "btrcPngDecode", "tjhandle", "btrcJpegCreate", "tj3D
 os = ["linux"]
 
 [[native.bindings]]
-module = "MacOS.MacOSEncodedImageDecoder"
-header = "MacOS/ImageIO.h"
+module = "Apple.AppleEncodedImageDecoder"
+header = "Apple/ImageIO.h"
 language = "c"
 standard = "c11"
 symbols = [
@@ -53,7 +54,7 @@ symbols = [
 owned-results = ["CGBitmapContextCreate", "CGImageSourceCreateImageAtIndex", "CGColorSpaceCreateWithName", "CFDataCreateWithBytesNoCopy", "CFDictionaryCreateMutable", "CGImageSourceCreateWithData", "CGImageSourceCopyPropertiesAtIndex"]
 borrowed-parameters = ["CGBitmapContextCreate.space", "CGImageGetWidth.image", "CGImageGetHeight.image", "CGContextSetBlendMode.c", "CGContextDrawImage.c", "CGContextDrawImage.image", "CFDictionarySetValue.theDict", "CFDictionarySetValue.key", "CFDictionarySetValue.value", "CFDictionaryGetValue.theDict", "CFDictionaryGetValue.key", "CFStringGetCString.theString", "CFGetTypeID.cf", "CFNumberGetValue.number", "CGImageSourceCreateWithData.data", "CGImageSourceCreateWithData.options", "CGImageSourceGetType.isrc", "CGImageSourceGetCount.isrc", "CGImageSourceCopyPropertiesAtIndex.isrc", "CGImageSourceCopyPropertiesAtIndex.options", "CGImageSourceCreateImageAtIndex.isrc", "CGImageSourceCreateImageAtIndex.options", "CGColorSpaceCreateWithName.name"]
 static-globals = ["kCFBooleanFalse", "kCGImageSourceShouldCache", "kCGImagePropertyPixelWidth", "kCGImagePropertyPixelHeight", "kCGColorSpaceSRGB"]
-os = ["macos"]
+os = ["macos", "ios"]
 
 [native.bindings.resource-parameters]
 "CFDictionarySetValue.key" = "CFTypeRef"
@@ -128,15 +129,15 @@ release = "CGColorSpaceRelease"
 
 [[native.frameworks]]
 name = "CoreFoundation"
-modules = ["MacOS.MacOSEncodedImageDecoder"]
-os = ["macos"]
+modules = ["Apple.AppleEncodedImageDecoder"]
+os = ["macos", "ios"]
 
 [[native.frameworks]]
 name = "CoreGraphics"
-modules = ["MacOS.MacOSEncodedImageDecoder"]
-os = ["macos"]
+modules = ["Apple.AppleEncodedImageDecoder"]
+os = ["macos", "ios"]
 
 [[native.frameworks]]
 name = "ImageIO"
-modules = ["MacOS.MacOSEncodedImageDecoder"]
-os = ["macos"]
+modules = ["Apple.AppleEncodedImageDecoder"]
+os = ["macos", "ios"]

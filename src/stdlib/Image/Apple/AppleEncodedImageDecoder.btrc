@@ -1,21 +1,21 @@
 /* Bounded, synchronous ImageIO decoding. Apple headers own ABI declarations;
  * this module owns the ImageIO calls and the lifetime of each SDK resource.
  * EncodedImageDispatch owns admission, sniffing and DDS. Beyond the portable
- * PNG/JPEG set, ImageIO also decodes GIF and TIFF: a documented macOS
- * extension (view captures arrive as TIFF). */
+ * PNG/JPEG set, ImageIO also decodes GIF and TIFF: a documented Apple
+ * extension (macOS view captures arrive as TIFF). */
 
 import Library.Bytes;
 import Library.Image.EncodedImage;
 import Library.Image.EncodedImageDispatch;
 import Library.Image.Pixels;
 
-class MacOSEncodedImageDecoder implements IEncodedImageDecoder, IEncodedImageFormatDecoder {
-	public MacOSEncodedImageDecoder() {}
+class AppleEncodedImageDecoder implements IEncodedImageDecoder, IEncodedImageFormatDecoder {
+	public AppleEncodedImageDecoder() {}
 
 	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) { return EncodedImageDispatch.decode(encoded, limits, self); }
 
 	public EncodedImageDecodeOutcome decodeFormat(EncodedImageFormat format, Bytes encoded, EncodedImageDecodeLimits limits) {
-		string type = MacOSEncodedImageDecoder.contentType(format);
+		string type = AppleEncodedImageDecoder.contentType(format);
 		if (type == "") { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, encoded.length()); }
 		return ImageIODecodeSession.run(encoded, type, limits);
 	}

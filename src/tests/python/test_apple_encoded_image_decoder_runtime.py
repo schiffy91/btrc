@@ -146,7 +146,7 @@ def _run(executable, *arguments):
 @pytest.mark.parametrize(
     "fixture,hooks",
     [
-        ("MacOSEncodedImageDecoderConformance", False),
+        ("AppleEncodedImageDecoderConformance", False),
         ("ImageIoCleanup", True),
     ],
 )
@@ -178,7 +178,7 @@ def test_imageio_provider(compiler, fixture, hooks, tmp_path, request, sdk_envir
 
 def test_system_text_failure_cleanup(compiler, tmp_path, request, sdk_environment):
     source = tmp_path / "SystemTextCleanup.btrc"
-    source.write_text("""import Library.Image.MacOS.MacOSEncodedImageDecoder;
+    source.write_text("""import Library.Image.Apple.AppleEncodedImageDecoder;
 import Library.GUI.MacOS.MacOSSystemText;
 import Library.GUI.TextRun;
 import Library.Image;
@@ -251,7 +251,7 @@ def test_imageio_binding_requires_reader_before_emitting_code(tmp_path, monkeypa
     from src.compiler.python import Compiler, CompilerOptions
 
     monkeypatch.delenv("BTRC_NATIVE_HEADER_READER", raising=False)
-    source = FIXTURES / "MacOSEncodedImageDecoderConformance.btrc"
+    source = FIXTURES / "AppleEncodedImageDecoderConformance.btrc"
     result = Compiler().compile(source.read_text(), str(source), CompilerOptions(use_cache=False, target="macos-arm64"))
     assert not result.successful and not result.c_source
     assert "BTRC_NATIVE_HEADER_READER" in str(result.failure)
@@ -259,7 +259,7 @@ def test_imageio_binding_requires_reader_before_emitting_code(tmp_path, monkeypa
 
 @pytest.mark.parametrize("text_first", [False, True])
 def test_imageio_and_system_text_share_managed_sdk_resources(compiler, text_first, tmp_path, request, sdk_environment):
-    imports = ["Library.Image.MacOS.MacOSEncodedImageDecoder", "Library.GUI.MacOS.MacOSSystemText"]
+    imports = ["Library.Image.Apple.AppleEncodedImageDecoder", "Library.GUI.MacOS.MacOSSystemText"]
     if text_first:
         imports.reverse()
     source = tmp_path / "CombinedNativeRaster.btrc"
@@ -283,7 +283,7 @@ int main() {
 			for (int x = 0; x < text.width; x++) { coverage += text.pixel(x, y).alpha; }
 		}
 		assert(coverage > 0);
-		var decoded = MacOSEncodedImageDecoder().decode(pngFixture(), EncodedImageDecodeLimits(1024, 4, 4, 16LL));
+		var decoded = AppleEncodedImageDecoder().decode(pngFixture(), EncodedImageDecodeLimits(1024, 4, 4, 16LL));
 		assert(decoded.succeeded());
 		assert(decoded.image().pixel(1, 0).equals(RGBA(0, 255, 0, 128)));
 	}

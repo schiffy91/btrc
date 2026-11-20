@@ -12,7 +12,7 @@ import Library.GUI.TextRun;
 import Library.GUI.IImageHandle;
 import Library.GUI.GUICaptureLayer;
 import Library.GUI.MacOS.MacOSDirectoryPicker;
-import Library.Image.MacOS.MacOSEncodedImageDecoder;
+import Library.Image.Apple.AppleEncodedImageDecoder;
 
 /* Private package implementation: the native services behind the GUI facade.
  * The facade validates requests and owns the application's lifetime. */
@@ -38,7 +38,7 @@ class GUIProvider {
 			nativeLayers.push(MacOSCaptureLayer(gpu.captureSurface(), layer.pixels));
 		}
 		var encoded = MacOSComposedCapture.captureTiff(native.nativeView(), nativeLayers);
-		var decoded = MacOSEncodedImageDecoder().decode(encoded, EncodedImageDecodeLimits(134217728, 16384, 16384, 16777216LL));
+		var decoded = AppleEncodedImageDecoder().decode(encoded, EncodedImageDecodeLimits(134217728, 16384, 16384, 16777216LL));
 		if (!decoded.succeeded()) { throw "Cannot decode composed native capture"; }
 		return decoded.image();
 	}

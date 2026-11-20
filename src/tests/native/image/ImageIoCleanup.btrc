@@ -1,4 +1,4 @@
-import Library.Image.MacOS.MacOSEncodedImageDecoder;
+import Library.Image.Apple.AppleEncodedImageDecoder;
 import Library.Image.EncodedImage;
 import Library.Image;
 
@@ -9,7 +9,7 @@ import ./ImageIoSamples.btrc;
  * ImageIoFaults.h, which the harness binds through [[native.bindings]]. */
 
 void decodeOnce(int failure) {
-	var decoder = MacOSEncodedImageDecoder();
+	var decoder = AppleEncodedImageDecoder();
 	/* A temporary input exercises borrowed-data lifetime across the return. */
 	var outcome = decoder.decode(pngFixture(), EncodedImageDecodeLimits(1024, 4, 4, 16LL));
 	if (failure == 0) {

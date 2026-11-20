@@ -39,16 +39,16 @@ the API surface, so the layout follows a few fixed rules.
   its `COMApartment` owns the apartment and the C runtime (`COMRuntime.c`)
   that compiler-generated COM bindings call.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
-  `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `GUI/Windows`, `GUI/IOS`, `Image/MacOS`,
+  `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `GUI/Windows`, `GUI/IOS`,
   `Image/Linux`, `LocalApplicationChannel/Linux`, `Tray/MacOS`, `Tray/Linux`,
   `BackgroundJobs/Linux`, `Terminal/Windows`; `BackgroundJobs/Unix` and
   `Terminal/Unix` for code the Unix rows share, and `BackgroundJobs/Apple`,
-  `Digest/Apple` and `LocalApplicationChannel/Apple` for code macOS, iOS and
+  `Digest/Apple`, `Image/Apple` and `LocalApplicationChannel/Apple` for code macOS, iOS and
   iPadOS share)
   and implements the
   group's portable contract: `GUI/MacOS/MacOSDirectoryPicker` and
   `GUI/Linux/LinuxDirectoryPicker` implement `GUI/IDirectoryPicker`,
-  `Image/MacOS/MacOSEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
+  `Image/Apple/AppleEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
   (declared in `Image/EncodedImage.btrc`), and `Audio/MacOS/MacOSAudioDevice`
   and `Audio/Linux/LinuxAudioDevice` each supply an `IAudioDevicePlatform` to the
   shared provider in `Audio/AudioDevice.btrc`. A `[[package.providers]]`
@@ -68,7 +68,7 @@ the API surface, so the layout follows a few fixed rules.
 - **Each group is its own package.** A group folder carries its own
   `btrc.toml` (`btrc_stdlib_<group>`) with the group's exports, providers,
   `[[native.bindings]]`, frameworks and pkg-config entries, and its import
-  headers (`GUI/MacOS/AppKit.h`, `Image/MacOS/ImageIO.h`,
+  headers (`GUI/MacOS/AppKit.h`, `Image/Apple/ImageIO.h`,
   `GPU/WebGPUImports.h`, `BackgroundJobs/NativeThreads.h`) sit beside the code
   they describe. Module names inside a group manifest are group-relative
   (`MacOS.MacOSWindow`). The root `btrc.toml` names `btrc_stdlib_runtime`,

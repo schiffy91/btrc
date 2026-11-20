@@ -41,7 +41,7 @@ def test_stdlib_manifest_selects_only_loaded_provider_units():
         str(library),
         [
             str(library / "Audio/MacOS/MacOSAudioDevice.btrc"),
-            str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc"),
+            str(library / "Image/Apple/AppleEncodedImageDecoder.btrc"),
         ],
     )
     payload = selected.as_dict()
@@ -59,7 +59,7 @@ def test_stdlib_manifest_selects_only_loaded_provider_units():
     assert all(len(package.manifest_hash) == 64 for package in selected.packages)
     assert [Path(binding.module).name for binding in selected.bindings] == [
         "MacOSAudioDevice.btrc",
-        "MacOSEncodedImageDecoder.btrc",
+        "AppleEncodedImageDecoder.btrc",
     ]
     assert selected.bindings[0].read_only_borrows == ("CFStringCreateWithCString.cStr",)
     assert selected.bindings[1].read_only_borrows == ()
@@ -68,7 +68,7 @@ def test_stdlib_manifest_selects_only_loaded_provider_units():
             str(library),
             [
                 str(library / "Audio/MacOS/MacOSAudioDevice.btrc"),
-                str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc"),
+                str(library / "Image/Apple/AppleEncodedImageDecoder.btrc"),
             ],
         )
         == selected
@@ -86,7 +86,7 @@ def test_stdlib_manifest_rejects_foreign_package_identity(tmp_path):
 def test_stdlib_manifest_composes_siblings_of_an_existing_stdlib_package(tmp_path):
     library = REPO / "src/stdlib"
     audio = str(library / "Audio/MacOS/MacOSAudioDevice.btrc")
-    image = str(library / "Image/MacOS/MacOSEncodedImageDecoder.btrc")
+    image = str(library / "Image/Apple/AppleEncodedImageDecoder.btrc")
     plan = NativeLinkPlan.empty(PackageTarget.parse("macos-aarch64"))
     existing = plan.with_stdlib(str(library), [audio])
     merged = existing.with_stdlib(str(library), [audio, image])

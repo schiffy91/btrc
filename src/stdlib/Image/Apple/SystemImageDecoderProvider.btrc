@@ -1,0 +1,5 @@
+import Library.Image.Apple.AppleEncodedImageDecoder;
+
+class SystemImageDecoderProvider {
+	class EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) { return AppleEncodedImageDecoder().decode(encoded, limits); }
+}

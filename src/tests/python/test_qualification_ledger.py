@@ -1260,7 +1260,7 @@ def test_the_tracked_denominators_match_their_sources():
     assert [
         (entry.release, len(entry.ids), entry.frozen_slots) for entry in manifest.releases(SubjectKind.OPERATION)
     ] == [
-        ("p0-inventory-2026-11-18-steam", 368, 2208),
+        ("p0-inventory-2026-11-20-apple-image", 368, 2208),
         ("p0-windows-supervisor-2026-10-29", 10, 60),
         ("p0-windows-supervisor-image-2026-10-29", 4, 24),
         ("p0-windows-daemon-files-2026-10-29", 14, 84),

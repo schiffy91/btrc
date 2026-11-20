@@ -1034,7 +1034,7 @@ kind = "operation"
 id = "Library.Image.EncodedImageDispatch"
 group = "stdlib/Image"
 title = "Shared system-decoder request policy"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_image_decoding", "src/tests/python/test_macos_encoded_image_decoder_runtime.py::test_imageio_provider"]
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_image_decoding", "src/tests/python/test_apple_encoded_image_decoder_runtime.py::test_imageio_provider"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc dispatch (admit, sniff, DDS) to an injected codec; no native calls" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc dispatch (admit, sniff, DDS) to an injected codec; no native calls" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc dispatch (admit, sniff, DDS) to an injected codec; no native calls" }
@@ -1057,16 +1057,16 @@ android-x86_64 = { parity = "os-restricted", implementation = "missing", owner =
 
 [[rows]]
 kind = "operation"
-id = "Library.Image.MacOS.MacOSEncodedImageDecoder"
+id = "Library.Image.Apple.AppleEncodedImageDecoder"
 group = "stdlib/Image"
-title = "macOS ImageIO/CoreGraphics image decoder"
-regression = ["src/tests/python/test_macos_encoded_image_decoder_runtime.py::test_imageio_provider", "src/tests/python/test_macos_encoded_image_decoder_runtime.py::test_managed_provider_import_composition"]
-windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "ImageIO/CoreGraphics is a macOS SDK; the portable interface resolves to this slice's provider" }
-windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "ImageIO/CoreGraphics is a macOS SDK; the portable interface resolves to this slice's provider" }
-ios-device = { parity = "os-restricted", implementation = "missing", owner = "I2", status = "source-only", reason = "ImageIO/CoreGraphics is a macOS SDK; the portable interface resolves to this slice's provider (ImageIO also on iOS)" }
-ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I2", status = "source-only", reason = "ImageIO/CoreGraphics is a macOS SDK; the portable interface resolves to this slice's provider (ImageIO also on iOS)" }
-android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "ImageIO/CoreGraphics is a macOS SDK; the portable interface resolves to this slice's provider" }
-android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "ImageIO/CoreGraphics is a macOS SDK; the portable interface resolves to this slice's provider" }
+title = "Apple ImageIO/CoreGraphics image decoder"
+regression = ["src/tests/python/test_apple_encoded_image_decoder_runtime.py::test_imageio_provider", "src/tests/python/test_apple_encoded_image_decoder_runtime.py::test_managed_provider_import_composition"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "ImageIO/CoreGraphics is an Apple SDK; the portable interface resolves to this slice's provider" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "ImageIO/CoreGraphics is an Apple SDK; the portable interface resolves to this slice's provider" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "ImageIO and CoreGraphics are on iOS; the decoder macOS uses, with the same PNG, JPEG, GIF and TIFF set (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "ImageIO and CoreGraphics are on iOS; the decoder macOS uses, with the same PNG, JPEG, GIF and TIFF set (src/tests/python/test_stdlib_ios_programs.py on the simulators)" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "ImageIO/CoreGraphics is an Apple SDK; the portable interface resolves to this slice's provider" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "ImageIO/CoreGraphics is an Apple SDK; the portable interface resolves to this slice's provider" }
 
 [[rows]]
 kind = "operation"
@@ -1089,8 +1089,8 @@ title = "Platform system image decoder"
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_image_decoding", "src/tests/python/test_main.py::test_native_adapters_live_outside_relaxed_composition"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W2", status = "source-only", reason = "btrc.toml has SystemImageDecoderProvider only for macos/linux; WIC provider needed" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W2", status = "source-only", reason = "btrc.toml has SystemImageDecoderProvider only for macos/linux; WIC provider needed" }
-ios-device = { parity = "adapted", implementation = "missing", owner = "I2", status = "source-only", reason = "no ios provider in btrc.toml; ImageIO/CoreGraphics iOS provider (reusing MacOS decoder logic) needed" }
-ios-simulator = { parity = "adapted", implementation = "missing", owner = "I2", status = "source-only", reason = "no ios provider in btrc.toml; ImageIO/CoreGraphics iOS provider (reusing MacOS decoder logic) needed" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "Apple/SystemImageDecoderProvider, the provider macOS uses, over AppleEncodedImageDecoder (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "Apple/SystemImageDecoderProvider, the provider macOS uses, over AppleEncodedImageDecoder (src/tests/python/test_stdlib_ios_programs.py on the simulators)" }
 android-arm64 = { parity = "adapted", implementation = "missing", owner = "A2", status = "source-only", reason = "no android provider in btrc.toml; AImageDecoder (NDK API 30+) provider needed" }
 android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A2", status = "source-only", reason = "no android provider in btrc.toml; AImageDecoder (NDK API 30+) provider needed" }
 
