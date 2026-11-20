@@ -1,0 +1,5 @@
+/* Thread count on Apple's systems (macOS, iOS, iPadOS): the threads Mach
+ * lists for this task. */
+class ProcessThreadsProvider {
+	class int count() { return btrcProcessThreadCount(); }
+}

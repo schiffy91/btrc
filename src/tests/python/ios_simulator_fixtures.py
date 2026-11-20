@@ -103,7 +103,8 @@ class Simulators:
         assert found, f"Xcode has no {name} runtime for the simulator"
         return found[-1]
 
-    def program(self, name, source, frontend, sanitized, request):
+    def program(self, name, source, frontend, sanitized, request, app=True, probe=None, quiet=True):
+        """The program built once per compiler and mode: for an app's bundle, or as an executable to spawn."""
         key = (name, frontend, sanitized)
         if key in self.programs:
             if isinstance(self.programs[key], BaseException):
@@ -111,16 +112,23 @@ class Simulators:
                 raise self.programs[key]
             return self.programs[key]
         try:
-            self.programs[key] = self.build(name, source, frontend, sanitized, request)
+            self.programs[key] = self.build(name, source, frontend, sanitized, request, app, probe, quiet)
         except BaseException as error:
             self.programs[key] = error
             raise
         return self.programs[key]
 
-    def build(self, name, source, frontend, sanitized, request):
+    def build(self, name, source, frontend, sanitized, request, app=True, probe=None, quiet=True):
+        """`probe` is a fixture's (header, symbols, C source): the program binds the header and links the source.
+
+        A program compiles without a warning unless it is another driver's,
+        whose source that driver accepts with the warnings it raises (`quiet`).
+        """
         NativeBindingPackage.require_reader()
         work = self.base / f"{name}-{frontend}-{MODES[sanitized]}"
         work.mkdir()
+        if probe is not None:
+            source = NativeBindingPackage.write(source, work / "package", probe[0], probe[1])
         include, libraries = self.wgpu_native()
         row = PackageTarget.parse(TARGET).row
         with pytest.MonkeyPatch.context() as environment:
@@ -132,18 +140,66 @@ class Simulators:
             generated, plan = work / "Program.c", work / "Program.json"
             result = transpile(source, generated, plan, frontend, request, TARGET)
             assert result.returncode == 0, result.stderr
-            assert "warning:" not in result.stderr.lower(), result.stderr
+            assert not quiet or "warning:" not in result.stderr.lower(), result.stderr
             flags = list(SANITIZERS) if sanitized else []
             program = work / "Program"
+            objects = []
+            if probe is not None:
+                objects.append(str(work / "Probe.o"))
+                target = ["-target", row.triple, "-isysroot", self.sdk(), "-std=c11", "-O2", f"-I{probe[0].parent}"]
+                built = xcrun("clang", *target, *flags, "-c", str(probe[2]), "-o", objects[0])
+                assert built.returncode == 0, built.stderr
+            if app:
+                link_flags = [*GUIAppBuilder.link_flags(libraries), *flags, "-Wl,-rpath,@executable_path/Frameworks"]
+            else:
+                # A spawned program has no bundle to carry the sanitizer's runtime: it loads Xcode's own.
+                link_flags = [*objects, *flags, *([f"-Wl,-rpath,{self.runtime('asan').parent}"] if sanitized else [])]
             NativePlanBuilder().build(
                 plan_path=plan,
                 generated_c=generated,
                 output=program,
                 optimization=2,
                 compile_flags=[f"-I{include}", *flags],
-                link_flags=[*GUIAppBuilder.link_flags(libraries), *flags, "-Wl,-rpath,@executable_path/Frameworks"],
+                link_flags=link_flags,
             )
         return program
+
+    def spawned(
+        self,
+        device_class,
+        name,
+        source,
+        frontend,
+        sanitized,
+        request,
+        arguments=(),
+        probe=None,
+        quiet=True,
+        environment=None,
+        timeout=120,
+    ):
+        """One run of a program without a window, as a process of the booted simulator: (status, stdout, stderr).
+
+        Such a program is no app. `simctl spawn` starts it inside the simulator,
+        where the system it sees is the simulator's: its sockets, its
+        frameworks, its file system under the device's own root.
+        """
+        self.asked(device_class)
+        host = self.device(device_class)
+        program = self.program(name, source, frontend, sanitized, request, app=False, probe=probe, quiet=quiet)
+        variables = {"ASAN_OPTIONS": "detect_leaks=0", "UBSAN_OPTIONS": "halt_on_error=1", **(environment or {})}
+        process = host.spawn([str(program), *arguments], variables)
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            host.kill_group(process.pid)
+            stdout, stderr = process.communicate()
+            return (
+                -1,
+                stdout.decode(errors="replace"),
+                stderr.decode(errors="replace") + f"\nno end within {timeout} seconds\n",
+            )
+        return process.returncode, stdout.decode(errors="replace"), stderr.decode(errors="replace")
 
     @staticmethod
     def identifier(name, frontend, sanitized, variant=""):

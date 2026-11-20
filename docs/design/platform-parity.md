@@ -141,8 +141,8 @@ been ingested, so no row is `passed`.
 | --- | --- | --- | --- | --- | --- |
 | `windows-x64` | 396 | 296 | 77 | 13 | 10 |
 | `windows-arm64` | 396 | 296 | 77 | 13 | 10 |
-| `ios-device` | 396 | 339 | 16 | 37 | 4 |
-| `ios-simulator` | 396 | 339 | 16 | 37 | 4 |
+| `ios-device` | 396 | 341 | 17 | 37 | 1 |
+| `ios-simulator` | 396 | 341 | 17 | 37 | 1 |
 | `android-arm64` | 396 | 352 | 21 | 19 | 4 |
 | `android-x86_64` | 396 | 352 | 21 | 19 | 4 |
 

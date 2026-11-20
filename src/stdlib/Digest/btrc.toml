@@ -4,10 +4,11 @@ manifest-version = 1
 name = "btrc_stdlib_digest"
 exports = ["Digest", "Fnv1a32", "NativeSHA256", "SHA256"]
 
+# CommonCrypto is on every Apple system.
 [[package.providers]]
 module = "NativeSHA256"
-implementation = "MacOS.NativeSHA256Provider"
-os = ["macos"]
+implementation = "Apple.NativeSHA256Provider"
+os = ["macos", "ios"]
 
 [[package.providers]]
 module = "NativeSHA256"
@@ -15,10 +16,10 @@ implementation = "NativeSHA256Provider"
 os = ["linux", "windows"]
 
 [[native.bindings]]
-module = "MacOS.NativeSHA256Provider"
-header = "MacOS/CommonDigest.h"
+module = "Apple.NativeSHA256Provider"
+header = "Apple/CommonDigest.h"
 language = "c"
 standard = "c11"
 symbols = ["CC_SHA256", "CC_LONG"]
 read-only-borrows = ["CC_SHA256.data"]
-os = ["macos"]
+os = ["macos", "ios"]

@@ -1,0 +1,42 @@
+/* ProcessThreads.count follows the threads this process is running: at least
+ * the caller, and at least three more while three started threads wait. A
+ * system may run threads of its own beside them, so the counts are floors. */
+import Library.BackgroundJobs.ProcessThreads;
+import Library.Timer;
+
+int main() {
+	int alone = ProcessThreads.count();
+	if (alone < 1) {
+		print(f"FAIL: a running process counted {alone} threads");
+		return 1;
+	}
+	Mutex<int> gate = Mutex(0);
+	Thread<int> first = spawn(() => {
+			while (gate.get() == 0) { Timer.sleepMillis(1); }
+			return 0;
+		});
+	Thread<int> second = spawn(() => {
+			while (gate.get() == 0) { Timer.sleepMillis(1); }
+			return 0;
+		});
+	Thread<int> third = spawn(() => {
+			while (gate.get() == 0) { Timer.sleepMillis(1); }
+			return 0;
+		});
+	int waiting = ProcessThreads.count();
+	gate.set(1);
+	first.join();
+	second.join();
+	third.join();
+	gate.destroy();
+	if (waiting < alone + 3) {
+		print(f"FAIL: {alone} threads alone, {waiting} with three more waiting");
+		return 1;
+	}
+	if (ProcessThreads.count() < 1) {
+		print("FAIL: no count after the threads were joined");
+		return 1;
+	}
+	print("PASS: process thread count");
+	return 0;
+}

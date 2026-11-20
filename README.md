@@ -594,10 +594,11 @@ layout is part of the API. The complete rules are in
   modules are addressed by path (`Library.HTTP.HTTPClient`,
   `Library.FileSystem.FileTree`, `Library.Digest.SHA256`).
 - **Platform code lives in a platform subfolder of its group**
-  (`Audio/MacOS`, `Audio/Linux`, `BackgroundJobs/Unix`, `Digest/MacOS`,
+  (`Audio/MacOS`, `Audio/Linux`, `BackgroundJobs/Unix`, `Digest/Apple`,
   `GUI/MacOS`, `GUI/Linux`, `Image/MacOS`, `Image/Linux`,
-  `LocalApplicationChannel/MacOS`, `LocalApplicationChannel/Linux`,
+  `LocalApplicationChannel/Apple`, `LocalApplicationChannel/Linux`,
   `Tray/MacOS`, `Tray/Linux`) and implements that group's portable contract;
+  an `Apple` folder holds what macOS, iOS and iPadOS share;
   `GUI/FreeType` is the shared FreeType text provider the Linux GUI uses. Interfaces are
   `I`-prefixed (`IView`, `IWindow`, `IDirectoryPicker`); providers are
   `<Platform><Capability>`. Consumers never name a platform module.

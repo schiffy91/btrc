@@ -203,7 +203,8 @@
       "id": "ios-simulator-bound",
       "files": [
         "src/tests/python/test_native_ui_conformance_ios.py",
-        "src/tests/python/test_native_ui_ios_programs.py"
+        "src/tests/python/test_native_ui_ios_programs.py",
+        "src/tests/python/test_stdlib_ios_programs.py"
       ],
       "reason": "^requires a Mac with Xcode and iOS simulators: ",
       "category": "platform",
@@ -213,7 +214,7 @@
         ]
       },
       "covered_by": [],
-      "note": "The GUI conformance suite's iOS and iPadOS rows, the triangle example and the screen-order fixture build apps for the simulator, boot one iPhone and one iPad simulator and send them real input through the simulated device's HID service (src/stdlib/GUI/README.md, the UIKit shim). They run where BTRC_IOS_UI_DEVICES asks for them, on the acceptance Mac; their evidence is that run's output, not a skip report, and is never physical-device evidence."
+      "note": "The GUI conformance suite's iOS and iPadOS rows, the triangle example and the screen-order fixture build apps for the simulator, boot one iPhone and one iPad simulator and send them real input through the simulated device's HID service (src/stdlib/GUI/README.md, the UIKit shim). The stdlib packages' native conformance programs are spawned in the same simulators (test_stdlib_ios_programs.py). They run where BTRC_IOS_UI_DEVICES asks for them, on the acceptance Mac; their evidence is that run's output, not a skip report, and is never physical-device evidence."
     }
   ]
 }

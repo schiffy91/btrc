@@ -4,10 +4,11 @@ manifest-version = 1
 name = "btrc_stdlib_localapplicationchannel"
 exports = ["LocalApplicationChannel", "LocalPeerCredentials"]
 
+# getpeereid is on every Apple system.
 [[package.providers]]
 module = "LocalPeerCredentials"
-implementation = "MacOS.LocalPeerCredentialsProvider"
-os = ["macos"]
+implementation = "Apple.LocalPeerCredentialsProvider"
+os = ["macos", "ios"]
 
 [[package.providers]]
 module = "LocalPeerCredentials"
@@ -20,7 +21,7 @@ header = "Socket.h"
 language = "c"
 standard = "c11"
 symbols = ["LocalSocketAddress", "socket", "connect", "bind", "listen", "accept", "getsockopt", "recv", "send", "shutdown", "close", "poll", "pollfd", "AF_UNIX", "SOCK_STREAM", "SOL_SOCKET", "SO_ERROR", "MSG_NOSIGNAL", "SHUT_RDWR", "POLLIN", "POLLOUT"]
-os = ["linux", "macos"]
+os = ["linux", "macos", "ios"]
 
 [[native.defines]]
 name = "_GNU_SOURCE"

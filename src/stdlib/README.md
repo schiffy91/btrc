@@ -39,11 +39,12 @@ the API surface, so the layout follows a few fixed rules.
   its `COMApartment` owns the apartment and the C runtime (`COMRuntime.c`)
   that compiler-generated COM bindings call.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
-  `Audio/Linux`, `Digest/MacOS`, `GUI/MacOS`, `GUI/Linux`, `GUI/Windows`, `Image/MacOS`,
-  `Image/Linux`, `LocalApplicationChannel/MacOS`,
-  `LocalApplicationChannel/Linux`, `Tray/MacOS`, `Tray/Linux`,
-  `BackgroundJobs/MacOS`, `BackgroundJobs/Linux`, `Terminal/Windows`, and
-  `BackgroundJobs/Unix` and `Terminal/Unix` for code the Unix rows share)
+  `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `GUI/Windows`, `GUI/IOS`, `Image/MacOS`,
+  `Image/Linux`, `LocalApplicationChannel/Linux`, `Tray/MacOS`, `Tray/Linux`,
+  `BackgroundJobs/Linux`, `Terminal/Windows`; `BackgroundJobs/Unix` and
+  `Terminal/Unix` for code the Unix rows share, and `BackgroundJobs/Apple`,
+  `Digest/Apple` and `LocalApplicationChannel/Apple` for code macOS, iOS and
+  iPadOS share)
   and implements the
   group's portable contract: `GUI/MacOS/MacOSDirectoryPicker` and
   `GUI/Linux/LinuxDirectoryPicker` implement `GUI/IDirectoryPicker`,

@@ -12,10 +12,11 @@ Endpoint cleanup checks its recorded user/device/inode; a failed bind cannot
 delete a colliding file. Interrupted nonblocking I/O yields to the event loop.
 
 The wire format is a four-byte big-endian length followed by bounded payload
-bytes; empty and binary messages are valid. macOS/Linux use private-directory
-Unix sockets and verify peer credentials through `LocalPeerCredentials`, whose
-`[[package.providers]]` select `MacOS/LocalPeerCredentialsProvider`
-(`getpeereid`) or `Linux/LocalPeerCredentialsProvider` (`SO_PEERCRED`).
+bytes; empty and binary messages are valid. macOS, iOS, iPadOS and Linux use
+private-directory Unix sockets and verify peer credentials through
+`LocalPeerCredentials`, whose `[[package.providers]]` select
+`Apple/LocalPeerCredentialsProvider` (`getpeereid`) or
+`Linux/LocalPeerCredentialsProvider` (`SO_PEERCRED`).
 `Socket.h` holds only SDK includes and the `LocalSocketAddress` typedef. The
 typed binding imports every socket and poll declaration the channel uses:
 `socket`, `connect`, `bind`, `listen`, `accept`, `getsockopt`, `recv`, `send`,
@@ -35,6 +36,15 @@ binding includes for `close`. Linux's `_GNU_SOURCE` requirement belongs to the p
 plan. No handwritten C
 implementation, hosted channel ABI, or channel archive remains. Windows has no
 provider yet; its open and request outcomes are added with one.
+
+An endpoint is a Unix socket's path, which the system limits to 103 bytes;
+a longer one is refused as invalid. On iOS and iPadOS that is a real bound:
+an app's own directories begin with its container's path, which leaves a few
+dozen bytes for the rest, and a simulator's temporary directory is longer
+than the limit already. The simulator rows
+(`src/tests/python/test_stdlib_ios_programs.py`) make their endpoint under
+`/tmp`, and their program forks its client, which an app on a device may not:
+they cover the channel on the system's sockets, not an app's use of it.
 
 Both macOS frontends pass process exchange, partial/oversized/empty frames,
 timeouts, stale requests, late responses, bind collisions, endpoint replacement

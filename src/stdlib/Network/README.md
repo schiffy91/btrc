@@ -28,13 +28,14 @@ them and what the hosted ABI does not carry: `getaddrinfo`, `freeaddrinfo`,
 `addrinfo` and `TCP_NODELAY`. glibc declares the resolver only under a feature macro, so the
 manifest defines `_GNU_SOURCE` on Linux.
 
-Linux and macOS have rows. Windows has no provider yet (HTTP's Winsock seam is
-the model); iOS and Android have BSD sockets but no row spells them. IPv6 is
-not covered.
+Linux, macOS, iOS and iPadOS have rows. Windows has no provider yet (HTTP's
+Winsock seam is the model); Android has BSD sockets but no row spells them.
+IPv6 is not covered.
 
 `src/tests/python/test_network_runtime.py` runs
 `src/tests/native/network/NetworkConformance.btrc` through both frontends with
 gcc, clang and the sanitizers: a listener the system gives a port, streams in
 both directions, deadlines, half-close, a peer that goes away, the resolver,
-and a megabyte through a forked echo peer. `src/tests/stdlib/NetworkAddress.btrc`
-covers the address values on every target.
+and a megabyte through a forked echo peer. `src/tests/python/test_stdlib_ios_programs.py`
+runs the same program as a process of an iPhone and an iPad simulator.
+`src/tests/stdlib/NetworkAddress.btrc` covers the address values on every target.

@@ -96,14 +96,15 @@ and it reports no usage.
 
 `ProcessThreads.count()` is the process's live thread count, or -1 where the
 host cannot tell: one `/proc/self/task` entry per thread on linux
-(`Linux/ProcessThreadsProvider`), `proc_pidinfo` task info on macOS
-(`MacOS/ProcessThreadsProvider`).
+(`Linux/ProcessThreadsProvider`), and the threads Mach lists for the task on
+macOS, iOS and iPadOS (`Apple/ProcessThreadsProvider`).
 
 `HostWorkerPools` is the factory a host entry point hands to its owners. The
 `[[package.providers]]` entries in `btrc.toml` select its `WorkerPoolProvider`
 for the target: `Unix/WorkerPoolProvider` forks workers on linux and macOS,
 and the root `WorkerPoolProvider` opens a single `InlineWorkerPool` on
-windows. Consumers never name a provider.
+windows, and on iOS and iPadOS, where an app may not start another process.
+Consumers never name a provider.
 
 One documented exception: the self-hosted compiler's `cli/WindowsMain.btrc`
 passes no factory. Its C (`dist/btrcc-windows.c`) used to be transpiled for
