@@ -1258,7 +1258,7 @@ def test_a_dependency_of_a_linked_package_is_named_through_the_link(tmp_path: Pa
 
 
 def test_every_checked_in_lock_matches_its_manifests():
-    """A lock records the hash of each path package's manifest.
+    """A lock records each path manifest's hash and the hash of the package graph.
 
     A stale one is rewritten by the first compile that resolves it, which
     leaves a test run with a modified source tree.
@@ -1268,7 +1268,12 @@ def test_every_checked_in_lock_matches_its_manifests():
     assert REPO / "src/stdlib/btrc.lock" in locks
     stale = []
     for lock in locks:
-        for package in json.loads(lock.read_text(encoding="utf-8"))["packages"]:
+        document = json.loads(lock.read_text(encoding="utf-8"))
+        packages = document["packages"]
+        graph = json.dumps(packages, sort_keys=True, separators=(",", ":")).encode()
+        if hashlib.sha256(graph).hexdigest() != document["manifest-hash"]:
+            stale.append(f"{lock.relative_to(REPO)}: package graph")
+        for package in packages:
             source = package["source"].get("path")
             if source is None:
                 continue
