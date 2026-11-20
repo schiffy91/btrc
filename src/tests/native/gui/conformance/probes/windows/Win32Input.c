@@ -86,21 +86,6 @@ static bool tap(WORD key, bool control) {
     return send(inputs, count);
 }
 
-static bool win32Key(int key) {
-    switch (key) {
-    case CONFORMANCE_KEY_RETURN: return tap(VK_RETURN, false);
-    case CONFORMANCE_KEY_ESCAPE: return tap(VK_ESCAPE, false);
-    case CONFORMANCE_KEY_TAB: return tap(VK_TAB, false);
-    case CONFORMANCE_KEY_LEFT: return tap(VK_LEFT, false);
-    case CONFORMANCE_KEY_RIGHT: return tap(VK_RIGHT, false);
-    case CONFORMANCE_KEY_UP: return tap(VK_UP, false);
-    case CONFORMANCE_KEY_DOWN: return tap(VK_DOWN, false);
-    case CONFORMANCE_KEY_BACKSPACE: return tap(VK_BACK, false);
-    case CONFORMANCE_KEY_SELECT_ALL: return tap('A', true);
-    default: return false;
-    }
-}
-
 /* Each UTF-16 unit is typed as itself: no layout has every character. */
 static bool win32Text(const char *text, void (*typed)(void)) {
     int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, NULL, 0);
@@ -228,6 +213,39 @@ static void describe(const char *what, HWND window) {
     fprintf(stderr, " %s %p [%ls] '%ls'%s%s%s;", what, (void *)window, name, title,
         window && process == GetCurrentProcessId() ? " ours" : "",
         window && !IsWindowVisible(window) ? " hidden" : "", window && !IsWindowEnabled(window) ? " disabled" : "");
+}
+
+static bool win32Key(int key) {
+    if (traced() && (key == CONFORMANCE_KEY_RETURN || key == CONFORMANCE_KEY_ESCAPE || key == CONFORMANCE_KEY_SELECT_ALL)) {
+        GUITHREADINFO thread = { .cbSize = sizeof thread };
+        if (GetGUIThreadInfo(0, &thread)) {
+            DWORD process = 0;
+            wchar_t focusClass[64] = L"";
+            if (thread.hwndFocus) {
+                GetWindowThreadProcessId(thread.hwndFocus, &process);
+                GetClassNameW(thread.hwndFocus, focusClass, 64);
+            }
+            fprintf(stderr, "probe: key %d;", key);
+            describe("foreground", thread.hwndActive);
+            fprintf(stderr, " focus %p [%ls] process %lu", (void *)thread.hwndFocus, focusClass, (unsigned long)process);
+            if (process == GetCurrentProcessId() && _wcsicmp(focusClass, L"Edit") == 0) {
+                fprintf(stderr, " length %d", GetWindowTextLengthW(thread.hwndFocus));
+            }
+            fputc('\n', stderr);
+        }
+    }
+    switch (key) {
+    case CONFORMANCE_KEY_RETURN: return tap(VK_RETURN, false);
+    case CONFORMANCE_KEY_ESCAPE: return tap(VK_ESCAPE, false);
+    case CONFORMANCE_KEY_TAB: return tap(VK_TAB, false);
+    case CONFORMANCE_KEY_LEFT: return tap(VK_LEFT, false);
+    case CONFORMANCE_KEY_RIGHT: return tap(VK_RIGHT, false);
+    case CONFORMANCE_KEY_UP: return tap(VK_UP, false);
+    case CONFORMANCE_KEY_DOWN: return tap(VK_DOWN, false);
+    case CONFORMANCE_KEY_BACKSPACE: return tap(VK_BACK, false);
+    case CONFORMANCE_KEY_SELECT_ALL: return tap('A', true);
+    default: return false;
+    }
 }
 
 /* A modal a program opens while it is not the foreground program does not
