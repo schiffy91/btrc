@@ -34,6 +34,33 @@ name = "wgpu_native"
 modules = ["WebGPU"]
 os = ["android"]
 
+# An iOS app is in the same position, and wgpu-native's pinned archive there
+# is a static library: the app links it and the frameworks it draws through.
+[[native.libraries]]
+name = "wgpu_native"
+modules = ["WebGPU"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "Metal"
+modules = ["WebGPU"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "QuartzCore"
+modules = ["WebGPU"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "CoreGraphics"
+modules = ["WebGPU"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "Foundation"
+modules = ["WebGPU"]
+os = ["ios"]
+
 [[native.bindings]]
 module = "WebGPU"
 header = "WebGPUImports.h"
@@ -83,7 +110,7 @@ borrowed-parameters = [
 ]
 owned-records = ["WGPURequestAdapterOptions", "WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPUSurfaceConfiguration", "WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo"]
 record-inputs = ["wgpuInstanceRequestAdapter.options", "wgpuInstanceRequestAdapter.callbackInfo", "wgpuAdapterRequestDevice.callbackInfo", "wgpuSurfaceConfigure.config", "wgpuDevicePopErrorScope.callbackInfo", "wgpuBufferMapAsync.callbackInfo"]
-os = ["macos", "linux", "windows", "android"]
+os = ["macos", "linux", "windows", "android", "ios"]
 [native.bindings.resources.WGPUInstance]
 ownership = "reference-counted"
 retain = "wgpuInstanceAddRef"

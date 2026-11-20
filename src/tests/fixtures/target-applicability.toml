@@ -33,12 +33,16 @@ cites = "src/tests/runner_capabilities.py#loopback_listener_error"
 
 # The @gpu compute runtime: emitted C that includes btrc_gpu_compute_internal.h
 # links libbtrc_gpu over wgpu-native. The host links build/stdlib/GPU when
-# `make gpu` built it; no cross row has a runtime build until Stage 28
-# (tooling-cross-gpu-deps), so dispatching programs are missing there.
+# `make gpu` built it. The iOS simulator row links the one
+# tools/target_hosts/ios/compute.py builds over wgpu-native's pinned static
+# library (Metal), when a run is given its flags in
+# BTRC_TARGET_COMPUTE_CFLAGS and BTRC_TARGET_COMPUTE_LDFLAGS; without them,
+# and on every other cross row until Stage 28 (tooling-cross-gpu-deps),
+# dispatching programs are missing.
 [[facilities]]
 name = "compute-runtime"
 header = "btrc_gpu_compute_internal.h"
-targets = []
+targets = ["ios-aarch64-simulator"]
 status = "missing"
 reason = "dispatching @gpu programs need libbtrc_gpu over wgpu-native, which is not built for this row (Stage 28, tooling-cross-gpu-deps)"
 cites = "docs/design/platform-inventory.toml#corpus.gpu"

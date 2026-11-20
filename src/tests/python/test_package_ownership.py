@@ -132,14 +132,18 @@ def test_source_provider_selection_uses_compilation_target(tmp_path, package_com
     assert not successful and "private to package" in diagnostic
 
 
-@pytest.mark.parametrize("target", ["ios-aarch64"])
-def test_native_gui_has_no_fake_provider_for_unsupported_targets(tmp_path, package_compile, target):
+@pytest.mark.parametrize(
+    ("target", "triple"),
+    [("ios-aarch64", "arm64-apple-ios17.0.0"), ("ios-aarch64-simulator", "arm64-apple-ios17.0.0-simulator")],
+)
+def test_native_gui_selects_the_uikit_provider_on_ios(tmp_path, package_compile, target, triple):
+    """Every row has a GUI provider: the iOS rows select the shim provider, whose bindings read the row's SDK."""
     source = tmp_path / "Main.btrc"
     source.write_text("import Library.GUI;\nint main() { GUI.initialize(); return 0; }\n")
     successful, diagnostic, emitted = package_compile(source, target=target)
-    assert not successful
-    assert "no provider" in diagnostic
-    assert emitted == ""
+    assert not successful and emitted == ""
+    assert "no provider" not in diagnostic
+    assert f"native imports for {target} require BTRC_NATIVE_TARGET {triple}" in diagnostic
 
 
 @pytest.mark.parametrize(

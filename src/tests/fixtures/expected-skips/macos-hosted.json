@@ -489,6 +489,22 @@
       "note": "Interop step 4's exit, the checked JNI round trip, runs inside app_process on an Android device. host-android.yml runs it on its API 29 and 36 x86_64 emulators with BTRC_ANDROID_JNI_REQUIRED=1, where a missing prerequisite fails; its evidence is that workflow's artifact, not a skip report."
     },
     {
+      "id": "ios-simulator-bound",
+      "files": [
+        "src/tests/python/test_native_ui_conformance_ios.py",
+        "src/tests/python/test_native_ui_ios_programs.py"
+      ],
+      "reason": "^requires a Mac with Xcode and iOS simulators: ",
+      "category": "platform",
+      "gating": {
+        "env": [
+          "BTRC_IOS_UI_DEVICES"
+        ]
+      },
+      "covered_by": [],
+      "note": "The GUI conformance suite's iOS and iPadOS rows, the triangle example and the screen-order fixture build apps for the simulator, boot one iPhone and one iPad simulator and send them real input through the simulated device's HID service (src/stdlib/GUI/README.md, the UIKit shim). They run where BTRC_IOS_UI_DEVICES asks for them, on the acceptance Mac; their evidence is that run's output, not a skip report, and is never physical-device evidence."
+    },
+    {
       "id": "windows-http-native-only",
       "files": [
         "src/tests/python/test_windows_http.py"

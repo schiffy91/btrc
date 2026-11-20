@@ -26,6 +26,8 @@ platform implements it once, in C, beside the suite:
 | --- | --- | --- |
 | Linux, Windows, Android (the shim provider) | `probes/shim/ConformanceProbe.c`, `ShimProbe.c` | Real input: XTEST on X11 (`probes/linux/X11Input.c`), a wlroots compositor's virtual pointer and keyboard on Wayland (`probes/linux/WaylandInput.c`), `SendInput` on Windows (`probes/windows/Win32Input.c`), the system's event injection on Android (`probes/android/AndroidInput.c` and `probes/android/java`) |
 
+| iOS and iPadOS (the shim provider over UIKit) | `probes/ios/SimulatorProbe.c` | Real input from beside the simulated device: its HID service takes a finger, a hardware keyboard's keys and a pointer's wheel from `tools/target_hosts/ios/simhid.m`, which the driver runs on the host |
+
 The probe is the input itself: it moves the session's one pointer and types
 on its one keyboard, so it runs only where `BTRC_UI_PRIVATE_SESSION=1` says
 the session was made for tests (`tools/ui/headless-session.sh` sets it; on a
@@ -54,6 +56,17 @@ system lets a program send input to its own windows only under
 instrumentation, which lends it the test host's right to. A press is a
 finger's, as it is on a phone; a move with nothing down and a wheel are a
 mouse's.
+
+On iOS and iPadOS the suite is an app too.
+`src/tests/python/test_native_ui_conformance_ios.py` builds it for the
+simulator through both compilers, plain and sanitized, installs it on one
+iPhone and one iPad simulator it makes for the purpose (`btrc-ui-iphone`,
+`btrc-ui-ipad`), and runs each case as its own process; on the iPad every
+case also runs with the program's windows in a second scene of the app, and
+in a scene as narrow as a phone's, which the probe makes by dragging the
+corner of the scene's window (`BTRC_CONFORMANCE_SCENE`). A press is a
+finger's; a move with nothing down and a wheel are a pointer's, which a
+tablet has and a phone has not.
 
 A case prints `CASE <name> PASS`, or `CASE <name> FAIL <what it found>`.
 `BTRC_CONFORMANCE_FONT` names a font file for the font face case, and

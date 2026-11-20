@@ -2,11 +2,12 @@
 
 `import Library.GUI;` selects the native provider for the compilation target
 through the `[[package.providers]]` entries in `btrc.toml`: `MacOS.GUIProvider`
-(AppKit) for `macos`, and `Shim.GUIProvider` for `linux` (GTK4) and `windows`
-(Win32 and Common Controls 6, with WebView2 for the web view). The shim
-provider is one portable implementation over a C contract that each of its
-platforms implements once (see "The shim provider" below). iOS and Android fail at compile time with a missing-provider
-error. Call `GUI.initialize()`, create a window and controls
+(AppKit) for `macos`, and `Shim.GUIProvider` for `linux` (GTK4), `windows`
+(Win32 and Common Controls 6, with WebView2 for the web view), `android`
+(the system's views through JNI) and `ios` (UIKit, for iOS and iPadOS). The
+shim provider is one portable implementation over a C contract that each of
+its platforms implements once (see "The shim provider" below). Call
+`GUI.initialize()`, create a window and controls
 with `GUI.createWindow`, `GUI.createColumn`, `GUI.createRow`,
 `GUI.createButton`, `GUI.createTextField` and the other `GUI.create*`
 factories, attach them, then enter `GUI.run()`.
@@ -261,7 +262,7 @@ frames and captures. It reaches the platform's toolkit through one C
 contract (`Shim/Shim.h`, `ShimControls.h`, `ShimSurface.h`, `ShimWeb.h`),
 which each platform implements once: GTK4 on Linux (`Linux/Gtk*.c`), Win32
 on Windows (`Windows/Win32*.c`), Android's views through JNI
-(`Android/Android*.c`). On Linux its windows and controls are
+(`Android/Android*.c`), UIKit on iOS and iPadOS (`IOS/UIKit*.m`). On Linux its windows and controls are
 GTK4's: a button is a `GtkButton`, a text field a `GtkEntry`, a select a
 `GtkDropDown`, a slider a `GtkScale`, and they look, focus, type and speak to
 assistive technology as GTK makes them. One provider runs on X11, Wayland and
@@ -361,6 +362,53 @@ the system's own views through JNI (`Android/Java`, package `dev.btrc.shim`):
   shim's Java into the app (`tools/target_hosts/android/gui.py` does this
   for tests, with the SDK's own tools).
 
+On iOS and iPadOS the same provider runs over `IOS/UIKit*.m`:
+
+- UIKit owns the process. An app links with `-e _btrcUIKitMain`, which
+  enters `UIApplicationMain` and never returns; the program's `main` runs on
+  a thread of its own. Every call of the contract does its work on the main
+  thread and returns when it is done, and what a person does comes back as
+  events the program polls. No callback enters BTRC, and `GUI.run` is the
+  program's own loop as it is everywhere else.
+- A window is a `UIWindow` of the app's scene, and the scene gives it the
+  whole of itself: the last window shown is the one on the screen, and a
+  window keeps the size it asked for only until it is first shown. Its
+  content is the safe area, a whole number of points each way, so nothing a
+  program places lies under the status bar, the sensor housing or the home
+  indicator. A rotation, a split view and a resized scene are the window's
+  new size (`WINDOW_RESIZED`); the contract has no size class of its own.
+- A control is UIKit's (`UIButton`, `UILabel`, `UITextField`, `UISlider`,
+  `UIActivityIndicatorView`, `UIProgressView`, `UIImageView`; a select is a
+  button that opens a list) in a slot that clips it to its ancestors and
+  cuts out the GPU views placed after it. Drawn content is presented on the
+  content view's own `CAMetalLayer`, beneath the controls, through
+  wgpu-native's Metal backend.
+- A text field keeps what is typed as typed: it does not capitalize,
+  correct or substitute. A slider shows the value the program gives it and
+  reports where a finger asks it to go.
+- Keys are a hardware keyboard's, read before any view acts on them.
+  Command-W is the window's close request; Escape in a text field is the
+  field's. A pointer's hover and a wheel or trackpad's scrolling reach a
+  view where the device has a pointer; a finger is a press, a drag and a
+  release.
+- The web view is `WKWebView`, with a scheme handler that serves the bundle
+  at `app://bundle/` and a store that keeps nothing. A link a person taps
+  to somewhere else is handed to the system, which opens it in Safari.
+- Dark or light is one setting for the application, applied live. The
+  system's folder picker lends a folder for as long as a program holds its
+  security scope, not a directory to open by path, so the directory picker
+  reports that it is unavailable.
+- Where the system gives an app more than one scene (iPadOS), the program's
+  windows live in one of them: the first to connect, or a second one the
+  provider asks for when `BTRC_SHIM_SCENE=second` is in the environment.
+  When the system takes that scene away, its windows are asked to close and
+  move to another scene if one is connected.
+- An app has no pkg-config search path, so its build gives the compiler and
+  the linker wgpu-native's directories and links its static library
+  (`tools/target_hosts/ios/gui.py` does this for tests, with Xcode's own
+  tools, and packs the bundle a scene-based app needs). `BTRC_SHIM_OUTPUT`
+  names a directory that receives what the program prints and its result.
+
 The shared conformance suite (`src/tests/native/gui/conformance`) is the
 regression: each case runs through both compilers on X11 and on Wayland with
 real input (XTEST; a wlroots compositor's virtual pointer and keyboard) in a
@@ -414,6 +462,7 @@ destruction; there is no opaque `Surface.handle` or native surface destructor.
 | `Shim/` | The provider for platforms whose toolkit is reached through a C contract: `GUIProvider`, `WebViewProvider`, `Shim*` views and application, and the contract's headers. |
 | `Linux/` | The contract in GTK4: `GtkShim`, `GtkCanvas`, `GtkControls`, `GtkSurface`, `GtkWeb`. |
 | `Android/` | The contract over Android's views through JNI: `AndroidShim` (windows, events, controls, text), `AndroidSurface`, `AndroidWeb`, and `Java`, package `dev.btrc.shim` (`ShimActivity`, `Shim`, `ShimWeb`, `Slot`), the Java an app compiles in. |
+| `IOS/` | The contract in UIKit, for iOS and iPadOS: `UIKitShim` (the app's entry, scenes, windows, events, text), `UIKitControls` (UIKit's controls in clipping slots), `UIKitSurface` (the content's `CAMetalLayer`), `UIKitWeb` (`WKWebView`). |
 | `Windows/` | The contract in Win32: `Win32Shim` (windows, events, text), `Win32Controls` (Common Controls 6 as child windows, placed and clipped by window regions), `Win32Surface`, `Win32Web` (WebView2). |
 
 ## Quick start

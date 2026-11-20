@@ -2,14 +2,18 @@
 
 The suite's cases name the catalog operations they exercise
 (src/tests/native/gui/conformance/cases.toml). For the platforms whose
-provider is the shim provider (Linux, Windows, Android) this writes, into
-each operation's shard (docs/design/native-ui-catalog/operations), one cell
-per platform and frontend: implemented, with the case's tests as its
+provider is the shim provider (Linux, Windows, Android, iOS) this writes,
+into each operation's shard (docs/design/native-ui-catalog/operations), one
+cell per platform and frontend: implemented, with the case's tests as its
 regression, or an adaptation with its reason. What the runs showed goes
-into one evidence shard (evidence/ui3-conformance.toml). The macOS and iOS
-cells, the ids, owners and links are left exactly as they are.
+into one evidence shard (evidence/ui3-conformance.toml). The macOS cells,
+the ids, owners and links are left exactly as they are.
 
     python3 -m tools.qualification.ui_conformance record --revision <sha> --recorded-at <ISO time>
+
+The platforms' drivers run on different hosts, and so at different times and
+revisions: `--platform` (once for each) records those platforms' runs alone
+and leaves every other platform's cells, run and records as they are.
 
 The run it records is a claim: `ui_catalog check --junit <run>=<junit.xml>`
 holds it to a JUnit file from that platform's driver, in which every test a
@@ -19,6 +23,7 @@ cell names must have passed.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import re
 import tomllib
@@ -32,8 +37,33 @@ FRONTENDS = {"reference": "python", "selfhost": "selfhost"}
 EVIDENCE = "ui3-conformance.toml"
 TESTS = "src/tests/python"
 
+
+@functools.cache
+def needs():
+    """What each of the suite's cases needs of a platform, by the case's name."""
+    cases = tomllib.loads((SUITE / "cases.toml").read_text(encoding="utf-8"))["case"]
+    return {case["name"]: case.get("needs") for case in cases}
+
+
+def ios_tests(case, frontend):
+    """A case's rows on the simulators: both device classes', and the tablet's in a second scene and a compact one."""
+    test = f"{TESTS}/test_native_ui_conformance_ios.py"
+    classes = ("ipad",) if needs()[case] in PLATFORMS["ios"]["restricted"] else ("iphone", "ipad")
+    modes = ("plain", "sanitized")
+    return [
+        *(
+            f"{test}::test_ios_conformance_case[{case}-{device}-{frontend}-{mode}]"
+            for device in classes
+            for mode in modes
+        ),
+        *(f"{test}::test_ipad_conformance_case_in_a_second_scene[{case}-{frontend}-{mode}]" for mode in modes),
+        *(f"{test}::test_ipad_conformance_case_in_a_compact_scene[{frontend}-{mode}-{case}]" for mode in modes),
+    ]
+
+
 # Each platform's driver: its run, what its provider is, what it has of what
 # a case may need, and the tests that are one case through one compiler.
+# `restricted` is what only some of a platform's devices have, with the reason.
 PLATFORMS = {
     "linux": {
         "run": "ui-conformance-linux",
@@ -64,6 +94,14 @@ PLATFORMS = {
             f"{TESTS}/test_native_ui_conformance_android.py::test_android_conformance_case[{case}-{frontend}]"
         ],
     },
+    "ios": {
+        "run": "ui-conformance-ios",
+        "runner": "ios",
+        "configuration": "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view",
+        "has": {"web", "modal", "wheel"},
+        "restricted": {"wheel": "A phone has no pointer and no wheel: the tablet's rows alone exercise it."},
+        "tests": ios_tests,
+    },
 }
 
 # What a platform does differently from the contract's words, by operation,
@@ -77,12 +115,24 @@ ADAPTED = {
         "GUI.chooseDirectory": "Android has no folder to choose by path: the chooser reports that it is unavailable.",
         "IDirectoryPicker.chooseDirectory": "Android has no folder to choose by path: the chooser reports that it is unavailable.",
     },
+    "ios": {
+        "IWindow.setContentSize": "The scene gives every window its whole safe area: a size the program asks for is the window's only until it is first shown.",
+        "IWindow.setMinimumContentSize": "The scene gives every window its whole safe area, so a least size has nothing to hold.",
+        "GUI.createWindow": "The scene gives every window its whole safe area: the size asked for is the window's only until it is first shown.",
+        "IApplication.createWindow": "The scene gives every window its whole safe area: the size asked for is the window's only until it is first shown.",
+        "GUI.chooseDirectory": "iOS has no folder to choose by path: the chooser reports that it is unavailable.",
+        "IDirectoryPicker.chooseDirectory": "iOS has no folder to choose by path: the chooser reports that it is unavailable.",
+    },
 }
 
-# What a platform's provider does not have, by what a case needs.
+# What a platform does not have, by what a case needs: whether its provider
+# implements the operations all the same, and why no run shows them.
 WITHOUT = {
-    "wheel": "The device has no pointer and no wheel.",
-    "freetype": "A font face from a file is FreeType's, and this platform's SDK does not carry FreeType: text here is the system's own, and Library.GUI.FreeType has no provider.",
+    "wheel": {"implementation": "implemented", "note": "The device has no pointer and no wheel."},
+    "freetype": {
+        "implementation": "missing",
+        "note": "A font face from a file is FreeType's, and this platform's SDK does not carry FreeType: text here is the system's own, and Library.GUI.FreeType has no provider.",
+    },
 }
 
 
@@ -91,24 +141,23 @@ def quoted(text):
 
 
 class Recorder:
-    def __init__(self, revision, recorded_at):
+    def __init__(self, revision, recorded_at, platforms=tuple(PLATFORMS)):
         self.revision, self.recorded_at = revision, recorded_at
+        # The platforms this record is of, in the catalog's order.
+        self.platforms = [platform for platform in PLATFORMS if platform in platforms]
         suite = tomllib.loads((SUITE / "cases.toml").read_text(encoding="utf-8"))
         self.cases, self.uncovered = suite["case"], suite["uncovered"]
         self.covering = {operation: case for case in self.cases for operation in case["operations"]}
 
-    def runs(self):
-        lines = []
-        for facts in PLATFORMS.values():
-            lines += [
-                f"[runs.{facts['run']}]",
-                'source = "junit"',
-                f"recorded_at = {quoted(self.recorded_at)}",
-                f"runner = {quoted(facts['runner'])}",
-                f"btrc_revision = {quoted(self.revision)}",
-                "",
-            ]
-        return "\n".join(lines)
+    def run(self, platform):
+        facts = PLATFORMS[platform]
+        return [
+            f"[runs.{facts['run']}]",
+            'source = "junit"',
+            f"recorded_at = {quoted(self.recorded_at)}",
+            f"runner = {quoted(facts['runner'])}",
+            f"btrc_revision = {quoted(self.revision)}",
+        ]
 
     def facts(self, operation, platform, frontend):
         """One slot: its classification, and its evidence."""
@@ -117,8 +166,9 @@ class Recorder:
         needs = case.get("needs") if case else None
         classification = {"configuration": facts["configuration"]}
         if case is not None and needs and needs not in facts["has"]:
-            classification |= {"implementation": "missing", "parity": "os-restricted", "note": WITHOUT[needs]}
-            return classification, {"status": "unavailable", "covered_by": [], "reason": WITHOUT[needs]}
+            without = WITHOUT[needs]
+            classification |= {"parity": "os-restricted", **without}
+            return classification, {"status": "unavailable", "covered_by": [], "reason": without["note"]}
         if case is None:
             reason = self.uncovered[operation]
             classification |= {
@@ -128,13 +178,14 @@ class Recorder:
             }
             return classification, {"status": "implemented-unverified", "reason": reason}
         adapted = ADAPTED.get(platform, {}).get(operation)
+        restricted = facts.get("restricted", {}).get(needs)
         note = (
             f"The conformance suite's case {case['name']} exercises this operation (src/tests/native/gui/conformance)."
         )
         classification |= {
             "implementation": "implemented",
-            "parity": "adapted" if adapted else "equivalent",
-            "note": note + (" " + adapted if adapted else ""),
+            "parity": "os-restricted" if restricted else "adapted" if adapted else "equivalent",
+            "note": " ".join(text for text in (note, adapted, restricted) if text),
             "regression": facts["tests"](case["name"], frontend),
         }
         return classification, {"status": "passed", "observed": "passed"}
@@ -148,8 +199,33 @@ class Recorder:
             lines.append("regression = [" + ", ".join(quoted(test) for test in classification["regression"]) + "]")
         return lines
 
-    def evidence(self, operations):
-        """The evidence shard: one record a slot, each carrying its platform's run."""
+    def record(self, operation, platform, name, frontend):
+        """One slot's record in the evidence shard, carrying its platform's run."""
+        facts = PLATFORMS[platform]
+        provenance = (
+            f'{{ source = "junit", recorded_at = {quoted(self.recorded_at)}, runner = {quoted(facts["runner"])}, '
+            f"btrc_revision = {quoted(self.revision)} }}"
+        )
+        _, evidence = self.facts(operation, platform, frontend)
+        fields = ", ".join(
+            f"{key} = {quoted(value) if isinstance(value, str) else '[]'}" for key, value in evidence.items()
+        )
+        return [
+            "[[records]]",
+            f'subject = {{ kind = "ui-operation", id = {quoted(operation)}, platform = "{platform}", frontend = "{name}" }}',
+            f"evidence = {{ {fields} }}",
+            f"provenance = {provenance}",
+            "",
+        ]
+
+    def evidence(self, operations, existing=""):
+        """The evidence shard: one record a slot. A platform this record is not of keeps the records it has."""
+        kept = {}
+        for block in existing.split("[[records]]\n")[1:]:
+            subject = re.match(
+                r'subject = \{ kind = "ui-operation", id = "([^"]+)", platform = "(\w+)", frontend = "(\w+)" \}', block
+            )
+            kept[subject.groups()] = ["[[records]]", *block.rstrip("\n").split("\n"), ""]
         lines = [
             "# What the GUI conformance suite proves of each operation on the shim provider's",
             "# platforms. Written by tools/qualification/ui_conformance.py; `ui_catalog check",
@@ -160,45 +236,35 @@ class Recorder:
             "",
         ]
         for operation in operations:
-            for platform, facts in PLATFORMS.items():
-                provenance = (
-                    f'{{ source = "junit", recorded_at = {quoted(self.recorded_at)}, runner = {quoted(facts["runner"])}, '
-                    f"btrc_revision = {quoted(self.revision)} }}"
-                )
+            for platform in PLATFORMS:
                 for name, frontend in FRONTENDS.items():
-                    _, evidence = self.facts(operation, platform, frontend)
-                    fields = ", ".join(
-                        f"{key} = {quoted(value) if isinstance(value, str) else '[]'}"
-                        for key, value in evidence.items()
-                    )
-                    lines += [
-                        "[[records]]",
-                        f'subject = {{ kind = "ui-operation", id = {quoted(operation)}, platform = "{platform}", frontend = "{name}" }}',
-                        f"evidence = {{ {fields} }}",
-                        f"provenance = {provenance}",
-                        "",
-                    ]
+                    if platform in self.platforms:
+                        lines += self.record(operation, platform, name, frontend)
+                    else:
+                        lines += kept.get((operation, platform, name), [])
         return "\n".join(lines)
 
-    def cells(self, operation):
+    def cells(self, operation, platform):
         lines = []
-        for platform in PLATFORMS:
-            for name, frontend in FRONTENDS.items():
-                lines += self.cell(operation, platform, name, frontend)
+        for name, frontend in FRONTENDS.items():
+            lines += self.cell(operation, platform, name, frontend)
         return lines
 
     def rewrite(self, path):
-        """Replace the shim platforms' cells and this tool's runs in one shard; everything else stays."""
+        """Replace this record's platforms' cells and runs in one shard, where they stand; everything else stays."""
         lines = path.read_text(encoding="utf-8").splitlines()
-        runs = {facts["run"] for facts in PLATFORMS.values()}
-        output, operation, skipping, wrote_runs = [], None, False, False
+        runs = {PLATFORMS[platform]["run"]: platform for platform in self.platforms}
+        output, operation, skipping = [], None, False
+        # The runs and, of the operation being read, the cells that are not written yet.
+        unwritten, cells = list(self.platforms), []
 
         def close():
             nonlocal operation
             if operation is not None:
                 while output and not output[-1].strip():
                     output.pop()
-                output.extend(self.cells(operation))
+                for platform in cells:
+                    output.extend(self.cells(operation, platform))
                 output.append("")
                 operation = None
 
@@ -206,17 +272,25 @@ class Recorder:
             header = re.fullmatch(r"\[+([^\]]+)\]+", line.strip())
             if header:
                 name = header[1]
-                mine = name.startswith("runs.") and name[5:] in runs
                 cell = re.fullmatch(r"operations\.(\w+)(\.\w+)?", name)
-                skipping = mine or bool(cell and cell[1] in PLATFORMS)
-                if name == "operations" and line.strip().startswith("[["):
+                skipping = False
+                if name.startswith("runs.") and name[5:] in runs:
+                    skipping = True
+                    if runs[name[5:]] in unwritten:
+                        unwritten.remove(runs[name[5:]])
+                        output.extend(self.run(runs[name[5:]]))
+                elif cell and cell[1] in self.platforms:
+                    skipping = True
+                    if cell[1] in cells:
+                        cells.remove(cell[1])
+                        output.extend(self.cells(operation, cell[1]))
+                elif name == "operations" and line.strip().startswith("[["):
                     close()
-                    if not wrote_runs:
-                        output.append(self.runs())
-                        wrote_runs = True
-                if skipping:
-                    continue
-            elif skipping:
+                    for platform in unwritten:
+                        output.extend([*self.run(platform), ""])
+                    unwritten, cells = [], list(self.platforms)
+            if skipping and line.strip():
+                # What stood there goes; the lines between tables stay where they are.
                 continue
             if operation is None and (found := re.fullmatch(r'id = "([^"]+)"', line.strip())):
                 operation = found[1]
@@ -231,13 +305,20 @@ def main(argv=None):
     record = commands.add_parser("record", help="write the shim platforms' cells into every operation shard")
     record.add_argument("--revision", required=True, help="the commit whose tree the drivers ran")
     record.add_argument("--recorded-at", required=True, help="when they ran, as an ISO time with its zone")
+    record.add_argument(
+        "--platform",
+        action="append",
+        choices=sorted(PLATFORMS),
+        help="a platform whose driver ran; every platform's when none is named",
+    )
     arguments = parser.parse_args(argv)
-    recorder = Recorder(arguments.revision, arguments.recorded_at)
+    recorder = Recorder(arguments.revision, arguments.recorded_at, arguments.platform or tuple(PLATFORMS))
     operations = []
     for shard in sorted((CATALOG / "operations").glob("*.toml")):
         recorder.rewrite(shard)
         operations += [row["id"] for row in tomllib.loads(shard.read_text(encoding="utf-8")).get("operations", [])]
-    (CATALOG / "evidence" / EVIDENCE).write_text(recorder.evidence(operations), encoding="utf-8")
+    shard = CATALOG / "evidence" / EVIDENCE
+    shard.write_text(recorder.evidence(operations, shard.read_text(encoding="utf-8")), encoding="utf-8")
     return 0
 
 

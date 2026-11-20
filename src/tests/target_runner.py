@@ -1074,9 +1074,9 @@ class ComputeRuntime:
             return f"WebGPU toolchain is unavailable on {platform.system()}: set GPU_CFLAGS and GPU_LDFLAGS"
         return tuple(compile_flags), tuple(link_flags)
 
-    @staticmethod
+    @classmethod
     def verdict(
-        row: GeneratedTargetRow, host: tuple[tuple[str, ...], tuple[str, ...]] | str, facility: Facility | None
+        cls, row: GeneratedTargetRow, host: tuple[tuple[str, ...], tuple[str, ...]] | str, facility: Facility | None
     ) -> Verdict | tuple[tuple[str, ...], tuple[str, ...]]:
         """The flags a dispatching program links the runtime with on `row`, or why it cannot.
 
@@ -1089,8 +1089,33 @@ class ComputeRuntime:
         if facility is None or row.label not in facility.targets:
             reason = facility.reason if facility else "no compute runtime is built for this row"
             return Verdict(facility.status if facility else "missing", "build", reason, cites)
-        # A row the manifest lists as having a cross-built runtime needs its link flags first.
-        raise BuildFailure("facility", f"the runner has no link flags yet for {row.label}'s compute runtime")
+        return cls.cross_flags(row, facility)
+
+    CROSS_CFLAGS = "BTRC_TARGET_COMPUTE_CFLAGS"
+    CROSS_LDFLAGS = "BTRC_TARGET_COMPUTE_LDFLAGS"
+
+    @classmethod
+    def cross_flags(
+        cls, row: GeneratedTargetRow, facility: Facility
+    ) -> Verdict | tuple[tuple[str, ...], tuple[str, ...]]:
+        """A cross row whose runtime can be built takes it from whoever built it for this run.
+
+        The two variables carry what `GPU_CFLAGS` and `GPU_LDFLAGS` carry for
+        the host: the runtime's and wgpu-native's headers, and the libraries a
+        dispatching program links. Without them the row's dispatching programs
+        are as missing as on a row with no runtime at all.
+        """
+
+        compile_flags, link_flags = os.environ.get(cls.CROSS_CFLAGS), os.environ.get(cls.CROSS_LDFLAGS)
+        if bool(compile_flags) != bool(link_flags):
+            raise BuildFailure("facility", f"{cls.CROSS_CFLAGS} and {cls.CROSS_LDFLAGS} must be set together")
+        if not compile_flags or not link_flags:
+            reason = (
+                f"{row.label}'s compute runtime is built on request: set {cls.CROSS_CFLAGS} and {cls.CROSS_LDFLAGS} "
+                "to the flags its build prints"
+            )
+            return Verdict("missing", "build", reason, facility.cites)
+        return tuple(shlex.split(compile_flags)), tuple(shlex.split(link_flags))
 
 
 class BuildFailure(Exception):
