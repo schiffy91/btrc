@@ -22,6 +22,8 @@ class MacOSStackLayout implements IMacOSContainerLayout {
 	private NSLayoutConstraint? _left;
 	private bool _vertical;
 	private StackAlignment _alignment = STACK_ALIGN_START;
+	private double _horizontalPadding = 0.0;
+	private double _verticalPadding = 0.0;
 
 	public MacOSStackLayout(bool vertical, double spacing) {
 		if (!NSThread.isMainThread()) { throw "Native stacks require the main thread"; }
@@ -102,7 +104,13 @@ class MacOSStackLayout implements IMacOSContainerLayout {
 		var pinTop = self._top; var pinRight = self._right; var pinBottom = self._bottom; var pinLeft = self._left;
 		if (pinTop == null || pinRight == null || pinBottom == null || pinLeft == null) { throw "Native stack is closed"; }
 		pinTop.setConstant(top); pinRight.setConstant(right); pinBottom.setConstant(bottom); pinLeft.setConstant(left);
+		self._horizontalPadding = left + right; self._verticalPadding = top + bottom;
 	}
+
+	public bool vertical() { return self._vertical; }
+
+	/* Both edges' padding along one axis. */
+	public double padding(bool horizontal) { return horizontal ? self._horizontalPadding : self._verticalPadding; }
 
 	public void layout() { self.nativeView().layoutSubtreeIfNeeded(); }
 
@@ -151,9 +159,34 @@ class MacOSStack implements IStack, IMacOSView {
 
 	public IView childAt(int index) { return self._container.childAt(index); }
 
-	public double fittingWidth() { return self._container.fittingWidth(); }
+	/* AppKit packs a stack by its children's alignment rectangles, and a
+	 * control's frame may be larger than its own: a push button's was, by its
+	 * bezel, before macOS 26. A stack fits the frames it holds, with its
+	 * spacing between them and its padding around them. */
+	private double framesExtent(bool horizontal) {
+		bool along = horizontal != self._layout.vertical();
+		int count = self._container.childCount();
+		double extent = 0.0;
+		for (int index = 0; index < count; index++) {
+			var child = self._container.childAt(index);
+			double size = horizontal ? child.fittingWidth() : child.fittingHeight();
+			if (along) { extent += size; } else if (size > extent) { extent = size; }
+		}
+		if (along && count > 1) { extent += self._layout.spacing() * (double)(count - 1); }
+		return extent + self._layout.padding(horizontal);
+	}
 
-	public double fittingHeight() { return self._container.fittingHeight(); }
+	public double fittingWidth() {
+		double native = self._container.fittingWidth();
+		double frames = self.framesExtent(true);
+		return frames > native ? frames : native;
+	}
+
+	public double fittingHeight() {
+		double native = self._container.fittingHeight();
+		double frames = self.framesExtent(false);
+		return frames > native ? frames : native;
+	}
 
 	public void arrange(double x, double y, double width, double height) { self._container.arrange(x, y, width, height); }
 

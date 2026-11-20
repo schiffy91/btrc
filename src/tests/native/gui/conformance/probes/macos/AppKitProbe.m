@@ -21,6 +21,7 @@
 #include "../ConformanceProbe.h"
 #import <AppKit/AppKit.h>
 #include <math.h>
+#include <string.h>
 
 /* Marks the application-defined events that stand for a queued action, so
  * the provider's own application-defined events pass through untouched. */
@@ -332,8 +333,46 @@ static void dispatch(NSEvent *event) {
 int conformanceProbeWindowSizing(void);
 int conformanceProbeWindowSizing(void) { return 0; }
 
+/* BTRC_CONFORMANCE_TRACE=1 says on stderr what a failed row's own words do
+ * not: a turn of the host's loop that took long, and every window's size,
+ * with its content's and its content's children's, whenever one changes. */
+static BOOL traced(void) {
+    static int wanted = -1;
+    if (wanted < 0) {
+        const char *value = getenv("BTRC_CONFORMANCE_TRACE");
+        wanted = value && *value && strcmp(value, "0") != 0;
+    }
+    return wanted == 1;
+}
+
+static void traceWindows(void) {
+    static NSString *last;
+    NSMutableString *now = [NSMutableString string];
+    for (NSWindow *window in NSApp.windows) {
+        NSView *content = window.contentView;
+        [now appendFormat:@"probe: window '%@' %s frame %.1f by %.1f, content %.1f by %.1f at scale %.2f on a %.0f by %.0f screen", window.title,
+                          window.visible ? "shown" : "hidden", window.frame.size.width, window.frame.size.height, content.frame.size.width,
+                          content.frame.size.height, window.backingScaleFactor, window.screen.frame.size.width, window.screen.frame.size.height];
+        NSUInteger listed = 0;
+        for (NSView *child in content.subviews) {
+            if (listed++ == 4) { break; }
+            [now appendFormat:@"; %@ frame %.1f,%.1f %.1f by %.1f bounds %.1f by %.1f", NSStringFromClass(child.class), child.frame.origin.x,
+                              child.frame.origin.y, child.frame.size.width, child.frame.size.height, child.bounds.size.width, child.bounds.size.height];
+        }
+        [now appendString:@"\n"];
+    }
+    if (now.length == 0 || [now isEqualToString:last]) { return; }
+    [last release];
+    last = [now copy];
+    fputs(now.UTF8String, stderr);
+    fflush(stderr);
+}
+
+enum { TRACED_TURN_MILLISECONDS = 20 };
+
 void conformanceProbeService(void) {
     if (!NSThread.isMainThread || !NSApp) { return; }
+    CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
     @autoreleasepool {
         hostApplication();
         NSDate *deadline = nil;
@@ -352,6 +391,14 @@ void conformanceProbeService(void) {
             } else if (!hold(event)) {
                 dispatch(event);
             }
+        }
+        if (traced()) {
+            double milliseconds = (CFAbsoluteTimeGetCurrent() - started) * 1000.0;
+            if (milliseconds >= TRACED_TURN_MILLISECONDS) {
+                fprintf(stderr, "probe: a turn of the host's loop took %.0f ms\n", milliseconds);
+                fflush(stderr);
+            }
+            traceWindows();
         }
     }
 }

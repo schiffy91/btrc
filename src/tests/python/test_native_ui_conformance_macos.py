@@ -64,7 +64,7 @@ class MacOSConformancePrograms:
         )
         return executable
 
-    def run(self, request, frontend, sanitized, argument):
+    def run(self, request, frontend, sanitized, argument, traced=False):
         if sys.platform != "darwin":
             pytest.skip(MACOS_ONLY)
         NativeBindingPackage.require_reader()
@@ -80,8 +80,17 @@ class MacOSConformancePrograms:
                 "UBSAN_OPTIONS": "halt_on_error=1",
                 "BTRC_CONFORMANCE_FONT": font,
                 "BTRC_CONFORMANCE_WEB": str(SUITE / "web"),
+                **({"BTRC_CONFORMANCE_TRACE": "1"} if traced else {}),
             },
         )
+
+    def explain(self, request, frontend, sanitized, argument):
+        """A failed case once more, with the probe saying how long its turns took and what size its windows were."""
+        try:
+            again = self.run(request, frontend, sanitized, argument, traced=True)
+        except subprocess.TimeoutExpired as expired:
+            return f"\ntraced again: no end within {expired.timeout} seconds\n"
+        return f"\ntraced again (status {again.returncode}):\n{again.stdout}{again.stderr}"
 
 
 @pytest.fixture(scope="module")
@@ -97,6 +106,8 @@ def test_macos_conformance_case(programs, request, name, frontend, sanitized):
     result = programs.run(request, frontend, sanitized, name)
     report = f"{name} on macos ({frontend}, {'sanitized' if sanitized else 'plain'})\n"
     report += result.stdout + result.stderr
+    if result.returncode != 0 or result.stdout.splitlines()[-2:] != [f"CASE {name} PASS", "CONFORMANCE ran=1 failed=0"]:
+        report += programs.explain(request, frontend, sanitized, name)
     assert result.returncode == 0, report
     assert "ERROR: AddressSanitizer" not in result.stderr and "runtime error:" not in result.stderr, report
     assert result.stdout.splitlines()[-2:] == [f"CASE {name} PASS", "CONFORMANCE ran=1 failed=0"], report
