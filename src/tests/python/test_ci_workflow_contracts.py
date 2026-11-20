@@ -1631,9 +1631,13 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     # CX-P1-05's request: sdkmanager installs exactly the pinned package list,
     # and the installed revisions are verified rather than trusted.
     android = _code(_job(_workflow("host-android.yml"), "emulator"))
-    assert "python3 -m tools.target_hosts.android.sdk packages | tee build/android-sdk-packages.txt" in android
+    selection = "--api ${{ matrix.api }} --all-platforms"
+    assert (
+        f"python3 -m tools.target_hosts.android.sdk packages {selection} | tee build/android-sdk-packages.txt"
+        in android
+    )
     assert '"$sdkmanager" --install "${packages[@]}"' in android
-    assert 'python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT"' in android
+    assert f'python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT" {selection}' in android
     # The emulator and platform-tools come from nix/android-repo-overlay.json's checksummed archives.
     assert 'python3 -m tools.target_hosts.android.sdk install-archives --sdk "$ANDROID_SDK_ROOT"' in android
     assert ".#platforms" not in android
@@ -1643,6 +1647,11 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     for compiler in ("python", "btrc"):
         assert f"--compilers {compiler}" in android, compiler
     assert android.count("src/tests/python/test_native_jni_android.py") == 2
+    steps = _parsed("host-android.yml")["jobs"]["emulator"]["steps"]
+    assert "android.sdk verify" in next(step["run"] for step in steps if step.get("id") == "sdk")
+    for step in steps:
+        if "python3 -m pytest" in step.get("run", ""):
+            assert step["if"] == "${{ !cancelled() && steps.sdk.outcome == 'success' }}"
     assert 'echo "BTRC_ANDROID_JNI_REQUIRED=1"' in android
 
 

@@ -50,16 +50,17 @@ class SDKVersions:
             raise ValueError(f"API {api} is not pinned in platforms.nix ({', '.join(self.apis)})")
         return [api]
 
-    def packages(self, api=None):
-        apis = self.selected(api)
+    def packages(self, api=None, *, all_platforms=False):
+        images = self.selected(api)
+        platforms = self.apis if all_platforms else images
         return [
             f"cmdline-tools;{self.commandline}",
             "platform-tools",
             "emulator",
             f"ndk;{self.ndk}",
             *(f"build-tools;{version}" for version in self.build_tools),
-            *(f"platforms;android-{level}" for level in apis),
-            *(f"system-images;android-{level};google_apis;x86_64" for level in apis),
+            *(f"platforms;android-{level}" for level in platforms),
+            *(f"system-images;android-{level};google_apis;x86_64" for level in images),
         ]
 
     def install_archives(self, root, *, fetch=None):
@@ -125,7 +126,7 @@ class SDKVersions:
         if not match or match[1] != expected:
             raise ValueError(f"{directory}: expected revision {expected}, found {match[1] if match else 'missing'}")
 
-    def verify(self, root, api=None):
+    def verify(self, root, api=None, *, all_platforms=False):
         root = Path(root)
         versions = {
             "platform-tools": self.platform_tools,
@@ -136,13 +137,13 @@ class SDKVersions:
         versions.update({f"build-tools/{version}": version for version in self.build_tools})
         for relative, expected in versions.items():
             self.verify_revision(root / relative, expected)
-        for level in self.selected(api):
-            for relative in (
-                f"platforms/android-{level}/android.jar",
-                f"system-images/android-{level}/google_apis/x86_64/system.img",
-            ):
-                if not (root / relative).is_file():
-                    raise ValueError(f"missing SDK package payload: {relative}")
+        images = self.selected(api)
+        platforms = self.apis if all_platforms else images
+        payloads = [f"platforms/android-{level}/android.jar" for level in platforms]
+        payloads.extend(f"system-images/android-{level}/google_apis/x86_64/system.img" for level in images)
+        for relative in payloads:
+            if not (root / relative).is_file():
+                raise ValueError(f"missing SDK package payload: {relative}")
 
 
 def main(argv=None):
@@ -150,17 +151,22 @@ def main(argv=None):
     parser.add_argument("command", choices=("packages", "cache-key", "verify", "install-archives"))
     parser.add_argument("--sdk", type=Path)
     parser.add_argument("--api", help="only this pinned API's platform and system image (packages, verify)")
+    parser.add_argument(
+        "--all-platforms",
+        action="store_true",
+        help="include every pinned compile platform with the selected emulator image",
+    )
     args = parser.parse_args(argv)
     versions = SDKVersions()
     if args.command == "packages":
-        print("\n".join(versions.packages(args.api)))
+        print("\n".join(versions.packages(args.api, all_platforms=args.all_platforms)))
     elif args.command == "cache-key":
         print(versions.cache_key())
     else:
         if args.sdk is None:
             parser.error(f"{args.command} requires --sdk")
         if args.command == "verify":
-            versions.verify(args.sdk, args.api)
+            versions.verify(args.sdk, args.api, all_platforms=args.all_platforms)
         else:
             versions.install_archives(args.sdk)
     return 0

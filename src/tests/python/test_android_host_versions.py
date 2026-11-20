@@ -58,6 +58,12 @@ def test_one_apis_packages_keep_the_tools_and_only_its_image():
         f"platforms;android-{api}",
         f"system-images;android-{api};google_apis;x86_64",
     }
+    for image in versions.apis:
+        assert versions.packages(image, all_platforms=True) == [
+            name
+            for name in versions.packages()
+            if not name.startswith("system-images;") or name == f"system-images;android-{image};google_apis;x86_64"
+        ]
     with pytest.raises(ValueError, match="not pinned"):
         versions.packages("28")
 
@@ -116,9 +122,14 @@ def test_installed_sdk_revisions_are_checked(tmp_path):
     for api in versions.apis[1:]:
         (tmp_path / f"system-images/android-{api}/google_apis/x86_64/system.img").unlink()
     versions.verify(tmp_path, versions.apis[0])
+    versions.verify(tmp_path, versions.apis[0], all_platforms=True)
     if versions.apis[1:]:
         with pytest.raises(ValueError, match="missing SDK package payload"):
             versions.verify(tmp_path)
+        (tmp_path / f"platforms/android-{versions.apis[1]}/android.jar").unlink()
+        with pytest.raises(ValueError, match=r"android\.jar"):
+            versions.verify(tmp_path, versions.apis[0], all_platforms=True)
+        versions.verify(tmp_path, versions.apis[0])
     (tmp_path / "emulator/source.properties").write_text("Pkg.Revision = 99.0.0\n")
     with pytest.raises(ValueError, match="expected revision"):
         versions.verify(tmp_path)

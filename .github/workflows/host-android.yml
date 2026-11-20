@@ -132,19 +132,21 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
-      - name: Install the pinned SDK packages
+      # Both devices build the app against API 36. Each job boots only its own image.
+      - name: Install the pinned SDK packages for API ${{ matrix.api }}
         run: |
           mkdir -p build
-          python3 -m tools.target_hosts.android.sdk packages | tee build/android-sdk-packages.txt
+          python3 -m tools.target_hosts.android.sdk packages --api ${{ matrix.api }} --all-platforms | tee build/android-sdk-packages.txt
           sdkmanager="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           # Keep sdkmanager’s status when its closed input makes yes exit on SIGPIPE.
           "$sdkmanager" --licenses < <(yes) > /dev/null
           mapfile -t packages < build/android-sdk-packages.txt
           "$sdkmanager" --install "${packages[@]}" > build/android-sdkmanager.log
       - name: Install the pinned emulator and platform-tools archives
+        id: sdk
         run: |
           python3 -m tools.target_hosts.android.sdk install-archives --sdk "$ANDROID_SDK_ROOT"
-          python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT"
+          python3 -m tools.target_hosts.android.sdk verify --sdk "$ANDROID_SDK_ROOT" --api ${{ matrix.api }} --all-platforms
           python3 -m tools.target_hosts.android.sdk cache-key | tee build/android-sdk-cache-key.txt
       - name: Build the x86_64 app and the arm64 compile-only pair
         run: |
@@ -186,13 +188,13 @@ jobs:
       # AVD the fixture check created, after its results are retained, and
       # stops it again.
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.sdk.outcome == 'success' }}
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.sdk.outcome == 'success' }}
         with:
           use-flakehub: false
       - name: Build the native header and Java class readers
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.sdk.outcome == 'success' }}
         run: |
           nix build .#btrc-native-header --out-link build/native-header-reader
           nix build .#btrc-java-class-reader --out-link build/java-class-reader
@@ -208,22 +210,22 @@ jobs:
             echo "BTRC_ANDROID_JNI_EVIDENCE=$PWD/build/android-jni-api${{ matrix.api }}"
           } >> "$GITHUB_ENV"
       - name: Round-trip checked JNI calls and Java natives on API ${{ matrix.api }} (reference compiler)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.sdk.outcome == 'success' }}
         run: |
           python3 -m pytest -q -rA -p no:cacheprovider --compilers python \
             src/tests/python/test_native_jni_android.py --skip-report=build/skip-report-android-jni-python.json
           python3 -m tools.qualification skip-gate build/skip-report-android-jni-python.json
       - name: Build the self-hosted compiler
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.sdk.outcome == 'success' }}
         run: nix build .#btrcc --out-link build/btrcc
       - name: Round-trip checked JNI calls and Java natives on API ${{ matrix.api }} (self-hosted compiler)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.sdk.outcome == 'success' }}
         run: |
           BTRC_TEST_BTRCC="$PWD/build/btrcc/bin/btrcc" python3 -m pytest -q -rA -p no:cacheprovider --compilers btrc \
             src/tests/python/test_native_jni_android.py --skip-report=build/skip-report-android-jni-btrc.json
           python3 -m tools.qualification skip-gate build/skip-report-android-jni-btrc.json
       - name: Run the GUI conformance suite on API ${{ matrix.api }} through both compilers
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.sdk.outcome == 'success' }}
         run: |
           BTRC_TEST_BTRCC="$PWD/build/btrcc/bin/btrcc" BTRC_ANDROID_UI_EVIDENCE="$PWD/build/android-ui-api${{ matrix.api }}" \
             python3 -m pytest -q -rA -p no:cacheprovider src/tests/python/test_native_ui_conformance_android.py \
