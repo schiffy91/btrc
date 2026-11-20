@@ -17,6 +17,7 @@ static struct __btrc_windows_daemon_file_owner owners[8];
 static struct file files[160];
 static int scenario, file_count, cursor, pending = -1, spawns, polls, closes, record_removals, answered;
 static unsigned next_id;
+static int pending_deletions;
 static const char token[] = "000102030405060708090a0b0c0d0e0f\n";
 static const char stop_name[] = "control.000102030405060708090a0b0c0d0e0f.stop";
 static const char probe_name[] = "control.000102030405060708090a0b0c0d0e0f.probe.11111111111111111111111111111111";
@@ -123,6 +124,15 @@ int __btrc_windows_daemon_directory_next(__btrc_windows_daemon_file_owner *direc
     owner_check(directory); REQUIRE(directory->index == -1); clear(error);
     if (restart) { cursor = 0; pending = -1; }
     memset(identity, 0, sizeof(*identity)); *required = 0;
+    /* The controller withdraws its acknowledgement while service scans,
+     * and another deletion races the final cleanup scan. */
+    if (scenario == 11 && ((supervisor.phase == 4 && answered && pending_deletions == 0)
+            || (supervisor.phase == 5 && pending_deletions == 1))) {
+        pending_deletions++;
+        int result = fail(error, pending_deletions == 1 ? 0xc0000056u : 303u, 1);
+        if (pending_deletions == 1) error->domain = 3;
+        return result;
+    }
     if (pending < 0) {
         while (cursor < file_count && !files[cursor].exists) cursor++;
         if (cursor == file_count) return 0;
@@ -225,6 +235,7 @@ int main(int argc, char **argv) {
     int retained = scenario == 4 || scenario == 7 || scenario == 8 || scenario == 9 || scenario == 19;
     REQUIRE((find("control") >= 0) == retained);
     if (scenario == 4 || scenario == 7 || scenario == 8 || scenario == 9 || scenario == 19) REQUIRE(record_removals == 0);
+    if (scenario == 11) REQUIRE(pending_deletions == 2);
     if (scenario == 11 || scenario == 17) REQUIRE(answered == 1);
     if (scenario == 10 || scenario == 11) REQUIRE(find(stop_name) < 0);
     if (scenario == 18) REQUIRE(find(stop_name) >= 0);

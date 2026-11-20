@@ -117,7 +117,7 @@ class WindowsDaemonSupervisor {
 			self.restartEnumeration = false;
 			if (name.isEmpty()) {
 				self.restartEnumeration = true;
-				return self.files.usable() && (self.files.error.stage == (uint32_t)0 || self.files.missing()) ? 0 : -1;
+				return self.files.usable() && (self.files.error.stage == (uint32_t)0 || self.files.entryDisappeared()) ? 0 : -1;
 			}
 			if (identity.kind != (uint32_t)0 || !self.probeName(name, false)) { continue; }
 			string content = self.files.read(name, &identity);
@@ -146,7 +146,7 @@ class WindowsDaemonSupervisor {
 			restart = false;
 			if (name.isEmpty()) {
 				if (self.files.error.stage == (uint32_t)0) { return self.files.remove(self.controlName, &self.recordIdentity, self.record); }
-				if (!self.files.usable() || !self.files.missing()) { return false; }
+				if (!self.files.usable() || !self.files.entryDisappeared()) { return false; }
 				restart = true;
 				continue;
 			}

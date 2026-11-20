@@ -37,6 +37,16 @@ class WindowsDaemonControlStore {
 	 * in their original error domains. Refusal and access denial are not absence. */
 	public bool missing() { return self.error.stage == (uint32_t)17 && ((self.error.domain == (uint32_t)2 && (self.error.native_code == (uint32_t)2 || self.error.native_code == (uint32_t)3)) || (self.error.domain == (uint32_t)3 && (self.error.native_code == (uint32_t)0xc0000034U || self.error.native_code == (uint32_t)0xc000003aU))); }
 
+	/* A controller may be deleting a probe acknowledgement as the directory
+	 * cursor reopens it. Only enumeration treats delete-pending as a reason
+	 * to rescan; publication and stop still require confirmed absence. */
+	public bool entryDisappeared() {
+		bool deletePending = self.error.stage == (uint32_t)17
+			&& ((self.error.domain == (uint32_t)2 && self.error.native_code == (uint32_t)303)
+				|| (self.error.domain == (uint32_t)3 && self.error.native_code == (uint32_t)0xc0000056U));
+		return self.missing() || deletePending;
+	}
+
 	public bool open(string path, bool create = false) {
 		if (self.directory != NULL || self.active != NULL || !self.usable()) { return false; }
 		if (path == null || path.isEmpty()) { return self.invalid(); }
