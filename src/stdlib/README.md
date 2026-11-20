@@ -105,6 +105,18 @@ Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
 `USB` (`Linux/`, `MacOS/`, `Unix/`).
 Each group with behavior worth explaining has its own `README.md`.
 
+A new group is registered by one command once its directory and manifest
+exist: `python3 -m tools.register_package Name --reason "why it is the same
+on every target" [--summary "its line in the root README"]`. It adds the
+dependency here, has the resolver rewrite `btrc.lock`, gives each export its
+row in `docs/design/platform-inventory.toml`, freezes that ledger's
+denominator again under a release named for the day, and moves the counts
+that `platform-parity.md` publishes and `test_qualification_ledger.py` pins.
+It classifies only a group of plain BTRC, the same on every slice; one with a
+native binding or a C include differs by slice, and it stops and says where
+to classify it by hand. `--check` writes nothing and fails if anything would
+change.
+
 ## Drift findings
 
 PLAN.md Stage 4 repeated the structure-first review of the stdlib, the
