@@ -5,6 +5,12 @@
 #include <turbojpeg.h>
 #include <string.h>
 
+/* libjpeg-turbo 3.2 turned tj3Init into a macro over tj3InitVersion, and a
+ * binding names functions, not macros. This is a function under either. */
+static inline tjhandle btrcJpegCreate(int initType) {
+	return tj3Init(initType);
+}
+
 /* Reads dimensions; 1 on success, 0 when the bytes are not a readable PNG. */
 static inline int btrcPngHeader(const unsigned char* data, size_t size, unsigned int* width, unsigned int* height) {
 	png_image image;

@@ -34,7 +34,7 @@ class LinuxEncodedImageDecoder implements IEncodedImageDecoder, IEncodedImageFor
 	 * handle is released by hand: every path below reaches the single
 	 * tj3Destroy, and nothing between init and destroy can throw. */
 	private EncodedImageDecodeOutcome decodeJpeg(Bytes encoded, EncodedImageDecodeLimits limits) {
-		var handle = tj3Init(TJINIT_DECOMPRESS);
+		var handle = btrcJpegCreate(TJINIT_DECOMPRESS);
 		if (handle == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }
 		EncodedImageDecodeStatus status = ENCODED_IMAGE_DECODE_OK;
 		Image? image = null;
