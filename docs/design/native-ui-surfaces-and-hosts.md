@@ -510,21 +510,25 @@ Each step ends with something that runs.
      case that needs real input failed under it while the x64 runner passed.
      The workflow closes it before the GUI rows, as a person would, and the
      probe gets past a lesser shell surface (the Start menu, the search
-     box) by itself, with Escape and a click on the window it wants. On the
-     hosted x64 runner the folder chooser went undismissed in one row of
-     four until the probe asked the program's window for the modal it owns.
-   - Two hosted faults are rare and not explained. On x64 the folder
-     chooser's row ran out of its 180 seconds once more, in one full run of
-     five, and then in none of 320 rows run for it alone; the probe now
-     says at every press which window it took for the modal and which had
-     the foreground and the focus. On ARM64 one process in twenty of one
-     row (`button.click`, reference compiler, sanitized) ended with status
-     0 and nothing printed; the suite now writes each case's line when it
-     is known, so the next one shows whether the case had finished. In the
-     guest two rows of `mix.order`, one after the other, once ran out of
-     their time with nothing printed, and not again in 100 rows after. A
-     row that runs out of time now lists the windows on the screen and the
-     one in front before it is stopped.
+     box) by itself, with Escape and a click on the window it wants.
+   - On the hosted x64 runner the folder chooser's row ran out of its 180
+     seconds in about one full run of three, and in none of 320 rows run
+     for it alone. The probe's trace of each press found it: the pointer,
+     left by an earlier case, rested on the chooser's Back button, whose
+     tooltip is an enabled popup the chooser owns, and the window an owner
+     names as its enabled popup was the tooltip. The probe brought the
+     tooltip to the front and sent it Escape until the time ran out. It
+     now takes the program's topmost owned window with a title bar; with
+     the pointer put on that button in the guest, the old probe hangs and
+     the new one passes.
+   - Two faults are rare and not explained. On hosted ARM64 one process
+     in twenty of one sanitized row (`button.click`, reference compiler)
+     ended with status 0 and nothing printed; the suite now writes each
+     case's line when it is known, so the next one shows whether the case
+     had finished. In the guest two rows of `mix.order`, one after the
+     other, once ran out of their time with nothing printed, and not again
+     in 100 rows after. A row that runs out of time now lists the windows
+     on the screen and the one in front before it is stopped.
 7. **Android**: a new provider on the approved UI2 host attachment, not a
    second run loop. iOS waits with macOS. Done: the shim provider's third
    implementation (`GUI/Android`), Android's own views reached through JNI
@@ -557,7 +561,9 @@ Each step ends with something that runs.
      waits until the launcher's own window has held the focus, turns the
      system's "isn't responding" dialogs off for the test device, and a
      failed run says which window was in front and what the system
-     refused. What was in front those minutes has not been seen.
+     refused. What was in front those minutes has not been seen. Once
+     since, on API 29, a program's result was 0 and its output file empty;
+     that is not explained either.
    - `IFontFace` is FreeType's here too, which the NDK does not carry; the
      font case does not apply, as on Windows. Android has no folder to
      choose by path: the directory picker reports that it is unavailable.

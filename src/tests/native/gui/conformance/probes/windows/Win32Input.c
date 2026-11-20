@@ -194,16 +194,19 @@ static bool win32Activate(const char *title) {
     return window && toFront(window);
 }
 
-/* The program's own window, and the modal it has open: a modal is the
- * enabled window its owner names while the owner itself is disabled. */
+/* The modal the program has open: its topmost window, other than the
+ * program's own, that takes input, is owned and has a title bar. The window
+ * an owner names as its enabled popup will not do: a tooltip the modal shows
+ * while the pointer rests on one of its buttons is one too, and a key sent
+ * to a tooltip dismisses nothing. */
 static BOOL CALLBACK owning(HWND window, LPARAM found) {
     DWORD process = 0;
     wchar_t name[32] = L"";
     GetWindowThreadProcessId(window, &process);
-    if (process != GetCurrentProcessId() || !IsWindowVisible(window) || !GetClassNameW(window, name, 32) || wcscmp(name, L"BtrcShimWindow") != 0) { return TRUE; }
-    HWND modal = GetWindow(window, GW_ENABLEDPOPUP);
-    if (!modal || modal == window || !IsWindowVisible(modal)) { return TRUE; }
-    *(HWND *)found = modal;
+    if (process != GetCurrentProcessId() || !IsWindowVisible(window) || !IsWindowEnabled(window)) { return TRUE; }
+    if (!GetClassNameW(window, name, 32) || wcscmp(name, L"BtrcShimWindow") == 0) { return TRUE; }
+    if ((GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION) != WS_CAPTION || GetWindow(window, GW_OWNER) == NULL) { return TRUE; }
+    *(HWND *)found = window;
     return FALSE;
 }
 
