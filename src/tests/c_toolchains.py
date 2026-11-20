@@ -208,6 +208,14 @@ def sanitizer_clang() -> str | None:
 
     Nix's clang ships a compiler-rt whose sanitizer runtime deadlocks in dyld
     initialization on macOS; Apple's clang links the working one.
+
+    Seen with compiler-rt 21.1.8 on macOS 27.2.1 (26B131): a program built with
+    `-fsanitize=address` never reaches main and spins at full CPU. ASan's
+    start-up walks the dyld shared cache, which allocates, and the allocation
+    re-enters the start-up: AsanInitInternal, InitializeShadowMemory,
+    MemoryMappingLayout::Next, get_dyld_hdr,
+    dyld_shared_cache_iterate_text_swift, _Block_copy, malloc,
+    __sanitizer_mz_malloc, AsanInitFromRtl. A three-line C program shows it.
     """
     if sys.platform == "darwin" and os.access("/usr/bin/clang", os.X_OK):
         return "/usr/bin/clang"
