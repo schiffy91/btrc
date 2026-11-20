@@ -28,6 +28,7 @@
 BTRC_WIN_GUID(btrcWinIidUnknown, 0x00000000, 0x0000, 0x0000, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);
 BTRC_WIN_GUID(btrcWinIidEnvironmentCompleted, 0x4e8a3389, 0xc9d8, 0x4bd2, 0xb6, 0xb5, 0x12, 0x4f, 0xee, 0x6c, 0xc1, 0x4d);
 BTRC_WIN_GUID(btrcWinIidControllerCompleted, 0x6c4819f3, 0xc9b7, 0x4260, 0x81, 0x27, 0xc9, 0xf5, 0xbd, 0xe7, 0xf6, 0x8c);
+BTRC_WIN_GUID(btrcWinIidBridgeCompleted, 0xb99369f3, 0x9b11, 0x47b5, 0xbc, 0x6f, 0x8e, 0x78, 0x95, 0xfc, 0xea, 0x17);
 BTRC_WIN_GUID(btrcWinIidWebMessageReceived, 0x57213f19, 0x00e6, 0x49fa, 0x8e, 0x07, 0x89, 0x8e, 0xa0, 0x1e, 0xcb, 0xd2);
 BTRC_WIN_GUID(btrcWinIidNavigationStarting, 0x9adbe429, 0xf36d, 0x432b, 0x9d, 0xdc, 0xf8, 0x88, 0x1f, 0xbd, 0x76, 0xe3);
 BTRC_WIN_GUID(btrcWinIidNavigationCompleted, 0xd33a35bf, 0x1c49, 0x4f98, 0x93, 0xab, 0x00, 0x6e, 0x05, 0x33, 0xfe, 0x1c);
@@ -64,6 +65,7 @@ typedef struct BtrcWinWeb {
 	wchar_t* pending;
 	char** waiting;
 	int waitingCount;
+	bool bridgeReady;
 	bool loaded;
 	bool closed;
 	/* The link a person last clicked in the page, and when. */
@@ -98,7 +100,7 @@ static LPWSTR btrcWinWebTaskCopy(const wchar_t* text) {
 
 /* An event handler: every WebView2 handler interface is IUnknown and one
  * Invoke of two arguments. `kind` says which, and which arguments. */
-enum { BTRC_WIN_ENVIRONMENT = 1, BTRC_WIN_CONTROLLER, BTRC_WIN_MESSAGE, BTRC_WIN_STARTING, BTRC_WIN_COMPLETED, BTRC_WIN_NEW_WINDOW, BTRC_WIN_RESOURCE };
+enum { BTRC_WIN_ENVIRONMENT = 1, BTRC_WIN_CONTROLLER, BTRC_WIN_BRIDGE, BTRC_WIN_MESSAGE, BTRC_WIN_STARTING, BTRC_WIN_COMPLETED, BTRC_WIN_NEW_WINDOW, BTRC_WIN_RESOURCE };
 
 typedef struct BtrcWinHandler BtrcWinHandler;
 typedef struct BtrcWinHandlerVtbl {
@@ -227,7 +229,7 @@ static void btrcWinWebDeliver(BtrcWinWeb* web, const char* json) {
 }
 
 static void btrcWinWebNavigate(BtrcWinWeb* web) {
-	if (web->view == NULL || web->pending == NULL) { return; }
+	if (web->view == NULL || !web->bridgeReady || web->pending == NULL) { return; }
 	web->view->lpVtbl->Navigate(web->view, web->pending);
 	free(web->pending);
 	web->pending = NULL;
@@ -275,14 +277,17 @@ static void btrcWinWebAttach(BtrcWinWeb* web, ICoreWebView2Controller* controlle
 	 * link: the engine calls a navigation "user initiated" when a script
 	 * the program ran started it, so only a click the browser itself
 	 * vouches for (isTrusted) counts as a person's. */
-	web->view->lpVtbl->AddScriptToExecuteOnDocumentCreated(web->view,
+	BtrcWinHandler* bridge = btrcWinHandlerNew(BTRC_WIN_BRIDGE, &btrcWinIidBridgeCompleted, web);
+	if (bridge == NULL) { btrcWinFail("out of memory"); return; }
+	HRESULT requested = web->view->lpVtbl->AddScriptToExecuteOnDocumentCreated(web->view,
 		L"window.btrc = { onMessage: null, post: function (value) { window.chrome.webview.postMessage(JSON.stringify(value)); } };"
 		L"document.addEventListener('click', function (event) {"
 		L" var link = event.isTrusted && event.target && event.target.closest ? event.target.closest('a[href]') : null;"
-		L" if (link) { window.chrome.webview.postMessage('\\u0001link:' + link.href); } }, true);", NULL);
+		L" if (link) { window.chrome.webview.postMessage('\\u0001link:' + link.href); } }, true);", (ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler*)bridge);
+	bridge->lpVtbl->Release(bridge);
+	if (FAILED(requested)) { btrcWinFail("the WebView2 page bridge could not be registered"); return; }
 	controller->lpVtbl->put_IsVisible(controller, TRUE);
 	btrcWinWebResize(web);
-	btrcWinWebNavigate(web);
 }
 
 static void btrcWinWebStart(BtrcWinWeb* web) {
@@ -348,6 +353,13 @@ static HRESULT STDMETHODCALLTYPE btrcWinHandlerInvoke(BtrcWinHandler* self, void
 	}
 	case BTRC_WIN_CONTROLLER:
 		if (SUCCEEDED((HRESULT)(INT_PTR)first)) { btrcWinWebAttach(web, second); }
+		return S_OK;
+	case BTRC_WIN_BRIDGE:
+		if (web->closed) { return S_OK; }
+		if (FAILED((HRESULT)(INT_PTR)first)) { btrcWinFail("the WebView2 page bridge could not be registered"); return S_OK; }
+		/* The first page can use window.btrc as soon as its inline scripts run. */
+		web->bridgeReady = true;
+		btrcWinWebNavigate(web);
 		return S_OK;
 	case BTRC_WIN_MESSAGE: {
 		ICoreWebView2WebMessageReceivedEventArgs* arguments = second;
