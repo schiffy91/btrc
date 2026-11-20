@@ -22,7 +22,7 @@ from src.compiler.python.artifacts.publication import ArtifactPublisher, Artifac
 from src.compiler.python.artifacts.stdlib import StdlibArchivePublisher
 from src.compiler.python.cli.compiler import CompilerCommand
 from src.compiler.python.frontend.packages import PackageTarget
-from src.compiler.python.frontend.sources import CompilerStdlibSource, StdlibRepository
+from src.compiler.python.frontend.sources import CompilerStdlibSource, ConditionalEnvironment, StdlibRepository
 from src.tests.c_toolchains import host_c_compiler
 
 
@@ -376,8 +376,10 @@ def test_archive_built_for_one_row_is_refused_by_another(tmp_path, monkeypatch, 
     std = tmp_path / "std"
     run_main(monkeypatch, ["--target", "linux-x86_64", "--build-stdlib", str(std)])
     capsys.readouterr()
+    # The stdlib's text follows the row too: a host that is not this row selects other providers.
+    linux = ConditionalEnvironment(PackageTarget.parse("linux-x86_64"))
     manifest = sa.StdlibArtifactRepository(_archive_publisher()).load(
-        str(std), StdlibRepository().source(""), "linux-x86_64"
+        str(std), StdlibRepository().source("", linux), "linux-x86_64"
     )
     assert manifest["target"] == "linux-x86_64"
     prog = tmp_path / "p.btrc"
