@@ -29,6 +29,7 @@ unsigned long btrcShimAutomationSerial(void);
 int btrcShimAutomationAwait(unsigned long serial, int timeoutMilliseconds);
 int btrcUIKitAutomationOrigin(unsigned int window, double *x, double *y);
 int btrcUIKitAutomationScene(double *x, double *y, double *width, double *height);
+int btrcUIKitAutomationShows(void);
 int btrcShimAutomationWindows(void);
 void btrcUIKitAutomationScreen(double *width, double *height);
 
@@ -299,7 +300,12 @@ static void arrangeScene(void) {
     static bool settled;
     const char *wanted = getenv("BTRC_CONFORMANCE_SCENE");
     double x = 0.0, y = 0.0, width = 0.0, height = 0.0, screenWidth = 0.0, screenHeight = 0.0;
-    if (settled || !wanted || !shimProbeInput() || btrcShimAutomationWindows() == 0) { return; }
+    if (settled || !wanted || !shimProbeInput()) { return; }
+    /* A case may show a window and close it between two turns. The scene it lived in is
+     * still there to ask about, and it is too late to change: it was the one asked for,
+     * or the case ran in the wrong one. */
+    bool onShow = btrcShimAutomationWindows() != 0;
+    if (!onShow && btrcUIKitAutomationShows() == 0) { return; }
     bool compact = strcmp(wanted, "compact") == 0;
     if (!compact && strcmp(wanted, "whole") != 0) { return; }
     int kind = 0;
@@ -311,7 +317,7 @@ static void arrangeScene(void) {
     if (kind == 0) { return; }
     btrcUIKitAutomationScreen(&screenWidth, &screenHeight);
     int drags = 0;
-    for (; drags < SCENE_DRAGS && kind != 0; drags++) {
+    for (; onShow && drags < SCENE_DRAGS && kind != 0; drags++) {
         bool whole = width >= screenWidth && height >= screenHeight;
         if (compact ? kind == SCENE_COMPACT : whole) { break; }
         /* Inward a step at a time; outward to the screen's own corner and past it. */

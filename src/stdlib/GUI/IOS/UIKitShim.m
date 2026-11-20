@@ -229,6 +229,9 @@ unsigned int btrcShimModState(void) { return btrcUIKitModifiers; }
 
 static BtrcUIKitWindow* btrcUIKitTop(void) { return btrcUIKitShown.lastObject; }
 
+/* How many times a window has been put on show. */
+static int btrcUIKitShows;
+
 /* The alert on show, and what the program's thread waits on for it. */
 static UIAlertController* btrcUIKitAlert;
 static dispatch_semaphore_t btrcUIKitAlertDismissed;
@@ -887,6 +890,7 @@ bool btrcShimWindowShow(BtrcShimWindow* handle) {
 		BtrcUIKitWindow* before = btrcUIKitTop();
 		if (before != nil) { btrcUIKitPushWindow(before, BTRC_SHIM_EVENT_WINDOW_FOCUS_LOST); }
 		window->sized = YES;
+		btrcUIKitShows++;
 		[btrcUIKitShown addObject:window];
 		btrcUIKitArrange();
 		btrcUIKitPushWindow(window, BTRC_SHIM_EVENT_WINDOW_SHOWN);
@@ -1248,21 +1252,33 @@ int btrcUIKitAutomationOrigin(unsigned int identifier, double* x, double* y) {
 /* The frame, in the screen's points, of the scene's part of the screen as
  * the window on show fills it, once the scene has arrived there: 1 when the
  * scene is as wide as a tablet's own (a regular width), 2 when it is as
- * narrow as a phone's (compact), 0 when nothing is on show yet. */
+ * narrow as a phone's (compact), 0 when nothing has been on show yet. With
+ * no window on show any more, the scene the last one lived in answers for
+ * itself: the system keeps it as that window left it. */
 int btrcUIKitAutomationScene(double* x, double* y, double* width, double* height) {
 	__block int kind = 0;
 	btrcUIKitOnMain(^{
 		BtrcUIKitWindow* window = btrcUIKitTop();
-		if (window == nil || !btrcUIKitActive || window->native.windowScene == nil) { return; }
+		UIWindowScene* scene = window != nil ? window->native.windowScene : (btrcUIKitShows != 0 ? btrcUIKitScene : nil);
+		if (scene == nil || !btrcUIKitActive) { return; }
 		if (CACurrentMediaTime() - btrcUIKitActiveSince < BTRC_UIKIT_SCENE_ARRIVAL_SECONDS) { return; }
-		CGRect frame = [window->native convertRect:window->native.bounds toCoordinateSpace:window->native.windowScene.screen.coordinateSpace];
+		id<UICoordinateSpace> part = window != nil ? (id<UICoordinateSpace>)window->native : scene.coordinateSpace;
+		CGRect frame = [part convertRect:part.bounds toCoordinateSpace:scene.screen.coordinateSpace];
 		*x = frame.origin.x;
 		*y = frame.origin.y;
 		*width = frame.size.width;
 		*height = frame.size.height;
-		kind = window->native.traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassCompact ? 2 : 1;
+		UITraitCollection* traits = window != nil ? window->native.traitCollection : scene.traitCollection;
+		kind = traits.horizontalSizeClass == UIUserInterfaceSizeClassCompact ? 2 : 1;
 	});
 	return kind;
+}
+
+/* How many times the program has put a window on show. */
+int btrcUIKitAutomationShows(void) {
+	__block int shows = 0;
+	btrcUIKitOnMain(^{ shows = btrcUIKitShows; });
+	return shows;
 }
 
 void btrcUIKitAutomationScreen(double* width, double* height) {
