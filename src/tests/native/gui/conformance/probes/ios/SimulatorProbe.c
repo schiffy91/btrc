@@ -150,6 +150,21 @@ static bool button(bool down) {
 /* A notch moves a document by this many points, as the provider's own scrolling has it. */
 static bool wheel(double deltaX, double deltaY) { return ask("SCROLL %.2f %.2f %.2f %.2f", host.x, host.y, deltaX * NOTCH_POINTS, deltaY * NOTCH_POINTS); }
 
+/* A key with Command held is four keys' worth of news, and the system brings the
+ * modifier's some frames before the rest: the chord has arrived when all of it has. */
+enum { CHORD_EVENTS = 4, CHORD_WAITS = ARRIVAL_MILLISECONDS / SEARCH_MILLISECONDS };
+
+static bool chord(int usage) {
+    unsigned long before = btrcShimAutomationSerial();
+    if (!ask("KEY %d %d", usage, COMMAND)) { return false; }
+    for (int wait = 0; wait < CHORD_WAITS; wait++) {
+        unsigned long now = btrcShimAutomationSerial();
+        if (now - before >= CHORD_EVENTS) { break; }
+        arrived(now, SEARCH_MILLISECONDS);
+    }
+    return true;
+}
+
 static bool key(int key) {
     switch (key) {
     case CONFORMANCE_KEY_RETURN: return ask("KEY %d 0", USAGE_RETURN);
@@ -160,7 +175,7 @@ static bool key(int key) {
     case CONFORMANCE_KEY_UP: return ask("KEY %d 0", USAGE_UP);
     case CONFORMANCE_KEY_DOWN: return ask("KEY %d 0", USAGE_DOWN);
     case CONFORMANCE_KEY_BACKSPACE: return ask("KEY %d 0", USAGE_BACKSPACE);
-    case CONFORMANCE_KEY_SELECT_ALL: return ask("KEY %d %d", USAGE_A, COMMAND);
+    case CONFORMANCE_KEY_SELECT_ALL: return chord(USAGE_A);
     default: return false;
     }
 }
@@ -187,7 +202,7 @@ static bool activate(const char *title) {
 }
 
 /* The keyboard's close request is Command-W. */
-static bool closeWindow(const char *title) { return activate(title) && ask("KEY %d %d", USAGE_W, COMMAND); }
+static bool closeWindow(const char *title) { return activate(title) && chord(USAGE_W); }
 
 static bool origin(const char *title, double *x, double *y) { return locate(title, 0.0, 0.0, x, y); }
 
