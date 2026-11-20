@@ -27,21 +27,21 @@ recorded_at = "2026-10-07T16:27:08.007710+00:00"
 
 [runs.ui-conformance-linux]
 source = "junit"
-recorded_at = "2026-11-19T18:23:05+00:00"
+recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "linux"
-btrc_revision = "dbc873cabe19854a024bb83581e676af23729480"
+btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
 [runs.ui-conformance-windows]
 source = "junit"
-recorded_at = "2026-11-19T18:23:05+00:00"
+recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "windows"
-btrc_revision = "dbc873cabe19854a024bb83581e676af23729480"
+btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
 [runs.ui-conformance-android]
 source = "junit"
-recorded_at = "2026-11-19T18:23:05+00:00"
+recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "android"
-btrc_revision = "dbc873cabe19854a024bb83581e676af23729480"
+btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
 [[operations]]
 id = "GUI.capture"
@@ -68,38 +68,38 @@ note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider
 implementation = "implemented"
 parity = "equivalent"
 configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
-note = "The conformance suite's case view.arrange exercises this operation (src/tests/native/gui/conformance)."
-regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[view.arrange-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[view.arrange-python-sanitized]"]
+note = "The conformance suite's case capture.subtree exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[capture.subtree-python-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[capture.subtree-python-sanitized]"]
 [operations.linux.selfhost]
 implementation = "implemented"
 parity = "equivalent"
 configuration = "GTK4 through the shim provider, in a private X11 or Wayland session; WebKitGTK for the web view"
-note = "The conformance suite's case view.arrange exercises this operation (src/tests/native/gui/conformance)."
-regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[view.arrange-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[view.arrange-selfhost-sanitized]"]
+note = "The conformance suite's case capture.subtree exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[capture.subtree-selfhost-plain]", "src/tests/python/test_native_ui_conformance.py::test_linux_conformance_case[capture.subtree-selfhost-sanitized]"]
 [operations.windows.reference]
 implementation = "implemented"
 parity = "equivalent"
 configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
-note = "The conformance suite's case view.arrange exercises this operation (src/tests/native/gui/conformance)."
-regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[view.arrange-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[view.arrange-python-windows-x64-ubsan]"]
+note = "The conformance suite's case capture.subtree exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[capture.subtree-python-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[capture.subtree-python-windows-x64-ubsan]"]
 [operations.windows.selfhost]
 implementation = "implemented"
 parity = "equivalent"
 configuration = "Win32 and Common Controls 6 through the shim provider, on windows-x64; WebView2 for the web view"
-note = "The conformance suite's case view.arrange exercises this operation (src/tests/native/gui/conformance)."
-regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[view.arrange-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[view.arrange-selfhost-windows-x64-ubsan]"]
+note = "The conformance suite's case capture.subtree exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[capture.subtree-selfhost-windows-x64-plain]", "src/tests/python/test_native_ui_conformance_windows.py::test_windows_conformance_case[capture.subtree-selfhost-windows-x64-ubsan]"]
 [operations.android.reference]
 implementation = "implemented"
 parity = "equivalent"
 configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
-note = "The conformance suite's case view.arrange exercises this operation (src/tests/native/gui/conformance)."
-regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[view.arrange-python]"]
+note = "The conformance suite's case capture.subtree exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[capture.subtree-python]"]
 [operations.android.selfhost]
 implementation = "implemented"
 parity = "equivalent"
 configuration = "Android's own views through the shim provider, on the x86_64 emulator; android.webkit.WebView for the web view"
-note = "The conformance suite's case view.arrange exercises this operation (src/tests/native/gui/conformance)."
-regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[view.arrange-selfhost]"]
+note = "The conformance suite's case capture.subtree exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_android.py::test_android_conformance_case[capture.subtree-selfhost]"]
 
 [[operations]]
 id = "GUI.chooseDirectory"

@@ -22,21 +22,21 @@ btrc_revision = "1645699fd6fe9278d8187b52733b29c0ca02cfec"
 
 [runs.ui-conformance-linux]
 source = "junit"
-recorded_at = "2026-11-19T18:23:05+00:00"
+recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "linux"
-btrc_revision = "dbc873cabe19854a024bb83581e676af23729480"
+btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
 [runs.ui-conformance-windows]
 source = "junit"
-recorded_at = "2026-11-19T18:23:05+00:00"
+recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "windows"
-btrc_revision = "dbc873cabe19854a024bb83581e676af23729480"
+btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
 [runs.ui-conformance-android]
 source = "junit"
-recorded_at = "2026-11-19T18:23:05+00:00"
+recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "android"
-btrc_revision = "dbc873cabe19854a024bb83581e676af23729480"
+btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
 [[operations]]
 id = "IImageView.setImage"
