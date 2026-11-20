@@ -32,6 +32,7 @@ from src.tests.python.native_ui_shell_fixtures import transpile
 from tools.native_plan import NativePlanBuilder
 from tools.target_hosts.ios.gui import GUIAppBuilder, GUIAppRunner
 from tools.target_hosts.ios.simhost import AppleEnvironment, IOSSimulatorHost
+from tools.target_hosts.libsodium import LibsodiumBuild
 
 REPO = Path(__file__).resolve().parents[3]
 TARGET = "ios-aarch64-simulator"
@@ -70,6 +71,7 @@ class Simulators:
         self.injector = None
         self.port = 0
         self.sdk_path = None
+        self.sodium = None
         # The app whose scene may be a window on the tablet's stage, by its runner's key.
         self.windowed = None
 
@@ -96,6 +98,17 @@ class Simulators:
             shutil.move(root / "lib/libwgpu_native.a", root / "static/libwgpu_native.a")
         return root / "include/webgpu", root / "static"
 
+    def libsodium(self):
+        """libsodium for the simulator, built once a run from the dev shell's pinned source: its headers, its library."""
+        if self.sodium is None:
+            source = os.environ.get("BTRC_LIBSODIUM_SOURCE")
+            assert source, "the dev shell names libsodium's source (BTRC_LIBSODIUM_SOURCE)"
+            compiler = [str(AppleEnvironment.XCRUN), "--sdk", "iphonesimulator", "clang"]
+            root = self.base / "libsodium"
+            LibsodiumBuild(Path(source), TARGET, compiler, Path(self.sdk()), root).build()
+            self.sodium = root / "include", root / "lib"
+        return self.sodium
+
     def runtime(self, name):
         """A sanitizer's runtime for the simulator, which an app carries beside its program."""
         clang = xcrun("--sdk", "iphonesimulator", "--find", "clang", timeout=60).stdout.strip()
@@ -103,7 +116,7 @@ class Simulators:
         assert found, f"Xcode has no {name} runtime for the simulator"
         return found[-1]
 
-    def program(self, name, source, frontend, sanitized, request, app=True, probe=None, quiet=True):
+    def program(self, name, source, frontend, sanitized, request, app=True, probe=None, quiet=True, libsodium=False):
         """The program built once per compiler and mode: for an app's bundle, or as an executable to spawn."""
         key = (name, frontend, sanitized, app)
         if key in self.programs:
@@ -112,14 +125,17 @@ class Simulators:
                 raise self.programs[key]
             return self.programs[key]
         try:
-            self.programs[key] = self.build(name, source, frontend, sanitized, request, app, probe, quiet)
+            self.programs[key] = self.build(name, source, frontend, sanitized, request, app, probe, quiet, libsodium)
         except BaseException as error:
             self.programs[key] = error
             raise
         return self.programs[key]
 
-    def build(self, name, source, frontend, sanitized, request, app=True, probe=None, quiet=True):
+    def build(self, name, source, frontend, sanitized, request, app=True, probe=None, quiet=True, libsodium=False):
         """`probe` is a fixture's (header, symbols, C source): the program binds the header and links the source.
+
+        `libsodium` is for a program that imports Library.Crypto, whose iOS
+        row names the library and leaves its directory to the build.
 
         A program compiles without a warning unless it is another driver's,
         whose source that driver accepts with the warnings it raises (`quiet`).
@@ -130,6 +146,11 @@ class Simulators:
         if probe is not None:
             source = NativeBindingPackage.write(source, work / "package", probe[0], probe[1])
         include, libraries = self.wgpu_native()
+        includes, searched = [include], []
+        if libsodium:
+            headers, archive = self.libsodium()
+            includes.append(headers)
+            searched.append(f"-L{archive}")
         row = PackageTarget.parse(TARGET).row
         if frontend == "selfhost":
             # The self-hosted compiler is a host program, keyed by the stdlib it
@@ -140,8 +161,8 @@ class Simulators:
             environment.setenv("BTRC_NATIVE_TARGET", row.triple)
             environment.setenv("BTRC_NATIVE_SYSROOT", self.sdk())
             # An app has no pkg-config search path: the header reader and the
-            # compiler find wgpu-native's headers here, the linker its library below.
-            environment.setenv("C_INCLUDE_PATH", str(include))
+            # compiler find a library's headers here, the linker the library below.
+            environment.setenv("C_INCLUDE_PATH", os.pathsep.join(str(directory) for directory in includes))
             generated, plan = work / "Program.c", work / "Program.json"
             result = transpile(source, generated, plan, frontend, request, TARGET)
             assert result.returncode == 0, result.stderr
@@ -155,16 +176,18 @@ class Simulators:
                 built = xcrun("clang", *target, *flags, "-c", str(probe[2]), "-o", objects[0])
                 assert built.returncode == 0, built.stderr
             if app:
-                link_flags = [*GUIAppBuilder.link_flags(libraries), *flags, "-Wl,-rpath,@executable_path/Frameworks"]
+                rpath = "-Wl,-rpath,@executable_path/Frameworks"
+                link_flags = [*GUIAppBuilder.link_flags(libraries), *searched, *flags, rpath]
             else:
                 # A spawned program has no bundle to carry the sanitizer's runtime: it loads Xcode's own.
-                link_flags = [*objects, *flags, *([f"-Wl,-rpath,{self.runtime('asan').parent}"] if sanitized else [])]
+                runtime = [f"-Wl,-rpath,{self.runtime('asan').parent}"] if sanitized else []
+                link_flags = [*objects, *searched, *flags, *runtime]
             NativePlanBuilder().build(
                 plan_path=plan,
                 generated_c=generated,
                 output=program,
                 optimization=2,
-                compile_flags=[f"-I{include}", *flags],
+                compile_flags=[*(f"-I{directory}" for directory in includes), *flags],
                 link_flags=link_flags,
             )
         return program
@@ -182,6 +205,7 @@ class Simulators:
         quiet=True,
         environment=None,
         timeout=120,
+        libsodium=False,
     ):
         """One run of a program without a window, as a process of the booted simulator: (status, stdout, stderr).
 
@@ -191,7 +215,9 @@ class Simulators:
         """
         self.asked(device_class)
         host = self.device(device_class)
-        program = self.program(name, source, frontend, sanitized, request, app=False, probe=probe, quiet=quiet)
+        program = self.program(
+            name, source, frontend, sanitized, request, app=False, probe=probe, quiet=quiet, libsodium=libsodium
+        )
         variables = {"ASAN_OPTIONS": "detect_leaks=0", "UBSAN_OPTIONS": "halt_on_error=1", **(environment or {})}
         process = host.spawn([str(program), *arguments], variables)
         try:

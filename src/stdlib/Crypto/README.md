@@ -77,8 +77,12 @@ The construction has not been audited.
 `Sodium` is libsodium on Linux and macOS (`Unix/SodiumProvider.btrc`,
 through the adapters in `Unix/Sodium.h`; the manifest names the `libsodium`
 pkg-config package, so a program that imports the group links it, and the
-dev shell supplies it on both). Windows, iOS and Android have no row.
-`Base64` needs none.
+dev shell supplies it on both). iOS and iPadOS use the same provider over a
+static libsodium: an app has no pkg-config search path, so the manifest names
+the library `sodium` there and the program's build gives the directory.
+`tools/target_hosts/libsodium.py` builds that library for a target row from
+the source the dev shell pins (`BTRC_LIBSODIUM_SOURCE`), the version Linux and
+macOS link. Windows and Android have no row. `Base64` needs none.
 
 ## Tests
 
@@ -91,3 +95,8 @@ dev shell supplies it on both). Windows, iOS and Android have no row.
   unexpected identity and a peer speaking another protocol. It also has
   `ssh-keygen` write a fresh key pair and checks that btrc loads it and prints
   the same fingerprint, and has `ssh-keygen` read a key btrc wrote.
+- `src/tests/python/test_stdlib_ios_programs.py` runs the same conformance
+  program as a process of the iPhone and iPad simulators, through both
+  frontends, plain and sanitized. No physical device has run it.
+- `src/tests/python/test_libsodium_recipe.py`: what the recipe refuses and the
+  flags it derives from a target row.

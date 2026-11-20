@@ -22,6 +22,7 @@ import pytest
 
 from src.tests.python import test_apple_encoded_image_decoder_runtime as image_decoder
 from src.tests.python import test_background_jobs_runtime as background_jobs
+from src.tests.python import test_crypto_runtime as crypto
 from src.tests.python.ios_simulator_fixtures import FRONTENDS, MODES, simulators  # noqa: F401
 
 REPO = Path(__file__).resolve().parents[3]
@@ -43,6 +44,8 @@ class Program:
     environment: tuple[tuple[str, str], ...] = ()
     # Files the program reads, made on the host into a directory it is given: their paths are its arguments.
     prepared: Callable[[Path], tuple[str, ...]] | None = None
+    # It imports Library.Crypto: its build is given the simulator's libsodium.
+    libsodium: bool = False
 
 
 def two_frame_tiff(directory: Path) -> tuple[str, ...]:
@@ -65,6 +68,14 @@ PROGRAMS = {
             background_jobs.FIXTURE / "background_job_probe.c",
         ),
         warns=True,
+    ),
+    # Signatures against RFC 8032, OpenSSH's key formats, the trusted-key file,
+    # and the secure channel between two processes over a socket pair and TCP:
+    # the program forks its peers, as the channel's and the network's rows do.
+    "crypto": Program(
+        crypto.FIXTURE / "CryptoConformance.btrc",
+        crypto.PASSED.rstrip("\n"),
+        libsodium=True,
     ),
     # The system's SHA-256 of a file, which the program holds to the portable one's.
     "digest": Program(
@@ -128,6 +139,7 @@ def test_ios_stdlib_program(simulators, request, tmp_path, device_class, name, f
         program.probe,
         quiet=not program.warns,
         environment=dict(program.environment),
+        libsodium=program.libsodium,
     )
     where = simulators.host.provenance()
     report = f"{name} on {where['device']}, {where['os_build']} ({frontend}, {MODES[sanitized]})\n{stdout}{stderr}"

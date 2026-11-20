@@ -7,32 +7,40 @@ exports = ["Base64", "Crypto", "SecureChannel", "SigningKey", "Sodium", "Trusted
 [[package.providers]]
 module = "Sodium"
 implementation = "Unix.SodiumProvider"
-os = ["linux", "macos"]
+os = ["linux", "macos", "ios"]
 
 [[package.providers]]
 module = "SigningKey"
 implementation = "Unix.CryptoProvider"
-os = ["linux", "macos"]
+os = ["linux", "macos", "ios"]
 
 [[package.providers]]
 module = "SecureChannel"
 implementation = "Unix.CryptoProvider"
-os = ["linux", "macos"]
+os = ["linux", "macos", "ios"]
 
 [[package.providers]]
 module = "TrustedKeys"
 implementation = "Unix.CryptoProvider"
-os = ["linux", "macos"]
+os = ["linux", "macos", "ios"]
 
 [[package.providers]]
 module = "Crypto"
 implementation = "Unix.CryptoProvider"
-os = ["linux", "macos"]
+os = ["linux", "macos", "ios"]
 
 [[native.pkg-config]]
 name = "libsodium"
 modules = ["Unix.SodiumProvider"]
 os = ["linux", "macos"]
+
+# An iOS program has no pkg-config search path: it links the static library
+# tools/target_hosts/libsodium.py builds for its target, which its build names
+# the directory of.
+[[native.libraries]]
+name = "sodium"
+modules = ["Unix.SodiumProvider"]
+os = ["ios"]
 
 [[native.bindings]]
 module = "Unix.SodiumProvider"
@@ -45,4 +53,4 @@ symbols = [
 	"btrcSodiumExchangeKeys", "btrcSodiumSessionKeys", "btrcSodiumHash", "btrcSodiumSHA256",
 	"btrcSodiumBeginSending", "btrcSodiumBeginReceiving", "btrcSodiumSeal", "btrcSodiumOpen"
 ]
-os = ["linux", "macos"]
+os = ["linux", "macos", "ios"]
