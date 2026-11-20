@@ -755,14 +755,18 @@ unsigned char* btrcShimRasterizeText(const char* text, double pixelSize, bool bo
 
 void btrcShimFreePixels(unsigned char* pixels) { free(pixels); }
 
+static bool btrcWinPumpOne(void) {
+	MSG message;
+	if (!PeekMessageW(&message, NULL, 0u, 0u, PM_REMOVE)) { return false; }
+	btrcWinSerial++;
+	TranslateMessage(&message);
+	DispatchMessageW(&message);
+	return true;
+}
+
 /* Let every message already posted run, without waiting. */
 static void btrcWinPump(void) {
-	MSG message;
-	while (PeekMessageW(&message, NULL, 0u, 0u, PM_REMOVE)) {
-		btrcWinSerial++;
-		TranslateMessage(&message);
-		DispatchMessageW(&message);
-	}
+	while (btrcWinPumpOne()) {}
 }
 
 static int btrcWinPop(BtrcShimEvent* out) {
@@ -875,17 +879,18 @@ int btrcShimAutomationAwait(unsigned long serial, int timeoutMilliseconds) {
 	unsigned long long deadline = btrcShimTicksNS() + (unsigned long long)(timeoutMilliseconds < 0 ? 0 : timeoutMilliseconds) * 1000000ULL;
 	unsigned long seen = btrcWinSerial;
 	for (;;) {
-		btrcWinPump();
+		bool dispatched = btrcWinPumpOne();
 		unsigned long long now = btrcShimTicksNS();
+		if (now >= deadline) { return btrcWinSerial != serial; }
+		if (dispatched) { continue; }
+		DWORD wait = (DWORD)((deadline - now + 999999ULL) / 1000000ULL);
 		if (btrcWinSerial != serial) {
-			/* Something arrived: wait for arrivals to pause. */
+			/* Something arrived. Let a burst settle within the caller's timeout. */
 			if (btrcWinSerial == seen) { return 1; }
 			seen = btrcWinSerial;
-			MsgWaitForMultipleObjectsEx(0u, NULL, 5u, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
-			continue;
+			if (wait > 5u) { wait = 5u; }
 		}
-		if (now >= deadline) { return 0; }
-		MsgWaitForMultipleObjectsEx(0u, NULL, (DWORD)((deadline - now) / 1000000ULL) + 1u, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+		MsgWaitForMultipleObjectsEx(0u, NULL, wait, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
 	}
 }
 
