@@ -43,7 +43,7 @@ the API surface, so the layout follows a few fixed rules.
   `Image/Linux`, `LocalApplicationChannel/Linux`, `Tray/MacOS`, `Tray/Linux`,
   `BackgroundJobs/Linux`, `Terminal/Windows`; `BackgroundJobs/Unix` and
   `Terminal/Unix` for code the Unix rows share, and `BackgroundJobs/Apple`,
-  `Digest/Apple`, `Image/Apple` and `LocalApplicationChannel/Apple` for code macOS, iOS and
+  `Digest/Apple`, `Image/Apple`, `USB/Apple` and `LocalApplicationChannel/Apple` for code macOS, iOS and
   iPadOS share)
   and implements the
   group's portable contract: `GUI/MacOS/MacOSDirectoryPicker` and

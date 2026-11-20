@@ -105,7 +105,7 @@ class Simulators:
 
     def program(self, name, source, frontend, sanitized, request, app=True, probe=None, quiet=True):
         """The program built once per compiler and mode: for an app's bundle, or as an executable to spawn."""
-        key = (name, frontend, sanitized)
+        key = (name, frontend, sanitized, app)
         if key in self.programs:
             if isinstance(self.programs[key], BaseException):
                 # One failure to build is every row's: say it once each, without building again.

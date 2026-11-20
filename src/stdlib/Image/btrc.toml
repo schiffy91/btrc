@@ -4,9 +4,9 @@ manifest-version = 1
 name = "btrc_stdlib_image"
 exports = ["DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "Image", "Pixels", "Apple.AppleEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
 
+# ImageIO and CoreGraphics are on every Apple system.
 [[package.providers]]
 module = "SystemImageDecoder"
-# ImageIO and CoreGraphics are on every Apple system.
 implementation = "Apple.SystemImageDecoderProvider"
 os = ["macos", "ios"]
 

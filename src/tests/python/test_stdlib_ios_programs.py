@@ -114,6 +114,8 @@ pytestmark = pytest.mark.xdist_group(name="ios_ui")
 @pytest.mark.parametrize("device_class", ["iphone", "ipad"])
 def test_ios_stdlib_program(simulators, request, tmp_path, device_class, name, frontend, sanitized):  # noqa: F811
     program = PROGRAMS[name]
+    # A row that will not run prepares nothing: its files are made with the Mac's own tools.
+    simulators.asked(device_class)
     arguments = program.arguments + (program.prepared(tmp_path) if program.prepared else ())
     status, stdout, stderr = simulators.spawned(
         device_class,

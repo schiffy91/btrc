@@ -619,7 +619,7 @@ The current groups are:
 | `Image` | DDS decoding, platform image decoding (ImageIO on macOS, iOS and iPadOS, libpng/libjpeg-turbo on Linux), pixel access |
 | `FileSystem`, `HTTP`, `Terminal`, `Daemon`, `Digest` | Files, directories and application directories; HTTP client/server and framing; terminal control and password prompts; daemon control protocol; incremental SHA-256 |
 | `BackgroundJobs`, `Graph`, `LocalApplicationChannel` | Worker queues, graph utilities, local IPC between an app and its agent tools |
-| `Network` | IPv4 address values, TCP streams and listeners with deadlines (Linux and macOS) |
+| `Network` | IPv4 address values, TCP streams and listeners with deadlines (Linux, macOS, iOS and iPadOS) |
 | `USB` | Descriptors, emulated devices, HID as a USB interface, USB/IP export and a user-space host; on Linux, kernel-enumerated devices, USB/IP attachment, and this machine as a USB device (gadget) |
 | `HID` | The contract a human interface device implements, apart from the bus that carries it |
 | `Bluetooth` | Addresses, the HID protocol and service record; on Linux, L2CAP channels, the adapter (pairing, discoverability, service records) and a HID device served over the HID profile |

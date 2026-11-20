@@ -136,7 +136,7 @@ kind = "operation"
 id = "Library.BackgroundJobs"
 group = "stdlib/BackgroundJobs"
 title = "Background work group import"
-regression = ["src/tests/python/test_background_jobs_runtime.py::test_bounded_background_jobs_on_both_frontends_and_c_compilers", "src/tests/python/test_background_jobs_runtime.py::test_import_emits_and_links_sdk_declarations_without_native_executor"]
+regression = ["src/tests/python/test_background_jobs_runtime.py::test_bounded_background_jobs_on_both_frontends_and_c_compilers", "src/tests/python/test_background_jobs_runtime.py::test_import_emits_and_links_sdk_declarations_without_native_executor", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "missing", implementation = "partial", owner = "P3", status = "source-only", reason = "WorkerPools half builds; BackgroundJobExecutor's pthread binding is os=[linux,macos] only" }
 windows-arm64 = { parity = "missing", implementation = "partial", owner = "P3", status = "source-only", reason = "WorkerPools half builds; BackgroundJobExecutor's pthread binding is os=[linux,macos] only" }
 ios-device = { parity = "adapted", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "the executor and its workers run over pthreads, bound for ios in btrc.toml; HostWorkerPools selects the inline pool, since an app may not fork (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
@@ -149,7 +149,7 @@ kind = "operation"
 id = "Library.BackgroundJobs.BackgroundJobExecutor"
 group = "stdlib/BackgroundJobs"
 title = "Bounded pthread background job executor"
-regression = ["src/tests/python/test_background_jobs_runtime.py::test_bounded_background_jobs_on_both_frontends_and_c_compilers", "src/tests/python/test_background_jobs_runtime.py::test_background_jobs_sdk_failures_and_retry"]
+regression = ["src/tests/python/test_background_jobs_runtime.py::test_bounded_background_jobs_on_both_frontends_and_c_compilers", "src/tests/python/test_background_jobs_runtime.py::test_background_jobs_sdk_failures_and_retry", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthread code is winpthreads-portable but NativeThreads.h binding is os=[linux,macos]; symbols unresolved on windows" }
 windows-arm64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthread code is winpthreads-portable but NativeThreads.h binding is os=[linux,macos]; symbols unresolved on windows" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "pthreads through the NativeThreads.h binding, whose rows spell ios (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
@@ -162,7 +162,7 @@ kind = "operation"
 id = "Library.BackgroundJobs.NativeWorker"
 group = "stdlib/BackgroundJobs"
 title = "Joinable pthread worker over a managed body"
-regression = ["src/tests/python/test_background_jobs_runtime.py::test_native_worker_retains_its_body_until_join", "src/tests/python/test_background_jobs_runtime.py::test_background_jobs_sdk_failures_and_retry"]
+regression = ["src/tests/python/test_background_jobs_runtime.py::test_native_worker_retains_its_body_until_join", "src/tests/python/test_background_jobs_runtime.py::test_background_jobs_sdk_failures_and_retry", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthread code is winpthreads-portable but NativeThreads.h binding is os=[linux,macos]; symbols unresolved on windows" }
 windows-arm64 = { parity = "missing", implementation = "source-only", owner = "P3", status = "source-only", reason = "pthread code is winpthreads-portable but NativeThreads.h binding is os=[linux,macos]; symbols unresolved on windows" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "pthreads through the NativeThreads.h binding, whose rows spell ios (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
@@ -188,7 +188,7 @@ kind = "operation"
 id = "Library.BackgroundJobs.ProcessThreads"
 group = "stdlib/BackgroundJobs"
 title = "Live thread count of this process"
-regression = ["src/tests/python/test_background_jobs_runtime.py::test_host_worker_pools_on_both_frontends"]
+regression = ["src/tests/python/test_background_jobs_runtime.py::test_host_worker_pools_on_both_frontends", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "btrc.toml os=windows selects Windows.ProcessThreadsProvider: a CreateToolhelp32Snapshot thread walk counting this process's threads" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "btrc.toml os=windows selects Windows.ProcessThreadsProvider: a CreateToolhelp32Snapshot thread walk counting this process's threads" }
 ios-device = { parity = "adapted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "libproc.h is not in the iOS SDK; Apple/ProcessThreadsProvider counts the threads Mach lists for the task there, and macOS keeps libproc (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
@@ -552,7 +552,7 @@ kind = "operation"
 id = "Library.Digest.NativeSHA256"
 group = "stdlib/Digest"
 title = "Target-selected SHA-256 provider"
-regression = ["src/tests/btrc/test_native_digest.py::test_digest_owns_result_and_matches_binary_vectors"]
+regression = ["src/tests/btrc/test_native_digest.py::test_digest_owns_result_and_matches_binary_vectors", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "btrc.toml selects portable NativeSHA256Provider for windows; test_native_digest builds a windows-x64 param" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "btrc.toml selects portable NativeSHA256Provider for windows; test_native_digest builds a windows-x64 param" }
 ios-device = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "CommonCrypto's CC_SHA256 through Apple/NativeSHA256Provider, the provider macOS uses (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
@@ -1060,7 +1060,7 @@ kind = "operation"
 id = "Library.Image.Apple.AppleEncodedImageDecoder"
 group = "stdlib/Image"
 title = "Apple ImageIO/CoreGraphics image decoder"
-regression = ["src/tests/python/test_apple_encoded_image_decoder_runtime.py::test_imageio_provider", "src/tests/python/test_apple_encoded_image_decoder_runtime.py::test_managed_provider_import_composition"]
+regression = ["src/tests/python/test_apple_encoded_image_decoder_runtime.py::test_imageio_provider", "src/tests/python/test_apple_encoded_image_decoder_runtime.py::test_managed_provider_import_composition", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "ImageIO/CoreGraphics is an Apple SDK; the portable interface resolves to this slice's provider" }
 windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "ImageIO/CoreGraphics is an Apple SDK; the portable interface resolves to this slice's provider" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "ImageIO and CoreGraphics are on iOS; the decoder macOS uses, with the same PNG, JPEG, GIF and TIFF set (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
@@ -1086,7 +1086,7 @@ kind = "operation"
 id = "Library.Image.SystemImageDecoder"
 group = "stdlib/Image"
 title = "Platform system image decoder"
-regression = ["src/tests/python/test_native_linux_providers.py::test_linux_image_decoding", "src/tests/python/test_main.py::test_native_adapters_live_outside_relaxed_composition"]
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_image_decoding", "src/tests/python/test_main.py::test_native_adapters_live_outside_relaxed_composition", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W2", status = "source-only", reason = "btrc.toml has SystemImageDecoderProvider only for macos/linux; WIC provider needed" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W2", status = "source-only", reason = "btrc.toml has SystemImageDecoderProvider only for macos/linux; WIC provider needed" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "Apple/SystemImageDecoderProvider, the provider macOS uses, over AppleEncodedImageDecoder (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
@@ -1151,7 +1151,7 @@ kind = "operation"
 id = "Library.LocalApplicationChannel"
 group = "stdlib/LocalApplicationChannel"
 title = "Same-user local request channel"
-regression = ["src/tests/python/test_local_application_channel_runtime.py::test_local_application_channel_on_both_frontends_and_c_compilers", "src/tests/python/test_local_application_channel_runtime.py::test_local_channel_server_ownership_and_framing", "src/tests/python/test_local_application_channel_runtime.py::test_local_channel_client_wire_and_lifetime"]
+regression = ["src/tests/python/test_local_application_channel_runtime.py::test_local_application_channel_on_both_frontends_and_c_compilers", "src/tests/python/test_local_application_channel_runtime.py::test_local_channel_server_ownership_and_framing", "src/tests/python/test_local_application_channel_runtime.py::test_local_channel_client_wire_and_lifetime", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "AF_UNIX + Socket.h bindings limited to linux/macos; README: Windows has no provider yet (named pipe/AF_UNIX planned)" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "AF_UNIX + Socket.h bindings limited to linux/macos; README: Windows has no provider yet (named pipe/AF_UNIX planned)" }
 ios-device = { parity = "os-restricted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "the channel runs over Unix sockets in the app's own container; the sandbox keeps other apps and CLI processes out, and a socket path's 103-byte limit leaves little room under a container's path (README; src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it, with a forked client and an endpoint under /tmp)" }
@@ -1164,7 +1164,7 @@ kind = "operation"
 id = "Library.LocalApplicationChannel.LocalPeerCredentials"
 group = "stdlib/LocalApplicationChannel"
 title = "Peer user id of a local socket"
-regression = ["src/tests/python/test_local_application_channel_runtime.py::test_local_application_channel_on_both_frontends_and_c_compilers"]
+regression = ["src/tests/python/test_local_application_channel_runtime.py::test_local_application_channel_on_both_frontends_and_c_compilers", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "no windows provider row; needs GetNamedPipeClientProcessId or SIO_AF_UNIX_GETPEERPID plus SID lookup" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "no windows provider row; needs GetNamedPipeClientProcessId or SIO_AF_UNIX_GETPEERPID plus SID lookup" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "getpeereid through Apple/LocalPeerCredentialsProvider, the provider macOS uses (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
@@ -1203,7 +1203,7 @@ kind = "operation"
 id = "Library.Network"
 group = "stdlib/Network"
 title = "TCP networking facade"
-regression = ["src/tests/python/test_network_runtime.py::test_network_streams_over_loopback_on_both_frontends", "src/tests/python/test_network_runtime.py::test_import_plans_and_links_the_network_group", "src/tests/python/test_network_runtime.py::test_windows_has_no_network_provider_yet"]
+regression = ["src/tests/python/test_network_runtime.py::test_network_streams_over_loopback_on_both_frontends", "src/tests/python/test_network_runtime.py::test_import_plans_and_links_the_network_group", "src/tests/python/test_network_runtime.py::test_windows_has_no_network_provider_yet", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade's provider has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade's provider has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "BSD sockets from iOS libSystem; the provider's rows spell ios (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
@@ -1229,7 +1229,7 @@ kind = "operation"
 id = "Library.Network.TCPListener"
 group = "stdlib/Network"
 title = "Listening TCP socket with bounded accept"
-regression = ["src/tests/python/test_network_runtime.py::test_network_streams_over_loopback_on_both_frontends", "src/tests/python/test_network_runtime.py::test_import_plans_and_links_the_network_group", "src/tests/python/test_network_runtime.py::test_windows_has_no_network_provider_yet"]
+regression = ["src/tests/python/test_network_runtime.py::test_network_streams_over_loopback_on_both_frontends", "src/tests/python/test_network_runtime.py::test_import_plans_and_links_the_network_group", "src/tests/python/test_network_runtime.py::test_windows_has_no_network_provider_yet", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "TCPListener's provider has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "TCPListener's provider has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "BSD sockets from iOS libSystem; the provider's rows spell ios (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
@@ -1242,7 +1242,7 @@ kind = "operation"
 id = "Library.Network.TCPStream"
 group = "stdlib/Network"
 title = "Connected TCP stream with deadlines and a resolver"
-regression = ["src/tests/python/test_network_runtime.py::test_network_streams_over_loopback_on_both_frontends", "src/tests/python/test_network_runtime.py::test_import_plans_and_links_the_network_group", "src/tests/python/test_network_runtime.py::test_windows_has_no_network_provider_yet"]
+regression = ["src/tests/python/test_network_runtime.py::test_network_streams_over_loopback_on_both_frontends", "src/tests/python/test_network_runtime.py::test_import_plans_and_links_the_network_group", "src/tests/python/test_network_runtime.py::test_windows_has_no_network_provider_yet", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "TCPStream's Sockets.h binding has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "TCPStream's Sockets.h binding has BSD-socket rows for linux and macos only; a Winsock provider like HTTPSocket's is not written yet" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "BSD sockets from iOS libSystem; the Sockets.h binding's rows spell ios (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
