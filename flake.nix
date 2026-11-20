@@ -370,7 +370,12 @@
           excludedPrefixes = [ ];
         };
         formatterSource = sourceSubset {
+          # The formatter and what it imports: its engine reads a file's conditionals with the frontend's
+          # source reader, which brings the ABI tables with it. The check `formatter-starts` runs the packaged
+          # program from an empty folder, where a module left out of this list cannot be found beside it.
           prefixes = [
+            "src/compiler/python/abi/"
+            "src/compiler/python/frontend/"
             "src/compiler/python/lexer/"
             "src/compiler/python/parser/"
             "src/compiler/python/syntax/"
@@ -819,6 +824,14 @@
           };
         in pkgs.runCommand "btrc-build-package-check" { passthru = { inherit program; }; } ''
           test "$(${program}/bin/checksum)" = "PASS: zlib through pkg-config"
+          mkdir -p "$out"
+        '';
+        # The packaged formatter carries every module it imports: run from a folder that holds nothing else,
+        # it formats a file. From the repository it finds the missing ones beside it, and so hid this once.
+        formatter-starts = pkgs.runCommand "btrc-formatter-starts-check" { } ''
+          printf 'int main() {\n\treturn 0;\n}\n' > probe.btrc
+          ${self.packages.${system}.btrc-format}/bin/btrc-format write probe.btrc
+          ${self.packages.${system}.btrc-format}/bin/btrc-format check probe.btrc
           mkdir -p "$out"
         '';
       } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

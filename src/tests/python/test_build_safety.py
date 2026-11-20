@@ -894,7 +894,8 @@ def test_ci_builds_installable_artifacts_and_pins_external_actions():
     assert "make NIX= package extension" in ci
     assert (
         "nix build .#btrc .#btrc-lsp .#btrc-vscode-extension .#checks.x86_64-linux.gpu-runtime-package "
-        ".#checks.x86_64-linux.native-package-plan .#checks.x86_64-linux.build-package --no-link"
+        ".#checks.x86_64-linux.native-package-plan .#checks.x86_64-linux.build-package "
+        ".#checks.x86_64-linux.formatter-starts --no-link"
     ) in ci
     # After the release builds, the generator's own check and a clean tree
     # stand in for a hand-kept list of generated paths that went stale.
