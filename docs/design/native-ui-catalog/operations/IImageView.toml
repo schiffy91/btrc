@@ -38,6 +38,12 @@ recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "android"
 btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
+[runs.ui-conformance-ios]
+source = "junit"
+recorded_at = "2026-11-20T02:22:01+00:00"
+runner = "ios"
+btrc_revision = "1e82e82dc359e0ccd81557bc9683f7c91e1a6615"
+
 [[operations]]
 id = "IImageView.setImage"
 owner = "IImageView"
@@ -58,12 +64,18 @@ note = "src/stdlib/GUI/MacOS/MacOSImageView.btrc: source implements this operati
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativePanel-rounded child clipping-True]"]
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[image.pixels-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[image.pixels-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-image.pixels]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-image.pixels]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[image.pixels-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[image.pixels-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-image.pixels]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-image.pixels]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -121,12 +133,18 @@ note = "src/stdlib/GUI/MacOS/MacOSImageView.btrc: source implements this operati
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[image.pixels-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[image.pixels-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-image.pixels]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-image.pixels]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case image.pixels exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[image.pixels-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[image.pixels-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[image.pixels-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-image.pixels]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-image.pixels]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"

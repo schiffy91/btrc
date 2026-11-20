@@ -23,6 +23,12 @@ recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "android"
 btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
+[runs.ui-conformance-ios]
+source = "junit"
+recorded_at = "2026-11-20T02:22:01+00:00"
+runner = "ios"
+btrc_revision = "1e82e82dc359e0ccd81557bc9683f7c91e1a6615"
+
 [[operations]]
 id = "ISliderControlEventHandler.sliderEvent"
 owner = "ISliderControlEventHandler"
@@ -33,12 +39,18 @@ parity = "missing"
 note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
 evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
 run = "cx-uia-21-approved-contract"
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
-evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
-run = "cx-uia-21-approved-contract"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case slider.dragging exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[slider.dragging-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[slider.dragging-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[slider.dragging-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[slider.dragging-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[slider.dragging-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[slider.dragging-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-slider.dragging]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-slider.dragging]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case slider.dragging exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[slider.dragging-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[slider.dragging-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[slider.dragging-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[slider.dragging-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[slider.dragging-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[slider.dragging-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-slider.dragging]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-slider.dragging]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"

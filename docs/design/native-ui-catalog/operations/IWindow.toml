@@ -43,6 +43,12 @@ recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "android"
 btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
+[runs.ui-conformance-ios]
+source = "junit"
+recorded_at = "2026-11-20T02:22:01+00:00"
+runner = "ios"
+btrc_revision = "1e82e82dc359e0ccd81557bc9683f7c91e1a6615"
+
 [[operations]]
 id = "IWindow.attachRoot"
 owner = "IWindow"
@@ -58,12 +64,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.attachRoot. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.root() == root && rejectsClose(root)); Also covers duplicate owner rejection, native attachment/arrangement rollback and reentrant mutation rejection. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -116,12 +128,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.close. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -174,12 +192,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.contentHeight. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.contentWidth() == 720.0 && first.contentHeight() == 400.0); After setContentSize(720.0,400.0), also asserts root frame size; native NSWindow resize has a separate root-layout assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -232,12 +256,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.contentWidth. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.contentWidth() == 720.0 && first.contentHeight() == 400.0); After setContentSize(720.0,400.0), also asserts root frame size; native NSWindow resize has a separate root-layout assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -290,12 +320,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.detachRoot. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(detached == root && first.root() == null && root.isOpen()); Also asserts native superview cleared and original autoresizing mask restored; detached root attaches to second window. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -348,12 +384,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.hide. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(!self._window.isVisible()); After hide twice; show/hide on a closed window are rejected. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -404,12 +446,18 @@ note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isFocus
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isFocused. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -462,12 +510,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isOpen. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.isOpen() && first.root() == null && first.detachRoot() == null);  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -520,12 +574,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.isVisible. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -578,12 +638,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_native_window_keyboard_monitor[selfhost-False]", "src/tests/python/test_native_gui_appkit.py::test_native_window_keyboard_monitor[selfhost-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.onKey. Assertion candidate in src/tests/native/gui/NativeKeyboard.btrc: assert(receiver.calls == 1 && receiver.last == APP_KEY_A); Synthetic native A/D events exercise window-specific delivery, consumption and scope cancellation; callbacks on other window are excluded. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.key exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.key-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.key-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.key-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.key-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.key-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.key-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.key]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.key]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.key exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.key-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.key-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.key-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.key-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.key-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.key-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.key]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.key]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -636,12 +702,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.pollClose. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE); verifyPendingSubtree asserts NOT_REQUESTED, PENDING close/poll and final COMPLETE; repeat close does not repeat child teardown. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -694,12 +766,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.root. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.isOpen() && first.root() == null && first.detachRoot() == null);  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -752,12 +830,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.setContentSize. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.contentWidth() == 720.0 && first.contentHeight() == 400.0); After setContentSize(720.0,400.0), also asserts root frame size; native NSWindow resize has a separate root-layout assertion. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "adapted"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance). The scene gives every window its whole safe area: a size the program asks for is the window's only until it is first shown."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "adapted"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance). The scene gives every window its whole safe area: a size the program asks for is the window's only until it is first shown."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -808,12 +892,18 @@ note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.setMini
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.setMinimumContentSize. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "adapted"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance). The scene gives every window its whole safe area, so a least size has nothing to hold."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "adapted"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance). The scene gives every window its whole safe area, so a least size has nothing to hold."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -866,12 +956,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.setTitle. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.title().equals(\"Library — 音楽\")); After setTitle(\"Library — 音楽\"); tests Unicode round trip. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -924,12 +1020,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeProgressIndicator-native progress appearance-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.show. Assertion candidate in src/tests/native/gui/NativeProgressIndicator.btrc: assert(self._window.isVisible()); After hide twice and show; initial hidden and final closed visibility are checked too. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -980,12 +1082,18 @@ note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.showAle
 run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.showAlert. No operation-specific behavioral assertion was located in the current native GUI fixtures/drivers. Source presence or another operation sharing this receiver does not establish runtime coverage. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.alert exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.alert-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.alert-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.alert-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.alert-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.alert-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.alert-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.alert]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.alert]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.alert exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.alert-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.alert-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.alert-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.alert-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.alert-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.alert-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.alert]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.alert]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -1038,12 +1146,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeContainers-portable container ownership-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSWindow.btrc; operation IWindow.title. Assertion candidate in src/tests/native/gui/NativeContainers.btrc: assert(first.title().equals(\"Library — 音楽\")); After setTitle(\"Library — 音楽\"); tests Unicode round trip. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -1091,12 +1205,18 @@ parity = "missing"
 note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
 evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
 run = "cx-uia-21-approved-contract"
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
-evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
-run = "cx-uia-21-approved-contract"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.close exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.close-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.close-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.close]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.close]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.close exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.close-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.close-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.close]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.close]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -1144,12 +1264,18 @@ parity = "missing"
 note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
 evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
 run = "cx-uia-21-approved-contract"
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
-evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
-run = "cx-uia-21-approved-contract"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.close exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.close-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.close-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.close]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.close]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.close exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.close-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.close-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.close-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.close]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.close]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -1197,12 +1323,18 @@ parity = "missing"
 note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
 evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
 run = "cx-uia-21-approved-contract"
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
-evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
-run = "cx-uia-21-approved-contract"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -1250,12 +1382,18 @@ parity = "missing"
 note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
 evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
 run = "cx-uia-21-approved-contract"
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
-evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
-run = "cx-uia-21-approved-contract"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-window.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case window.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[window.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[window.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-window.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-window.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"

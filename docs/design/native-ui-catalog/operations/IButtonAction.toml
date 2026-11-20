@@ -38,6 +38,12 @@ recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "android"
 btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
+[runs.ui-conformance-ios]
+source = "junit"
+recorded_at = "2026-11-20T02:22:01+00:00"
+runner = "ios"
+btrc_revision = "1e82e82dc359e0ccd81557bc9683f7c91e1a6615"
+
 [[operations]]
 id = "IButtonAction.invoke"
 owner = "IButtonAction"
@@ -58,12 +64,18 @@ note = "src/stdlib/GUI/MacOS/MacOSActionQueue.btrc: source implements this opera
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeGUI-portable native GUI factory, application ownership and teardown-True]"]
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case button.click exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[button.click-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[button.click-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[button.click-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[button.click-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[button.click-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[button.click-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-button.click]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-button.click]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case button.click exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[button.click-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[button.click-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[button.click-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[button.click-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[button.click-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[button.click-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-button.click]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-button.click]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"

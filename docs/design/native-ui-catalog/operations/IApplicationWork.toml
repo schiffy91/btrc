@@ -38,6 +38,12 @@ recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "android"
 btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
+[runs.ui-conformance-ios]
+source = "junit"
+recorded_at = "2026-11-20T02:22:01+00:00"
+runner = "ios"
+btrc_revision = "1e82e82dc359e0ccd81557bc9683f7c91e1a6615"
+
 [[operations]]
 id = "IApplicationWork.run"
 owner = "IApplicationWork"
@@ -53,12 +59,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-False]", "src/tests/python/test_native_gui_appkit.py::test_macos_panel_and_progress_controls[selfhost-NativeApplication-native application loop, deferred quit and owned subtree shutdown-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSApplication.btrc; operation IApplicationWork.run. Assertion candidate in src/tests/native/gui/NativeApplication.btrc: assert(self._application.isRunning() && self._window.isOpen());  Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case app.post exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[app.post-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[app.post-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[app.post-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[app.post-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[app.post-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[app.post-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-app.post]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-app.post]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case app.post exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[app.post-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[app.post-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[app.post-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[app.post-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[app.post-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[app.post-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-app.post]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-app.post]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"

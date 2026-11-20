@@ -43,6 +43,12 @@ recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "android"
 btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
+[runs.ui-conformance-ios]
+source = "junit"
+recorded_at = "2026-11-20T02:22:01+00:00"
+runner = "ios"
+btrc_revision = "1e82e82dc359e0ccd81557bc9683f7c91e1a6615"
+
 [[operations]]
 id = "ITextField.isEnabled"
 owner = "ITextField"
@@ -63,12 +69,18 @@ note = "src/stdlib/GUI/MacOS/MacOSTextField.btrc: source implements this operati
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-False-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-False-True-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-True-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-True-True-selfhost]"]
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-textfield.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-textfield.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -126,12 +138,18 @@ note = "src/stdlib/GUI/MacOS/MacOSTextField.btrc: source implements this operati
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-False-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-False-True-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-True-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-True-True-selfhost]"]
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-textfield.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-textfield.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -187,12 +205,18 @@ configuration = "AppKit native provider"
 note = "src/stdlib/GUI/MacOS/MacOSTextField.btrc: source implements this operation. The current API exposes whole-string text, placeholder, enabled state and font size; a shared selection/composition/undo contract is not exposed."
 evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
 run = "cx-uia-04-source"
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-textfield.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-textfield.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -248,12 +272,18 @@ configuration = "AppKit native provider"
 note = "src/stdlib/GUI/MacOS/MacOSTextField.btrc: source implements this operation. The current API exposes whole-string text, placeholder, enabled state and font size; a shared selection/composition/undo contract is not exposed."
 evidence = { status = "implemented-unverified", reason = "Source implementation reviewed; no assertion-specific passing shared-run evidence is assigned." }
 run = "cx-uia-04-source"
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-textfield.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-textfield.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -311,12 +341,18 @@ note = "src/stdlib/GUI/MacOS/MacOSTextField.btrc: source implements this operati
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-False-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-False-True-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-True-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-True-True-selfhost]"]
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-textfield.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-textfield.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -374,12 +410,18 @@ note = "src/stdlib/GUI/MacOS/MacOSTextField.btrc: source implements this operati
 evidence = { status = "implemented-unverified", reason = "Assertion identified, but the shared UI0 JUnit artifact is not available yet; no runtime pass is claimed." }
 run = "cx-uia-04-source"
 regression = ["src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-False-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-False-True-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-True-False-selfhost]", "src/tests/python/test_native_app_runtime.py::test_btrc_text_field_and_scroll_view_appkit[field-True-True-selfhost]"]
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "No current GUI provider for this platform; interface availability and host spikes do not supply an implementation. UI2 changes this contract as recorded in ui2-approved.md; earlier evidence covers the previous behavior only. The expanded UI2 behavior awaits atomic provider acceptance."
-evidence = { status = "unavailable", reason = "No current provider and no operation runner for this platform.", covered_by = [] }
-run = "cx-uia-04-source"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-textfield.state]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.state exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.state-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.state-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-textfield.state]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-textfield.state]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -427,12 +469,18 @@ parity = "missing"
 note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
 evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
 run = "cx-uia-21-approved-contract"
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
-evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
-run = "cx-uia-21-approved-contract"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.editing exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-textfield.editing]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-textfield.editing]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.editing exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-textfield.editing]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-textfield.editing]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -480,12 +528,18 @@ parity = "missing"
 note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
 evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
 run = "cx-uia-21-approved-contract"
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
-evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
-run = "cx-uia-21-approved-contract"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.editing exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-textfield.editing]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-textfield.editing]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.editing exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-textfield.editing]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-textfield.editing]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
@@ -533,12 +587,18 @@ parity = "missing"
 note = "Approved UI2 portable contract; provider implementation and native acceptance await the atomic CX-UIA-21/22/23 landing."
 evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
 run = "cx-uia-21-approved-contract"
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-note = "UI2 is missing on this platform; typed unsupported shell mappings remain provisional until CL-UIA-22."
-evidence = { status = "unavailable", reason = "Interface declarations do not supply native-provider evidence.", covered_by = [] }
-run = "cx-uia-21-approved-contract"
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.editing exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-textfield.editing]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-textfield.editing]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case textfield.editing exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[textfield.editing-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[textfield.editing-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-textfield.editing]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-textfield.editing]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"

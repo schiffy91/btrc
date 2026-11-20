@@ -38,6 +38,12 @@ recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "android"
 btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
+[runs.ui-conformance-ios]
+source = "junit"
+recorded_at = "2026-11-20T02:22:01+00:00"
+runner = "ios"
+btrc_revision = "1e82e82dc359e0ccd81557bc9683f7c91e1a6615"
+
 [[operations]]
 id = "IViewScrollHandler.scroll"
 owner = "IViewScrollHandler"
@@ -53,12 +59,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[selfhost-False]", "src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[selfhost-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSViewInput.btrc; operation IViewScrollHandler.scroll. Assertion candidate in src/tests/native/gui/NativePointer.btrc: assert(event.phase == APP_SCROLL_CHANGED && event.momentumPhase == APP_SCROLL_BEGAN); Also asserts logical coordinates, precise deltaX/deltaY, shift modifier and callback count for view and panel. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "os-restricted"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case view.wheel exercises this operation (src/tests/native/gui/conformance). A phone has no pointer and no wheel: the tablet's rows alone exercise it."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.wheel-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.wheel-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[view.wheel-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[view.wheel-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-view.wheel]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-view.wheel]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "os-restricted"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case view.wheel exercises this operation (src/tests/native/gui/conformance). A phone has no pointer and no wheel: the tablet's rows alone exercise it."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.wheel-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.wheel-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[view.wheel-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[view.wheel-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-view.wheel]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-view.wheel]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"

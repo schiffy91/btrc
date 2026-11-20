@@ -38,6 +38,12 @@ recorded_at = "2026-11-20T00:11:00+00:00"
 runner = "android"
 btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
 
+[runs.ui-conformance-ios]
+source = "junit"
+recorded_at = "2026-11-20T02:22:01+00:00"
+runner = "ios"
+btrc_revision = "1e82e82dc359e0ccd81557bc9683f7c91e1a6615"
+
 [[operations]]
 id = "IViewPointerHandler.pointer"
 owner = "IViewPointerHandler"
@@ -53,12 +59,18 @@ run = "cx-uia-03-source"
 evidence = { status = "implemented-unverified" }
 regression = ["src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[selfhost-False]", "src/tests/python/test_native_pointer_runtime.py::test_native_pointer_routing[selfhost-True]"]
 note = "Source: src/stdlib/GUI/MacOS/MacOSViewInput.btrc; operation IViewPointerHandler.pointer. Assertion candidate in src/tests/native/gui/NativePointer.btrc: assert(receiver.presses == 1 && receiver.entered == 1); Additional assertions cover local coordinates, consumed/default routing, drag capture, release, focus loss and cancellation. Listed test IDs are collected, but their shared UI0 JUnit results have not been obtained; no execution pass is claimed."
-[operations.ios]
-implementation = "missing"
-parity = "missing"
-run = "cx-uia-03-source"
-evidence = { status = "unavailable", covered_by = [] }
-note = "GUI/btrc.toml selects MacOS and Linux only at this revision; no provider or platform runner evidence for this operation. iPad uses the ios family."
+[operations.ios.reference]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case view.pointer exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.pointer-iphone-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.pointer-iphone-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.pointer-ipad-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.pointer-ipad-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[view.pointer-python-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[view.pointer-python-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-plain-view.pointer]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[python-sanitized-view.pointer]"]
+[operations.ios.selfhost]
+implementation = "implemented"
+parity = "equivalent"
+configuration = "UIKit through the shim provider, on an iPhone and an iPad simulator; WKWebView for the web view"
+note = "The conformance suite's case view.pointer exercises this operation (src/tests/native/gui/conformance)."
+regression = ["src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.pointer-iphone-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.pointer-iphone-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.pointer-ipad-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ios_conformance_case[view.pointer-ipad-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[view.pointer-selfhost-plain]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_second_scene[view.pointer-selfhost-sanitized]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-plain-view.pointer]", "src/tests/python/test_native_ui_conformance_ios.py::test_ipad_conformance_case_in_a_compact_scene[selfhost-sanitized-view.pointer]"]
 [operations.linux.reference]
 implementation = "implemented"
 parity = "equivalent"
