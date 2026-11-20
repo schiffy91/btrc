@@ -92,6 +92,21 @@
       "note": "ImageIO exists only on macOS; Linux image decoding runs in test_native_linux_providers.py."
     },
     {
+      "id": "usb-apple-refusals",
+      "files": [
+        "src/tests/python/test_usb_runtime.py"
+      ],
+      "nodes": [
+        "*::test_apple_providers_refuse_the_host_and_the_gadget*"
+      ],
+      "reason": "^requires macOS: the Apple USB providers are selected there$",
+      "category": "platform",
+      "covered_by": [
+        "macos-hosted"
+      ],
+      "note": "The Apple USB providers refuse the host and the gadget; test_a_machine_without_a_device_controller_refuses_a_gadget runs here against the Linux providers."
+    },
+    {
       "id": "sdk-compiler-qualification",
       "files": [
         "src/tests/python/test_cpp_emitter.py"

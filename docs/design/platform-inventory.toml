@@ -1528,11 +1528,11 @@ kind = "operation"
 id = "Library.USB"
 group = "stdlib/USB"
 title = "USB facade: descriptors, emulated devices, HID, USB/IP, the host and the gadget"
-regression = ["src/tests/python/test_usb_runtime.py::test_emulated_usb_device_over_usbip_on_both_frontends", "src/tests/python/test_usb_runtime.py::test_kernel_host_program_builds_and_plans_alike", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+regression = ["src/tests/python/test_usb_runtime.py::test_emulated_usb_device_over_usbip_on_both_frontends", "src/tests/python/test_usb_runtime.py::test_kernel_host_program_builds_and_plans_alike", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program", "src/tests/python/test_usb_runtime.py::test_apple_providers_refuse_the_host_and_the_gadget"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream, which has no Winsock provider yet" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream, which has no Winsock provider yet" }
-ios-device = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream; BSD sockets exist in iOS libSystem but its rows have no ios spelling" }
-ios-simulator = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream; BSD sockets exist in iOS libSystem but its rows have no ios spelling" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "USB/IP over Library.Network's TCPStream with the Apple host and gadget providers; the emulated device runs over USB/IP in src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "USB/IP over Library.Network's TCPStream with the Apple host and gadget providers; the emulated device runs over USB/IP in src/tests/python/test_stdlib_ios_programs.py on the simulators" }
 android-arm64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream; BSD sockets exist in bionic but its rows have no android spelling" }
 android-x86_64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "the facade imports USBIP, which runs over Library.Network's TCPStream; BSD sockets exist in bionic but its rows have no android spelling" }
 
@@ -1554,11 +1554,11 @@ kind = "operation"
 id = "Library.USB.USBGadget"
 group = "stdlib/USB"
 title = "This machine as a USB device on a device controller"
-regression = ["src/tests/python/test_usb_runtime.py::test_gadget_program_builds_and_plans_alike", "src/tests/python/test_usb_runtime.py::test_a_machine_without_a_device_controller_refuses_a_gadget", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+regression = ["src/tests/python/test_usb_runtime.py::test_gadget_program_builds_and_plans_alike", "src/tests/python/test_usb_runtime.py::test_a_machine_without_a_device_controller_refuses_a_gadget", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program", "src/tests/python/test_usb_runtime.py::test_apple_providers_refuse_the_host_and_the_gadget"]
 windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "configfs and FunctionFS are Linux interfaces; Windows gives applications no way to define a USB function (function controllers are kernel-mode UFX clients)" }
 windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "configfs and FunctionFS are Linux interfaces; Windows gives applications no way to define a USB function (function controllers are kernel-mode UFX clients)" }
-ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot define what the device presents on its port; only MFi accessory protocols are open to it" }
-ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot define what the device presents on its port; only MFi accessory protocols are open to it" }
+ios-device = { parity = "os-restricted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "an iOS app cannot define what the device presents on its port (only MFi accessory protocols are open to it): Apple.USBGadgetProvider reports USBGadget.supported() false and refuses to open, run in src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it" }
+ios-simulator = { parity = "os-restricted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "an iOS app cannot define what the device presents on its port (only MFi accessory protocols are open to it): Apple.USBGadgetProvider reports USBGadget.supported() false and refuses to open, run in src/tests/python/test_stdlib_ios_programs.py on the simulators" }
 android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android's kernel has FunctionFS, but only the system (adbd, MTP) may mount it; an app cannot define a USB function" }
 android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android's kernel has FunctionFS, but only the system (adbd, MTP) may mount it; an app cannot define a USB function" }
 
@@ -1580,11 +1580,11 @@ kind = "operation"
 id = "Library.USB.USBHost"
 group = "stdlib/USB"
 title = "Kernel-enumerated USB devices and USB/IP attachment"
-regression = ["src/tests/python/test_usb_runtime.py::test_kernel_host_program_builds_and_plans_alike", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+regression = ["src/tests/python/test_usb_runtime.py::test_kernel_host_program_builds_and_plans_alike", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program", "src/tests/python/test_usb_runtime.py::test_apple_providers_refuse_the_host_and_the_gadget"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "usbfs and vhci_hcd are Linux interfaces; Windows needs a WinUSB device provider and has no in-box USB/IP host controller" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "usbfs and vhci_hcd are Linux interfaces; Windows needs a WinUSB device provider and has no in-box USB/IP host controller" }
-ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot open arbitrary USB devices or attach a kernel host controller; only ExternalAccessory and DriverKit entitlements reach USB" }
-ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "an iOS app cannot open arbitrary USB devices or attach a kernel host controller; only ExternalAccessory and DriverKit entitlements reach USB" }
+ios-device = { parity = "os-restricted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "an iOS app cannot open arbitrary USB devices or attach a kernel host controller (only ExternalAccessory and DriverKit entitlements reach USB): Apple.USBHostProvider reports USBHost.supported() false and refuses every operation, run in src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it" }
+ios-simulator = { parity = "os-restricted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "an iOS app cannot open arbitrary USB devices or attach a kernel host controller (only ExternalAccessory and DriverKit entitlements reach USB): Apple.USBHostProvider reports USBHost.supported() false and refuses every operation, run in src/tests/python/test_stdlib_ios_programs.py on the simulators" }
 android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android reaches USB devices through UsbManager over JNI, not usbfs paths, and ships no vhci_hcd" }
 android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android reaches USB devices through UsbManager over JNI, not usbfs paths, and ships no vhci_hcd" }
 
@@ -1593,11 +1593,11 @@ kind = "operation"
 id = "Library.USB.USBIP"
 group = "stdlib/USB"
 title = "USB/IP export of a virtual device and a user-space host"
-regression = ["src/tests/python/test_usb_runtime.py::test_emulated_usb_device_over_usbip_on_both_frontends", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport"]
+regression = ["src/tests/python/test_usb_runtime.py::test_emulated_usb_device_over_usbip_on_both_frontends", "src/tests/python/test_usb_runtime.py::test_windows_builds_usb_values_but_no_transport", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream, which has no Winsock provider yet" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream, which has no Winsock provider yet" }
-ios-device = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream; BSD sockets exist in iOS libSystem but its rows have no ios spelling" }
-ios-simulator = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream; BSD sockets exist in iOS libSystem but its rows have no ios spelling" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "USB/IP over Library.Network's TCPStream (Unix.USBIPProvider); the emulated device runs over USB/IP in src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "USB/IP over Library.Network's TCPStream (Unix.USBIPProvider); the emulated device runs over USB/IP in src/tests/python/test_stdlib_ios_programs.py on the simulators" }
 android-arm64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream; BSD sockets exist in bionic but its rows have no android spelling" }
 android-x86_64 = { parity = "equivalent", implementation = "source-only", owner = "P3", status = "source-only", reason = "USBIP runs over Library.Network's TCPStream; BSD sockets exist in bionic but its rows have no android spelling" }
 

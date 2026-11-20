@@ -95,6 +95,14 @@ PROGRAMS = {
         "PASS: network listener, streams, deadlines, resolver and bulk transfer",
     ),
     "process-threads": Program(NATIVE / "background_jobs/ProcessThreadsLive.btrc", "PASS: process thread count"),
+    # An emulated HID device exported over USB/IP to a user-space host, the
+    # device in a forked child at the other end of a socket pair.
+    "usb": Program(NATIVE / "usb/USBEmulatedDevice.btrc", "PASS: emulated USB device over USB/IP"),
+    # Neither the host nor the gadget is open to an iOS or iPadOS program.
+    "usb-refusals": Program(
+        NATIVE / "usb/USBAppleRefusals.btrc",
+        "PASS: no USB host or device controller for a program on this system",
+    ),
 }
 # One worker owns the simulator: a device is booted and run on by one process.
 pytestmark = pytest.mark.xdist_group(name="ios_ui")

@@ -69,15 +69,17 @@ replaces one of the same name that a crashed process left behind, and
 ## Targets
 
 `USBDescriptors`, `USBVirtualDevice` and `USBHID` build on every target. `USBIP` runs
-over `Library.Network`'s `TCPStream`, so it has rows for Linux and macOS.
+over `Library.Network`'s `TCPStream`, so it has rows for Linux, macOS, iOS and iPadOS.
 `USBHost` has a Linux provider: usbfs for devices (`Linux/USBFS.h` holds one
 adapter per request, because the typed importer cannot evaluate ioctl numbers
 built with `sizeof`) and sysfs for `vhci_hcd`. Opening a device needs access
 to its node; attaching needs root. `claim` detaches a kernel driver and takes
 the interface in one request, and fails rather than take an interface another
 program has claimed. `USBGadget` has a Linux provider too. The
-macOS providers report `USBHost.supported()` and `USBGadget.supported()`
-false and fail every operation. Windows has no rows.
+Apple providers (`Apple/`, on macOS, iOS and iPadOS) report
+`USBHost.supported()` and `USBGadget.supported()` false and fail every
+operation: an iOS or iPadOS app cannot open arbitrary USB devices or define
+what its port presents. Windows has no rows.
 
 Only single-configuration devices, control, bulk and interrupt transfers, and
 ASCII strings are covered.

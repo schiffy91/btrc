@@ -102,6 +102,23 @@ def test_a_machine_without_a_device_controller_refuses_a_gadget(
     assert ran.stderr == ""
 
 
+def test_apple_providers_refuse_the_host_and_the_gadget(
+    compiler: str, tmp_path: Path, request: pytest.FixtureRequest
+) -> None:
+    """macOS has no USB host a program may drive and no device controller; the simulators run the same program."""
+    _require_host()
+    if sys.platform != "darwin":
+        pytest.skip("requires macOS: the Apple USB providers are selected there")
+    generated = tmp_path / f"apple-refusals-{compiler}.c"
+    executable = tmp_path / f"apple-refusals-{compiler}"
+    _transpile(compiler, FIXTURE / "USBAppleRefusals.btrc", generated, request)
+    _compile("clang", generated, executable)
+    ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    assert ran.returncode == 0, ran.stderr
+    assert ran.stdout == "PASS: no USB host or device controller for a program on this system\n"
+    assert ran.stderr == ""
+
+
 def test_windows_builds_usb_values_but_no_transport(
     compiler: str, tmp_path: Path, request: pytest.FixtureRequest
 ) -> None:

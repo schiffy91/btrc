@@ -1,6 +1,7 @@
-/* USBGadget on macOS: there is none. A Mac's ports are hosts, and the kernel
- * has no gadget stack. Every operation reports that, so a program can ask
- * `USBGadget.supported()` first. */
+/* USBGadget on Apple systems: there is none. A Mac's ports are hosts and its
+ * kernel has no gadget stack, and an iOS or iPadOS app cannot define what the
+ * device presents on its port. Every operation reports that, so a program can
+ * ask `USBGadget.supported()` first. */
 
 import Library.Bytes;
 import Library.USB.USBDescriptors;

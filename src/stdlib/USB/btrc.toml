@@ -7,12 +7,12 @@ exports = ["USB", "USBDescriptors", "USBGadget", "USBHID", "USBHost", "USBIP", "
 [[package.providers]]
 module = "USBIP"
 implementation = "Unix.USBIPProvider"
-os = ["linux", "macos"]
+os = ["linux", "macos", "ios"]
 
 [[package.providers]]
 module = "USB"
 implementation = "Unix.USBIPProvider"
-os = ["linux", "macos"]
+os = ["linux", "macos", "ios"]
 
 [[package.providers]]
 module = "USBHost"
@@ -21,8 +21,8 @@ os = ["linux"]
 
 [[package.providers]]
 module = "USBHost"
-implementation = "MacOS.USBHostProvider"
-os = ["macos"]
+implementation = "Apple.USBHostProvider"
+os = ["macos", "ios"]
 
 [[package.providers]]
 module = "USBGadget"
@@ -31,8 +31,8 @@ os = ["linux"]
 
 [[package.providers]]
 module = "USBGadget"
-implementation = "MacOS.USBGadgetProvider"
-os = ["macos"]
+implementation = "Apple.USBGadgetProvider"
+os = ["macos", "ios"]
 
 [[native.bindings]]
 module = "Linux.USBGadgetProvider"

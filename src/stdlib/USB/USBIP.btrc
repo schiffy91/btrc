@@ -7,7 +7,7 @@
  * The kernel's own host, vhci_hcd, takes the same stream (USBHost).
  *
  * Both sides work over a TCPStream, so the selection follows Library.Network:
- * Linux and macOS. */
+ * Linux, macOS, iOS and iPadOS. */
 
 import Library.Bytes;
 import Library.Network.TCPStream;

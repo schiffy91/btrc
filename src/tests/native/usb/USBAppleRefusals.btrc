@@ -1,0 +1,21 @@
+/* On macOS, iOS and iPadOS this machine is neither a USB host a program may
+ * drive nor a USB device it may define: the Apple providers say so through
+ * `supported()` and refuse every operation with the facade's own reasons. */
+
+import Library.USB;
+
+import ./EchoPad.btrc;
+#include <assert.h>
+
+int main() {
+	assert(!USBHost.supported() && !USBGadget.supported());
+	assert(!USBHost.present(0x1209, 0x0001) && USBGadget.controllers().len == 0);
+	string host = "";
+	try { USBHostDevice.open(0x1209, 0x0001); } catch (string error) { host = error; }
+	assert(host == "No such USB device");
+	string gadget = "";
+	try { USBGadget.open(USBVirtualDevice(EchoPad.description(), EchoPad()), "btrc-none"); } catch (string error) { gadget = error; }
+	assert(gadget == "This machine has no USB device controller (is the port in device mode?)");
+	print("PASS: no USB host or device controller for a program on this system");
+	return 0;
+}

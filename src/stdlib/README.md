@@ -103,7 +103,7 @@ Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
 `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`, `Windows/`), `HID`, `HTTP`, `Image`
 (`Linux/`, `MacOS/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`), `Network`
 (`Unix/`), `Realtime`, `Steam`, `Terminal` (`Unix/`, `Windows/`), `Testing`, `Tray` (`Linux/`, `MacOS/`), `UI`,
-`USB` (`Linux/`, `MacOS/`, `Unix/`).
+`USB` (`Apple/`, `Linux/`, `Unix/`).
 Each group with behavior worth explaining has its own `README.md`.
 
 A new group is registered by one command once its directory and manifest
