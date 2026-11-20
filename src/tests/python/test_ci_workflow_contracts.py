@@ -488,6 +488,15 @@ def test_core_workflows_cancel_superseded_pull_request_runs_and_queue_main() -> 
         }, name
 
 
+def test_manual_android_and_windows_arm64_runs_survive_a_new_push() -> None:
+    for stem in ("host-android", "windows-arm64"):
+        assert _parsed(f"{stem}.yml")["concurrency"] == {
+            "group": f"{stem}-${{{{ github.event_name == 'pull_request' && format('pr-{{0}}', github.head_ref) || "
+            "github.event_name == 'push' && github.ref || format('dispatch-{0}', github.run_id) }}",
+            "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+        }, stem
+
+
 def _job_names(workflow: dict[str, object]) -> list[str]:
     jobs = workflow["jobs"]
     assert isinstance(jobs, dict)

@@ -43,7 +43,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-arm64-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.ref }}
+  group: windows-arm64-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.event_name == 'push' && github.ref || format('dispatch-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

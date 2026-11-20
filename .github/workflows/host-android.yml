@@ -79,7 +79,7 @@ env:
 # A newer push to a pull request cancels the run it supersedes; runs on main
 # queue rather than cancel.
 concurrency:
-  group: host-android-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.ref }}
+  group: host-android-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.event_name == 'push' && github.ref || format('dispatch-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
