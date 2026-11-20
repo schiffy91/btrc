@@ -55,6 +55,11 @@ static void trace(const char *what, double askedX, double askedY, double seenX, 
     if (wanted && strcmp(wanted, "1") == 0) { fprintf(stderr, "probe: %s asked %.1f,%.1f saw %.1f,%.1f content at %.1f,%.1f\n", what, askedX, askedY, seenX, seenY, content.x, content.y); }
 }
 
+static void traceCover(double askedX, double askedY, const char *cover) {
+    const char *wanted = getenv("BTRC_CONFORMANCE_TRACE");
+    if (wanted && strcmp(wanted, "1") == 0) { fprintf(stderr, "probe: covered asked %.1f,%.1f by %s\n", askedX, askedY, cover); }
+}
+
 static void arrived(unsigned long serial, int milliseconds) { btrcShimAutomationAwait(serial, milliseconds); }
 
 static void typed(void) { arrived(btrcShimAutomationSerial(), SEARCH_MILLISECONDS); }
@@ -129,7 +134,19 @@ static bool pointer(unsigned int window, const char *title, double x, double y) 
     for (int attempt = 0; attempt < 2; attempt++) {
         double seenX = 0.0;
         double seenY = 0.0;
-        if (!pointAt(window, content.x + x, content.y + y, ARRIVAL_MILLISECONDS, &seenX, &seenY)) { trace("outside", x, y, 0.0, 0.0); return true; }
+        if (!pointAt(window, content.x + x, content.y + y, ARRIVAL_MILLISECONDS, &seenX, &seenY)) {
+            char cover[160] = "";
+            if (attempt == 0 && input->covered && input->covered(content.x + x, content.y + y, cover, (int)sizeof cover)) {
+                /* Another program's window came up over this one: bring this
+                 * one back to the front, as a person would, and point again. */
+                traceCover(x, y, cover);
+                active = 0;
+                if (!activate(window, title)) { trace("not activated", x, y, 0.0, 0.0); return false; }
+                continue;
+            }
+            trace("outside", x, y, 0.0, 0.0);
+            return true;
+        }
         if (fabs(seenX - x) < 1.0 && fabs(seenY - y) < 1.0) { return true; }
         trace("elsewhere", x, y, seenX, seenY);
         /* The window moved since it was located. */

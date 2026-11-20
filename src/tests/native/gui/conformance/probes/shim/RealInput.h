@@ -43,6 +43,9 @@ struct RealInput {
     /* A helper thread that sent input is about to end. Unset where a thread
      * owes the system nothing. */
     void (*leave)(void);
+    /* Whether a window of another program is at a screen position, with
+     * what it is in `name`. Unset where the session cannot tell. */
+    bool (*covered)(double x, double y, char *name, int size);
 };
 
 /* NULL when the display offers no way to send input. Each exists only where

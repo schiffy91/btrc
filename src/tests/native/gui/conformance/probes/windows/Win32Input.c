@@ -250,6 +250,23 @@ static bool win32Front(void) {
     return modal && toFront(modal);
 }
 
+/* The top-level window at a screen position, when another program's. */
+static bool win32Covered(double x, double y, char *name, int size) {
+    POINT point = { (LONG)x, (LONG)y };
+    HWND under = WindowFromPoint(point);
+    HWND top = under ? GetAncestor(under, GA_ROOT) : NULL;
+    DWORD process = 0;
+    if (!top) { return false; }
+    GetWindowThreadProcessId(top, &process);
+    if (process == GetCurrentProcessId()) { return false; }
+    wchar_t kind[64] = L"";
+    wchar_t title[64] = L"";
+    GetClassNameW(top, kind, 64);
+    GetWindowTextW(top, title, 64);
+    snprintf(name, (size_t)size, "[%ls] '%ls' process %lu", kind, title, (unsigned long)process);
+    return true;
+}
+
 static bool win32Close(const char *title) {
     HWND window = titled(title);
     return window && PostMessageW(window, WM_CLOSE, 0, 0);
@@ -275,7 +292,7 @@ static bool win32FillsScreen(void) { return false; }
 static const RealInput win32Input = {
     .move = win32Move, .button = win32Button, .wheel = win32Wheel, .key = win32Key, .text = win32Text,
     .activate = win32Activate, .close = win32Close, .origin = win32Origin, .extent = win32Extent,
-    .fillsScreen = win32FillsScreen, .front = win32Front,
+    .fillsScreen = win32FillsScreen, .front = win32Front, .covered = win32Covered,
 };
 
 /* Input needs a desktop to arrive on: a session without one has none. */
