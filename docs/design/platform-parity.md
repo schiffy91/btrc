@@ -660,7 +660,7 @@ one structured compiler pipeline and platform-selected providers throughout.
 P0 steps 3 and 4 are recorded in their own files. The toolchain matrix
 ([platform-toolchain-matrix.md](platform-toolchain-matrix.md)) pins every
 slice's OS floor, SDK, toolchain, wgpu-native archive and FreeType version
-with sources; Xcode is pinned by build number (27A266a). The device registry
+with sources; Xcode is pinned by build number (27B52). The device registry
 ([../qualification/devices.toml](../qualification/devices.toml)) maps every
 physical gate to a device or an unavailable record. The desktop-only
 adaptations ([platform-adaptations.md](platform-adaptations.md)) are a draft

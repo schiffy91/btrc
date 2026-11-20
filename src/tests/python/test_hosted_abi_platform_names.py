@@ -147,11 +147,11 @@ def test_generated_tables_equal_the_spec_rows() -> None:
 
 
 def test_apple_rows_record_the_pinned_xcode_extraction() -> None:
-    """MAC-P1-05 uses the four rows extracted with pinned Xcode 27A266a and SDK 27.0."""
+    """MAC-P1-05 uses the four rows extracted with pinned Xcode 27B52 and SDK 27.2."""
 
     for label in (*IOS, *MACOS):
-        assert UNAVAILABLE[label].source.startswith("Xcode 27.0 (27A266a); "), label
-        assert "27.0.sdk" in UNAVAILABLE[label].source, label
+        assert UNAVAILABLE[label].source.startswith("Xcode 27.2 (27B52); "), label
+        assert "27.2.sdk" in UNAVAILABLE[label].source, label
     assert UNAVAILABLE[MSVC].source == "conservative copy pending runner extraction"
     for label in (*LINUX, *ANDROID, "windows-aarch64", "windows-x86_64"):
         assert "extracted" in UNAVAILABLE[label].source, label

@@ -230,8 +230,8 @@ Every value below is clang 21.1.8 `-std=c11 -dM -E` for the row's triple.
 - `foreign_macro_names` loses the 16 names of C4's list that became rows (15 `TARGET_OS_*` names, all but `BRIDGE`, plus `TARGET_IPHONE_SIMULATOR`). `TARGET_OS_NANO`, `TARGET_OS_UEFI` and `TARGET_OS_UIKITFORMAC` were never listed and are new rows. It keeps `TARGET_CPU_*` and `TARGET_RT_*`, which upstream clang does not predefine, and gains `__BIONIC__` (bionic's `<sys/cdefs.h>`). The Apple-only names `TARGET_OS_{ARROW, BRIDGE, FIRMWARE, IOSMAC, KERNELKIT, XR}` are foreign: none is predefined by upstream clang, so they are not portable facts for the same target triple. Both compilers reject evaluating them (I3) and defining or undefining them (M4).
 
 **C4's test 3** (`src/tests/python/test_target_macro_table.py`) takes its triples from `TARGET_ROWS[*].triple` instead of a list in the test. It covers all eleven rows on Linux, because clang needs no sysroot for `-dM`. It runs the **unwrapped** clang binary (the wrapper's `-fPIC` makes `*-pc-windows-msvc` fail with "unsupported option '-fPIC'", and it warns on every foreign target); the test reads its store path from the wrapper's `nix-support/orig-cc` and runs `<orig-cc>/bin/clang`. clang dumps `#define __ANDROID_API__ __ANDROID_MIN_SDK_VERSION__`, so the test resolves an object-like alias to its target's value before comparing, as C4 already does for `__BYTE_ORDER__`. Two checks stay Mac-bound:
-- `/usr/bin/xcrun clang` (Apple clang from Xcode 27A266a) agrees with every portable `TARGET_OS_*` row for the four Apple targets. Every additional Apple name must be explicitly classified as foreign in the shared spec; an unclassified extra fails the check.
-- `<TargetConditionals.h>` from the iOS 27.0 SDK accepts the predefined values.
+- `/usr/bin/xcrun clang` (Apple clang from the pinned Xcode: 27B52 since 2026-11-20, 27A266a before) agrees with every portable `TARGET_OS_*` row for the four Apple targets. Every additional Apple name must be explicitly classified as foreign in the shared spec; an unclassified extra fails the check.
+- `<TargetConditionals.h>` from the pinned Xcode's iOS SDK (27.2; 27.0 before) accepts the predefined values.
 
 Qualification on 2026-10-07 found that Xcode 27A266a predefines the six
 Apple-only names above in addition to the portable set. `TARGET_OS_ARROW` is
@@ -484,7 +484,8 @@ The check runs in the **optimizer stage** (pipeline stage 5, not PLAN Stage 5), 
 
 The Apple spot name is `clock_settime`, not `fork`: the pinned Xcode 27A266a
 extraction on 2026-10-07 (macOS, iPhoneOS and iPhoneSimulator SDK 27.0)
-confirmed that both iOS header sets declare `fork`. Their declaration prohibits
+confirmed that both iOS header sets declare `fork`, and the Xcode 27B52
+re-extraction on 2026-11-20 (SDK 27.2) gave the same four tables. Their declaration prohibits
 watchOS and tvOS, not iOS. The four extracted rows keep `clock_settime` unavailable
 on iOS and declared on macOS, matching the candidate's existing test. This is
 header-declaration evidence under §2.3; it makes no claim that an iOS application

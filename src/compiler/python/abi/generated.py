@@ -22007,7 +22007,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'ulong',
                 }
             ),
-            source='Xcode 27.0 (27A266a); iphoneos SDK iPhoneOS27.0.sdk (xcrun clang), --target=arm64-apple-ios17.0.0, extracted 2026-10-07 by tools/hosted_platform.py',
+            source='Xcode 27.2 (27B52); iphoneos SDK iPhoneOS27.2.sdk (xcrun clang), --target=arm64-apple-ios17.0.0, extracted 2026-11-20 by tools/hosted_platform.py',
         ),
         'ios-aarch64-simulator': GeneratedPlatformTargetRow(
             target='ios-aarch64-simulator',
@@ -22667,7 +22667,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'ulong',
                 }
             ),
-            source='Xcode 27.0 (27A266a); iphonesimulator SDK iPhoneSimulator27.0.sdk (xcrun clang), --target=arm64-apple-ios17.0.0-simulator, extracted 2026-10-07 by tools/hosted_platform.py',
+            source='Xcode 27.2 (27B52); iphonesimulator SDK iPhoneSimulator27.2.sdk (xcrun clang), --target=arm64-apple-ios17.0.0-simulator, extracted 2026-11-20 by tools/hosted_platform.py',
         ),
         'linux-aarch64': GeneratedPlatformTargetRow(
             target='linux-aarch64',
@@ -25855,7 +25855,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'ulong',
                 }
             ),
-            source='Xcode 27.0 (27A266a); macosx SDK MacOSX27.0.sdk (xcrun clang), --target=arm64-apple-macosx14.0.0, extracted 2026-10-07 by tools/hosted_platform.py',
+            source='Xcode 27.2 (27B52); macosx SDK MacOSX27.2.sdk (xcrun clang), --target=arm64-apple-macosx14.0.0, extracted 2026-11-20 by tools/hosted_platform.py',
         ),
         'macos-x86_64': GeneratedPlatformTargetRow(
             target='macos-x86_64',
@@ -26505,7 +26505,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
                     'ulong',
                 }
             ),
-            source='Xcode 27.0 (27A266a); macosx SDK MacOSX27.0.sdk (xcrun clang), --target=x86_64-apple-macosx14.0.0, extracted 2026-10-07 by tools/hosted_platform.py',
+            source='Xcode 27.2 (27B52); macosx SDK MacOSX27.2.sdk (xcrun clang), --target=x86_64-apple-macosx14.0.0, extracted 2026-11-20 by tools/hosted_platform.py',
         ),
         'windows-aarch64': GeneratedPlatformTargetRow(
             target='windows-aarch64',
@@ -35442,7 +35442,7 @@ HOSTED_PLATFORM_UNAVAILABLE: MappingProxyType[str, GeneratedPlatformTargetRow] =
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
 HOSTED_GENERIC_ARGUMENT_NESTING_LIMIT = 32
-HOSTED_ABI_FINGERPRINT = '014ed763e5de8af10cc0cdfdd5635d295cb5147d1049b95502d139a371004459'
+HOSTED_ABI_FINGERPRINT = '8b72a168f4e9ff1ebe3bdc8f797a3e71568801d0d44526a949650a182b069439'
 
 TARGET_ROWS: tuple[GeneratedTargetRow, ...] = (
     GeneratedTargetRow(

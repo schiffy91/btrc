@@ -44,7 +44,7 @@ def test_the_tracked_matrix_records_every_required_host_fact() -> None:
     assert probes >= REQUIRED_PROBES
     xcode = next(fact for fact in matrix.facts if fact.probe == "xcode-build")
     # D21: Xcode is pinned by build number.
-    assert xcode.text == "Build version 27A266a" and xcode.expectation is Expectation.PRESENT
+    assert xcode.text == "Build version 27B52" and xcode.expectation is Expectation.PRESENT
 
 
 def test_parse_reads_commands_expectations_and_backticked_values() -> None:

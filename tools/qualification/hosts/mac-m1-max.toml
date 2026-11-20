@@ -22,4 +22,4 @@ physical_cores = 10
 environment = "nix develop (flake.lock), inside BTRSmith's dev shell (tools/bench/scripts/bsm_env.sh)"
 cc = "clang"
 nix = "2.34.6"
-sdk = "Xcode 27.0 (27A266a)"
+sdk = "Xcode 27.2 (27B52)"

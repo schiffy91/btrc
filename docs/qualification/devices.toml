@@ -82,7 +82,7 @@ signing-identity = "a signing identity or store account (not hardware, but a phy
 id = "mac-m1-max"
 class = "mac-host"
 status = "available"
-name = "Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0, Xcode 27.0 (27A266a)"
+name = "Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0, Xcode 27.2 (27B52)"
 gates = [
   "btrsmith-macos-mvp-automatable",
   "btrsmith-macos-mvp-physical",

@@ -26,8 +26,8 @@ artifacts (platform-parity.md §1).
 | Linux x86_64 | `x86_64-linux-gnu` | the flake's glibc | NixOS / `ubuntu-24.04` runners (D7) | Linux or the podman `linux-ci` machine |
 | Windows x64 | `x86_64-windows-gnu` | Windows 11 24H2 (build 26100) | Windows 11 26H2 (build 26300) | the Mac (cross) and `windows-latest` |
 | Windows ARM64 | `aarch64-windows-gnu`; `aarch64-windows-msvc` for any GPU-linked artifact (see [Windows ARM64](#windows-arm64-and-the-msvc-question)) | Windows 11 24H2 (build 26100) | Windows 11 26H2 | the Mac (cross) and `windows-11-arm` |
-| iOS/iPadOS device | `arm64-apple-ios17.0` | iOS/iPadOS 17.0 | iOS/iPadOS 27.0 SDK | the Mac, Xcode 27A266a |
-| iOS/iPadOS simulator | `arm64-apple-ios17.0-simulator` | iOS 17.0 | runtime 26.4.1 installed | the Mac, Xcode 27A266a |
+| iOS/iPadOS device | `arm64-apple-ios17.0` | iOS/iPadOS 17.0 | iOS/iPadOS 27.2 SDK | the Mac, Xcode 27B52 |
+| iOS/iPadOS simulator | `arm64-apple-ios17.0-simulator` | iOS 17.0 | runtime 26.4.1 installed | the Mac, Xcode 27B52 |
 | Android arm64-v8a | `aarch64-linux-android29` | API 29 | target API 36, compile API 36 | the Mac or Linux, NDK r29 |
 | Android x86_64 (emulator) | `x86_64-linux-android29` | API 29 | API 36 | the Mac or Linux, NDK r29 |
 
@@ -38,7 +38,7 @@ accept; "Pinned" is the exact version provisioned.
 
 | Slice | Tool | Pinned | Floor | Source | Accessed | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| macOS / iOS | Xcode | **27.0 (27A266a)**, GA 2026-09-14 | Xcode 27 needs macOS Tahoe 26.6+ and Apple silicon | https://developer.apple.com/news/releases/ ; https://developer.apple.com/support/xcode/ | 2026-10-02 | verified online; recorded host |
+| macOS / iOS | Xcode | **27.2 (27B52)**, repinned 2026-11-20 from 27.0 (27A266a, GA 2026-09-14) when the Mac moved to it; the four Apple platform tables were re-extracted and are unchanged | Xcode 27 needs macOS Tahoe 26.6+ and Apple silicon | https://developer.apple.com/news/releases/ ; https://developer.apple.com/support/xcode/ | 2026-11-20 | recorded host (27.2 was not checked online) |
 | iOS device | iOS SDK | iOS 27.0 (bundled with Xcode 27.0) | deployment targets iOS 15–27; the iOS 17 floor is inside it | https://developer.apple.com/support/xcode/ | 2026-10-02 | verified online; recorded host |
 | iOS device | on-device debugging | Xcode 27.0 | iOS 17 or later (Instruments too) | https://developer.apple.com/documentation/xcode-release-notes/xcode-27-release-notes | 2026-10-02 | verified online |
 | iOS simulator | simulator SDK | iOS 27.0 | — | https://developer.apple.com/support/xcode/ | 2026-10-02 | verified online |
@@ -176,10 +176,10 @@ or does not print it. On Linux every probe is reported not applicable.
 | Probe | Command | Expect | Recorded value |
 | --- | --- | --- | --- |
 | `macos` | `sw_vers -productVersion` | present | `27.0` |
-| `xcode-version` | `xcodebuild -version` | present | `Xcode 27.0` |
-| `xcode-build` | `xcodebuild -version` | present | `Build version 27A266a` |
-| `ios-sdk` | `xcrun --sdk iphoneos --show-sdk-version` | present | `27.0` |
-| `ios-simulator-sdk` | `xcrun --sdk iphonesimulator --show-sdk-version` | present | `27.0` |
+| `xcode-version` | `xcodebuild -version` | present | `Xcode 27.2` |
+| `xcode-build` | `xcodebuild -version` | present | `Build version 27B52` |
+| `ios-sdk` | `xcrun --sdk iphoneos --show-sdk-version` | present | `27.2` |
+| `ios-simulator-sdk` | `xcrun --sdk iphonesimulator --show-sdk-version` | present | `27.2` |
 | `ios-simulator-runtime` | `xcrun simctl list runtimes` | present | `26.4.1` |
 | `ios-17-simulator-runtime` | `xcrun simctl list runtimes` | absent | `iOS 17.` |
 | `signing-identities` | `security find-identity -v -p codesigning` | present | `0 valid identities found` |

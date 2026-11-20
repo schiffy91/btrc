@@ -329,10 +329,10 @@
         "src/tests/python/test_target_macro_table.py::test_apple_clang_defines_the_table_target_os_set*",
         "src/tests/python/test_target_macro_table.py::test_target_conditionals_header_accepts_the_predefined_values*"
       ],
-      "reason": "^Mac-bound: requires macOS with xcrun and Xcode 27A266a \\(MAC-P1-05\\)",
+      "reason": "^Mac-bound: requires macOS with xcrun and Xcode 27B52 \\(MAC-P1-05\\)",
       "category": "platform",
       "covered_by": [],
-      "note": "Apple clang's TARGET_OS_* predefines and the iOS SDK's <TargetConditionals.h> exist only on macOS, and platform-target-contract.md §1.3 pins both checks to the acceptance Mac's Xcode 27A266a, which no CI image carries. MAC-P1-05 runs them there; covered_by cannot name the acceptance Mac, whose reports CI does not upload, so they are uncovered in CI. clang 21 checks the same rows' TARGET_OS_* values here."
+      "note": "Apple clang's TARGET_OS_* predefines and the iOS SDK's <TargetConditionals.h> exist only on macOS, and platform-target-contract.md §1.3 pins both checks to the acceptance Mac's Xcode 27B52, which no CI image carries. MAC-P1-05 runs them there; covered_by cannot name the acceptance Mac, whose reports CI does not upload, so they are uncovered in CI. clang 21 checks the same rows' TARGET_OS_* values here."
     },
     {
       "id": "ui-shell-windows-only",

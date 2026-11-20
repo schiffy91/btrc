@@ -64,7 +64,7 @@ LEFT_OUT = (
 
 # The Xcode build that Apple's checks are pinned to (platform-target-contract.md
 # §1.3), and the operating systems whose rows it covers.
-APPLE_XCODE_BUILD = "27A266a"
+APPLE_XCODE_BUILD = "27B52"
 APPLE_OPERATING_SYSTEMS = ("ios", "macos")
 # §1.3 checks the predefined values against the iOS SDK's <TargetConditionals.h>.
 IOS_SDK = "iphoneos"

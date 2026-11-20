@@ -203,7 +203,7 @@ class GeneratedHostedAbiData {
 		self.stdlibSourceMarker = "compiler:stdlib";
 		self.userSourceMarker = "compiler:user";
 		self.genericArgumentNestingLimit = 32;
-		self.fingerprint = "014ed763e5de8af10cc0cdfdd5635d295cb5147d1049b95502d139a371004459";
+		self.fingerprint = "8b72a168f4e9ff1ebe3bdc8f797a3e71568801d0d44526a949650a182b069439";
 		self.targetSpecFingerprint = "e904db76e8ac1560728455a2796235537f2f71cb88d74f8be7a1bb47f3ee67b8";
 	}
 
@@ -20941,7 +20941,7 @@ class GeneratedHostedAbiData {
 	}
 
 	private GeneratedPlatformTargetRow platformTarget2() {
-		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("ios-aarch64", "Xcode 27.0 (27A266a); iphoneos SDK iPhoneOS27.0.sdk (xcrun clang), --target=arm64-apple-ios17.0.0, extracted 2026-10-07 by tools/hosted_platform.py");
+		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("ios-aarch64", "Xcode 27.2 (27B52); iphoneos SDK iPhoneOS27.2.sdk (xcrun clang), --target=arm64-apple-ios17.0.0, extracted 2026-11-20 by tools/hosted_platform.py");
 		self.putPlatformTarget2Functions0(row.functions);
 		self.putPlatformTarget2Macros0(row.macros);
 		self.putPlatformTarget2Macros1(row.macros);
@@ -21606,7 +21606,7 @@ class GeneratedHostedAbiData {
 	}
 
 	private GeneratedPlatformTargetRow platformTarget3() {
-		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("ios-aarch64-simulator", "Xcode 27.0 (27A266a); iphonesimulator SDK iPhoneSimulator27.0.sdk (xcrun clang), --target=arm64-apple-ios17.0.0-simulator, extracted 2026-10-07 by tools/hosted_platform.py");
+		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("ios-aarch64-simulator", "Xcode 27.2 (27B52); iphonesimulator SDK iPhoneSimulator27.2.sdk (xcrun clang), --target=arm64-apple-ios17.0.0-simulator, extracted 2026-11-20 by tools/hosted_platform.py");
 		self.putPlatformTarget3Functions0(row.functions);
 		self.putPlatformTarget3Macros0(row.macros);
 		self.putPlatformTarget3Macros1(row.macros);
@@ -24831,7 +24831,7 @@ class GeneratedHostedAbiData {
 	}
 
 	private GeneratedPlatformTargetRow platformTarget6() {
-		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("macos-aarch64", "Xcode 27.0 (27A266a); macosx SDK MacOSX27.0.sdk (xcrun clang), --target=arm64-apple-macosx14.0.0, extracted 2026-10-07 by tools/hosted_platform.py");
+		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("macos-aarch64", "Xcode 27.2 (27B52); macosx SDK MacOSX27.2.sdk (xcrun clang), --target=arm64-apple-macosx14.0.0, extracted 2026-11-20 by tools/hosted_platform.py");
 		self.putPlatformTarget6Functions0(row.functions);
 		self.putPlatformTarget6Macros0(row.macros);
 		self.putPlatformTarget6Macros1(row.macros);
@@ -25490,7 +25490,7 @@ class GeneratedHostedAbiData {
 	}
 
 	private GeneratedPlatformTargetRow platformTarget7() {
-		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("macos-x86_64", "Xcode 27.0 (27A266a); macosx SDK MacOSX27.0.sdk (xcrun clang), --target=x86_64-apple-macosx14.0.0, extracted 2026-10-07 by tools/hosted_platform.py");
+		GeneratedPlatformTargetRow row = GeneratedPlatformTargetRow("macos-x86_64", "Xcode 27.2 (27B52); macosx SDK MacOSX27.2.sdk (xcrun clang), --target=x86_64-apple-macosx14.0.0, extracted 2026-11-20 by tools/hosted_platform.py");
 		self.putPlatformTarget7Functions0(row.functions);
 		self.putPlatformTarget7Macros0(row.macros);
 		self.putPlatformTarget7Macros1(row.macros);

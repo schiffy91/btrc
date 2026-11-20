@@ -20392,7 +20392,7 @@ unavailable_typedefs = [
   "timer_t",
   "ulong",
 ]
-source = "Xcode 27.0 (27A266a); iphoneos SDK iPhoneOS27.0.sdk (xcrun clang), --target=arm64-apple-ios17.0.0, extracted 2026-10-07 by tools/hosted_platform.py"
+source = "Xcode 27.2 (27B52); iphoneos SDK iPhoneOS27.2.sdk (xcrun clang), --target=arm64-apple-ios17.0.0, extracted 2026-11-20 by tools/hosted_platform.py"
 
 # Declared by a btrc stdlib source at file scope, so counted as declared: environ.
 # GPU runtime names were not read (the host probe failed); RUNTIME_PREFIXES still excludes them.
@@ -21044,7 +21044,7 @@ unavailable_typedefs = [
   "timer_t",
   "ulong",
 ]
-source = "Xcode 27.0 (27A266a); iphonesimulator SDK iPhoneSimulator27.0.sdk (xcrun clang), --target=arm64-apple-ios17.0.0-simulator, extracted 2026-10-07 by tools/hosted_platform.py"
+source = "Xcode 27.2 (27B52); iphonesimulator SDK iPhoneSimulator27.2.sdk (xcrun clang), --target=arm64-apple-ios17.0.0-simulator, extracted 2026-11-20 by tools/hosted_platform.py"
 
 # glibc floor: 2.31 (zig's default for aarch64-linux-gnu).
 # Declared by a btrc stdlib source at file scope, so counted as declared: environ.
@@ -24210,7 +24210,7 @@ unavailable_typedefs = [
   "timer_t",
   "ulong",
 ]
-source = "Xcode 27.0 (27A266a); macosx SDK MacOSX27.0.sdk (xcrun clang), --target=arm64-apple-macosx14.0.0, extracted 2026-10-07 by tools/hosted_platform.py"
+source = "Xcode 27.2 (27B52); macosx SDK MacOSX27.2.sdk (xcrun clang), --target=arm64-apple-macosx14.0.0, extracted 2026-11-20 by tools/hosted_platform.py"
 
 # Declared by a btrc stdlib source at file scope, so counted as declared: environ.
 # GPU runtime names were not read (the host probe failed); RUNTIME_PREFIXES still excludes them.
@@ -24852,7 +24852,7 @@ unavailable_typedefs = [
   "timer_t",
   "ulong",
 ]
-source = "Xcode 27.0 (27A266a); macosx SDK MacOSX27.0.sdk (xcrun clang), --target=x86_64-apple-macosx14.0.0, extracted 2026-10-07 by tools/hosted_platform.py"
+source = "Xcode 27.2 (27B52); macosx SDK MacOSX27.2.sdk (xcrun clang), --target=x86_64-apple-macosx14.0.0, extracted 2026-11-20 by tools/hosted_platform.py"
 
 # No [platform] name needed a btrc stdlib self-declaration to count as declared.
 # GPU runtime names read from src/runtime/gpu: 35.
