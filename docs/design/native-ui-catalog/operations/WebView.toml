@@ -12,21 +12,21 @@ btrc_revision = "24d32538abf1fde42a29a71a6686267416d45009"
 
 [runs.ui-conformance-linux]
 source = "junit"
-recorded_at = "2026-11-20T16:56:27Z"
+recorded_at = "2026-11-20T22:10:48Z"
 runner = "linux"
-btrc_revision = "19bac3b2a6653406ff78c3c30c38496583b0eedb"
+btrc_revision = "d0f8b576cca9210614cecbad323b5711f0348bb3"
 
 [runs.ui-conformance-windows]
 source = "junit"
-recorded_at = "2026-11-20T16:56:27Z"
+recorded_at = "2026-11-20T22:10:48Z"
 runner = "windows"
-btrc_revision = "19bac3b2a6653406ff78c3c30c38496583b0eedb"
+btrc_revision = "d0f8b576cca9210614cecbad323b5711f0348bb3"
 
 [runs.ui-conformance-android]
 source = "junit"
-recorded_at = "2026-11-20T16:56:27Z"
+recorded_at = "2026-11-20T22:10:48Z"
 runner = "android"
-btrc_revision = "19bac3b2a6653406ff78c3c30c38496583b0eedb"
+btrc_revision = "d0f8b576cca9210614cecbad323b5711f0348bb3"
 
 [runs.ui-conformance-ios]
 source = "junit"
