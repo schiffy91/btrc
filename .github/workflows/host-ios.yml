@@ -17,10 +17,12 @@ name: Host iOS
 # logs, the JUnit files and the ledger records. The portable job runs the
 # executor's own tests on Linux with that host's C compiler.
 #
-# The xcode-27 image supplies D21's toolchain; the inventory step verifies its
-# exact build before any SDK is used. Runtime selection takes the newest
-# installed iOS >= 17, so this does not prove the iOS 17 floor (MAC-P1-02),
-# and simulator results are never physical-device evidence (D8). Until the
+# The xcode-27 image carries Xcode 27.0 (27A266a), D21's pin until 2026-11-20
+# and one release behind it since (27B52); the inventory step verifies the
+# image's exact build before any SDK is used, so a changed image is noticed.
+# Runtime selection takes the newest installed iOS >= 17, so this does not
+# prove the iOS 17 floor (MAC-P1-02), and simulator results are never
+# physical-device evidence (D8). Until the
 # tool directory exists, tooling reports it absent and skips the other jobs.
 on:
   push:
