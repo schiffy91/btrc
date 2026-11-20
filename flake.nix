@@ -71,6 +71,7 @@
             # pkg-config: the C++ owner proof (pugixml) and the owned-output
             # proof (sqlite3). Both suites skip off macOS before probing them.
             pugixml sqlite.dev
+            libsodium.dev   # libsodium.pc: the macOS provider of Library.Crypto
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims

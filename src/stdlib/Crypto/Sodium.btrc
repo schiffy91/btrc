@@ -1,7 +1,7 @@
 /* The primitives the group is built from, behind one seam: Ed25519
  * signatures, X25519 key exchange, BLAKE2b and SHA-256 hashes, and an
- * XChaCha20-Poly1305 message stream. Linux binds libsodium; a target without a
- * provider reports `available()` false and every operation fails.
+ * XChaCha20-Poly1305 message stream. Linux and macOS bind libsodium; a target
+ * without a provider row cannot import the seam.
  *
  * Everything here works on raw buffers of the sizes SodiumSize names. The
  * classes above this seam (SigningKey, SecureChannel) are what programs use. */

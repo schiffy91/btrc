@@ -164,16 +164,17 @@
       "note": "USB/IP runs over TCPStream; test_windows_builds_usb_values_but_no_transport runs here and pins what does build. The macOS and Linux shards run the emulated device."
     },
     {
-      "id": "crypto-libsodium-linux-only",
+      "id": "crypto-libsodium-unix-only",
       "files": [
         "src/tests/python/test_crypto_runtime.py"
       ],
-      "reason": "^requires Linux: Library\\.Crypto's libsodium provider has a Linux row only$",
+      "reason": "^Library\\.Crypto's libsodium provider has Linux and macOS rows only$",
       "category": "platform",
       "covered_by": [
+        "macos-hosted",
         "linux-devcontainer"
       ],
-      "note": "Sodium has a libsodium provider on Linux only; test_windows_builds_base64_but_no_keys runs on every host and pins what builds without one. The Linux shard runs the signatures, key files and the channel."
+      "note": "Sodium has a libsodium provider on Linux and macOS only; test_windows_builds_base64_but_no_keys runs on every host and pins what builds without one. The Linux and macOS shards run the signatures, key files and the channel."
     },
     {
       "id": "bluetooth-bluez-linux-only",

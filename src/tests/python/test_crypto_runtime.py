@@ -21,14 +21,30 @@ SANITIZED = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
 
 
 def _require_host() -> None:
-    if sys.platform != "linux":
-        pytest.skip("requires Linux: Library.Crypto's libsodium provider has a Linux row only")
+    if sys.platform not in ("linux", "darwin"):
+        pytest.skip("Library.Crypto's libsodium provider has Linux and macOS rows only")
 
 
-def _build(c_compiler: str, plan: Path, generated: Path, executable: Path, *, sanitized: bool = False) -> None:
+def _build(
+    c_compiler: str,
+    plan: Path,
+    generated: Path,
+    executable: Path,
+    *,
+    sanitized: bool = False,
+    monkeypatch: pytest.MonkeyPatch | None = None,
+) -> None:
     """Build from the link plan, which names libsodium for pkg-config."""
     assert NativePlanReader().read(plan).pkg_config == ("libsodium",)
     flags = STRICT + (SANITIZED if sanitized else [])
+    if sanitized and sys.platform == "darwin":
+        # Xcode's clang and its sanitizer runtime, as the network and jobs
+        # drivers use: the dev shell's compiler-rt ASan deadlocks in its own
+        # initialization on this macOS, before main.
+        assert monkeypatch is not None
+        monkeypatch.delenv("DEVELOPER_DIR", raising=False)
+        monkeypatch.delenv("SDKROOT", raising=False)
+        flags += ["-isysroot", os.environ["BTRC_NATIVE_SYSROOT"], "-target", os.environ["BTRC_NATIVE_TARGET"]]
     NativePlanBuilder().build(
         plan_path=plan,
         generated_c=generated,
@@ -42,15 +58,22 @@ def _build(c_compiler: str, plan: Path, generated: Path, executable: Path, *, sa
 
 @pytest.mark.parametrize("c_compiler,sanitized", [("gcc", False), ("clang", False), ("clang", True)])
 def test_keys_and_secure_channel_on_both_frontends(
-    compiler: str, c_compiler: str, sanitized: bool, tmp_path: Path, request: pytest.FixtureRequest
+    compiler: str,
+    c_compiler: str,
+    sanitized: bool,
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _require_host()
     if not shutil.which(c_compiler):
         pytest.skip(f"{c_compiler} is unavailable")
+    if sanitized and sys.platform == "darwin":
+        c_compiler = "/usr/bin/clang"
     generated = tmp_path / f"crypto-{compiler}.c"
     executable = tmp_path / f"crypto-{compiler}"
     plan = _transpile(compiler, FIXTURE / "CryptoConformance.btrc", generated, request)
-    _build(c_compiler, plan, generated, executable, sanitized=sanitized)
+    _build(c_compiler, plan, generated, executable, sanitized=sanitized, monkeypatch=monkeypatch)
     environment = {**os.environ, "TMPDIR": str(tmp_path)}
     ran = subprocess.run([str(executable)], env=environment, capture_output=True, text=True, timeout=RUN_TIMEOUT)
     assert ran.returncode == 0, ran.stderr

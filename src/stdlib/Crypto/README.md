@@ -74,11 +74,11 @@ The construction has not been audited.
 
 ## Providers
 
-`Sodium` is libsodium on Linux (`Linux/SodiumProvider.btrc`, through the
-adapters in `Linux/Sodium.h`; the manifest names the `libsodium` pkg-config
-package, so a program that imports the group links it). macOS has a provider
-that reports `Sodium.available()` false until a libsodium input is wired for
-it; Windows, iOS and Android have no row. `Base64` needs none.
+`Sodium` is libsodium on Linux and macOS (`Unix/SodiumProvider.btrc`,
+through the adapters in `Unix/Sodium.h`; the manifest names the `libsodium`
+pkg-config package, so a program that imports the group links it, and the
+dev shell supplies it on both). Windows, iOS and Android have no row.
+`Base64` needs none.
 
 ## Tests
 

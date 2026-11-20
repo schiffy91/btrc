@@ -1,5 +1,6 @@
-/* Sodium on Linux: libsodium, through the adapters in `Sodium.h`. The manifest
- * names the pkg-config package for the header read and the link. */
+/* Sodium on Linux and macOS: libsodium, through the adapters in `Sodium.h`.
+ * The manifest names the pkg-config package for the header read and the
+ * link. */
 
 class SodiumProvider {
 	class bool available() { return btrcSodiumStart() != 0; }
