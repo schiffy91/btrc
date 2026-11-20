@@ -21,7 +21,7 @@ from tools.native_plan import NativePlanBuilder
 
 MACOS_ONLY = "requires macOS: the GUI conformance suite's macOS rows"
 # What the AppKit provider has beyond the frozen contract (cases.toml `needs`).
-HAS: set[str] = {"web", "freetype", "modal", "wheel"}
+HAS: set[str] = {"web", "freetype", "modal", "wheel", "draw"}
 # The font face case reads a font file; these ship with every macOS release.
 FONTS = (Path("/System/Library/Fonts/Supplemental/Arial.ttf"), Path("/System/Library/Fonts/Helvetica.ttc"))
 SANITIZERS = ("-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer")

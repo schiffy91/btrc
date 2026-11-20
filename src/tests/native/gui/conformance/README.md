@@ -74,7 +74,9 @@ A case prints `CASE <name> PASS`, or `CASE <name> FAIL <what it found>`.
 driver supplies both. A case with `needs` in `cases.toml` applies to the
 providers that have what it names: the web view's cases need `web`, the
 alert's and the folder chooser's `modal`, and the wheel's `wheel`, a pointer
-device a phone does not have.
+device a phone does not have. `draw` is the textured draw's (`gpu.texture`),
+which the macOS driver and the iOS simulators' run; the other drivers name it
+once their platform has run the case.
 
 ## Coverage
 

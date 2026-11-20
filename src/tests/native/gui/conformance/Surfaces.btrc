@@ -1,7 +1,9 @@
 import Library.Callback;
+import Library.GPU.GPUImageTexture;
 import Library.GPU.GPUProgram;
 import Library.GPU.GPUReadback;
 import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUUniformBuffer;
 import Library.GUI;
 import Library.GUI.GUICaptureLayer;
 import Library.GUI.IGPUView;
@@ -122,6 +124,84 @@ class GPUFrame implements IConformanceCase {
 		var broken = view.createProgram("not a shader", 4, false);
 		while (broken.poll() != GPU_PROGRAM_READY && broken.state() != GPU_PROGRAM_FAILED && MonotonicClock.milliseconds() - started < 60000LL) { turns.turn(); }
 		Expect.isTrue(broken.state() == GPU_PROGRAM_FAILED && !broken.error().isEmpty(), "an invalid shader fails with its reason and does not break the view");
+		window.close();
+		for (int turn = 0; turn < 2000 && window.pollClose() != CALLBACK_CANCELLATION_COMPLETE; turn++) { turns.turn(); }
+		Expect.isTrue(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE, "closing the window finishes the GPU view's pending work");
+		Expect.isFalse(view.isOpen());
+	}
+}
+
+/* A program draws into a GPU view's frame with what it is given: a uniform
+ * buffer's values and an image's pixels reach the fragment shader, a frame
+ * that has drawn with them holds them as they were, and what changes after it
+ * is uploaded again for the next. */
+class GPUTexture implements IConformanceCase {
+	public string name() { return "gpu.texture"; }
+
+	class string shader() { return "struct Tint { color: vec4<f32> };\n" + "@group(0) @binding(0) var<uniform> tint: Tint;\n" + "@group(0) @binding(1) var image: texture_2d<f32>;\n" + "@group(0) @binding(2) var imageSampler: sampler;\n" + "@vertex fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {\n" + "  var corners = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));\n" + "  return vec4<f32>(corners[index], 0.0, 1.0);\n" + "}\n" + "@fragment fn fs_main() -> @location(0) vec4<f32> { return textureSample(image, imageSampler, vec2<f32>(0.5, 0.5)) * tint.color; }\n"; }
+
+	class void tint(GPUUniformBuffer uniform, float red, float green, float blue) {
+		uniform.set(0, red);
+		uniform.set(1, green);
+		uniform.set(2, blue);
+		uniform.set(3, 1.0f);
+	}
+
+	/* The middle pixel of the frame the view holds, once its readback arrives. */
+	class RGBA drawn(IGPUView view, Turns turns) {
+		long long started = MonotonicClock.milliseconds();
+		var readback = view.readback();
+		Expect.isTrue(readback.submit());
+		while (readback.poll() != GPU_READBACK_READY && readback.error().isEmpty() && MonotonicClock.milliseconds() - started < 15000LL) { turns.turn(); }
+		Expect.isTrue(readback.state() == GPU_READBACK_READY, f"the readback did not arrive: {readback.error()}");
+		var pixels = readback.takeImage();
+		return pixels.pixel(pixels.width / 2, pixels.height / 2);
+	}
+
+	/* A channel as the texture held it, give or take the sampler's rounding. */
+	class bool channel(int found, int expected) { return found >= expected - 1 && found <= expected + 1; }
+
+	public void run(Turns turns) {
+		var window = GUI.createWindow("conformance gpu.texture", 320.0, 200.0);
+		var root = GUI.createContainer();
+		var view = GUI.createGPUView(true);
+		window.attachRoot(root);
+		root.attach(view);
+		view.arrange(40.0, 20.0, 120.0, 80.0);
+		window.show();
+		long long started = MonotonicClock.milliseconds();
+		while (!view.poll() && view.error().isEmpty() && MonotonicClock.milliseconds() - started < 15000LL) { turns.turn(); }
+		Expect.isTrue(view.error().isEmpty(), f"the GPU device failed: {view.error()}");
+		Expect.isTrue(view.poll(), "the GPU device did not arrive within fifteen seconds");
+		turns.settle();
+		var program = view.createProgram(GPUTexture.shader(), 4);
+		while (program.poll() != GPU_PROGRAM_READY && program.state() != GPU_PROGRAM_FAILED && MonotonicClock.milliseconds() - started < 30000LL) { turns.turn(); }
+		Expect.isTrue(program.state() == GPU_PROGRAM_READY, f"the program did not validate: {program.error()}");
+		var device = view.frameRenderer().device();
+		var image = Image(2, 2);
+		image.fill(RGBA(255, 255, 128));
+		var texture = GPUImageTexture(device, image);
+		var uniform = GPUUniformBuffer(device, 4);
+		GPUTexture.tint(uniform, 0.0f, 1.0f, 1.0f);
+		Expect.isTrue(view.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_READY);
+		program.draw(view.frameRenderer(), uniform, 3, texture);
+		bool held = false;
+		try { uniform.set(0, 1.0f); } catch (string refused) { held = true; }
+		Expect.isTrue(held, "a uniform keeps its values while a frame that drew with it is open");
+		held = false;
+		try { texture.update(image); } catch (string refused) { held = true; }
+		Expect.isTrue(held, "and so does a texture its pixels");
+		var first = GPUTexture.drawn(view, turns);
+		Expect.isTrue(first.red == 0 && first.green == 255 && GPUTexture.channel(first.blue, 128), f"the frame is the image's pixels through the uniform's tint: {first.red} {first.green} {first.blue}");
+		image.fill(RGBA(128, 255, 255));
+		texture.update(image);
+		GPUTexture.tint(uniform, 1.0f, 0.0f, 0.0f);
+		Expect.isTrue(view.beginFrame(0.0, 0.0, 0.0) == GPU_SURFACE_FRAME_READY);
+		program.draw(view.frameRenderer(), uniform, 3, texture);
+		var second = GPUTexture.drawn(view, turns);
+		Expect.isTrue(GPUTexture.channel(second.red, 128) && second.green == 0 && second.blue == 0, f"the next frame is what both were changed to: {second.red} {second.green} {second.blue}");
+		texture.close();
+		uniform.close();
 		window.close();
 		for (int turn = 0; turn < 2000 && window.pollClose() != CALLBACK_CANCELLATION_COMPLETE; turn++) { turns.turn(); }
 		Expect.isTrue(window.pollClose() == CALLBACK_CANCELLATION_COMPLETE, "closing the window finishes the GPU view's pending work");

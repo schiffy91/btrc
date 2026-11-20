@@ -42,7 +42,7 @@ NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
 # What the UIKit provider has of what a case may need: a web view and a probe
 # that answers a modal, and no FreeType (the iOS SDK does not carry it). A
 # tablet has a pointer and its wheel; a phone has neither.
-HAS = {"iphone": {"web", "modal"}, "ipad": {"web", "modal", "wheel"}}
+HAS = {"iphone": {"web", "modal", "draw"}, "ipad": {"web", "modal", "wheel", "draw"}}
 # One worker owns the simulator: a device is booted, installed on and sent input by one process.
 pytestmark = pytest.mark.xdist_group(name="ios_ui")
 # Cases that put no window on show, and so have no scene to speak of: every other case's

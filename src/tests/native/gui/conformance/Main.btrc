@@ -51,6 +51,7 @@ int main(Vector<string> args) {
 	suite.add(ButtonActivate());
 	suite.add(ViewFitting());
 	suite.add(GPUFrame());
+	suite.add(GPUTexture());
 	suite.add(CaptureSubtree());
 	suite.add(TextRaster());
 	FontCases.add(suite);

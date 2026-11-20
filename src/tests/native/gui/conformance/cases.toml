@@ -251,6 +251,14 @@ operations = [
   "IGPUView.beginFrame", "IGPUView.createProgram", "IGPUView.readback", "IGPUView.requestCapture"
 ]
 
+# A program's draw with a uniform buffer and an image texture, which are the
+# GPU package's and no operation of the catalog's. `draw` is a provider whose
+# driver has run it: macOS and the iOS simulators so far.
+[[case]]
+name = "gpu.texture"
+needs = "draw"
+operations = []
+
 [[case]]
 name = "capture.subtree"
 operations = ["GUI.capture"]
