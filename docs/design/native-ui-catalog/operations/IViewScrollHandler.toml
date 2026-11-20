@@ -22,21 +22,21 @@ runner = "github-macos"
 
 [runs.ui-conformance-linux]
 source = "junit"
-recorded_at = "2026-11-20T00:11:00+00:00"
+recorded_at = "2026-11-20T02:32:32+00:00"
 runner = "linux"
-btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
+btrc_revision = "fc99d964c68283b8026589333a2b6c967cd81254"
 
 [runs.ui-conformance-windows]
 source = "junit"
-recorded_at = "2026-11-20T00:11:00+00:00"
+recorded_at = "2026-11-20T02:32:32+00:00"
 runner = "windows"
-btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
+btrc_revision = "fc99d964c68283b8026589333a2b6c967cd81254"
 
 [runs.ui-conformance-android]
 source = "junit"
-recorded_at = "2026-11-20T00:11:00+00:00"
+recorded_at = "2026-11-20T02:32:32+00:00"
 runner = "android"
-btrc_revision = "e641a08bb65518c49f3c6eb1f421aea676321f29"
+btrc_revision = "fc99d964c68283b8026589333a2b6c967cd81254"
 
 [runs.ui-conformance-ios]
 source = "junit"

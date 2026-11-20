@@ -230,8 +230,8 @@ class Recorder:
             "# What the GUI conformance suite proves of each operation on the shim provider's",
             "# platforms. Written by tools/qualification/ui_conformance.py; `ui_catalog check",
             "# --junit <run>=<junit.xml>` holds each run to its driver's JUnit file.",
-            "# The revision is the parent of the commit that records it, for a commit cannot",
-            "# name itself: the two trees differ by this catalog's files and the plan's notes.",
+            "# A platform's revision is the commit its drivers ran at: an ancestor of the",
+            "# commit that records it, for a commit cannot name itself.",
             'schema = "btrc.qualification.ledger/1"',
             "",
         ]
