@@ -33,6 +33,20 @@ class CloseWindows implements IAppKitDelayedWork {
 	private IButton _button;
 	private ActionAudit _audit;
 	private int _step = 0;
+	private int _waited = 0;
+
+	/* A closed window's subtree drains on a later turn of the loop, which a
+	 * loaded machine can take after this 20 ms timer's next tick: wait for it,
+	 * for at most 250 ticks (5 seconds or more). */
+	private bool drained(IWindow window, IView child) {
+		if (!child.isOpen() && window.root() == null) {
+			self._waited = 0;
+			return true;
+		}
+		self._waited++;
+		assert(self._waited < 250);
+		return false;
+	}
 
 	public CloseWindows(IApplication application, IWindow first, IWindow second, IView firstChild, IView secondChild, IButton button, ActionAudit audit) {
 		self._application = application;
@@ -53,6 +67,7 @@ class CloseWindows implements IAppKitDelayedWork {
 			assert(!self._first.isVisible());
 			assert(ApplicationProbe.liveViews() == 2L);
 		} else if (self._step == 1) {
+			if (!self.drained(self._first, self._firstChild)) { return; }
 			assert(!self._firstChild.isOpen() && self._first.root() == null);
 			assert(!self._button.isOpen() && self._audit.calls == 0 && self._audit.destroyed == 1);
 			assert(self._second.isOpen() && ApplicationProbe.liveViews() == 1L);
@@ -61,6 +76,7 @@ class CloseWindows implements IAppKitDelayedWork {
 			assert(!self._second.isOpen() && self._secondChild.isOpen());
 			assert(!self._second.isVisible());
 		} else {
+			if (!self.drained(self._second, self._secondChild)) { return; }
 			assert(!self._secondChild.isOpen() && self._second.root() == null);
 			assert(ApplicationProbe.liveViews() == 0L);
 			self._application.requestQuit();
