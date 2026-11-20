@@ -41,9 +41,7 @@ class WindowsDaemonControlStore {
 	 * cursor reopens it. Only enumeration treats delete-pending as a reason
 	 * to rescan; publication and stop still require confirmed absence. */
 	public bool entryDisappeared() {
-		bool deletePending = self.error.stage == (uint32_t)17
-			&& ((self.error.domain == (uint32_t)2 && self.error.native_code == (uint32_t)303)
-				|| (self.error.domain == (uint32_t)3 && self.error.native_code == (uint32_t)0xc0000056U));
+		bool deletePending = self.error.stage == (uint32_t)17 && ((self.error.domain == (uint32_t)2 && self.error.native_code == (uint32_t)303) || (self.error.domain == (uint32_t)3 && self.error.native_code == (uint32_t)0xc0000056U));
 		return self.missing() || deletePending;
 	}
 
