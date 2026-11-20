@@ -129,8 +129,17 @@ def test_android_conformance_case(name, frontend, android_device, request, tmp_p
     runner, web = suite_app(frontend, android_device, request, tmp_path_factory)
     # The probe sends real input: the emulator is a session made for tests.
     status, stdout, stderr = runner.run([name], {"BTRC_UI_PRIVATE_SESSION": "1", "BTRC_CONFORMANCE_WEB": web}, 180)
+    passed = status == 0 and f"CASE {name} PASS" in stdout
     report = f"{name} on Android API {android_device.property('ro.build.version.sdk')} ({frontend})\n{stdout}{stderr}"
+    if not passed:
+        report += f"\nexit status: {status}\n"
     evidence = os.environ.get("BTRC_ANDROID_UI_EVIDENCE")
     if evidence:
-        (Path(evidence) / f"{shell.FRONTENDS[frontend]}-{name}.txt").write_text(report, encoding="utf-8")
-    assert status == 0 and f"CASE {name} PASS" in stdout, report
+        stem = f"{shell.FRONTENDS[frontend]}-{name}"
+        (Path(evidence) / f"{stem}.txt").write_text(report, encoding="utf-8")
+        if not passed:
+            # The next case clears logcat. Keep the driver and linker messages
+            # preceding a framework abort, even if the program printed nothing.
+            logs = android_device.adb("logcat", "-d", "-v", "threadtime", *android_device.BUFFERS, check=False)
+            (Path(evidence) / f"{stem}-logcat.txt").write_text(logs.stdout + logs.stderr, encoding="utf-8")
+    assert passed, report
