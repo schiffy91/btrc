@@ -9,6 +9,7 @@
  * program polls; no callback enters BTRC. */
 #include "AndroidShimPrivate.h"
 
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <time.h>
@@ -170,6 +171,20 @@ JNIEXPORT void JNICALL Java_dev_btrc_shim_Shim_push(JNIEnv* env, jclass class, j
 	if (characters != NULL) { (*env)->ReleaseStringUTFChars(env, text, characters); }
 }
 
+/* Points one of the program's standard streams at a file, in one step. The
+ * activity's other threads open descriptors of their own meanwhile, and
+ * freopen closes the stream's descriptor before it takes the number again:
+ * a render thread's descriptor could be given that number in between, and
+ * the program's output was lost when that thread closed it. */
+static bool btrcAndroidRedirect(FILE* stream, int descriptor, const char* path) {
+	int file = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+	if (file < 0) { return false; }
+	fflush(stream);
+	bool moved = dup2(file, descriptor) == descriptor;
+	close(file);
+	return moved;
+}
+
 /* The program's main, on the thread the activity made for it. Its standard
  * output and error go to files in the application's own directory, where a
  * test host reads them, with its result beside them when it ends. */
@@ -183,9 +198,9 @@ JNIEXPORT jint JNICALL Java_dev_btrc_shim_ShimActivity_nativeMain(JNIEnv* env, j
 	setenv("HOME", home, 1);
 	setenv("TMPDIR", home, 0);
 	snprintf(path, sizeof path, "%s/stdout.txt", home);
-	if (freopen(path, "w", stdout) == NULL) { return 127; }
+	if (!btrcAndroidRedirect(stdout, STDOUT_FILENO, path)) { return 127; }
 	snprintf(path, sizeof path, "%s/stderr.txt", home);
-	if (freopen(path, "w", stderr) == NULL) { return 127; }
+	if (!btrcAndroidRedirect(stderr, STDERR_FILENO, path)) { return 127; }
 	/* Arguments of the form NAME=VALUE before a "--" are the environment. */
 	jsize given = (*env)->GetArrayLength(env, arguments);
 	char** values = calloc((size_t)given + 2u, sizeof *values);
