@@ -7,21 +7,21 @@ recorded_at = "2026-10-07T16:27:08.007710+00:00"
 
 [runs.ui-conformance-linux]
 source = "junit"
-recorded_at = "2026-11-21T00:36:39Z"
+recorded_at = "2026-11-21T03:47:29Z"
 runner = "linux"
-btrc_revision = "2c4bd1d9a7eadfd755448696dffab16fc65bfaf2"
+btrc_revision = "1d845a54796d556b9181dfa3ecbb61ec82a214fe"
 
 [runs.ui-conformance-windows]
 source = "junit"
-recorded_at = "2026-11-21T00:36:39Z"
+recorded_at = "2026-11-21T03:47:29Z"
 runner = "windows"
-btrc_revision = "2c4bd1d9a7eadfd755448696dffab16fc65bfaf2"
+btrc_revision = "1d845a54796d556b9181dfa3ecbb61ec82a214fe"
 
 [runs.ui-conformance-android]
 source = "junit"
-recorded_at = "2026-11-21T00:36:39Z"
+recorded_at = "2026-11-21T03:47:29Z"
 runner = "android"
-btrc_revision = "2c4bd1d9a7eadfd755448696dffab16fc65bfaf2"
+btrc_revision = "1d845a54796d556b9181dfa3ecbb61ec82a214fe"
 
 [runs.ui-conformance-ios]
 source = "junit"
