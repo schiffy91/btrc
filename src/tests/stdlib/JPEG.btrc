@@ -1,0 +1,63 @@
+import Library.Image.JPEG;
+import Library.Testing;
+
+Bytes oriented(Bytes bytes, int orientation) {
+	var prefix = Bytes.fromHex("ffd8ffe1002245786966000049492a000800000001001201030001000000");
+	if (prefix == null) { throw "Bad test fixture"; }
+	prefix.appendU16LE(orientation);
+	prefix.appendU16LE(0);
+	prefix.appendU32LE(0);
+	prefix.appendBytes(bytes.slice(2, bytes.length));
+	return prefix;
+}
+
+bool rejects(Bytes bytes, int maxPixels = 64000000) {
+	try { JPEG.decode(bytes, maxPixels); return false; }
+	catch (string error) { return true; }
+}
+
+// An independent progressive grayscale stream with AC refinement and restart markers.
+void progressiveJPEG() {
+	var encoded = Bytes.fromHex("ffd8ffe000104a46494600010100000100010000ffdb0043000403030403030404040405050405070b07070606070e0a0a080b100e1111100e100f12141a16121318130f10161f17181b1b1d1d1d111620221f1c221a1c1d1cffc2000b08000d001701011100ffc40017000100030000000000000000000000000006050708ffdd00040002ffda00080101000000010ae3ffd06b1dffd1b333d7ffc4001810000301010000000000000000000000000004050203ffda00080101000105025660acc3ffd05a60aa983fffd1e99c248d1b6ddbd7ffc400221000000503040300000000000000000000000103113102041210132132415161ffda0008010100063f028103ffd08d3fffd1b8b9c72d94ea5318762715928a1a76a67c214756fbee3c8fffc4001a100002030101000000000000000000000000110121314151ffda0008010100013f21cce67fffd0acd73fffd1f4df8d647cc2dab0ca1451eb497d62c3ffda00080101000000103fffd07fffd1ff00ffc4001e100100030001050100000000000000000001001121f131415161a1b1ffda0008010100013f10e3a71d3fffd0cfe9e276ff0093ffd1fce1de24eb174d5f463b273ba4d2024e802c82d3ffd9");
+	if (encoded == null) { throw "Bad progressive fixture"; }
+	var image = JPEG.decode(encoded);
+	Expect.intEq(image.width, 23);
+	Expect.intEq(image.height, 13);
+	Expect.isTrue(Math.abs(image.pixel(1, 1).red - 19) <= 1);
+	Expect.isTrue(Math.abs(image.pixel(13, 6).red - 169) <= 1);
+	Expect.isTrue(Math.abs(image.pixel(21, 12).red - 46) <= 1);
+}
+
+int main() {
+	progressiveJPEG();
+	var image = Image(32, 16);
+	for (int y = 0; y < image.height; y++) {
+		for (int x = 0; x < image.width; x++) {
+			var level = 32 + (x / 16) * 64 + (y / 8) * 128;
+			image.setRGBA(x, y, level, level, level);
+		}
+	}
+	var source = JPEG.encode(image, 95);
+	// Corners in display order, for TIFF orientations one through eight.
+	Vector<int> corners = [0,1,2,3, 1,0,3,2, 3,2,1,0, 2,3,0,1, 0,2,1,3, 2,0,3,1, 3,1,2,0, 1,3,0,2];
+	for (int o = 1; o <= 8; o++) {
+		var preview = JPEGPhoto(oriented(source, o)).thumbnail(16, 16, 95);
+		var header = JPEGHeader.inspect(preview);
+		Expect.intEq(header.orientation, 1);
+		Expect.intEq(header.width, o >= 5 ? 8 : 16);
+		Expect.intEq(header.height, o >= 5 ? 16 : 8);
+		var decoded = JPEG.decode(preview);
+		for (int i = 0; i < 4; i++) {
+			var value = decoded.pixel((1 + 2 * (i % 2)) * decoded.width / 4, (1 + 2 * (i / 2)) * decoded.height / 4).red;
+			var delta = value - (32 + corners.get((o - 1) * 4 + i) * 64);
+			Expect.isTrue(delta >= -4 && delta <= 4, "EXIF did not move a corner correctly");
+		}
+	}
+	var originalSize = JPEGHeader.inspect(JPEGPhoto(source).thumbnail(100, 100));
+	Expect.intEq(originalSize.width, 32);
+	Expect.intEq(originalSize.height, 16);
+	Expect.isTrue(rejects(source, 511));
+	Expect.isTrue(rejects(source.slice(0, source.length - 2)));
+	print("PASS JPEG");
+	return 0;
+}

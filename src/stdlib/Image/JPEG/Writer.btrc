@@ -1,0 +1,117 @@
+import Library.Image.Pixels;
+
+import ./Transform.btrc;
+import ./Huffman.btrc;
+
+class JPEGWriter {
+	private JPEGOutput output;
+	private JPEGTransform transform;
+	private JPEGHuffman dc;
+	private JPEGHuffman ac;
+	private Array<int> predictors;
+	private Array<int> steps;
+
+	class Bytes tableBytes(string hex) {
+		var bytes = Bytes.fromHex(hex);
+		if (bytes == null) { throw "Invalid built-in JPEG table"; }
+		return bytes;
+	}
+
+	public JPEGWriter(int quality) {
+		if (quality < 1 || quality > 100) { throw "JPEG quality must be between 1 and 100"; }
+		self.output = JPEGOutput();
+		self.transform = JPEGTransform();
+		self.predictors = new Array<int>(3);
+		self.steps = new Array<int>(128);
+		// T.81 Annex K example Huffman and quantization tables. One pair
+		// of Huffman tables suffices for all three full-resolution planes.
+		self.dc = JPEGHuffman(JPEGWriter.tableBytes("00010501010101010100000000000000"), JPEGWriter.tableBytes("000102030405060708090a0b"));
+		self.ac = JPEGHuffman(JPEGWriter.tableBytes("0002010303020403050504040000017d"), JPEGWriter.tableBytes("01020300041105122131410613516107227114328191a1082342b1c11552d1f02433627282090a161718191a25262728292a3435363738393a434445464748494a535455565758595a636465666768696a737475767778797a838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9fa"));
+		Vector<int> base = [16,11,10,16,24,40,51,61,12,12,14,19,26,58,60,55,14,13,16,24,40,57,69,56,14,17,22,29,51,87,80,62,18,22,37,56,68,109,103,77,24,35,55,64,81,104,113,92,49,64,78,87,103,121,120,101,72,92,95,98,112,100,103,99,17,18,24,47,99,99,99,99,18,21,26,66,99,99,99,99,24,26,56,99,99,99,99,99,47,66,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99];
+		var scale = quality < 50 ? 5000 / quality : 200 - quality * 2;
+		for (int i = 0; i < 128; i++) {
+			var step = (base.get(i) * scale + 50) / 100;
+			self.steps.set(i, step < 1 ? 1 : step > 255 ? 255 : step);
+		}
+	}
+
+	private void headers(Image image, Vector<Bytes> profile) {
+		self.output.bytes.appendU16BE(0xffd8);
+		self.output.segment(0xe0, JPEGWriter.tableBytes("4a46494600010100000100010000"));
+		for chunk in profile { self.output.segment(0xe2, chunk); }
+		var quant = Bytes();
+		for (int table = 0; table < 2; table++) {
+			quant.append(table);
+			for index in self.transform.zigzag { quant.append(self.steps.get(table * 64 + index)); }
+		}
+		self.output.segment(0xdb, quant);
+		var frame = Bytes();
+		frame.append(8);
+		frame.appendU16BE(image.height);
+		frame.appendU16BE(image.width);
+		frame.appendBytes(JPEGWriter.tableBytes("03011100021101031101"));
+		self.output.segment(0xc0, frame);
+		var tables = Bytes();
+		tables.append(0);
+		tables.appendBytes(self.dc.counts);
+		tables.appendBytes(self.dc.symbols);
+		tables.append(16);
+		tables.appendBytes(self.ac.counts);
+		tables.appendBytes(self.ac.symbols);
+		self.output.segment(0xc4, tables);
+		self.output.segment(0xda, JPEGWriter.tableBytes("03010002000300003f00"));
+	}
+
+	private void coefficient(JPEGHuffman table, int zeros, int value) {
+		var magnitude = value < 0 ? -value : value;
+		int bits = 0;
+		while (magnitude > 0) { magnitude >>= 1; bits++; }
+		table.write(self.output, zeros * 16 + bits);
+		self.output.bits(value < 0 ? value - 1 : value, bits);
+	}
+
+	private void writeBlock(int plane) {
+		self.transform.apply(false);
+		int zeros = 0;
+		for (int k = 0; k < 64; k++) {
+			var index = self.transform.zigzag.get(k);
+			var step = self.steps.get((plane == 0 ? 0 : 64) + index);
+			var value = JPEGTransform.rounded(self.transform.block.get(index) / step);
+			if (k == 0) {
+				self.coefficient(self.dc, 0, value - self.predictors.get(plane));
+				self.predictors.set(plane, value);
+			} else if (value == 0) { zeros++; }
+			else {
+				while (zeros >= 16) { self.ac.write(self.output, 0xf0); zeros -= 16; }
+				self.coefficient(self.ac, zeros, value);
+				zeros = 0;
+			}
+		}
+		if (zeros > 0) { self.ac.write(self.output, 0); }
+	}
+
+	public Bytes encode(Image image, Vector<Bytes> profile = []) {
+		if (image == null || image.isEmpty() || image.width > 65535 || image.height > 65535) { throw "Invalid JPEG image dimensions"; }
+		self.headers(image, profile);
+		for (int y = 0; y < image.height; y += 8) {
+			for (int x = 0; x < image.width; x += 8) {
+				for (int plane = 0; plane < 3; plane++) {
+					for (int i = 0; i < 64; i++) {
+						var sx = x + i % 8;
+						var sy = y + i / 8;
+						var offset = ((sy < image.height ? sy : image.height - 1) * image.width + (sx < image.width ? sx : image.width - 1)) * 4;
+						double r = image.data[offset];
+						double g = image.data[offset + 1];
+						double b = image.data[offset + 2];
+						double sample = plane == 0 ? 0.299*r + 0.587*g + 0.114*b - 128.0 : plane == 1 ? -0.168736*r - 0.331264*g + 0.5*b : 0.5*r - 0.418688*g - 0.081312*b;
+						self.transform.block.set(i, sample);
+					}
+					self.writeBlock(plane);
+				}
+			}
+		}
+		self.output.finish();
+		self.output.bytes.appendU16BE(0xffd9);
+		return self.output.bytes;
+	}
+}

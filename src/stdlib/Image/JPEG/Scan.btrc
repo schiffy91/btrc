@@ -1,0 +1,116 @@
+import ./Component.btrc;
+
+// A scan spans interleaved MCUs, or individual blocks for a single plane.
+// Restart markers reset both the DC predictors and the progressive EOB run.
+class JPEGScan {
+	private JPEGBits input;
+	private int start;
+	private int end;
+	private int high;
+	private int low;
+	private int eob = 0;
+
+	public JPEGScan(JPEGBits input, int start, int end, int high, int low) {
+		self.input = input; self.start = start; self.end = end;
+		self.high = high; self.low = low;
+	}
+
+	private void refine(JPEGComponent plane, int index) {
+		var bit = 1 << self.low;
+		var value = plane.coefficients.get(index);
+		if (self.input.bits(1) != 0 && (value & bit) == 0) {
+			plane.coefficients.set(index, value + (value < 0 ? -bit : bit));
+		}
+	}
+
+	private void block(JPEGComponent plane, int base) {
+		int k = self.start;
+		var bit = 1 << self.low;
+		if (k == 0) {
+			if (self.high == 0) {
+				var size = plane.dc.read(self.input);
+				if (size > 11) { throw "Invalid JPEG DC category"; }
+				plane.predictor += self.input.signedBits(size);
+				if (plane.predictor < -2048 || plane.predictor > 2047) { throw "Invalid JPEG DC predictor"; }
+				plane.coefficients.set(base, plane.predictor * bit);
+			} else if (self.input.bits(1) != 0) {
+				plane.coefficients.set(base, plane.coefficients.get(base) | bit);
+			}
+			k++;
+		}
+		while (k <= self.end && self.eob == 0) {
+			var symbol = plane.ac.read(self.input);
+			var zeros = symbol >> 4;
+			var size = symbol & 15;
+			int value = 0;
+			if (size == 0 && zeros < 15) {
+				if (self.start == 0 && zeros > 0) { throw "Invalid sequential JPEG end-of-block run"; }
+				self.eob = (1 << zeros) + self.input.bits(zeros);
+				break;
+			}
+			if (size == 0) { zeros = 16; }
+			else if (self.high == 0) {
+				if (size > 10) { throw "Invalid JPEG AC category"; }
+				if (k + zeros > self.end) { throw "JPEG AC run exceeds band"; }
+				k += zeros;
+				plane.coefficients.set(base + k, self.input.signedBits(size) * bit);
+				k++;
+				continue;
+			} else {
+				if (size != 1) { throw "Invalid JPEG refinement category"; }
+				value = self.input.bits(1) != 0 ? bit : -bit;
+			}
+			while (k <= self.end) {
+				if (self.high != 0 && plane.coefficients.get(base + k) != 0) { self.refine(plane, base + k); }
+				else if (zeros == 0) { break; }
+				else { zeros--; }
+				k++;
+				if (size == 0 && zeros == 0) { break; }
+			}
+			if (zeros != 0 || (size != 0 && k > self.end)) { throw "JPEG refinement run exceeds band"; }
+			if (size != 0) { plane.coefficients.set(base + k, value); k++; }
+		}
+		if (self.eob > 0) {
+			if (self.high != 0) {
+				while (k <= self.end) {
+					if (plane.coefficients.get(base + k) != 0) { self.refine(plane, base + k); }
+					k++;
+				}
+			}
+			self.eob--;
+		}
+	}
+
+	public void decode(Vector<JPEGComponent> planes, int columns, int rows, int restart) {
+		int interval = 0;
+		int sequence = 0;
+		for plane in planes { plane.predictor = 0; }
+		for (int y = 0; y < rows; y++) {
+			for (int x = 0; x < columns; x++) {
+				if (restart > 0 && interval == restart) {
+					if (self.eob != 0 || self.input.marker() != 0xd0 + sequence) { throw "Invalid JPEG restart"; }
+					sequence = (sequence + 1) % 8;
+					interval = 0;
+					for plane in planes { plane.predictor = 0; }
+				}
+				for plane in planes {
+					var h = planes.length == 1 ? 1 : plane.h;
+					var v = planes.length == 1 ? 1 : plane.v;
+					for (int dy = 0; dy < v; dy++) {
+						for (int dx = 0; dx < h; dx++) {
+							self.block(plane, ((y * v + dy) * plane.columns + x * h + dx) * 64);
+						}
+					}
+				}
+				interval++;
+			}
+		}
+		if (self.eob > 0) { throw "JPEG end-of-block run exceeds scan"; }
+		// Some encoders terminate the final complete interval with its RST marker.
+		if (restart > 0 && interval == restart) {
+			var p = self.input.pos;
+			while (p < self.input.bytes.length && self.input.bytes.get(p) == 255) { p++; }
+			if (p > self.input.pos && p < self.input.bytes.length && self.input.bytes.get(p) == 0xd0 + sequence) { self.input.marker(); }
+		}
+	}
+}

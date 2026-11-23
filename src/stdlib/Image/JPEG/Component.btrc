@@ -1,0 +1,43 @@
+import ./Huffman.btrc;
+import ./Transform.btrc;
+
+class JPEGComponent {
+	public int id;
+	public int h;
+	public int v;
+	public int table;
+	public int columns;
+	public int rows;
+	public int predictor = 0;
+	public Array<int> coefficients;
+	public Array<int> precision;
+	public Array<int> quant;
+	public JPEGHuffman dc;
+	public JPEGHuffman ac;
+	private Bytes samples;
+	public JPEGComponent(int id, int h, int v, int table, int columns, int rows) {
+		self.id = id; self.h = h; self.v = v; self.table = table;
+		self.columns = columns; self.rows = rows;
+		self.coefficients = new Array<int>(columns * rows * 64);
+		self.precision = new Array<int>(64);
+		self.precision.fill(-1);
+	}
+
+	public void reconstruct(JPEGTransform transform) {
+		self.samples = Bytes.zeros(self.columns * self.rows * 64);
+		for (int block = 0; block < self.columns * self.rows; block++) {
+			var base = block * 64;
+			for (int k = 0; k < 64; k++) {
+				transform.block.set(transform.zigzag.get(k), (double)self.coefficients.get(base + k) * self.quant.get(k));
+			}
+			transform.apply(true);
+			for (int k = 0; k < 64; k++) { self.samples.set(base + k, JPEGTransform.sample(transform.block.get(k) + 128)); }
+		}
+		self.coefficients = new Array<int>(0);
+	}
+
+	public int sample(int x, int y) {
+		var base = ((y / 8) * self.columns + x / 8) * 64;
+		return self.samples.get(base + (y % 8) * 8 + x % 8);
+	}
+}

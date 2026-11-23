@@ -1,0 +1,44 @@
+import Library.Array;
+import Library.Math;
+import Library.Vector;
+
+// Rows of the orthonormal 8-point cosine transform, indexed by frequency.
+class JPEGTransform {
+	public Array<double> basis;
+	public Array<double> scratch;
+	public Array<double> block;
+	public Vector<int> zigzag;
+
+	public JPEGTransform() {
+		self.basis = new Array<double>(64);
+		self.scratch = new Array<double>(64);
+		self.block = new Array<double>(64);
+		self.zigzag = [0,1,8,16,9,2,3,10,17,24,32,25,18,11,4,5,12,19,26,33,40,48,41,34,27,20,13,6,7,14,21,28,35,42,49,56,57,50,43,36,29,22,15,23,30,37,44,51,58,59,52,45,38,31,39,46,53,60,61,54,47,55,62,63];
+		for (int u = 0; u < 8; u++) {
+			for (int x = 0; x < 8; x++) {
+				double scale = u == 0 ? 0.3535533905932738 : 0.5;
+				self.basis.set(u * 8 + x, scale * Math.cos((float)((2 * x + 1) * u * 0.19634954084936207)));
+			}
+		}
+	}
+
+	public void apply(bool inverse) {
+		for (int pass = 0; pass < 2; pass++) {
+			var input = pass == 0 ? self.block : self.scratch;
+			var output = pass == 0 ? self.scratch : self.block;
+			for (int row = 0; row < 8; row++) {
+				for (int j = 0; j < 8; j++) {
+					double total = 0.0;
+					for (int k = 0; k < 8; k++) {
+						total += input.get(row * 8 + k) * self.basis.get(inverse ? k * 8 + j : j * 8 + k);
+					}
+					output.set(j * 8 + row, total);
+				}
+			}
+		}
+	}
+
+	class int rounded(double value) { return (int)(value < 0.0 ? value - 0.5 : value + 0.5); }
+
+	class int sample(double value) { return value <= 0.0 ? 0 : value >= 255.0 ? 255 : (int)(value + 0.5); }
+}

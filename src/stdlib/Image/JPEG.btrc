@@ -1,0 +1,153 @@
+import Library.Bytes;
+import Library.Vector;
+
+import ./JPEG/Reader.btrc;
+import ./JPEG/Writer.btrc;
+
+class JPEG {
+	class Image decode(Bytes bytes, int maxPixels = 64000000) { return JPEGReader(bytes, maxPixels).decode(); }
+
+	// JPEG stores opaque RGB. The alpha channel is discarded.
+	class Bytes encode(Image image, int quality = 82) { return JPEGWriter(quality).encode(image); }
+}
+
+// Display dimensions include the TIFF orientation stored in JPEG APP1.
+class JPEGHeader {
+	public int width;
+	public int height;
+	public int orientation;
+	public Vector<Bytes> colorProfile = [];
+
+	public JPEGHeader(int storedWidth, int storedHeight, int orientation) {
+		self.orientation = orientation;
+		self.width = orientation >= 5 ? storedHeight : storedWidth;
+		self.height = orientation >= 5 ? storedWidth : storedHeight;
+	}
+
+	class int exifOrientation(Bytes bytes, int start, int end) {
+		if (end - start < 14 || bytes.readU32BE(start) != 0x45786966 || bytes.readU16BE(start + 4) != 0) { return 1; }
+		var base = start + 6;
+		var little = bytes.readU32BE(base) == 0x49492a00;
+		if (!little && bytes.readU32BE(base) != 0x4d4d002a) { return 1; }
+		var offset = little ? bytes.readU32LE(base + 4) : bytes.readU32BE(base + 4);
+		if (offset > (unsigned int)(end - base - 2)) { return 1; }
+		var directory = base + (int)offset;
+		var count = little ? bytes.readU16LE(directory) : bytes.readU16BE(directory);
+		var entry = directory + 2;
+		for (int i = 0; i < count && end - entry >= 12; i++) {
+			var tag = little ? bytes.readU16LE(entry) : bytes.readU16BE(entry);
+			if (tag == 0x112) {
+				var type = little ? bytes.readU16LE(entry + 2) : bytes.readU16BE(entry + 2);
+				var length = little ? bytes.readU32LE(entry + 4) : bytes.readU32BE(entry + 4);
+				var value = little ? bytes.readU16LE(entry + 8) : bytes.readU16BE(entry + 8);
+				if (type == 3 && length == 1 && value >= 1 && value <= 8) { return value; }
+				return 1;
+			}
+			entry += 12;
+		}
+		return 1;
+	}
+
+	class JPEGHeader inspect(Bytes bytes) {
+		if (bytes == null || bytes.length < 2 || bytes.readU16BE(0) != 0xffd8) { throw "Invalid JPEG signature"; }
+		var cursor = 2;
+		var orientation = 1;
+		var width = 0;
+		var height = 0;
+		var components = 0;
+		Vector<Bytes> profile = [];
+		while (cursor < bytes.length && bytes.get(cursor) == 255) {
+			while (cursor < bytes.length && bytes.get(cursor) == 255) { cursor++; }
+			if (bytes.length - cursor < 3) { break; }
+			var marker = bytes.get(cursor);
+			cursor++;
+			if (marker == 0xda || marker == 0xd9) { break; }
+			var size = bytes.readU16BE(cursor);
+			if (size < 2 || size > bytes.length - cursor) { throw "Invalid JPEG segment length"; }
+			if (marker == 0xe1 && orientation == 1) { orientation = JPEGHeader.exifOrientation(bytes, cursor + 2, cursor + size); }
+			if (marker == 0xe2 && size >= 16 && bytes.readU32BE(cursor + 2) == 0x4943435f && bytes.readU32BE(cursor + 6) == 0x50524f46 && bytes.readU32BE(cursor + 10) == 0x494c4500) {
+				if (profile.length >= 255) { throw "Too many JPEG color profile segments"; }
+				profile.push(bytes.slice(cursor + 2, cursor + size));
+			}
+			if (marker >= 0xc0 && marker <= 0xcf && marker != 0xc4 && marker != 0xc8 && marker != 0xcc && size >= 8) {
+				components = bytes.get(cursor + 7);
+				height = bytes.readU16BE(cursor + 3);
+				width = bytes.readU16BE(cursor + 5);
+			}
+			cursor += size;
+		}
+		if (width == 0 || height == 0) { throw "Missing JPEG dimensions"; }
+		var header = JPEGHeader(width, height, orientation);
+		if (components == 3) { header.colorProfile = profile; }
+		return header;
+	}
+}
+
+// Decode once when preparing several sizes. Output pixels are oriented and the
+// original RGB color profile follows them. Camera and location tags do not.
+class JPEGPhoto {
+	private JPEGHeader header;
+	private Image image;
+	public JPEGPhoto(Bytes encoded, int maxPixels = 64000000) {
+		self.header = JPEGHeader.inspect(encoded);
+		self.image = JPEGReader(encoded, maxPixels).decode();
+	}
+
+	private void average(Image result, int x, int y, int width, int height) {
+		// Measure overlaps in units of 1/width and 1/height of a source pixel.
+		// Every output footprint then has exactly sourceWidth * sourceHeight units.
+		long long left = (long long)x * self.image.width;
+		long long top = (long long)y * self.image.height;
+		var right = left + self.image.width;
+		var bottom = top + self.image.height;
+		long long red = 0LL;
+		long long green = 0LL;
+		long long blue = 0LL;
+		for (int sy = (int)(top / height); (long long)sy * height < bottom; sy++) {
+			long long y0 = (long long)sy * height;
+			var y1 = y0 + height;
+			var dy = (bottom < y1 ? bottom : y1) - (top > y0 ? top : y0);
+			for (int sx = (int)(left / width); (long long)sx * width < right; sx++) {
+				long long x0 = (long long)sx * width;
+				var x1 = x0 + width;
+				var weight = dy * ((right < x1 ? right : x1) - (left > x0 ? left : x0));
+				var offset = (sy * self.image.width + sx) * 4;
+				red += weight * self.image.data[offset];
+				green += weight * self.image.data[offset + 1];
+				blue += weight * self.image.data[offset + 2];
+			}
+		}
+		var orientation = self.header.orientation;
+		var dx = orientation >= 5 ? y : x;
+		var dy = orientation >= 5 ? x : y;
+		if (orientation == 2 || orientation == 3 || orientation == 6 || orientation == 7) { dx = result.width - 1 - dx; }
+		if (orientation == 3 || orientation == 4 || orientation == 7 || orientation == 8) { dy = result.height - 1 - dy; }
+		long long area = (long long)self.image.width * self.image.height;
+		result.setRGBA(dx, dy, (int)((red + area / 2) / area), (int)((green + area / 2) / area), (int)((blue + area / 2) / area));
+	}
+
+	public Bytes thumbnail(int maxWidth, int maxHeight, int quality = 82) {
+		if (maxWidth < 1 || maxHeight < 1) { throw "Invalid JPEG thumbnail bounds"; }
+		var width = self.header.width;
+		var height = self.header.height;
+		if (width > maxWidth || height > maxHeight) {
+			if ((long long)width * maxHeight > (long long)height * maxWidth) {
+				height = (int)(((long long)height * maxWidth + width / 2) / width);
+				width = maxWidth;
+			} else {
+				width = (int)(((long long)width * maxHeight + height / 2) / height);
+				height = maxHeight;
+			}
+		}
+		width = width > 0 ? width : 1;
+		height = height > 0 ? height : 1;
+		var output = Image.tryCreate(width, height);
+		if (output == null) { throw "Could not allocate JPEG thumbnail"; }
+		var w = self.header.orientation >= 5 ? height : width;
+		var h = self.header.orientation >= 5 ? width : height;
+		for (int y = 0; y < h; y++) {
+			for (int x = 0; x < w; x++) { self.average(output, x, y, w, h); }
+		}
+		return JPEGWriter(quality).encode(output, self.header.colorProfile);
+	}
+}

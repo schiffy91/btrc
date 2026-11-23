@@ -4937,3 +4937,16 @@ ios-device = { parity = "equivalent", implementation = "implemented", owner = "P
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "tuples lower to C structs; assert/stdio/string + Vector/Map/Array only" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "tuples lower to C structs; assert/stdio/string + Vector/Map/Array only" }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "tuples lower to C structs; assert/stdio/string + Vector/Map/Array only" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Image.JPEG"
+group = "stdlib/Image"
+title = "Portable JPEG codec and oriented thumbnails"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC processes JPEG bytes and RGBA pixels with no native codec." }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC processes JPEG bytes and RGBA pixels with no native codec." }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC processes JPEG bytes and RGBA pixels with no native codec." }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC processes JPEG bytes and RGBA pixels with no native codec." }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC processes JPEG bytes and RGBA pixels with no native codec." }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC processes JPEG bytes and RGBA pixels with no native codec." }

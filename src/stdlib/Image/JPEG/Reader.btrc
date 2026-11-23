@@ -1,0 +1,201 @@
+import Library.Image.Pixels;
+
+import ./Scan.btrc;
+
+class JPEGReader {
+	private Bytes bytes;
+	private JPEGBits input;
+	private Vector<JPEGComponent> planes = [];
+	private Array<Array<int>> quant;
+	private Array<JPEGHuffman> huffman;
+	private int width = 0;
+	private int height = 0;
+	private int maxH = 1;
+	private int maxV = 1;
+	private int columns = 0;
+	private int rows = 0;
+	private int restart = 0;
+	private int adobe = -1;
+	private bool progressive = false;
+	private int maxPixels;
+
+	public JPEGReader(Bytes bytes, int maxPixels) {
+		if (bytes == null || maxPixels <= 0) { throw "Invalid JPEG decode request"; }
+		self.bytes = bytes;
+		self.input = JPEGBits(bytes, 0);
+		self.maxPixels = maxPixels;
+		self.quant = new Array<Array<int>>(4);
+		self.huffman = new Array<JPEGHuffman>(8);
+	}
+
+	private void frame(int p, int end, int marker) {
+		if (self.width != 0 || end - p < 6 || self.bytes.get(p) != 8) { throw "Expected one 8-bit JPEG frame"; }
+		self.progressive = marker == 0xc2;
+		self.height = self.bytes.readU16BE(p + 1);
+		self.width = self.bytes.readU16BE(p + 3);
+		var count = self.bytes.get(p + 5);
+		if ((count != 1 && count != 3 && count != 4) || end - p != 6 + count * 3) { throw "Unsupported JPEG component layout"; }
+		if (!Image.validDimensions(self.width, self.height) || self.width > self.maxPixels / self.height) { throw "JPEG exceeds pixel limit"; }
+		p += 6;
+		int blocks = 0;
+		for (int i = p; i < end; i += 3) {
+			var sampling = self.bytes.get(i + 1);
+			var h = sampling >> 4;
+			var v = sampling & 15;
+			if (h < 1 || h > 4 || v < 1 || v > 4 || self.bytes.get(i + 2) > 3) { throw "Invalid JPEG sampling factors or quantizer"; }
+			self.maxH = h > self.maxH ? h : self.maxH;
+			self.maxV = v > self.maxV ? v : self.maxV;
+			blocks += h * v;
+		}
+		self.columns = (self.width + self.maxH * 8 - 1) / (self.maxH * 8);
+		self.rows = (self.height + self.maxV * 8 - 1) / (self.maxV * 8);
+		// Guard padded coefficient storage separately from the visible raster.
+		if (blocks > 10 || (long long)self.columns * self.rows * blocks * 64 > 134217728LL) { throw "JPEG coefficient storage exceeds limit"; }
+		for (int i = p; i < end; i += 3) {
+			var id = self.bytes.get(i);
+			for other in self.planes { if (id == other.id) { throw "Duplicate JPEG component"; } }
+			var sampling = self.bytes.get(i + 1);
+			var h = sampling >> 4;
+			var v = sampling & 15;
+			self.planes.push(JPEGComponent(id, h, v, self.bytes.get(i + 2), self.columns * h, self.rows * v));
+		}
+	}
+
+	private void quantizers(int p, int end) {
+		while (p < end) {
+			var spec = self.bytes.get(p);
+			p++;
+			var octets = 1 + (spec >> 4);
+			if ((spec & 15) > 3 || octets > 2 || end - p < 64 * octets) { throw "Invalid JPEG quantization table"; }
+			var steps = new Array<int>(64);
+			for (int i = 0; i < 64; i++) {
+				var value = octets == 1 ? self.bytes.get(p) : self.bytes.readU16BE(p);
+				if (value == 0) { throw "Zero JPEG quantization step"; }
+				steps.set(i, value);
+				p += octets;
+			}
+			self.quant.set(spec & 15, steps);
+		}
+	}
+
+	private void tables(int p, int end) {
+		while (p < end) {
+			if (end - p < 17) { throw "Truncated JPEG Huffman table"; }
+			var spec = self.bytes.get(p);
+			if ((spec & 0xec) != 0) { throw "Invalid JPEG Huffman table id"; }
+			var counts = self.bytes.slice(p + 1, p + 17);
+			int n = 0;
+			for (int i = 0; i < 16; i++) { n += counts.get(i); }
+			p += 17;
+			if (n > 256 || end - p < n) { throw "Invalid JPEG Huffman symbols"; }
+			self.huffman.set((spec >> 4) * 4 + (spec & 3), JPEGHuffman(counts, self.bytes.slice(p, p + n)));
+			p += n;
+		}
+	}
+
+	private void scan(int p, int end) {
+		if (self.width == 0 || end - p < 4) { throw "Missing JPEG frame"; }
+		var count = self.bytes.get(p);
+		if (count < 1 || count > self.planes.length || end - p != 4 + 2 * count) { throw "Invalid JPEG scan header"; }
+		var start = self.bytes.get(end - 3);
+		var last = self.bytes.get(end - 2);
+		var approx = self.bytes.get(end - 1);
+		var high = approx >> 4;
+		var low = approx & 15;
+		if (self.progressive) {
+			if (start > last || last > 63 || (start == 0 && last != 0) || (start != 0 && count != 1) || low > 13 || (high != 0 && high != low + 1)) { throw "Invalid progressive JPEG scan"; }
+		} else if (start != 0 || last != 63 || approx != 0) { throw "Invalid sequential JPEG scan"; }
+		Vector<JPEGComponent> scan = [];
+		for (int i = 0; i < count; i++) {
+			var id = self.bytes.get(p + 1 + 2 * i);
+			var spec = self.bytes.get(p + 2 + 2 * i);
+			if ((spec & 0xcc) != 0) { throw "Invalid JPEG scan table"; }
+			for plane in self.planes {
+				if (plane.id != id) { continue; }
+				for (int k = start; k <= last; k++) {
+					if (plane.precision.get(k) != (high == 0 ? -1 : high)) { throw "Out-of-order JPEG scan"; }
+					plane.precision.set(k, low);
+				}
+				plane.dc = self.huffman.get(spec >> 4);
+				plane.ac = self.huffman.get(4 + (spec & 15));
+				if (plane.quant == null) { plane.quant = self.quant.get(plane.table); }
+				if (plane.quant == null || (start == 0 && high == 0 && plane.dc == null) || (last > 0 && plane.ac == null)) { throw "Missing JPEG coding table"; }
+				scan.push(plane);
+			}
+		}
+		if (scan.length != count) { throw "Unknown JPEG scan component"; }
+		var first = scan.get(0);
+		var columns = count == 1 ? (self.width * first.h + self.maxH * 8 - 1) / (self.maxH * 8) : self.columns;
+		var rows = count == 1 ? (self.height * first.v + self.maxV * 8 - 1) / (self.maxV * 8) : self.rows;
+		JPEGScan(self.input, start, last, high, low).decode(scan, columns, rows, self.restart);
+	}
+
+	private int sample(int component, int x, int y) {
+		var plane = self.planes.get(component);
+		return plane.sample(x * plane.h / self.maxH, y * plane.v / self.maxV);
+	}
+
+	private Image raster() {
+		if (self.planes.isEmpty()) { throw "Missing JPEG frame"; }
+		var transform = JPEGTransform();
+		for plane in self.planes {
+			if (plane.precision.get(0) < 0 || plane.quant == null) { throw "Missing JPEG component scan"; }
+			plane.reconstruct(transform);
+		}
+		var image = Image.tryCreate(self.width, self.height);
+		if (image == null) { throw "Could not allocate JPEG raster"; }
+		var count = self.planes.length;
+		var rgb = count == 3 && (self.adobe == 0 || (self.planes.get(0).id == 82 && self.planes.get(1).id == 71 && self.planes.get(2).id == 66));
+		for (int y = 0; y < self.height; y++) {
+			for (int x = 0; x < self.width; x++) {
+				var r = self.sample(0, x, y);
+				var g = r;
+				var b = r;
+				if (count > 1) {
+					var second = self.sample(1, x, y);
+					var third = self.sample(2, x, y);
+					if (rgb || (count == 4 && self.adobe != 2)) { g = second; b = third; }
+					else {
+						var luminance = r;
+						r = JPEGTransform.sample(luminance + 1.402 * (third - 128));
+						g = JPEGTransform.sample(luminance - 0.344136 * (second - 128) - 0.714136 * (third - 128));
+						b = JPEGTransform.sample(luminance + 1.772 * (second - 128));
+					}
+					if (count == 4) {
+						var black = self.sample(3, x, y);
+						if (self.adobe == 2 || self.adobe < 0) { r = 255-r; g = 255-g; b = 255-b; }
+						if (self.adobe < 0) { black = 255-black; }
+						r = (r * black + 127) / 255;
+						g = (g * black + 127) / 255;
+						b = (b * black + 127) / 255;
+					}
+				}
+				image.setRGBA(x, y, r, g, b);
+			}
+		}
+		return image;
+	}
+
+	public Image decode() {
+		if (self.input.marker() != 0xd8) { throw "Invalid JPEG signature"; }
+		while (self.input.pos < self.bytes.length) {
+			var marker = self.input.marker();
+			if (marker == 0xd9) { return self.raster(); }
+			var pos = self.input.pos;
+			if (self.bytes.length - pos < 2) { throw "Truncated JPEG segment"; }
+			var size = self.bytes.readU16BE(pos);
+			if (size < 2 || size > self.bytes.length - pos) { throw "Invalid JPEG segment length"; }
+			var p = pos + 2;
+			var end = pos + size;
+			self.input.pos = end;
+			if (marker == 0xc0 || marker == 0xc1 || marker == 0xc2) { self.frame(p, end, marker); }
+			else if (marker == 0xdb) { self.quantizers(p, end); }
+			else if (marker == 0xc4) { self.tables(p, end); }
+			else if (marker == 0xda) { self.scan(p, end); }
+			else if (marker == 0xdd && size == 4) { self.restart = self.bytes.readU16BE(p); }
+			else if (marker == 0xee && end - p >= 12 && self.bytes.readU32BE(p) == 0x41646f62 && self.bytes.get(p + 4) == 101) { self.adobe = self.bytes.get(p + 11); }
+			else if (marker != 0xfe && (marker < 0xe0 || marker > 0xef)) { throw "Unsupported JPEG coding process"; }
+		}
+		throw "Missing JPEG end marker";
+	}
+}

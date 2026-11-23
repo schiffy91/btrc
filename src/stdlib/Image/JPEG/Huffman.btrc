@@ -1,0 +1,123 @@
+import Library.Bytes;
+import Library.Array;
+
+class JPEGBits {
+	public Bytes bytes;
+	public int pos;
+	private int pending = 0;
+	private int remaining = 0;
+	public JPEGBits(Bytes bytes, int pos) { self.bytes = bytes; self.pos = pos; }
+
+	public int octet() {
+		if (self.pos >= self.bytes.length) { throw "Truncated JPEG"; }
+		var value = self.bytes.get(self.pos);
+		self.pos++;
+		return value;
+	}
+
+	public int marker() {
+		self.remaining = 0;
+		if (self.octet() != 255) { throw "Expected JPEG marker"; }
+		var marker = self.octet();
+		while (marker == 255) { marker = self.octet(); }
+		return marker;
+	}
+
+	public int bits(int count) {
+		int result = 0;
+		while (count > 0) {
+			if (self.remaining == 0) {
+				self.pending = self.octet();
+				if (self.pending == 255 && self.octet() != 0) { throw "Unexpected marker in JPEG scan"; }
+				self.remaining = 8;
+			}
+			self.remaining--;
+			result = (result << 1) | ((self.pending >> self.remaining) & 1);
+			count--;
+		}
+		return result;
+	}
+
+	public int signedBits(int count) {
+		if (count == 0) { return 0; }
+		var value = self.bits(count);
+		return value >= (1 << (count - 1)) ? value : value + 1 - (1 << count);
+	}
+}
+
+class JPEGOutput {
+	public Bytes bytes;
+	private int pending = 0;
+	private int length = 0;
+	public JPEGOutput() { self.bytes = Bytes(); }
+
+	public void bits(int value, int length) {
+		self.pending = (self.pending << length) | (value & ((1 << length) - 1));
+		self.length += length;
+		while (self.length >= 8) {
+			self.length -= 8;
+			var octet = (self.pending >> self.length) & 255;
+			self.bytes.append(octet);
+			if (octet == 255) { self.bytes.append(0); }
+		}
+		self.pending &= (1 << self.length) - 1;
+	}
+
+	public void finish() { if (self.length > 0) { self.bits(255, 8 - self.length); } }
+
+	public void segment(int marker, Bytes payload) {
+		self.bytes.appendU16BE(0xff00 | marker);
+		self.bytes.appendU16BE(payload.length + 2);
+		self.bytes.appendBytes(payload);
+	}
+}
+
+class JPEGHuffman {
+	public Bytes counts;
+	public Bytes symbols;
+	private Array<int> first;
+	private Array<int> offset;
+	private Array<int> codes;
+	private Array<int> lengths;
+	public JPEGHuffman(Bytes counts, Bytes symbols) {
+		self.counts = counts;
+		self.symbols = symbols;
+		self.first = new Array<int>(16);
+		self.offset = new Array<int>(16);
+		self.codes = new Array<int>(256);
+		self.lengths = new Array<int>(256);
+		int code = 0;
+		int index = 0;
+		for (int i = 0; i < 16; i++) {
+			self.first.set(i, code);
+			self.offset.set(i, index);
+			var count = counts.get(i);
+			if (code + count >= (1 << (i + 1)) || count > symbols.length - index) { throw "Invalid JPEG Huffman table"; }
+			for (int j = 0; j < count; j++) {
+				var symbol = symbols.get(index);
+				self.codes.set(symbol, code);
+				self.lengths.set(symbol, i + 1);
+				index++;
+				code++;
+			}
+			code <<= 1;
+		}
+		if (index != symbols.length || index == 0) { throw "Empty or incomplete JPEG Huffman table"; }
+	}
+
+	public int read(JPEGBits input) {
+		int code = 0;
+		for (int i = 0; i < 16; i++) {
+			code = (code << 1) | input.bits(1);
+			var index = code - self.first.get(i);
+			if (index >= 0 && index < self.counts.get(i)) { return self.symbols.get(self.offset.get(i) + index); }
+		}
+		throw "Invalid JPEG Huffman code";
+	}
+
+	public void write(JPEGOutput output, int symbol) {
+		var length = self.lengths.get(symbol);
+		if (length == 0) { throw "Unrepresentable JPEG coefficient"; }
+		output.bits(self.codes.get(symbol), length);
+	}
+}

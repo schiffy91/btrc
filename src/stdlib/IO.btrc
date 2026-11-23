@@ -170,6 +170,8 @@ class FileSnapshot {
 
 	public long long size() { return self._size; }
 
+	public bool modifiedAfter(FileSnapshot other) { return self._modifiedSeconds > other._modifiedSeconds || (self._modifiedSeconds == other._modifiedSeconds && self._modifiedNanoseconds > other._modifiedNanoseconds); }
+
 	public bool sameObject(FileSnapshot other) { return other != null && self._device == other._device && self._inode == other._inode; }
 
 	/* The same kind, size, permissions and modification time, whichever inode
