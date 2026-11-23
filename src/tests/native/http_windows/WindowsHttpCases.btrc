@@ -32,6 +32,7 @@ extern int btrcTestPeerError(void* peer);
 extern int btrcTestPeerReceivedLength(void* peer);
 extern char* btrcTestPeerReceived(void* peer);
 extern void btrcTestPeerFree(void* peer);
+extern int btrcTestBlockChildProcesses();
 extern int btrcTestBindTaken(int port);
 extern void btrcTestSleep(int milliseconds);
 
@@ -433,6 +434,7 @@ int serveThree(HTTPServer server) {
  * provider's server on loopback. test_windows_http.py checks that the
  * program names no curl and imports winhttp.dll. */
 void caseClient() {
+	check(btrcTestBlockChildProcesses() != 0, "prevent the client from launching curl");
 	HTTPServer server = listening();
 	server.timeoutSecs = 30;
 	string base = "http://127.0.0.1:" + Strings.fromInt(portOf(server));

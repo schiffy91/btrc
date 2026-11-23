@@ -20,6 +20,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Put only this test process in a job with one process slot. Even a curl
+ * installed in System32 cannot be launched during the client cases. */
+int btrcTestBlockChildProcesses(void) {
+    HANDLE job = CreateJobObjectW(NULL, NULL);
+    if (job == NULL) { return 0; }
+    JOBOBJECT_BASIC_LIMIT_INFORMATION limits = {0};
+    limits.LimitFlags = JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+    limits.ActiveProcessLimit = 1;
+    int assigned = SetInformationJobObject(job, JobObjectBasicLimitInformation, &limits, sizeof(limits))
+        && AssignProcessToJobObject(job, GetCurrentProcess());
+    CloseHandle(job);
+    return assigned;
+}
+
 /* Neither read nor close for holdMs after sending. */
 #define BTRC_TEST_PEER_HOLD 1
 /* shutdown(SD_SEND) after sending (and holding). */
