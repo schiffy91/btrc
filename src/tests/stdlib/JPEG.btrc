@@ -1,5 +1,8 @@
+import Library.Bytes;
 import Library.Image.JPEG;
+import Library.Math;
 import Library.Testing;
+import Library.Vector;
 
 Bytes oriented(Bytes bytes, int orientation) {
 	var prefix = Bytes.fromHex("ffd8ffe1002245786966000049492a000800000001001201030001000000");
