@@ -12,9 +12,8 @@ programs to pair and then talk privately over a `TCPStream`.
 | `Sodium` | The primitives the others are built from, on raw buffers, and the system's random bytes. |
 | `Primitives.*` | The primitives themselves, in btrc: `SHA512`, `BLAKE2b`, `X25519`, `Ed25519`, `ChaCha20`, `Poly1305`, `SecretStream`. |
 
-`import Library.Crypto;` brings the first four. The whole group is btrc and
-what each operating system already has: a program that imports it links no
-cryptography library.
+`import Library.Crypto;` brings the first four. Signatures, key exchange and message encryption use first-party btrc on every
+supported target. Random bytes come from the operating system.
 
 ## Identities
 
@@ -164,8 +163,7 @@ macOS and iOS.
   `SodiumVectors.btrc` holds the seam to SHA-256's vectors, to the key
   exchange and stream libsodium computes for fixed keys, and draws from the
   system's generator. The driver asserts that every link plan names no
-  package, library or framework, that the Linux executables depend on no
-  libsodium, that Android builds the seam and the keys, and that Windows
+  package, library or framework, that the executables import only system and compiler runtime libraries, that Android builds the seam and the keys, and that Windows
   builds them into an executable linked with bcrypt alone.
 - `src/tests/python/test_stdlib_ios_programs.py` runs the conformance program
   as a process of the iPhone and iPad simulators, through both frontends,
