@@ -36,14 +36,14 @@ The scope of each follows from its row in `stdlib-dependencies.toml`.
 
 - `http://` is first-party on Linux, macOS, iOS and Android (`HTTPExchange`
   over `Unix/HTTPPlainTransport`). Windows uses WinHTTP for both schemes.
-  `https://` on Linux and macOS still launches curl through
-  `HTTPCurlTransport`. iOS and Android refuse `https://`.
+  `https://` on Android, Linux and macOS still launches curl through
+  `HTTPCurlTransport`. iOS refuses `https://` until the NSURLSession provider lands. Android retains the previous curl-backed HTTPS path when a caller supplies curl.
 - Verified here: the ten HTTP corpus programs through both compilers (20
   passed); Windows HTTP cases cross-built for x64 and ARM64 with the
   reference compiler, importing `winhttp.dll` and nothing the system does not
   supply; strict stdlib check for linux-x86_64; lint and format.
 - Windows CI run 45131915688 was dispatched on `b9487af`; check its result.
-- **Failures still open** (from a run of the contract suites):
+- **Failures reported at handoff** (from a run of the contract suites):
   1. `test_stdlib_qualification.py::test_current_inventory_has_desktop_coverage_for_every_source`:
      `HTTP/Mobile/HTTPTransportProvider.btrc` is selected only for iOS and
      Android, and every stdlib source must be checkable on a desktop target.
@@ -73,8 +73,7 @@ Briefs in `docs/workstreams/stdlib-dependencies/` (read `common.md` first):
 - `alsa.md`: Linux audio without alsa-lib (kernel PCM ioctls and the
   PulseAudio protocol).
 
-Also not started: macOS `https://` through NSURLSession (removes the last
-curl row), iOS `https://` through NSURLSession and Android `https://` through
+Also not started: macOS `https://` through NSURLSession, iOS `https://` through NSURLSession and Android `https://` through
 HttpURLConnection over JNI.
 
 ## Owner decisions recorded in the policy

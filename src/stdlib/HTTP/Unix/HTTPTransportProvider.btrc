@@ -1,6 +1,6 @@
-/* BSD socket systems share the plain HTTP transport. Desktop Unix still
- * uses curl for HTTPS and for proxy types that need a different handshake. */
-#if !defined(__ANDROID__) && !TARGET_OS_IOS
+/* The BSD socket providers share plain HTTP. On Android, Linux and macOS,
+ * curl still handles HTTPS and proxies that need a different handshake. */
+#if !TARGET_OS_IOS
 import Library.HTTP.HTTPCurlTransport;
 import Library.HTTP.Unix.HTTPProxy;
 #endif
@@ -13,18 +13,18 @@ class HTTPTransportProvider {
 		HTTPClientAddress? address = HTTPClientAddress.parse(url);
 		if (address == null) { return HTTPExchangeResult.failed("invalid URL"); }
 		if (address.secure) {
-#if defined(__ANDROID__) || TARGET_OS_IOS
+#if TARGET_OS_IOS
 			return HTTPExchangeResult.failed("https is not available on this system yet");
 #else
 			return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes);
 #endif
 		}
-#if !defined(__ANDROID__) && !TARGET_OS_IOS
+#if !TARGET_OS_IOS
 		string setting = HTTPProxy.setting(address);
 		if (!setting.isEmpty()) {
 			string proxyUrl = setting.contains("://") ? setting : "http://" + setting;
 			HTTPClientAddress? proxy = HTTPClientAddress.parse(proxyUrl, 1080);
-			/* TLS and SOCKS proxies still use the existing desktop transport. */
+			/* TLS and SOCKS proxies still use the existing curl transport. */
 			if (proxy == null || proxy.secure) { return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes); }
 			return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes, proxy);
 		}

@@ -857,8 +857,8 @@ windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1"
 windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "codecs and HTTPServer use the Winsock HTTPSocket provider; HTTPClient uses WinHTTP; platform runtime qualification is tracked separately" }
 ios-device = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient serves http:// first-party and refuses https:// until the NSURLSession transport" }
 ios-simulator = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient serves http:// first-party and refuses https:// until the NSURLSession transport" }
-android-arm64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient serves http:// first-party and refuses https:// until the HttpURLConnection transport" }
-android-x86_64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient serves http:// first-party and refuses https:// until the HttpURLConnection transport" }
+android-arm64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient serves http:// first-party and retains curl for https:// until the HttpURLConnection transport" }
+android-x86_64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient serves http:// first-party and retains curl for https:// until the HttpURLConnection transport" }
 
 [[rows]]
 kind = "operation"

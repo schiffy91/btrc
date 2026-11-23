@@ -1,4 +1,4 @@
-/* Desktop HTTP proxy selection. http_proxy is lowercase only, as curl
+/* HTTP proxy selection on targets that formerly used curl. http_proxy is lowercase only, as curl
  * requires for CGI environments. no_proxy entries name domains or numeric
  * networks and never trigger a lookup of the origin at the client. */
 import Library.HTTP.HTTPExchange;

@@ -288,8 +288,8 @@ resolution = "Library.Image.JPEG, the first-party codec already in the tree."
 [[pending]]
 dependency = "curl"
 module = "HTTP/HTTPCurlTransport"
-os = ["linux", "macos"]
-resolution = "Direct HTTP and HTTP forward proxies use first-party code on desktop Unix. TLS and SOCKS proxies still use curl there, as does HTTPS until first-party TLS on Linux and NSURLSession on macOS are qualified. Windows uses WinHTTP. Mobile has no curl dependency."
+os = ["android", "linux", "macos"]
+resolution = "On Android, Linux and macOS, plain HTTP and HTTP forward proxies use first-party code. HTTPS and TLS or SOCKS proxies retain curl until HttpURLConnection on Android, first-party TLS on Linux and NSURLSession on macOS are qualified. Windows uses WinHTTP."
 
 [[pending]]
 dependency = "FreeType"
