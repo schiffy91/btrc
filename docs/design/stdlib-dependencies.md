@@ -17,11 +17,11 @@ failure names the module, the target and the dependency.
 | FreeType | `GUI/FreeType/FreeTypeFace` | linux, macos, windows | headers `ft2build.h`; pkg-config `freetype2` | A first-party TrueType reader and rasterizer in BTRC behind the same face contract. |
 | GTK 4 | `GUI/Shim/Shim` | linux | headers `gdk/gdkkeysyms.h`; headers `gdk/wayland/gdkwayland.h`; headers `gdk/x11/gdkx.h`; headers `gtk/gtk.h`; pkg-config `gtk4-wayland`; pkg-config `gtk4-x11`; pkg-config `gtk4` | First-party windows and controls over the display server's protocol. |
 | GTK 4 | `GUI/Shim/ShimWeb` | linux | headers `gtk/gtk.h` | Goes with WebKitGTK. |
-| WebKitGTK | `GUI/Shim/ShimWeb` | linux | headers `webkit/webkit.h`; pkg-config `webkitgtk-6.0` | Linux supplies no web engine: an owner decision. |
-| a desktop JVM (HotSpot) | `Java/JavaVirtualMachine` | linux, macos, windows | headers `jni.h`; pkg-config `btrc-jni` | No desktop system supplies a Java VM: an owner decision. |
+| WebKitGTK | `GUI/Shim/ShimWeb` | linux | headers `webkit/webkit.h`; pkg-config `webkitgtk-6.0` | Move the embedded WebKitGTK provider to an optional package and verify the client migration. |
+| a desktop JVM (HotSpot) | `Java/JavaVirtualMachine` | linux, macos, windows | headers `jni.h`; pkg-config `btrc-jni` | Move desktop VM hosting to an optional JDK-backed package and retain checked-JNI tests. |
 | alsa-lib | `Audio/Linux/LinuxAudioDevice` | linux | headers `alsa/asoundlib.h`; pkg-config `alsa` | The kernel's ALSA PCM interface (ioctls on /dev/snd) from first-party code. |
-| curl | `HTTP/HTTPClient` | android, ios, linux, macos, windows | programs `curl` | First-party HTTP/1.1 over the stdlib's sockets, with TLS from the system where it has one. |
-| libX11 | `GUI/Shim/Shim` | linux | headers `X11/Xlib.h`; pkg-config `x11` | The X11 wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects. |
+| curl | `HTTP/HTTPCurlTransport` | android, linux, macos | programs `curl` | On Android, Linux and macOS, plain HTTP and HTTP forward proxies use first-party code. HTTPS and TLS or SOCKS proxies retain curl until HttpURLConnection on Android, first-party TLS on Linux and NSURLSession on macOS are qualified. Windows uses WinHTTP. |
+| libX11 | `GUI/Shim/Shim` | linux | headers `X11/Xlib.h`; pkg-config `x11` | Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend. |
 | libdbus | `Bluetooth/Linux/BluetoothAdapterProvider` | linux | headers `dbus/dbus.h`; pkg-config `dbus-1` | The same first-party D-Bus client, on the system bus. |
 | libdbus | `Tray/Linux/LinuxTray` | linux | headers `dbus/dbus.h`; pkg-config `dbus-1` | A first-party D-Bus client: the wire protocol over the bus's own socket. |
 | libjpeg-turbo | `Image/Linux/LinuxEncodedImageDecoder` | linux | headers `turbojpeg.h`; pkg-config `libturbojpeg` | Library.Image.JPEG, the first-party codec already in the tree. |
@@ -33,28 +33,35 @@ failure names the module, the target and the dependency.
 | the WebView2 SDK (header and loader DLL) | `GUI/Shim/ShimWeb` | windows | headers `WebView2.h`; loads `WebView2Loader.dll`; pkg-config `webview2-windows-aarch64`; pkg-config `webview2-windows-x86_64` | First-party declarations of the COM interfaces used and a first-party lookup of the system's WebView2 runtime, in place of the SDK's header and WebView2Loader.dll. |
 | wayland-protocols' viewporter binding (bundled generated source) | `GUI/Shim/Shim` | linux | bundled `src/stdlib/GUI/Linux/Wayland` | First-party protocol tables written with the first-party Wayland client. |
 
-## Decisions for the owner
+## Owner decisions
 
 ### A web view on Linux (WebKitGTK)
 
-`IWebView` on Linux is WebKitGTK. macOS and iOS have WKWebView, Windows 11 has the
-WebView2 runtime and Android has android.webkit, all part of the system. Linux has no
-web engine of its own, and writing one is not practical. The choices: (a) `IWebView`
-becomes unsupported on Linux, and a program opens pages in the user's browser; (b)
-WebKitGTK stays as a second, Linux-only exception, which also keeps GTK in the process
-for that one view; (c) the web view moves out of the standard library into a separate
-package that names its dependency. Until then the requirement stays listed as pending.
+Move the Linux embedded web view into an optional WebKitGTK-backed package. Preserve
+embedded rendering and provide a migration for existing IWebView clients. Keep the
+existing implementation and its pending requirements until the package works.
 
 ### A Java VM on desktop systems (HotSpot)
 
-`Library.Java` runs BTRC code inside a Java VM. On Android the application's own VM
-(ART) is part of the system. On Linux, macOS and Windows the module links a JDK's
-`libjvm` and reads its `jni.h`, which no desktop system supplies, and a VM cannot be
-written first-party. The desktop rows exist so the JNI lowering can be tested under
-`-Xcheck:jni` without an emulator. The choices: (a) `Library.Java` becomes Android-only
-and the desktop JDK moves into the test harness, which keeps the checked-JNI tests but
-drops `JavaVirtualMachine.createHost` for desktop programs; (b) the desktop JDK stays as
-a second exception. Until then the requirement stays listed as pending.
+Keep Library.Java on Android using the application's ART runtime. Move desktop VM
+hosting, including createHost, into an optional JDK-backed package with a migration for
+existing callers. Keep desktop checked-JNI tests under -Xcheck:jni.
+
+### The display client library a Linux GPU surface needs
+
+Target native Wayland. Ordinary windows and controls use a first-party client of the
+compositor protocol. GPU presentation may use libwayland-client as part of the
+wgpu-native surface integration. The driver requires a real wl_display and wl_surface
+owned by the same connection. Limit the allowance to GPU windows and verify actual loads.
+Preserve X11 compatibility where inexpensive. Do not undertake a new X11 backend or
+require Xwayland for a Wayland session.
+
+### TLS on Linux
+
+Build first-party TLS over the first-party cryptography and the system CA bundle.
+Qualify certificate and hostname verification, protocol interoperability and observable
+HTTP behavior. Obtain independent security review before switching production HTTPS.
+Keep the current working transport while qualification and review are pending.
 
 ## The exception
 
@@ -72,4 +79,4 @@ a second exception. Until then the requirement stays listed as pending.
 - **ios**: frameworks: `CoreFoundation`, `CoreGraphics`, `CoreText`, `Foundation`, `ImageIO`, `Metal`, `QuartzCore`, `UIKit`, `WebKit`
 - **linux**: libraries: `util`; programs: `/bin/sh`
 - **macos**: frameworks: `AppKit`, `AudioToolbox`, `CoreAudio`, `CoreFoundation`, `CoreGraphics`, `CoreText`, `Foundation`, `ImageIO`, `QuartzCore`, `WebKit`; programs: `/bin/sh`
-- **windows**: libraries: `bcrypt`, `comctl32`, `dwmapi`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `ws2_32`
+- **windows**: libraries: `bcrypt`, `comctl32`, `dwmapi`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `winhttp`, `ws2_32`

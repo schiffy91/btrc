@@ -1,7 +1,11 @@
-/* HTTPS-capable curl client. */
+/* A synchronous HTTP client: one request, one response, no redirects.
+ *
+ * This module owns admission (method, URL, headers, limits) and the result
+ * callers see. `[[package.providers]]` selects HTTPTransportProvider, which
+ * performs the request on each system. */
+import Library.Bytes;
+import Library.HTTP.HTTPExchange;
 import Library.HTTP.HTTPFraming;
-import Library.Process;
-import Library.Strings;
 import Library.Vector;
 
 class HTTPClientResponse {
@@ -74,67 +78,12 @@ class HTTPClient {
 		if (body != null && (size_t)strlen(body) > (size_t)self.maxRequestBytes) {
 			return HTTPClientResponse(0, "", "request body is too large");
 		}
-		int status = 0;
-		string responseBody = "";
-		string error = "";
-		string requestBody = body == null ? "" : body;
-		bool hasBody = !requestBody.isEmpty();
-		int curlResponseLimit = self.maxResponseBytes > 0 ? self.maxResponseBytes : 1;
-		int captureLimit = self.maxResponseBytes + 64;
-		int curlTimeout = self.timeoutSecs;
-		if (curlTimeout < 1) { curlTimeout = 1; }
-		if (curlTimeout > 86400) { curlTimeout = 86400; }
-		string statusMarker = "\n__BTRC_HTTP_STATUS__:";
-
-		Vector<string> arguments = [
-			"-sS",
-			"--proto", "=http,https",
-			"--proto-redir", "=http,https",
-			"--max-time", Strings.fromInt(curlTimeout),
-			"--max-filesize", Strings.fromInt(curlResponseLimit),
-			"--request", method,
-			"--write-out", statusMarker + "%{http_code}"
-		];
-		for h in headers {
-			arguments.push("--header");
-			arguments.push(h);
-		}
-		if (hasBody) {
-			arguments.push("--data-binary");
-			arguments.push("@-");
-		}
-		/* The terminator is defense in depth: curl must never interpret any
-         * URL-controlled bytes as another option. */
-		arguments.push("--");
-		arguments.push(url);
-
-		var result = ChildProcess.run("curl", arguments, timeoutMilliseconds=curlTimeout * 1000 + 1000, maxStdoutBytes=captureLimit, maxStderrBytes=65536, stdinData=requestBody);
-		int marker = Strings.rfind(result.stdout(), statusMarker);
-		if (marker >= 0) {
-			int statusStart = marker + statusMarker.len();
-			string statusText = result.stdout().substring(statusStart, result.stdout().len() - statusStart);
-			bool validStatus = statusText.len() == 3;
-			for ch in statusText {
-				if (ch < '0' || ch > '9') { validStatus = false; }
-			}
-			if (validStatus) { status = Strings.toInt(statusText); }
-			responseBody = result.stdout().substring(0, marker);
-		}
-		if (status < 100 || status > 599) { status = 0; }
-
-		if (result.code == 125 || responseBody.len() > self.maxResponseBytes) {
-			status = 0;
-			responseBody = "";
-			error = "response body is too large";
-		} else if (result.code != 0) {
-			status = 0;
-			responseBody = "";
-			error = f"curl failed (exit {result.code})";
-		} else if (status == 0) {
-			responseBody = "";
-			error = "curl returned an invalid HTTP status";
-		}
-		return HTTPClientResponse(status, responseBody, error);
+		int seconds = self.timeoutSecs;
+		if (seconds < 1) { seconds = 1; }
+		if (seconds > 86400) { seconds = 86400; }
+		HTTPExchangeResult result = HTTPTransportProvider.request(method, url, headers, body == null ? "" : body, seconds, self.maxResponseBytes);
+		if (result.status == 0) { return HTTPClientResponse(0, "", result.error.isEmpty() ? "request failed" : result.error); }
+		return HTTPClientResponse(result.status, result.body.toStringLossy(), "");
 	}
 
 	public HTTPClientResponse post(string url, Vector<string> headers, string body) { return self.request("POST", url, headers, body); }

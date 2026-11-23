@@ -1,0 +1,184 @@
+// BTRC_TEST_REQUIRES: loopback-listener
+/* HTTPClient's first-party http:// exchange against a forked loopback peer
+ * that answers with exact bytes. PATH is empty for the whole run, so no
+ * request can reach a curl process. */
+import Library.Bytes;
+import Library.HTTP.HTTPClient;
+import Library.HTTP.HTTPExchange;
+import Library.HTTP.HTTPRequest;
+import Library.HTTP.HTTPServer;
+import Library.HTTP.HTTPSocket;
+import Library.Strings;
+import Library.Vector;
+
+#include <assert.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+/* The peer's answer for one request: exact bytes, sent in the given pieces. */
+void answer(HTTPServer server, int connection) {
+	HTTPRequest request = server.readRequest(connection);
+	string path = request.valid ? request.path : "/invalid";
+	long long deadline = HTTPSocket.deadlineAfter(10);
+	if (path.equals("/echo")) {
+		/* What the client sent, as the body: the request line's method, the
+		 * fields this client adds or the caller set, and the request body. */
+		string seen = request.method + "|" + request.header("host") + "|" + request.header("user-agent") + "|" + request.header("accept") + "|" + request.header("connection") + "|" + request.header("content-type") + "|" + request.header("content-length") + "|" + request.header("authorization") + "|" + request.header("x-test") + "|" + request.query + "|" + request.body;
+		HTTPSocket.sendAllUntil(connection, f"HTTP/1.1 200 OK\r\nContent-Length: {seen.len()}\r\n\r\n" + seen, deadline);
+	} else if (path.equals("/chunked")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n", deadline);
+		poll(NULL, (nfds_t)0, 50);
+		HTTPSocket.sendAllUntil(connection, "7;note=1\r\n, world\r\n0\r\nX-Trailer: yes\r\n\r\n", deadline);
+	} else if (path.equals("/close")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.0 200 OK\r\nServer: peer\r\n\r\nuntil ", deadline);
+		poll(NULL, (nfds_t)0, 50);
+		HTTPSocket.sendAllUntil(connection, "the end", deadline);
+	} else if (path.equals("/interim")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </a>\r\n\r\n", deadline);
+		poll(NULL, (nfds_t)0, 50);
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 201 Created\r\nContent-Length: 4\r\n\r\ndone", deadline);
+	} else if (path.equals("/missing")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nnot here.", deadline);
+	} else if (path.equals("/empty")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 204 No Content\r\n\r\n", deadline);
+	} else if (path.equals("/head")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n", deadline);
+	} else if (path.equals("/large-length")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 200 OK\r\nContent-Length: 64\r\n\r\n" + "x".repeat(64), deadline);
+	} else if (path.equals("/large-chunked")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n40\r\n" + "x".repeat(64) + "\r\n0\r\n\r\n", deadline);
+	} else if (path.equals("/large-close")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 200 OK\r\n\r\n" + "x".repeat(64), deadline);
+	} else if (path.equals("/short")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nfive!", deadline);
+	} else if (path.equals("/garbage")) {
+		HTTPSocket.sendAllUntil(connection, "SMTP ready\r\n\r\n", deadline);
+	} else if (path.equals("/conflict")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 200 OK\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\nxx", deadline);
+	} else if (path.equals("/gzip")) {
+		HTTPSocket.sendAllUntil(connection, "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n", deadline);
+	} else if (path.equals("/silent")) {
+		poll(NULL, (nfds_t)0, 3000);
+	} else if (path.equals("/nothing")) {
+		/* Close without a byte. */
+	}
+	server.closeConn(connection);
+}
+
+int main() {
+	HTTPServer server = HTTPServer(0);
+	server.timeoutSecs = 30;
+	assert(server.start());
+	int port = HTTPSocket.localPort(server.fd);
+	assert(port > 0);
+	pid_t peer = fork();
+	assert(peer >= (pid_t)0);
+	if (peer == (pid_t)0) {
+		while (true) {
+			int connection = server.acceptConn();
+			if (connection < 0) { _exit(0); }
+			answer(server, connection);
+		}
+	}
+	/* Reach the loopback peer directly even on a host with a configured proxy.
+	 * The empty search path makes a curl dependency observable. */
+	assert(setenv("no_proxy", "*", 1) == 0);
+	assert(setenv("PATH", "/nonexistent-btrc-http", 1) == 0);
+	string base = f"http://127.0.0.1:{port}";
+	Vector<string> none = [];
+	HTTPClient client = HTTPClient().timeout(10);
+
+	/* The request this client writes. */
+	HTTPClientResponse plain = client.get(base + "/echo?a=1&b=2#fragment", none);
+	assert(plain.status == 200 && plain.error.isEmpty());
+	assert(plain.body.equals(f"GET|127.0.0.1:{port}|btrc|*/*|close|||||a=1&b=2|"));
+	Vector<string> custom = ["X-Test: yes", "User-Agent: probe/1", "Accept: text/plain", "Host: example.test", "Content-Length: 999", "Transfer-Encoding: chunked", "Connection: keep-alive"];
+	HTTPClientResponse posted = client.post(base + "/echo", custom, "the body");
+	assert(posted.status == 200);
+	assert(posted.body.equals("POST|example.test|probe/1|text/plain|close|application/x-www-form-urlencoded|8||yes||the body"));
+	Vector<string> typed = ["Content-Type: application/json"];
+	HTTPClientResponse json = client.request("PUT", base + "/echo", typed, "{}");
+	assert(json.body.equals(f"PUT|127.0.0.1:{port}|btrc|*/*|close|application/json|2||||" + "{}"));
+	HTTPClientResponse emptyPost = client.post(base + "/echo", none, "");
+	assert(emptyPost.body.equals(f"POST|127.0.0.1:{port}|btrc|*/*|close||0||||"));
+	HTTPClientResponse credentialed = client.get(f"http://user:p%40ss@127.0.0.1:{port}/echo", none);
+	assert(credentialed.body.contains("|Basic dXNlcjpwQHNz|"));
+	HTTPClientResponse localhost = client.get(f"http://localhost:{port}/echo", none);
+	assert(localhost.status == 200 && localhost.body.startsWith(f"GET|localhost:{port}|"));
+
+	/* Every response framing, across split writes. */
+	HTTPClientResponse chunked = client.get(base + "/chunked", none);
+	assert(chunked.status == 200 && chunked.body.equals("hello, world"));
+	HTTPClientResponse closed = client.get(base + "/close", none);
+	assert(closed.status == 200 && closed.body.equals("until the end"));
+	HTTPClientResponse interim = client.get(base + "/interim", none);
+	assert(interim.status == 201 && interim.body.equals("done"));
+	HTTPClientResponse missing = client.get(base + "/missing", none);
+	assert(missing.status == 404 && missing.body.equals("not here.") && missing.error.isEmpty() && !missing.ok());
+	HTTPClientResponse empty = client.get(base + "/empty", none);
+	assert(empty.status == 204 && empty.body.isEmpty() && empty.ok());
+	HTTPClientResponse head = client.request("HEAD", base + "/head", none, "");
+	assert(head.status == 200 && head.body.isEmpty());
+
+	/* The response limit, however the body is framed. */
+	client.maxResponseBytes = 63;
+	Vector<string> oversized = ["/large-length", "/large-chunked", "/large-close"];
+	for path in oversized {
+		HTTPClientResponse refused = client.get(base + path, none);
+		assert(refused.status == 0 && refused.body.isEmpty() && refused.error.equals("response body is too large"));
+	}
+	client.maxResponseBytes = 64;
+	for path in oversized {
+		HTTPClientResponse admitted = client.get(base + path, none);
+		assert(admitted.status == 200 && admitted.body.len() == 64);
+	}
+
+	/* What is not a complete HTTP response is an error, never a partial body. */
+	HTTPClientResponse truncated = client.get(base + "/short", none);
+	assert(truncated.status == 0 && truncated.error.equals("connection closed before the response ended"));
+	HTTPClientResponse garbage = client.get(base + "/garbage", none);
+	assert(garbage.status == 0 && garbage.error.equals("invalid HTTP response"));
+	HTTPClientResponse conflict = client.get(base + "/conflict", none);
+	assert(conflict.status == 0 && conflict.error.equals("invalid HTTP response"));
+	HTTPClientResponse coded = client.get(base + "/gzip", none);
+	assert(coded.status == 0 && coded.error.equals("unsupported transfer encoding"));
+	HTTPClientResponse nothing = client.get(base + "/nothing", none);
+	assert(nothing.status == 0 && nothing.error.equals("connection closed before a response"));
+
+	/* One deadline for the whole request. */
+	HTTPClient hurried = HTTPClient().timeout(1);
+	HTTPClientResponse late = hurried.get(base + "/silent", none);
+	assert(late.status == 0 && late.error.equals("request timed out"));
+
+	/* Addresses. */
+	HTTPClientAddress? parsed = HTTPClientAddress.parse("HTTPS://User@[2001:db8::1]:8443?q=1");
+	assert(parsed != null);
+	if (parsed != null) {
+		assert(parsed.secure && parsed.host.equals("[2001:db8::1]") && parsed.port == 8443 && parsed.target.equals("/?q=1") && parsed.userInfo.equals("User"));
+		assert(parsed.resolvable().equals("2001:db8::1") && parsed.authority().equals("[2001:db8::1]:8443"));
+	}
+	HTTPClientAddress? standard = HTTPClientAddress.parse("http://example.test:80/a/b");
+	assert(standard != null);
+	if (standard != null) { assert(standard.authority().equals("example.test") && standard.target.equals("/a/b")); }
+	assert(HTTPClientAddress.parse("http://") == null);
+	assert(HTTPClientAddress.parse("http://host:0/") == null);
+	assert(HTTPClientAddress.parse("http://host:65536/") == null);
+	assert(HTTPClientAddress.parse("http://host:8a/") == null);
+	assert(HTTPClientAddress.parse("http://[::1/") == null);
+	assert(HTTPClientAddress.parse("http://ho st/") == null);
+	assert(HTTPClientAddress.parse("ftp://host/") == null);
+	HTTPClientResponse malformed = client.get("http://:80/", none);
+	assert(malformed.status == 0 && malformed.error.equals("invalid URL"));
+
+	kill(peer, (int)SIGKILL);
+	waitpid(peer, NULL, 0);
+	server.stop();
+	/* Nothing listens on the port now. */
+	HTTPClientResponse refusedConnection = client.get(base + "/echo", none);
+	assert(refusedConnection.status == 0 && refusedConnection.error.equals("could not connect"));
+	print("PASS: HTTPClient exchanges http:// first-party");
+	return 0;
+}

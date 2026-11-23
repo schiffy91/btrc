@@ -704,6 +704,20 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("numbered", "bool", "method", (("Bytes", "descriptor"),), "numbered"),
         BuiltinMemberSpec("idOf", "int", "method", (("Bytes", "report"), ("bool", "numbered"),), "idOf"),
     )),
+    ("HTTPExchangeResult", (
+        BuiltinMemberSpec("failed", "HTTPExchangeResult", "method", (("string", "error"),), "failed"),
+    )),
+    ("HTTPExchange", (
+        BuiltinMemberSpec("base64", "string", "method", (("string", "text"),), "base64"),
+        BuiltinMemberSpec("fieldName", "string", "method", (("string", "line"),), "fieldName"),
+        BuiltinMemberSpec("names", "bool", "method", (("Vector<string>", "headers"), ("string", "name"),), "names"),
+        BuiltinMemberSpec("framingField", "bool", "method", (("string", "line"),), "framingField"),
+        BuiltinMemberSpec("credentials", "string", "method", (("string", "userInfo"),), "credentials"),
+        BuiltinMemberSpec("request", "Bytes", "method", (("string", "method"), ("HTTPClientAddress", "address"), ("Vector<string>", "headers"), ("string", "body"),), "request"),
+        BuiltinMemberSpec("statusOf", "int", "method", (("string", "head"),), "statusOf"),
+        BuiltinMemberSpec("more", "string", "method", (("IHTTPByteStream", "stream"), ("Bytes", "data"), ("int", "room"), ("long long", "deadline"), ("bool", "mayEnd"),), "more"),
+        BuiltinMemberSpec("run", "HTTPExchangeResult", "method", (("IHTTPByteStream", "stream"), ("string", "method"), ("HTTPClientAddress", "address"), ("Vector<string>", "headers"), ("string", "body"), ("int", "maxResponseBytes"), ("long long", "deadline"),), "run"),
+    )),
     ("HTTPFraming", (
         BuiltinMemberSpec("hexVal", "int", "method", (("char", "ch"),), "hexVal"),
         BuiltinMemberSpec("tokenChar", "bool", "method", (("char", "ch"),), "tokenChar"),

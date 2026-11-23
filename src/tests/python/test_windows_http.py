@@ -24,6 +24,7 @@ from src.tests.native_build import NativeCorpusBuild
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.target_runner import FRONTENDS, TargetBundle, TargetCorpusRunner
 from tools.native_plan import TargetToolchain
+from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
 REPO = Path(__file__).resolve().parents[3]
 CASES = REPO / "src/tests/native/http_windows/WindowsHttpCases.btrc"
@@ -33,8 +34,7 @@ ROWS = {row.label: row for row in TARGET_ROWS}
 TARGETS = {"windows-x64": "windows-x86_64", "windows-arm64": "windows-aarch64"}
 STRICT = ["-pedantic-errors", "-Wall", "-Wextra", "-Werror", "-O2"]
 ADAPTATIONS = REPO / "docs/design/platform-adaptations.md"
-# Every case the program runs; curl-client may report a classified skip where
-# no curl.exe is on PATH.
+# Every case the program runs.
 CASE_NAMES = (
     "lifecycle",
     "exclusive-port",
@@ -51,15 +51,16 @@ CASE_NAMES = (
     "binary-body",
     "stale-descriptor",
     "close-wakes-wait",
-    "curl-client",
+    "client",
     "released",
 )
-SKIPPABLE = frozenset({"curl-client"})
+SKIPPABLE: frozenset[str] = frozenset()
 # The HTTP corpus and each program's Windows verdict (target-applicability.toml).
 CORPUS = ("stdlib/Http*.btrc",)
 WINDOWS_CORPUS = {
     "stdlib/Http.btrc": "built",
     "stdlib/HttpBytesResponse.btrc": "restricted",
+    "stdlib/HttpClientExchange.btrc": "restricted",
     "stdlib/HttpClientLocal.btrc": "built",
     "stdlib/HttpFramingSafety.btrc": "built",
     "stdlib/HttpListenerPort.btrc": "built",
@@ -189,6 +190,14 @@ def test_both_frontends_build_the_windows_http_cases(frontend, target, zig, requ
     assert {str(REPO / PROVIDER_C), str(REPO / PEER_C)} <= {unit.source for unit in report.units}
     assert report.link_command.count("-lws2_32") == 1
     assert executable.read_bytes()[:2] == b"MZ"
+    # HTTPClient is WinHTTP, the system's own stack: the program names no curl
+    # and imports nothing the system does not supply.
+    assert str(REPO / "src/stdlib/HTTP/Windows/WinHttpTransport.c") in {unit.source for unit in report.units}
+    assert report.link_command.count("-lwinhttp") == 1
+    assert '"curl"' not in c_source and "ChildProcess_run" not in c_source
+    imports = {name.lower() for name in BinaryImports.read(executable)}
+    assert {"winhttp.dll", "ws2_32.dll"} <= imports
+    assert DependencyAudit().binary_problems(executable, label) == []
     evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
     if evidence:
         Path(evidence).mkdir(parents=True, exist_ok=True)
@@ -284,7 +293,6 @@ def test_the_report_checker_accepts_only_complete_reports():
     good = "\n".join([*(f"case={name} ok" for name in CASE_NAMES), "PASS: windows http cases"])
     warning = row_six_warning() + "\r\n"
     check_output(good, warning)
-    check_output(good.replace("case=curl-client ok", "case=curl-client skipped no curl.exe on PATH"), warning)
     for broken, stderr in (
         (good.replace("case=lifecycle ok", "case=lifecycle skipped no"), warning),
         (good.replace("case=released ok\n", ""), warning),

@@ -1,0 +1,295 @@
+/* One HTTP/1.1 request and its response, over a byte stream the caller opened.
+ *
+ * This is the client's own wire work: where the URL points, the request's
+ * bytes, and the response's framing under one byte limit and one absolute
+ * deadline. It opens nothing itself. A transport hands it a connected
+ * IHTTPByteStream (a socket, or a TLS session over one), so the same exchange
+ * serves both.
+ *
+ * Every exchange closes its connection (`Connection: close`) and follows no
+ * redirect. A 1xx interim response is skipped. The body is whatever
+ * Content-Length or chunked framing delimits, or everything up to the end of
+ * the stream when the response names neither. */
+import Library.Bytes;
+import Library.HTTP.HTTPFraming;
+import Library.HTTP.HTTPUrl;
+import Library.Strings;
+import Library.Vector;
+
+/* The bytes under an exchange. */
+interface IHTTPByteStream {
+	/* Appends up to `maximum` bytes to `into` before the deadline: the count,
+	 * 0 at the end of the stream, -1 when the deadline passed, -2 on failure. */
+	int receive(Bytes into, int maximum, long long deadline);
+
+	/* Sends every byte before the deadline. */
+	bool send(Bytes data, long long deadline);
+
+	void close();
+}
+
+/* What a transport reports: a status with its body, or status 0 and why. */
+class HTTPExchangeResult {
+	public int status;
+	public Bytes body;
+	public string error;
+
+	public HTTPExchangeResult(int status, Bytes body, string error) {
+		self.status = status;
+		self.body = body;
+		self.error = error;
+	}
+
+	class HTTPExchangeResult failed(string error) { return HTTPExchangeResult(0, Bytes(), error); }
+}
+
+/* Where an http or https URL points. */
+class HTTPClientAddress {
+	public bool secure;
+	public string userInfo;
+	public string host;
+	public int port;
+	public string target;
+
+	public HTTPClientAddress(bool secure, string userInfo, string host, int port, string target) {
+		self.secure = secure;
+		self.userInfo = userInfo;
+		self.host = host;
+		self.port = port;
+		self.target = target;
+	}
+
+	/* A registered name, an IPv4 address or the inside of an IPv6 literal. */
+	class bool hostText(string host, bool literal) {
+		if (host.isEmpty() || host.len() > 253) { return false; }
+		for ch in host {
+			bool letter = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9');
+			if (letter || ch == '.') { continue; }
+			if (literal ? ch == ':' : (ch == '-' || ch == '_')) { continue; }
+			return false;
+		}
+		return true;
+	}
+
+	/* Null when the URL is not `http(s)://host[:port][/path][?query]`. */
+	class HTTPClientAddress? parse(string url, int defaultPort = 0) {
+		string lower = url.toLower();
+		bool secure = lower.startsWith("https://");
+		if (!secure && !lower.startsWith("http://")) { return null; }
+		int start = secure ? 8 : 7;
+		int end = start;
+		while (end < url.len() && url[end] != '/' && url[end] != '?' && url[end] != '#') { end++; }
+		string authority = url.substring(start, end - start);
+		string rest = url.substring(end, url.len() - end);
+		int fragment = rest.find("#", 0);
+		if (fragment >= 0) { rest = rest.substring(0, fragment); }
+		string target = rest.isEmpty() ? "/" : (rest.startsWith("?") ? "/" + rest : rest);
+		string userInfo = "";
+		int at = Strings.rfind(authority, "@");
+		if (at >= 0) {
+			userInfo = authority.substring(0, at);
+			authority = authority.substring(at + 1, authority.len() - at - 1);
+		}
+		string host = authority;
+		string portText = "";
+		bool literal = authority.startsWith("[");
+		if (literal) {
+			int close = authority.find("]", 0);
+			if (close < 0) { return null; }
+			host = authority.substring(1, close - 1);
+			string after = authority.substring(close + 1, authority.len() - close - 1);
+			if (!after.isEmpty() && !after.startsWith(":")) { return null; }
+			if (!after.isEmpty()) { portText = after.substring(1, after.len() - 1); }
+		} else {
+			int colon = Strings.rfind(authority, ":");
+			if (colon >= 0) {
+				host = authority.substring(0, colon);
+				portText = authority.substring(colon + 1, authority.len() - colon - 1);
+			}
+		}
+		if (!HTTPClientAddress.hostText(host, literal)) { return null; }
+		int port = defaultPort > 0 ? defaultPort : (secure ? 443 : 80);
+		if (!portText.isEmpty()) {
+			if (portText.len() > 5) { return null; }
+			port = 0;
+			for ch in portText {
+				if (ch < '0' || ch > '9') { return null; }
+				port = port * 10 + (int)(ch - '0');
+			}
+			if (port < 1 || port > 65535) { return null; }
+		}
+		return HTTPClientAddress(secure, userInfo, literal ? "[" + host + "]" : host, port, target);
+	}
+
+	/* The Host field: the port only when it is not the scheme's own. */
+	public string authority() {
+		bool standard = self.port == (self.secure ? 443 : 80);
+		return standard ? self.host : self.host + ":" + Strings.fromInt(self.port);
+	}
+
+	/* The name to resolve: an IPv6 literal without its brackets. */
+	public string resolvable() { return self.host.startsWith("[") ? self.host.substring(1, self.host.len() - 2) : self.host; }
+}
+
+class HTTPExchange {
+	class string base64(string text) {
+		string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		var out = StringBuilder();
+		int length = text.len();
+		for (int index = 0; index < length; index += 3) {
+			int first = (int)(unsigned char)text[index];
+			int second = index + 1 < length ? (int)(unsigned char)text[index + 1] : 0;
+			int third = index + 2 < length ? (int)(unsigned char)text[index + 2] : 0;
+			out.appendChar(alphabet[first >> 2]);
+			out.appendChar(alphabet[((first & 3) << 4) | (second >> 4)]);
+			out.appendChar(index + 1 < length ? alphabet[((second & 15) << 2) | (third >> 6)] : '=');
+			out.appendChar(index + 2 < length ? alphabet[third & 63] : '=');
+		}
+		return out.toString();
+	}
+
+	/* The lower-case name of a `Name: value` line. */
+	class string fieldName(string line) {
+		int colon = line.find(":", 0);
+		return colon <= 0 ? "" : line.substring(0, colon).trim().toLower();
+	}
+
+	class bool names(Vector<string> headers, string name) {
+		for header in headers { if (HTTPExchange.fieldName(header).equals(name)) { return true; } }
+		return false;
+	}
+
+	/* A field this client frames itself, whatever the caller wrote. A length
+	 * that disagreed with the body would desynchronize the connection. */
+	class bool framingField(string line) {
+		string name = HTTPExchange.fieldName(line);
+		return name.equals("content-length") || name.equals("transfer-encoding") || name.equals("connection") || name.equals("expect");
+	}
+
+	/* `user:password` from a URL's user information, decoded. */
+	class string credentials(string userInfo) {
+		string decoded = HTTPUrl.decode(userInfo.replace("+", "%2B"));
+		return decoded.find(":", 0) < 0 ? decoded + ":" : decoded;
+	}
+
+	/* The request's bytes. The caller's fields replace this client's defaults
+	 * of the same name; the framing fields are never the caller's. */
+	class Bytes request(string method, HTTPClientAddress address, Vector<string> headers, string body) {
+		var head = StringBuilder();
+		head.append(method + " " + address.target + " HTTP/1.1\r\n");
+		if (!HTTPExchange.names(headers, "host")) { head.append("Host: " + address.authority() + "\r\n"); }
+		if (!HTTPExchange.names(headers, "user-agent")) { head.append("User-Agent: btrc\r\n"); }
+		if (!HTTPExchange.names(headers, "accept")) { head.append("Accept: */*\r\n"); }
+		if (!address.userInfo.isEmpty() && !HTTPExchange.names(headers, "authorization")) {
+			head.append("Authorization: Basic " + HTTPExchange.base64(HTTPExchange.credentials(address.userInfo)) + "\r\n");
+		}
+		for header in headers {
+			if (HTTPExchange.framingField(header)) { continue; }
+			head.append(header + "\r\n");
+		}
+		bool carries = !body.isEmpty();
+		if (carries && !HTTPExchange.names(headers, "content-type")) { head.append("Content-Type: application/x-www-form-urlencoded\r\n"); }
+		if (carries || method.equals("POST") || method.equals("PUT") || method.equals("PATCH")) { head.append("Content-Length: " + Strings.fromInt(body.len()) + "\r\n"); }
+		head.append("Connection: close\r\n\r\n");
+		Bytes out = Bytes.fromString(head.toString());
+		if (carries) { out.appendRaw((char*)body, body.len()); }
+		return out;
+	}
+
+	/* The status of `HTTP/1.x NNN …`, or 0. */
+	class int statusOf(string head) {
+		if (head.len() < 12 || !head.startsWith("HTTP/1.") || head[7] < '0' || head[7] > '9' || head[8] != ' ') { return 0; }
+		int status = 0;
+		for (int index = 9; index < 12; index++) {
+			if (head[index] < '0' || head[index] > '9') { return 0; }
+			status = status * 10 + (int)(head[index] - '0');
+		}
+		if (head.len() > 12 && head[12] != ' ' && head[12] != '\r') { return 0; }
+		return status >= 100 && status <= 599 ? status : 0;
+	}
+
+	/* Reads more of the response; an empty string, or what went wrong. */
+	class string more(IHTTPByteStream stream, Bytes data, int room, long long deadline, bool mayEnd) {
+		int count = stream.receive(data, room, deadline);
+		if (count > 0) { return ""; }
+		if (count == 0) { return mayEnd ? "end" : "connection closed before the response ended"; }
+		return count == -1 ? "request timed out" : "connection failed";
+	}
+
+	/* Sends the request and reads one response of at most `maxResponseBytes`
+	 * body bytes before the deadline. The stream is the caller's to close. */
+	class HTTPExchangeResult run(IHTTPByteStream stream, string method, HTTPClientAddress address, Vector<string> headers, string body, int maxResponseBytes, long long deadline) {
+		if (!stream.send(HTTPExchange.request(method, address, headers, body), deadline)) { return HTTPExchangeResult.failed("could not send the request"); }
+		int headerLimit = 262144;
+		Bytes data = Bytes();
+		string head = "";
+		int status = 0;
+		int bodyStart = 0;
+		int interim = 0;
+		while (status == 0) {
+			int end = HTTPFraming.headerEnd(data);
+			if (end == -2) { return HTTPExchangeResult.failed("invalid HTTP response"); }
+			if (end < 0) {
+				if (data.len > headerLimit) { return HTTPExchangeResult.failed("response headers are too large"); }
+				string problem = HTTPExchange.more(stream, data, headerLimit + 1 - data.len, deadline, false);
+				if (!problem.isEmpty()) { return HTTPExchangeResult.failed(data.len == 0 && problem.startsWith("connection closed") ? "connection closed before a response" : problem); }
+				continue;
+			}
+			Bytes headBytes = data.slice(0, end);
+			head = headBytes.toStringLossy();
+			status = HTTPExchange.statusOf(head);
+			if (status == 0) { return HTTPExchangeResult.failed("invalid HTTP response"); }
+			bodyStart = end + 4;
+			if (status < 200 && status != 101) {
+				/* An interim response: the real one follows on the same stream. */
+				interim++;
+				if (interim > 16) { return HTTPExchangeResult.failed("invalid HTTP response"); }
+				data = data.slice(bodyStart, data.len);
+				status = 0;
+			}
+		}
+
+		if (method.equals("HEAD") || status == 204 || status == 304 || status < 200) { return HTTPExchangeResult(status, Bytes(), ""); }
+		int encoding = HTTPFraming.transferEncoding(head);
+		int length = HTTPFraming.contentLength(head);
+		if (encoding == -2) { return HTTPExchangeResult.failed("unsupported transfer encoding"); }
+		if (length == -2 && encoding != 1) { return HTTPExchangeResult.failed("invalid HTTP response"); }
+		string tooLarge = "response body is too large";
+
+		if (encoding == 1) {
+			int trailerLimit = 65536;
+			while (true) {
+				int end = HTTPFraming.chunkedEnd(data, bodyStart, maxResponseBytes, trailerLimit);
+				if (end == -2) {
+					/* Malformed, or only longer than this client admits. */
+					bool oversized = HTTPFraming.chunkedEnd(data, bodyStart, 2147483582, trailerLimit) != -2;
+					return HTTPExchangeResult.failed(oversized ? tooLarge : "invalid HTTP response");
+				}
+				if (end >= 0) {
+					Bytes framed = data.slice(bodyStart, end);
+					return HTTPExchangeResult(status, HTTPFraming.decodeChunked(framed, maxResponseBytes, trailerLimit), "");
+				}
+				string problem = HTTPExchange.more(stream, data, 65536, deadline, false);
+				if (!problem.isEmpty()) { return HTTPExchangeResult.failed(problem); }
+			}
+		}
+
+		if (length >= 0) {
+			if (length > maxResponseBytes) { return HTTPExchangeResult.failed(tooLarge); }
+			while (data.len - bodyStart < length) {
+				string problem = HTTPExchange.more(stream, data, length - (data.len - bodyStart), deadline, false);
+				if (!problem.isEmpty()) { return HTTPExchangeResult.failed(problem); }
+			}
+			return HTTPExchangeResult(status, data.slice(bodyStart, bodyStart + length), "");
+		}
+
+		/* Neither framing: the body runs to the end of the stream. */
+		while (true) {
+			if (data.len - bodyStart > maxResponseBytes) { return HTTPExchangeResult.failed(tooLarge); }
+			string problem = HTTPExchange.more(stream, data, maxResponseBytes + 1 - (data.len - bodyStart), deadline, true);
+			if (problem.equals("end")) { break; }
+			if (!problem.isEmpty()) { return HTTPExchangeResult.failed(problem); }
+		}
+		return HTTPExchangeResult(status, data.slice(bodyStart, data.len), "");
+	}
+}

@@ -7,6 +7,7 @@ from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 ROOT = Path(__file__).resolve().parents[3]
 PROCESS = ROOT / "src" / "stdlib" / "Process.btrc"
 HTTP_CLIENT = ROOT / "src" / "stdlib" / "HTTP" / "HTTPClient.btrc"
+HTTP_CURL_TRANSPORT = ROOT / "src" / "stdlib" / "HTTP" / "HTTPCurlTransport.btrc"
 FILESYSTEM = ROOT / "src" / "stdlib" / "FileSystem" / "FileSystem.btrc"
 FILESYSTEM_HANDLES = ROOT / "src" / "stdlib" / "FileSystem" / "FileSystemHandles.btrc"
 PROCESS_HELPERS = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("process")}
@@ -407,7 +408,12 @@ def test_environment_snapshot_allocates_one_owned_copy_per_inherited_entry() -> 
 
 
 def test_http_client_is_direct_and_protocol_restricted() -> None:
-    source = HTTP_CLIENT.read_text()
+    # The client itself starts nothing; the interim curl transport, where a
+    # row still selects it, is direct and protocol-restricted.
+    client = HTTP_CLIENT.read_text()
+    assert "ChildProcess" not in client and "Library.Process" not in client
+    assert "HTTPTransportProvider.request(" in client
+    source = HTTP_CURL_TRANSPORT.read_text()
     assert '"--proto", "=http,https"' in source
     assert '"--proto-redir", "=http,https"' in source
     assert 'arguments.push("--");' in source

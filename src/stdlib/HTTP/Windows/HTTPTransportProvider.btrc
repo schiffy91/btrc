@@ -1,0 +1,60 @@
+/* HTTPClient's transport on Windows: WinHTTP, the system's own HTTP stack,
+ * for both schemes (Windows/WinHttpTransport.c). The system resolves the
+ * name, applies its proxy settings and verifies `https://` against its
+ * certificate store. No process is started.
+ *
+ * WinHTTP writes Host, Content-Length and Connection itself. The caller's
+ * other fields replace the defaults of the same name. A credential in the
+ * URL is sent as Basic authentication, as the other transports send it. */
+import Library.Bytes;
+import Library.HTTP.HTTPExchange;
+import Library.Strings;
+import Library.Vector;
+
+#include "WinHttpTransport.h"
+
+extern int btrcWinHttpRequest(string method, string url, string headers, string requestBody, int requestLength, int timeoutMilliseconds, int maxResponseBytes, char** body, int* bodyLength, int* failure);
+extern void btrcWinHttpRelease(char* body);
+
+class HTTPTransportProvider {
+	/* The words for WinHttpTransport.h's reasons, as the other transports say them. */
+	class string reason(int failure) {
+		if (failure == 2) { return "request timed out"; }
+		if (failure == 3) { return "could not resolve host"; }
+		if (failure == 4) { return "could not connect"; }
+		if (failure == 5) { return "connection failed"; }
+		if (failure == 6) { return "the server's certificate was not accepted"; }
+		if (failure == 7) { return "the server requires a client certificate"; }
+		if (failure == 8) { return "invalid HTTP response"; }
+		if (failure == 9) { return "invalid URL"; }
+		if (failure == 10) { return "invalid HTTP header"; }
+		if (failure == 11) { return "response body is too large"; }
+		if (failure == 12) { return "out of memory"; }
+		return "request failed";
+	}
+
+	class HTTPExchangeResult request(string method, string url, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes) {
+		HTTPClientAddress? address = HTTPClientAddress.parse(url);
+		if (address == null) { return HTTPExchangeResult.failed("invalid URL"); }
+		var fields = StringBuilder();
+		fields.append("Accept: */*\r\n");
+		if (!address.userInfo.isEmpty() && !HTTPExchange.names(headers, "authorization")) { fields.append("Authorization: Basic " + HTTPExchange.base64(HTTPExchange.credentials(address.userInfo)) + "\r\n"); }
+		if (!body.isEmpty() && !HTTPExchange.names(headers, "content-type")) { fields.append("Content-Type: application/x-www-form-urlencoded\r\n"); }
+		for header in headers {
+			if (HTTPExchange.framingField(header)) { continue; }
+			fields.append(header + "\r\n");
+		}
+		/* The URL without its credential: WinHTTP is given none to act on. */
+		string scheme = address.secure ? "https://" : "http://";
+		string plain = scheme + address.host + ":" + Strings.fromInt(address.port) + address.target;
+		char* received = NULL;
+		int length = 0;
+		int failure = 0;
+		int status = btrcWinHttpRequest(method, plain, fields.toString(), body, body.len(), timeoutSecs * 1000, maxResponseBytes, &received, &length, &failure);
+		if (status == 0) { return HTTPExchangeResult.failed(HTTPTransportProvider.reason(failure)); }
+		Bytes content = Bytes();
+		if (length > 0) { content.appendRaw(received, length); }
+		btrcWinHttpRelease(received);
+		return HTTPExchangeResult(status, content, "");
+	}
+}
