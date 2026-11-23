@@ -1,12 +1,21 @@
 /* The primitives the group is built from, behind one seam: Ed25519
  * signatures, X25519 key exchange, BLAKE2b and SHA-256 hashes, and an
- * XChaCha20-Poly1305 message stream. Linux and macOS bind libsodium; a target
- * without a provider row cannot import the seam.
+ * XChaCha20-Poly1305 message stream. They are first-party btrc
+ * (`Primitives/`), the same on every target, and compute what libsodium's
+ * functions of the same purpose compute, which is where the name comes from.
+ * Only the random bytes differ by target: each OS names the provider that
+ * reads its system generator.
  *
  * Everything here works on raw buffers of the sizes SodiumSize names. The
  * classes above this seam (SigningKey, SecureChannel) are what programs use. */
 
 import Library.Bytes;
+import Library.Crypto.Primitives.BLAKE2b;
+import Library.Crypto.Primitives.ConstantTime;
+import Library.Crypto.Primitives.Ed25519;
+import Library.Crypto.Primitives.SecretStream;
+import Library.Crypto.Primitives.X25519;
+import Library.Digest.SHA256;
 
 enum SodiumSize {
 	SODIUM_KEY = 32,
@@ -19,13 +28,16 @@ enum SodiumSize {
 };
 
 class Sodium {
-	class bool available() { return SodiumProvider.available(); }
+	/* Every target that can import the seam has all of it. */
+	class bool available() { return true; }
 
 	class void require() {
-		if (!SodiumProvider.available()) { throw "This target has no cryptography provider"; }
+		if (!Sodium.available()) { throw "This target has no cryptography provider"; }
 	}
 
-	class void random(unsigned char* out, int length) { SodiumProvider.random(out, length); }
+	/* Bytes from the operating system's generator. Throws when the system
+	 * cannot supply them: nothing weaker is ever substituted. */
+	class void random(unsigned char* out, int length) { SystemRandomProvider.fill(out, length); }
 
 	class Bytes randomBytes(int length) {
 		Sodium.require();
@@ -35,51 +47,98 @@ class Sodium {
 		int remaining = length;
 		while (remaining > 0) {
 			int step = remaining > 256 ? 256 : remaining;
-			SodiumProvider.random(chunk, step);
+			Sodium.random(chunk, step);
 			out.appendRaw((char*)chunk, step);
 			remaining -= step;
 		}
-		SodiumProvider.wipe(chunk, 256);
+		Sodium.wipe(chunk, 256);
 		return out;
 	}
 
 	/* Overwrite secret bytes in a way the compiler cannot remove. */
-	class void wipe(unsigned char* data, int length) { SodiumProvider.wipe(data, length); }
+	class void wipe(unsigned char* data, int length) { ConstantTime.wipe(data, length); }
 
 	/* A signing key pair from its 32-byte seed. The 64-byte secret is the
 	 * seed followed by the public key. */
-	class bool signingKeys(unsigned char* seed, unsigned char* publicKey, unsigned char* secretKey) { return SodiumProvider.signingKeys(seed, publicKey, secretKey); }
+	class bool signingKeys(unsigned char* seed, unsigned char* publicKey, unsigned char* secretKey) {
+		Ed25519.keysFromSeed(publicKey, secretKey, seed);
+		return true;
+	}
 
-	class bool sign(unsigned char* signature, unsigned char* message, int length, unsigned char* secretKey) { return SodiumProvider.sign(signature, message, length, secretKey); }
+	class bool sign(unsigned char* signature, unsigned char* message, int length, unsigned char* secretKey) {
+		if (length < 0) { return false; }
+		Ed25519.sign(signature, message, length, secretKey);
+		return true;
+	}
 
-	class bool verify(unsigned char* signature, unsigned char* message, int length, unsigned char* publicKey) { return SodiumProvider.verify(signature, message, length, publicKey); }
+	class bool verify(unsigned char* signature, unsigned char* message, int length, unsigned char* publicKey) { return length >= 0 && Ed25519.verify(signature, message, length, publicKey); }
 
 	/* A fresh key-exchange pair, used once per connection. */
-	class void exchangeKeys(unsigned char* publicKey, unsigned char* secretKey) { SodiumProvider.exchangeKeys(publicKey, secretKey); }
+	class void exchangeKeys(unsigned char* publicKey, unsigned char* secretKey) {
+		Sodium.random(secretKey, 32);
+		X25519.publicKey(publicKey, secretKey);
+	}
 
 	/* The two directions' keys from both sides' exchange keys. The initiator's
 	 * `sending` is the responder's `receiving`. False for a peer key that
-	 * yields no usable secret. */
-	class bool sessionKeys(bool initiator, unsigned char* receiving, unsigned char* sending, unsigned char* publicKey, unsigned char* secretKey, unsigned char* peerKey) { return SodiumProvider.sessionKeys(initiator, receiving, sending, publicKey, secretKey, peerKey); }
+	 * yields no usable secret.
+	 *
+	 * This is libsodium's `crypto_kx`, with the initiator as its client: the
+	 * keys are the two halves of BLAKE2b-512 over the X25519 secret, the
+	 * initiator's public key and the responder's. */
+	class bool sessionKeys(bool initiator, unsigned char* receiving, unsigned char* sending, unsigned char* publicKey, unsigned char* secretKey, unsigned char* peerKey) {
+		unsigned char shared[32];
+		unsigned char keys[64];
+		if (!X25519.multiply(shared, secretKey, peerKey)) {
+			ConstantTime.wipe(shared, 32);
+			return false;
+		}
+		BLAKE2b hash = BLAKE2b(64);
+		hash.update(shared, 32);
+		hash.update(initiator ? publicKey : peerKey, 32);
+		hash.update(initiator ? peerKey : publicKey, 32);
+		hash.finish(keys);
+		ConstantTime.wipe(shared, 32);
+		for (int index = 0; index < 32; index++) {
+			receiving[index] = initiator ? keys[index] : keys[32 + index];
+			sending[index] = initiator ? keys[32 + index] : keys[index];
+		}
+		ConstantTime.wipe(keys, 64);
+		return true;
+	}
 
 	/* BLAKE2b, 32 bytes. */
-	class void hash(unsigned char* out, unsigned char* data, int length) { SodiumProvider.hash(out, data, length); }
+	class void hash(unsigned char* out, unsigned char* data, int length) { BLAKE2b.digest(out, 32, data, length); }
 
-	class void sha256(unsigned char* out, unsigned char* data, int length) { SodiumProvider.sha256(out, data, length); }
+	class void sha256(unsigned char* out, unsigned char* data, int length) {
+		Bytes? digest = Bytes.fromHex(SHA256.digestBytes(Bytes.fromRaw((char*)data, length)));
+		if (digest == null || digest.length() != 32) { throw "SHA-256 did not produce a digest"; }
+		for (int index = 0; index < 32; index++) { out[index] = (unsigned char)digest.get(index); }
+	}
 
 	/* Start the sending half of a message stream: fills `state` and the
 	 * header the receiver needs. */
-	class bool beginSending(unsigned char* state, unsigned char* header, unsigned char* key) { return SodiumProvider.beginSending(state, header, key); }
+	class bool beginSending(unsigned char* state, unsigned char* header, unsigned char* key) {
+		Sodium.random(header, SODIUM_STREAM_HEADER);
+		SecretStream.begin(state, header, key);
+		return true;
+	}
 
 	/* Start the receiving half from the sender's header. */
-	class bool beginReceiving(unsigned char* state, unsigned char* header, unsigned char* key) { return SodiumProvider.beginReceiving(state, header, key); }
+	class bool beginReceiving(unsigned char* state, unsigned char* header, unsigned char* key) {
+		SecretStream.begin(state, header, key);
+		return true;
+	}
 
 	/* Encrypt one message; `sealed` needs `length + SODIUM_STREAM_OVERHEAD`
 	 * bytes. Returns the sealed length, or -1. */
-	class int seal(unsigned char* state, unsigned char* sealed, unsigned char* message, int length) { return SodiumProvider.seal(state, sealed, message, length); }
+	class int seal(unsigned char* state, unsigned char* sealed, unsigned char* message, int length) { return SecretStream.seal(state, sealed, message, length, SECRET_STREAM_MESSAGE); }
 
 	/* Decrypt the next message of the stream; `message` needs
 	 * `length - SODIUM_STREAM_OVERHEAD` bytes. Returns its length, or -1 when
 	 * it was altered, replayed or out of order. */
-	class int open(unsigned char* state, unsigned char* message, unsigned char* sealed, int length) { return SodiumProvider.open(state, message, sealed, length); }
+	class int open(unsigned char* state, unsigned char* message, unsigned char* sealed, int length) {
+		unsigned char tag[1];
+		return SecretStream.open(state, message, tag, sealed, length);
+	}
 }
