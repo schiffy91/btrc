@@ -83,7 +83,9 @@ int main() {
 			answer(server, connection);
 		}
 	}
-	/* No program is reachable: a request that tried curl would fail. */
+	/* Reach the loopback peer directly even on a host with a configured proxy.
+	 * The empty search path makes a curl dependency observable. */
+	assert(setenv("no_proxy", "*", 1) == 0);
 	assert(setenv("PATH", "/nonexistent-btrc-http", 1) == 0);
 	string base = f"http://127.0.0.1:{port}";
 	Vector<string> none = [];
