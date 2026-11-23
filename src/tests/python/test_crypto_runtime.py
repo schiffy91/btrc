@@ -2,7 +2,7 @@
 
 The primitives are first-party btrc, so a program that imports the group links
 nothing beyond its operating system. The link plans say so here, and so do the
-dynamic dependencies of the Linux executables.
+binary imports on each host.
 """
 
 import json
@@ -14,9 +14,11 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.python.native_import_fixtures import zig_libc
 from src.tests.python.test_network_runtime import _transpile
 from tools.native_plan import NativePlanBuilder, NativePlanReader
+from tools.qualification.dependencies import DependencyAudit
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "src" / "tests" / "native" / "crypto"
@@ -54,15 +56,6 @@ def _require_host() -> None:
         pytest.skip("Library.Crypto's conformance programs fork their peers and read ssh-keygen's files")
 
 
-def _needed_libraries(executable: Path) -> list[str]:
-    """The shared libraries an ELF executable names as its dependencies."""
-    readelf = shutil.which("readelf")
-    assert readelf is not None, "the Linux dev shell provides readelf"
-    listed = subprocess.run([readelf, "-d", str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
-    assert listed.returncode == 0, listed.stderr
-    return [line.split("[", 1)[1].split("]", 1)[0] for line in listed.stdout.splitlines() if "(NEEDED)" in line]
-
-
 def _build(
     c_compiler: str,
     plan: Path,
@@ -93,10 +86,7 @@ def _build(
         compile_flags=flags,
         link_flags=SANITIZED if sanitized else [],
     )
-    if sys.platform == "linux":
-        # libsodium is gone from the program, not only from its plan.
-        needed = _needed_libraries(executable)
-        assert needed and not any("sodium" in name for name in needed), needed
+    assert DependencyAudit().binary_problems(executable, PackageTarget.parse(None).label) == []
 
 
 @pytest.mark.parametrize("c_compiler,sanitized", [("gcc", False), ("clang", False), ("clang", True)])
@@ -335,6 +325,7 @@ def test_windows_builds_keys_but_no_channel(
             compile_flags=STRICT,
         )
     assert executable.read_bytes()[:2] == b"MZ"
+    assert DependencyAudit().binary_problems(executable, target) == []
     host_is_arm = os.environ.get("PROCESSOR_ARCHITECTURE", "").lower() == "arm64"
     if sys.platform == "win32" and host_is_arm == (target == "windows-aarch64"):
         ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)
