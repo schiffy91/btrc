@@ -1,0 +1,317 @@
+import Library.Bytes;
+import Library.Vector;
+import Library.Image.Pixels;
+
+import ./Checksum.btrc;
+import ./Inflate.btrc;
+
+// Scanline storage whose allocation can fail without ending the process.
+class PNGRows {
+	public unsigned char* data = null;
+
+	public PNGRows() {}
+
+	class PNGRows? tryCreate(long long length) {
+		var rows = PNGRows();
+		rows.data = (unsigned char*)calloc((size_t)length, sizeof(unsigned char));
+		if (rows.data == null) { return null; }
+		return rows;
+	}
+
+	public void __del__() {
+		free(self.data);
+		self.data = null;
+	}
+}
+
+class PNGReader {
+	private Bytes bytes;
+	private int maxPixels;
+	private PNGChecksum checksum;
+	public int width = 0;
+	public int height = 0;
+	public int depth = 0;
+	public int colorType = 0;
+	public bool interlaced = false;
+	private int channels = 1;
+	// 256 RGBA entries. An index past the stored palette is opaque black.
+	private Bytes palette;
+	private int paletteCount = 0;
+	private bool transparency = false;
+	private bool keyed = false;
+	private int keyRed = 0;
+	private int keyGreen = 0;
+	private int keyBlue = 0;
+	// Start and end offsets of each IDAT payload.
+	private Vector<int> data = [];
+	private long long compressed = 0LL;
+
+	public PNGReader(Bytes bytes, int maxPixels) {
+		if (bytes == null || maxPixels <= 0) { throw "Invalid PNG decode request"; }
+		self.bytes = bytes;
+		self.maxPixels = maxPixels;
+		self.checksum = PNGChecksum();
+		self.palette = Bytes.zeros(1024);
+		for (int i = 0; i < 256; i++) { self.palette.set(i * 4 + 3, 255); }
+	}
+
+	// Returns the payload size of the chunk at `at` once its bounds, name and CRC hold.
+	private int chunk(int at) {
+		if (self.bytes.len - at < 12) { throw "Truncated PNG chunk"; }
+		var size = self.bytes.readU32BE(at);
+		if (size > (unsigned int)(self.bytes.len - at - 12)) { throw "Truncated PNG chunk"; }
+		for (int i = 4; i < 8; i++) {
+			var letter = self.bytes.get(at + i) | 32;
+			if (letter < 97 || letter > 122) { throw "Invalid PNG chunk type"; }
+		}
+		if ((self.bytes.get(at + 6) & 32) != 0) { throw "Invalid PNG chunk type"; }
+		var end = at + 8 + (int)size;
+		if (self.checksum.crc(self.bytes, at + 4, end) != self.bytes.readU32BE(end)) { throw "PNG chunk fails its CRC"; }
+		return (int)size;
+	}
+
+	public void header() {
+		if (self.bytes.len < 8 || self.bytes.readU32BE(0) != 0x89504e47u || self.bytes.readU32BE(4) != 0x0d0a1a0au) { throw "Invalid PNG signature"; }
+		if (self.chunk(8) != 13 || self.bytes.readU32BE(12) != 0x49484452u) { throw "Missing PNG header"; }
+		var width = self.bytes.readU32BE(16);
+		var height = self.bytes.readU32BE(20);
+		if (width == 0u || height == 0u || width > 0x7fffffffu || height > 0x7fffffffu) { throw "Invalid PNG dimensions"; }
+		self.width = (int)width;
+		self.height = (int)height;
+		self.depth = self.bytes.get(24);
+		self.colorType = self.bytes.get(25);
+		var depth = self.depth;
+		var small = depth == 1 || depth == 2 || depth == 4;
+		var valid = false;
+		if (self.colorType == 0) { valid = small || depth == 8 || depth == 16; }
+		else if (self.colorType == 3) { valid = small || depth == 8; }
+		else if (self.colorType == 2 || self.colorType == 4 || self.colorType == 6) {
+			valid = depth == 8 || depth == 16;
+			self.channels = self.colorType == 2 ? 3 : self.colorType == 4 ? 2 : 4;
+		}
+		if (!valid || self.bytes.get(26) != 0 || self.bytes.get(27) != 0 || self.bytes.get(28) > 1) { throw "Invalid PNG header"; }
+		self.interlaced = self.bytes.get(28) == 1;
+	}
+
+	private void readPalette(int start, int size) {
+		// Elsewhere it is a suggested palette, or one a grayscale image may
+		// not carry: neither changes pixels.
+		if (self.colorType != 3) { return; }
+		if (size == 0 || size % 3 != 0 || size > 768) { throw "Invalid PNG palette"; }
+		var count = size / 3;
+		var indexable = 1 << self.depth;
+		self.paletteCount = count < indexable ? count : indexable;
+		for (int i = 0; i < self.paletteCount; i++) {
+			for (int k = 0; k < 3; k++) { self.palette.set(i * 4 + k, self.bytes.get(start + i * 3 + k)); }
+		}
+	}
+
+	// A malformed or misplaced tRNS is ignored, as libpng ignores it.
+	private void readTransparency(int start, int size) {
+		if (self.transparency) { return; }
+		var mask = (1 << self.depth) - 1;
+		if (self.colorType == 3) {
+			if (size == 0 || size > self.paletteCount) { return; }
+			for (int i = 0; i < size; i++) { self.palette.set(i * 4 + 3, self.bytes.get(start + i)); }
+		} else if (self.colorType == 0 && size == 2) {
+			self.keyRed = self.bytes.readU16BE(start) & mask;
+			self.keyed = true;
+		} else if (self.colorType == 2 && size == 6) {
+			self.keyRed = self.bytes.readU16BE(start) & mask;
+			self.keyGreen = self.bytes.readU16BE(start + 2) & mask;
+			self.keyBlue = self.bytes.readU16BE(start + 4) & mask;
+			self.keyed = true;
+		} else { return; }
+		self.transparency = true;
+	}
+
+	// Walks every chunk through IEND, so each one's CRC is checked.
+	private void chunks() {
+		int cursor = 33;
+		var started = false;
+		var finished = false;
+		var hasPalette = false;
+		while (true) {
+			var size = self.chunk(cursor);
+			var kind = self.bytes.readU32BE(cursor + 4);
+			var start = cursor + 8;
+			cursor = start + size + 4;
+			if (kind == 0x49444154u) {
+				if (finished) { throw "PNG image data is not consecutive"; }
+				if (self.colorType == 3 && !hasPalette) { throw "Missing PNG palette"; }
+				started = true;
+				if (size > 0) {
+					self.data.push(start);
+					self.data.push(start + size);
+					self.compressed += size;
+				}
+				continue;
+			}
+			if (started) { finished = true; }
+			if (kind == 0x49454e44u) {
+				if (size != 0) { throw "Invalid PNG end chunk"; }
+				break;
+			}
+			if (kind == 0x49484452u) { throw "Duplicate PNG header"; }
+			if (kind == 0x504c5445u) {
+				if (hasPalette) { throw "Duplicate PNG palette"; }
+				hasPalette = true;
+				if (!started) { self.readPalette(start, size); }
+			} else if (kind == 0x74524e53u) {
+				if (!started) { self.readTransparency(start, size); }
+			} else if ((kind & 0x20000000u) == 0u) { throw "Unknown critical PNG chunk"; }
+		}
+		if (!started) { throw "Missing PNG image data"; }
+	}
+
+	private void unfilter(int kind, unsigned char* row, unsigned char* above, int size, int unit) {
+		if (kind == 0) { return; }
+		if (kind == 1) {
+			for (int i = unit; i < size; i++) { row[i] = (unsigned char)((int)row[i] + (int)row[i - unit]); }
+		} else if (kind == 2) {
+			for (int i = 0; i < size; i++) { row[i] = (unsigned char)((int)row[i] + (int)above[i]); }
+		} else if (kind == 3) {
+			for (int i = 0; i < size; i++) {
+				var left = i < unit ? 0 : (int)row[i - unit];
+				row[i] = (unsigned char)((int)row[i] + ((left + (int)above[i]) >> 1));
+			}
+		} else if (kind == 4) {
+			for (int i = 0; i < size; i++) {
+				var up = (int)above[i];
+				if (i < unit) {
+					row[i] = (unsigned char)((int)row[i] + up);
+					continue;
+				}
+				var left = (int)row[i - unit];
+				var corner = (int)above[i - unit];
+				var estimate = left + up - corner;
+				var fromLeft = estimate > left ? estimate - left : left - estimate;
+				var fromUp = estimate > up ? estimate - up : up - estimate;
+				var fromCorner = estimate > corner ? estimate - corner : corner - estimate;
+				var nearest = fromLeft <= fromUp && fromLeft <= fromCorner ? left : fromUp <= fromCorner ? up : corner;
+				row[i] = (unsigned char)((int)row[i] + nearest);
+			}
+		} else { throw "Invalid PNG filter"; }
+	}
+
+	// Rounds a 16-bit sample to the nearest 8-bit level.
+	class int narrow(int sample) { return (sample * 255 + 32895) >> 16; }
+
+	// Expands one unfiltered scanline of `columns` pixels to straight RGBA,
+	// writing every `step`-th pixel of image row `y` from column `left`.
+	private void store(Image image, unsigned char* row, int columns, int left, int step, int y) {
+		unsigned char* target = image.data + ((long long)y * self.width + left) * 4LL;
+		var kind = self.colorType;
+		var depth = self.depth;
+		if (kind == 6 && depth == 8 && step == 1) {
+			memcpy(target, row, (size_t)(columns * 4));
+			return;
+		}
+		unsigned char* palette = (unsigned char*)self.palette.data;
+		var stride = step * 4;
+		var mask = (1 << depth) - 1;
+		var scale = depth < 8 ? 255 / mask : 1;
+		var span = self.channels * (depth == 16 ? 2 : 1);
+		for (int i = 0; i < columns; i++) {
+			int red = 0;
+			int green = 0;
+			int blue = 0;
+			int alpha = 255;
+			if (depth < 8) {
+				var bit = i * depth;
+				var sample = ((int)row[bit >> 3] >> (8 - depth - (bit & 7))) & mask;
+				if (kind == 3) {
+					unsigned char* entry = palette + sample * 4;
+					red = entry[0]; green = entry[1]; blue = entry[2]; alpha = entry[3];
+				} else {
+					red = sample * scale; green = red; blue = red;
+					if (self.keyed && sample == self.keyRed) { alpha = 0; }
+				}
+			} else if (depth == 8) {
+				unsigned char* pixel = row + i * span;
+				if (kind == 3) {
+					unsigned char* entry = palette + (int)pixel[0] * 4;
+					red = entry[0]; green = entry[1]; blue = entry[2]; alpha = entry[3];
+				} else if (kind == 0 || kind == 4) {
+					red = pixel[0]; green = red; blue = red;
+					if (kind == 4) { alpha = pixel[1]; }
+					else if (self.keyed && red == self.keyRed) { alpha = 0; }
+				} else {
+					red = pixel[0]; green = pixel[1]; blue = pixel[2];
+					if (kind == 6) { alpha = pixel[3]; }
+					else if (self.keyed && red == self.keyRed && green == self.keyGreen && blue == self.keyBlue) { alpha = 0; }
+				}
+			} else {
+				// A colour key matches whole 16-bit samples, before they are narrowed.
+				unsigned char* pixel = row + (long long)i * span;
+				red = ((int)pixel[0] << 8) | (int)pixel[1];
+				if (kind == 0 || kind == 4) {
+					if (kind == 4) { alpha = PNGReader.narrow(((int)pixel[2] << 8) | (int)pixel[3]); }
+					else if (self.keyed && red == self.keyRed) { alpha = 0; }
+					red = PNGReader.narrow(red); green = red; blue = red;
+				} else {
+					green = ((int)pixel[2] << 8) | (int)pixel[3];
+					blue = ((int)pixel[4] << 8) | (int)pixel[5];
+					if (kind == 6) { alpha = PNGReader.narrow(((int)pixel[6] << 8) | (int)pixel[7]); }
+					else if (self.keyed && red == self.keyRed && green == self.keyGreen && blue == self.keyBlue) { alpha = 0; }
+					red = PNGReader.narrow(red); green = PNGReader.narrow(green); blue = PNGReader.narrow(blue);
+				}
+			}
+			target[0] = (unsigned char)red;
+			target[1] = (unsigned char)green;
+			target[2] = (unsigned char)blue;
+			target[3] = (unsigned char)alpha;
+			target = target + stride;
+		}
+	}
+
+	public Image decode() {
+		self.header();
+		if (!Image.validDimensions(self.width, self.height) || self.width > self.maxPixels / self.height) { throw "PNG exceeds pixel limit"; }
+		var pixelBits = self.channels * self.depth;
+		long long rowBytes = ((long long)self.width * pixelBits + 7LL) / 8LL;
+		// A scanline may need no more memory than the largest raster does.
+		if (rowBytes > 1073740800LL) { throw "PNG row exceeds limit"; }
+		self.chunks();
+		// Adam7: the first column and row of each pass, then its steps.
+		Vector<int> passes = [0,0,1,1];
+		if (self.interlaced) { passes = [0,0,8,8, 4,0,8,8, 0,4,4,8, 2,0,4,4, 0,2,2,4, 1,0,2,2, 0,1,1,2]; }
+		long long expected = 0LL;
+		for (int p = 0; p < passes.length; p += 4) {
+			long long columns = (self.width - passes.get(p) + passes.get(p + 2) - 1) / passes.get(p + 2);
+			long long lines = (self.height - passes.get(p + 1) + passes.get(p + 3) - 1) / passes.get(p + 3);
+			if (columns > 0LL && lines > 0LL) { expected += lines * (1LL + (columns * pixelBits + 7LL) / 8LL); }
+		}
+		// DEFLATE expands at most 1032 times, so less input than this cannot
+		// fill the raster: refuse before allocating it.
+		if (expected > self.compressed * 1032LL) { throw "PNG image data is too short"; }
+		var image = Image.tryCreate(self.width, self.height);
+		if (image == null) { throw "Could not allocate PNG raster"; }
+		var rows = PNGRows.tryCreate((rowBytes + 1LL) * 2LL);
+		if (rows == null) { throw "Could not allocate PNG scanlines"; }
+		var inflate = PNGInflate(self.bytes, self.data);
+		// Each buffer holds the filter type, then the scanline.
+		unsigned char* current = rows.data;
+		unsigned char* previous = rows.data + rowBytes + 1LL;
+		var unit = pixelBits >= 8 ? pixelBits / 8 : 1;
+		for (int p = 0; p < passes.length; p += 4) {
+			var left = passes.get(p);
+			var top = passes.get(p + 1);
+			var columns = (self.width - left + passes.get(p + 2) - 1) / passes.get(p + 2);
+			var lines = (self.height - top + passes.get(p + 3) - 1) / passes.get(p + 3);
+			if (columns <= 0 || lines <= 0) { continue; }
+			var size = (int)(((long long)columns * pixelBits + 7LL) / 8LL);
+			memset(previous, 0, (size_t)(size + 1));
+			for (int line = 0; line < lines; line++) {
+				inflate.read(current, size + 1);
+				self.unfilter((int)current[0], current + 1, previous + 1, size, unit);
+				self.store(image, current + 1, columns, left, passes.get(p + 2), top + line * passes.get(p + 3));
+				unsigned char* swap = current;
+				current = previous;
+				previous = swap;
+			}
+		}
+		inflate.finish();
+		return image;
+	}
+}

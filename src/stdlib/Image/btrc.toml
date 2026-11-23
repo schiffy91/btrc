@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_image"
-exports = ["JPEG", "DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "Image", "Pixels", "Apple.AppleEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
+exports = ["JPEG", "PNG", "DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "Image", "Pixels", "Apple.AppleEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
 
 # ImageIO and CoreGraphics are on every Apple system.
 [[package.providers]]

@@ -1,0 +1,35 @@
+import Library.Bytes;
+
+import ./PNG/Reader.btrc;
+import ./PNG/Writer.btrc;
+
+class PNG {
+	class Image decode(Bytes bytes, int maxPixels = 64000000) { return PNGReader(bytes, maxPixels).decode(); }
+
+	// Writes 8-bit RGB when every pixel is opaque, and RGBA otherwise.
+	class Bytes encode(Image image) { return PNGWriter().encode(image); }
+}
+
+// The IHDR fields, read and CRC-checked without touching any other chunk.
+class PNGHeader {
+	public int width;
+	public int height;
+	public int bitDepth;
+	// 0 grayscale, 2 RGB, 3 palette, 4 grayscale with alpha, 6 RGBA.
+	public int colorType;
+	public bool interlaced;
+
+	public PNGHeader(int width, int height, int bitDepth, int colorType, bool interlaced) {
+		self.width = width;
+		self.height = height;
+		self.bitDepth = bitDepth;
+		self.colorType = colorType;
+		self.interlaced = interlaced;
+	}
+
+	class PNGHeader inspect(Bytes bytes) {
+		var reader = PNGReader(bytes, 1);
+		reader.header();
+		return PNGHeader(reader.width, reader.height, reader.depth, reader.colorType, reader.interlaced);
+	}
+}

@@ -1,0 +1,199 @@
+import Library.Array;
+import Library.Bytes;
+import Library.Vector;
+import Library.Image.Pixels;
+
+import ./Checksum.btrc;
+
+// Writes a non-interlaced 8-bit image. Each scanline takes the filter with
+// the smallest sum of absolute differences, and the zlib stream is one block
+// of the fixed Huffman codes with greedy back-references.
+class PNGWriter {
+	private PNGChecksum checksum;
+	private Bytes stream;
+	private unsigned int hold = 0u;
+	private int held = 0;
+	// The fixed literal and length codes, already reversed for the bit order.
+	private Array<int> codes;
+	private Array<int> sizes;
+	private Vector<int> lengthBase;
+	private Vector<int> lengthExtra;
+	private Vector<int> distanceBase;
+	private Vector<int> distanceExtra;
+
+	public PNGWriter() {
+		self.checksum = PNGChecksum();
+		self.stream = Bytes();
+		self.codes = new Array<int>(288);
+		self.sizes = new Array<int>(288);
+		self.lengthBase = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];
+		self.lengthExtra = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+		self.distanceBase = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];
+		self.distanceExtra = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+		for (int i = 0; i < 288; i++) {
+			var size = i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8;
+			var code = i < 144 ? 48 + i : i < 256 ? 400 + i - 144 : i < 280 ? i - 256 : 192 + i - 280;
+			self.codes.set(i, PNGWriter.reversed(code, size));
+			self.sizes.set(i, size);
+		}
+	}
+
+	// A prefix code is written from its most significant bit.
+	class int reversed(int code, int size) {
+		int result = 0;
+		for (int bit = 0; bit < size; bit++) { result |= ((code >> bit) & 1) << (size - 1 - bit); }
+		return result;
+	}
+
+	private void bits(int value, int count) {
+		self.hold |= (unsigned int)value << self.held;
+		self.held += count;
+		while (self.held >= 8) {
+			self.stream.append((int)(self.hold & 255u));
+			self.hold >>= 8;
+			self.held -= 8;
+		}
+	}
+
+	private void symbol(int value) { self.bits(self.codes.data[value], self.sizes.data[value]); }
+
+	private void match(int length, int distance) {
+		int index = 28;
+		while (self.lengthBase.get(index) > length) { index--; }
+		self.symbol(257 + index);
+		self.bits(length - self.lengthBase.get(index), self.lengthExtra.get(index));
+		int code = 29;
+		while (self.distanceBase.get(code) > distance) { code--; }
+		self.bits(PNGWriter.reversed(code, 5), 5);
+		self.bits(distance - self.distanceBase.get(code), self.distanceExtra.get(code));
+	}
+
+	class int hash(unsigned char* data, int at) {
+		var key = ((unsigned int)data[at] << 16) | ((unsigned int)data[at + 1] << 8) | (unsigned int)data[at + 2];
+		return (int)((key * 2654435761u) >> 17);
+	}
+
+	private void compress(Bytes raw) {
+		self.stream.append(0x78);
+		self.stream.append(0x01);
+		self.bits(3, 3);
+		// The latest position of each three-byte sequence, by hash.
+		var latest = new Array<int>(32768);
+		latest.fill(-1);
+		unsigned char* data = (unsigned char*)raw.data;
+		var count = raw.len;
+		int i = 0;
+		while (i < count) {
+			int length = 0;
+			int distance = 0;
+			if (count - i >= 3) {
+				var slot = PNGWriter.hash(data, i);
+				var candidate = latest.data[slot];
+				latest.data[slot] = i;
+				if (candidate >= 0 && i - candidate <= 32768) {
+					var most = count - i < 258 ? count - i : 258;
+					while (length < most && data[candidate + length] == data[i + length]) { length++; }
+					distance = i - candidate;
+				}
+			}
+			if (length < 3) {
+				self.symbol((int)data[i]);
+				i++;
+				continue;
+			}
+			self.match(length, distance);
+			for (int k = 1; k < length; k++) {
+				if (count - i - k >= 3) { latest.data[PNGWriter.hash(data, i + k)] = i + k; }
+			}
+			i += length;
+		}
+		self.symbol(256);
+		if (self.held > 0) { self.bits(0, 8 - self.held); }
+		self.stream.appendU32BE(PNGChecksum.adler(raw));
+	}
+
+	// Filters `line` against the scanline above it into `target` and returns
+	// the sum of the result's absolute values, the usual selection heuristic.
+	class long long filter(int kind, unsigned char* line, unsigned char* above, int size, int unit, unsigned char* target) {
+		long long score = 0LL;
+		for (int i = 0; i < size; i++) {
+			var left = i < unit ? 0 : (int)line[i - unit];
+			var up = (int)above[i];
+			int predicted = 0;
+			if (kind == 1) { predicted = left; }
+			else if (kind == 2) { predicted = up; }
+			else if (kind == 3) { predicted = (left + up) >> 1; }
+			else if (kind == 4) {
+				var corner = i < unit ? 0 : (int)above[i - unit];
+				var estimate = left + up - corner;
+				var fromLeft = estimate > left ? estimate - left : left - estimate;
+				var fromUp = estimate > up ? estimate - up : up - estimate;
+				var fromCorner = estimate > corner ? estimate - corner : corner - estimate;
+				predicted = fromLeft <= fromUp && fromLeft <= fromCorner ? left : fromUp <= fromCorner ? up : corner;
+			}
+			var value = ((int)line[i] - predicted) & 255;
+			target[i] = (unsigned char)value;
+			score += value < 128 ? value : 256 - value;
+		}
+		return score;
+	}
+
+	private void chunk(Bytes output, unsigned int kind, Bytes payload) {
+		output.appendU32BE((unsigned int)payload.len);
+		var start = output.len;
+		output.appendU32BE(kind);
+		output.appendBytes(payload);
+		output.appendU32BE(self.checksum.crc(output, start, output.len));
+	}
+
+	public Bytes encode(Image image) {
+		if (image == null || image.isEmpty()) { throw "Cannot encode an empty image as PNG"; }
+		var pixels = image.width * image.height;
+		var channels = 3;
+		for (int i = 0; i < pixels && channels == 3; i++) {
+			if (image.data[i * 4 + 3] != 255) { channels = 4; }
+		}
+		var size = image.width * channels;
+		var raw = Bytes.zeros((size + 1) * image.height);
+		var lines = Bytes.zeros(size * 2);
+		unsigned char* line = (unsigned char*)lines.data;
+		unsigned char* above = line + size;
+		for (int y = 0; y < image.height; y++) {
+			unsigned char* source = image.data + y * image.width * 4;
+			for (int x = 0; x < image.width; x++) {
+				for (int k = 0; k < channels; k++) { line[x * channels + k] = source[x * 4 + k]; }
+			}
+			unsigned char* target = (unsigned char*)raw.data + y * (size + 1);
+			int best = 0;
+			long long least = -1LL;
+			for (int kind = 0; kind < 5; kind++) {
+				var score = PNGWriter.filter(kind, line, above, size, channels, target + 1);
+				if (least < 0LL || score < least) {
+					least = score;
+					best = kind;
+				}
+			}
+			if (best != 4) { PNGWriter.filter(best, line, above, size, channels, target + 1); }
+			target[0] = (unsigned char)best;
+			unsigned char* swap = line;
+			line = above;
+			above = swap;
+		}
+		self.compress(raw);
+		var output = Bytes();
+		output.appendU32BE(0x89504e47u);
+		output.appendU32BE(0x0d0a1a0au);
+		var header = Bytes();
+		header.appendU32BE((unsigned int)image.width);
+		header.appendU32BE((unsigned int)image.height);
+		header.append(8);
+		header.append(channels == 3 ? 2 : 6);
+		header.append(0);
+		header.append(0);
+		header.append(0);
+		self.chunk(output, 0x49484452u, header);
+		self.chunk(output, 0x49444154u, self.stream);
+		self.chunk(output, 0x49454e44u, Bytes());
+		return output;
+	}
+}
