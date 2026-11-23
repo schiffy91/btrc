@@ -2,7 +2,7 @@
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required \
         test test-suite test-fast test-nightly btrcc-test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         skip-gate qualification-report coverage \
-        generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
+        generated-check compiler-codegen-generate compiler-codegen-check lint stdlib-dependencies format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer linux-ci clean \
@@ -615,8 +615,12 @@ compiler-codegen-check: ## Check shared-spec generated compiler sources
 
 generated-check: compiler-codegen-check ## Check every committed generated source without modifying it
 
-lint: generated-check ## Run generated-policy checks and ruff linter
+lint: generated-check stdlib-dependencies ## Run generated-policy checks, the stdlib dependency rule and ruff linter
 	$(NIX) ruff check $(PYTHON_PATHS)
+
+stdlib-dependencies: ## Fail on any third-party stdlib requirement but wgpu-native, naming module, target and dependency
+	$(NIX) python3 -m tools.qualification.dependencies check
+	$(NIX) python3 -m tools.qualification.dependencies report --check
 
 format: format-btrc ## Format Python and BTRC sources
 	$(NIX) ruff format $(PYTHON_PATHS)

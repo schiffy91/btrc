@@ -54,6 +54,10 @@ jobs:
           use-flakehub: false
       - name: Root the development shell
         run: nix develop --profile "$RUNNER_TEMP/stdlib-dev-shell" --command true
+      # First-party code and the target's own system only; wgpu-native is the
+      # one exception. A failure names the module, the target and the dependency.
+      - name: Refuse third-party requirements
+        run: nix develop --command make NIX= stdlib-dependencies
       - name: Build the host compiler
         id: compiler
         run: nix develop --command make NIX= btrcc

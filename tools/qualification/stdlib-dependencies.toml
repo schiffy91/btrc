@@ -1,0 +1,366 @@
+# What the standard library may require, read by tools/qualification/dependencies.py.
+#
+# The rule: first-party code, and what the target's operating system supplies.
+# wgpu-native is the only third-party exception. A package a distribution or
+# Nix can install is not an operating-system API.
+#
+# `supplied.<os>` lists what each system provides: link-record names
+# (`pkg-config`, `libraries`, `frameworks`), system `headers`, run-time `loads`,
+# `programs`, Java `classes` and the import names found in built `binaries`. Patterns are
+# shell globs. `pending` rows are third-party requirements known today; the
+# check fails on any requirement without a row and on any row without a
+# requirement, so the list only shrinks.
+schema = 1
+
+# ISO C, in every toolchain's own headers.
+[supplied.common]
+headers = [
+	"assert.h", "ctype.h", "errno.h", "float.h", "inttypes.h", "limits.h", "locale.h", "math.h",
+	"setjmp.h", "signal.h", "stdalign.h", "stdarg.h", "stdatomic.h", "stdbool.h", "stddef.h",
+	"stdint.h", "stdio.h", "stdlib.h", "stdnoreturn.h", "string.h", "time.h", "wchar.h", "wctype.h",
+]
+
+# Linux: the kernel's interfaces and the C library. A service of the running
+# system (the display server, the message bus, the sound server) is reached by
+# first-party code speaking its protocol over its socket; the client library a
+# distribution packages for it is not the operating system.
+[supplied.linux]
+libraries = ["c", "m", "pthread", "dl", "rt", "util"]
+headers = [
+	"arpa/*", "dirent.h", "dlfcn.h", "fcntl.h", "fnmatch.h", "glob.h", "grp.h", "linux/*", "net/*",
+	"netdb.h", "netinet/*", "poll.h", "pthread.h", "pty.h", "pwd.h", "regex.h", "sched.h",
+	"semaphore.h", "sound/*", "spawn.h", "sys/*", "termios.h", "unistd.h", "utime.h",
+]
+programs = ["/bin/sh"]
+binaries = ["libc.so.*", "libm.so.*", "libpthread.so.*", "libdl.so.*", "librt.so.*", "libutil.so.*", "ld-linux*.so.*"]
+
+# Android: bionic, the NDK's stable system libraries, and the framework classes
+# of android.jar reached through the application's own VM.
+[supplied.android]
+libraries = ["c", "m", "dl", "log", "android", "aaudio", "jnigraphics", "nativewindow", "mediandk", "EGL", "GLESv2", "GLESv3", "vulkan"]
+headers = [
+	"aaudio/*", "android/*", "arpa/*", "dirent.h", "dlfcn.h", "fcntl.h", "fnmatch.h", "glob.h", "grp.h",
+	"jni.h", "linux/*", "net/*", "netdb.h", "netinet/*", "poll.h", "pthread.h", "pty.h", "pwd.h",
+	"regex.h", "sched.h", "semaphore.h", "sound/*", "spawn.h", "sys/*", "termios.h", "unistd.h", "utime.h",
+]
+programs = ["/system/bin/sh"]
+classes = ["android.*", "dalvik.*", "java.*", "javax.*", "org.json.*", "org.w3c.*", "org.xml.*"]
+binaries = ["libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so", "libaaudio.so", "libjnigraphics.so", "libnativewindow.so", "libmediandk.so", "libEGL.so", "libGLESv2.so", "libGLESv3.so", "libvulkan.so"]
+
+# macOS and iOS: libSystem and the SDK's frameworks.
+[supplied.macos]
+libraries = ["c", "m", "pthread", "dl", "objc", "System", "util"]
+frameworks = [
+	"AppKit", "AudioToolbox", "AVFoundation", "Carbon", "CFNetwork", "CoreAudio", "CoreBluetooth",
+	"CoreFoundation", "CoreGraphics", "CoreImage", "CoreMedia", "CoreServices", "CoreText", "CoreVideo",
+	"Foundation", "ImageIO", "IOBluetooth", "IOKit", "IOSurface", "Metal", "MetalKit", "Network",
+	"QuartzCore", "Security", "SystemConfiguration", "UniformTypeIdentifiers", "WebKit",
+]
+headers = [
+	"AppKit/*", "AudioToolbox/*", "AVFoundation/*", "Carbon/*", "CFNetwork/*", "CommonCrypto/*",
+	"CoreAudio/*", "CoreBluetooth/*", "CoreFoundation/*", "CoreGraphics/*", "CoreServices/*",
+	"CoreText/*", "Foundation/*", "ImageIO/*", "IOBluetooth/*", "IOKit/*", "Metal/*", "Network/*",
+	"QuartzCore/*", "Security/*", "WebKit/*",
+	"arpa/*", "dirent.h", "dlfcn.h", "fcntl.h", "fnmatch.h", "glob.h", "grp.h", "libproc.h", "mach-o/*",
+	"mach/*", "net/*", "netdb.h", "netinet/*", "objc/*", "poll.h", "pthread.h", "pwd.h", "regex.h",
+	"sched.h", "semaphore.h", "spawn.h", "sys/*", "termios.h", "unistd.h", "util.h", "utime.h",
+]
+programs = ["/bin/sh"]
+binaries = ["/usr/lib/*", "/System/Library/*"]
+
+[supplied.ios]
+libraries = ["c", "m", "pthread", "dl", "objc", "System"]
+frameworks = [
+	"AudioToolbox", "AVFoundation", "CFNetwork", "CoreAudio", "CoreBluetooth", "CoreFoundation",
+	"CoreGraphics", "CoreImage", "CoreMedia", "CoreText", "CoreVideo", "Foundation", "ImageIO",
+	"IOSurface", "Metal", "MetalKit", "Network", "QuartzCore", "Security", "SystemConfiguration",
+	"UIKit", "UniformTypeIdentifiers", "WebKit",
+]
+headers = [
+	"AudioToolbox/*", "AVFoundation/*", "CFNetwork/*", "CommonCrypto/*", "CoreAudio/*",
+	"CoreBluetooth/*", "CoreFoundation/*", "CoreGraphics/*", "CoreText/*", "Foundation/*", "ImageIO/*",
+	"Metal/*", "Network/*", "QuartzCore/*", "Security/*", "UIKit/*", "WebKit/*",
+	"arpa/*", "dirent.h", "dlfcn.h", "fcntl.h", "fnmatch.h", "glob.h", "grp.h", "mach-o/*", "mach/*",
+	"net/*", "netdb.h", "netinet/*", "objc/*", "poll.h", "pthread.h", "pwd.h", "regex.h", "sched.h",
+	"semaphore.h", "spawn.h", "sys/*", "termios.h", "unistd.h", "utime.h",
+]
+binaries = ["/usr/lib/*", "/System/Library/*"]
+
+# Windows: the system's own DLLs (by import library name), the Windows SDK's
+# headers, and the WebView2 runtime that ships with Windows 11. The loader DLL
+# and SDK header a program would carry for that runtime are not listed: they
+# are artifacts of an SDK package, not of the system. `uuid` is the toolchain's
+# static table of the system's interface identifiers.
+[supplied.windows]
+libraries = [
+	"advapi32", "avrt", "bcrypt", "bthprops", "comctl32", "comdlg32", "crypt32", "d2d1", "d3d11",
+	"d3d12", "dwmapi", "dwrite", "dxgi", "gdi32", "hid", "imm32", "iphlpapi", "kernel32", "mfplat",
+	"ncrypt", "ntdll", "ole32", "oleaut32", "propsys", "secur32", "setupapi", "shell32", "shlwapi",
+	"user32", "userenv", "uuid", "uxtheme", "version", "windowscodecs", "winhttp", "winmm", "ws2_32",
+]
+headers = [
+	"bcrypt.h", "commctrl.h", "commdlg.h", "direct.h", "dwmapi.h", "io.h", "objbase.h", "ole2.h",
+	"oleauto.h", "process.h", "shellapi.h", "shlobj.h", "shlwapi.h", "shobjidl.h", "tlhelp32.h",
+	"uxtheme.h", "winbase.h", "wincrypt.h", "windef.h", "windows.h", "windowsx.h", "winhttp.h",
+	"winioctl.h", "winnls.h", "winsock2.h", "winternl.h", "ws2tcpip.h",
+	# The C library's POSIX subset, and the first-party overlays in src/runtime/windows.
+	"arpa/*", "dirent.h", "fcntl.h", "fnmatch.h", "glob.h", "grp.h", "netinet/*", "poll.h", "pthread.h",
+	"pwd.h", "regex.h", "sched.h", "sys/*", "termios.h", "unistd.h",
+]
+loads = [
+	"advapi32.dll", "bcrypt.dll", "comctl32.dll", "crypt32.dll", "dwmapi.dll", "kernel32.dll", "ntdll.dll",
+	"ole32.dll", "oleaut32.dll", "shell32.dll", "shlwapi.dll", "user32.dll", "uxtheme.dll", "winhttp.dll",
+	"ws2_32.dll",
+]
+binaries = [
+	"advapi32.dll", "api-ms-win-*.dll", "avrt.dll", "bcrypt.dll", "comctl32.dll", "comdlg32.dll",
+	"crypt32.dll", "dwmapi.dll", "gdi32.dll", "imm32.dll", "iphlpapi.dll", "kernel32.dll", "msvcrt.dll",
+	"ntdll.dll", "ole32.dll", "oleaut32.dll", "secur32.dll", "shell32.dll", "shlwapi.dll", "ucrtbase.dll",
+	"user32.dll", "userenv.dll", "uxtheme.dll", "version.dll", "winhttp.dll", "winmm.dll", "ws2_32.dll",
+]
+
+# Not an operating system: what a C toolchain adds to a program it builds.
+[supplied.toolchain]
+binaries = ["libgcc_s.so.*", "libasan.so.*", "libubsan.so.*", "libclang_rt.*", "libwinpthread-*.dll", "libgcc_s_*.dll"]
+
+# The one standing exception.
+[[exceptions]]
+dependency = "wgpu-native"
+pkg-config = ["wgpu-native", "wgpu-native-windows-x86_64", "wgpu-native-windows-aarch64"]
+libraries = ["wgpu_native"]
+headers = ["webgpu.h", "wgpu.h"]
+binaries = ["libwgpu_native.so", "libwgpu_native.dylib", "*/libwgpu_native.dylib", "wgpu_native.dll"]
+
+# Readable names for the raw records a dependency shows up as.
+[[dependencies]]
+name = "libsodium"
+pkg-config = ["libsodium"]
+libraries = ["sodium"]
+headers = ["sodium.h", "sodium/*"]
+binaries = ["libsodium.so*"]
+
+[[dependencies]]
+name = "libpng"
+pkg-config = ["libpng", "libpng16"]
+headers = ["png.h"]
+binaries = ["libpng*.so*"]
+
+[[dependencies]]
+name = "libjpeg-turbo"
+pkg-config = ["libturbojpeg", "libjpeg"]
+headers = ["turbojpeg.h", "jpeglib.h"]
+binaries = ["libturbojpeg.so*", "libjpeg.so*"]
+
+[[dependencies]]
+name = "FreeType"
+pkg-config = ["freetype2"]
+headers = ["ft2build.h", "freetype/*"]
+binaries = ["libfreetype.so*"]
+
+[[dependencies]]
+name = "GTK 4"
+pkg-config = ["gtk4", "gtk4-wayland", "gtk4-x11"]
+headers = ["gtk/*", "gdk/*", "glib.h", "glib/*", "gio/*", "glib-object.h"]
+binaries = ["libgtk-4.so*", "libglib-2.0.so*", "libgobject-2.0.so*", "libgio-2.0.so*", "libcairo*.so*", "libpango*.so*", "libgdk_pixbuf*.so*", "libgraphene*.so*", "libharfbuzz*.so*"]
+
+[[dependencies]]
+name = "WebKitGTK"
+pkg-config = ["webkitgtk-6.0"]
+headers = ["webkit/*"]
+binaries = ["libwebkitgtk-6.0.so*", "libjavascriptcoregtk-6.0.so*", "libsoup-3.0.so*"]
+
+[[dependencies]]
+name = "libwayland-client"
+pkg-config = ["wayland-client"]
+headers = ["wayland-client.h", "wayland-util.h", "wayland-client-protocol.h"]
+binaries = ["libwayland-client.so*"]
+
+[[dependencies]]
+name = "libX11"
+pkg-config = ["x11"]
+headers = ["X11/*"]
+binaries = ["libX11.so*", "libxcb*.so*"]
+
+[[dependencies]]
+name = "libdbus"
+pkg-config = ["dbus-1"]
+headers = ["dbus/*"]
+binaries = ["libdbus-1.so*"]
+
+[[dependencies]]
+name = "alsa-lib"
+pkg-config = ["alsa"]
+headers = ["alsa/*"]
+binaries = ["libasound.so*"]
+
+[[dependencies]]
+name = "a desktop JVM (HotSpot)"
+pkg-config = ["btrc-jni"]
+headers = ["jni.h"]
+binaries = ["libjvm.so", "libjvm.dylib", "*/libjvm.dylib", "jvm.dll"]
+
+[[dependencies]]
+name = "the WebView2 SDK (header and loader DLL)"
+pkg-config = ["webview2-windows-x86_64", "webview2-windows-aarch64"]
+headers = ["WebView2.h"]
+loads = ["WebView2Loader.dll"]
+binaries = ["webview2loader.dll"]
+
+[[dependencies]]
+name = "curl"
+programs = ["curl"]
+pkg-config = ["libcurl"]
+headers = ["curl/*"]
+binaries = ["libcurl.so*"]
+
+# Source in the tree under someone else's copyright.
+[[bundled]]
+path = "src/runtime/windows/musl"
+dependency = "musl's regex, glob and fnmatch (bundled source)"
+modules = ["Regex", "Pattern"]
+os = ["windows"]
+
+[[bundled]]
+path = "src/stdlib/GUI/Linux/Wayland"
+dependency = "wayland-protocols' viewporter binding (bundled generated source)"
+modules = ["GUI/Shim/Shim"]
+os = ["linux"]
+
+# ── Gaps only the owner can close ───────────────────────────────────────────
+# A capability no target system supplies and first-party code cannot
+# practically provide. Each stays a pending row until the owner decides.
+
+[[decisions]]
+title = "A web view on Linux (WebKitGTK)"
+text = """
+`IWebView` on Linux is WebKitGTK. macOS and iOS have WKWebView, Windows 11 has the
+WebView2 runtime and Android has android.webkit, all part of the system. Linux has no
+web engine of its own, and writing one is not practical. The choices: (a) `IWebView`
+becomes unsupported on Linux, and a program opens pages in the user's browser; (b)
+WebKitGTK stays as a second, Linux-only exception, which also keeps GTK in the process
+for that one view; (c) the web view moves out of the standard library into a separate
+package that names its dependency. Until then the requirement stays listed as pending.
+"""
+
+[[decisions]]
+title = "A Java VM on desktop systems (HotSpot)"
+text = """
+`Library.Java` runs BTRC code inside a Java VM. On Android the application's own VM
+(ART) is part of the system. On Linux, macOS and Windows the module links a JDK's
+`libjvm` and reads its `jni.h`, which no desktop system supplies, and a VM cannot be
+written first-party. The desktop rows exist so the JNI lowering can be tested under
+`-Xcheck:jni` without an emulator. The choices: (a) `Library.Java` becomes Android-only
+and the desktop JDK moves into the test harness, which keeps the checked-JNI tests but
+drops `JavaVirtualMachine.createHost` for desktop programs; (b) the desktop JDK stays as
+a second exception. Until then the requirement stays listed as pending.
+"""
+
+# ── Third-party requirements known today, awaiting removal ──────────────────
+
+[[pending]]
+dependency = "libsodium"
+module = "Crypto/Unix/SodiumProvider"
+os = ["linux", "macos", "ios"]
+resolution = "One portable BTRC implementation of the primitives (Ed25519, X25519, BLAKE2b, SHA-2, XChaCha20-Poly1305 secretstream) with the system's random source, wire-compatible with libsodium, on every target."
+
+[[pending]]
+dependency = "libpng"
+module = "Image/Linux/LinuxEncodedImageDecoder"
+os = ["linux"]
+resolution = "A first-party PNG decoder in BTRC, used on every target without a system decoder."
+
+[[pending]]
+dependency = "libjpeg-turbo"
+module = "Image/Linux/LinuxEncodedImageDecoder"
+os = ["linux"]
+resolution = "Library.Image.JPEG, the first-party codec already in the tree."
+
+[[pending]]
+dependency = "curl"
+module = "HTTP/HTTPClient"
+os = ["android", "ios", "linux", "macos", "windows"]
+resolution = "First-party HTTP/1.1 over the stdlib's sockets, with TLS from the system where it has one."
+
+[[pending]]
+dependency = "FreeType"
+module = "GUI/FreeType/FreeTypeFace"
+os = ["linux", "macos", "windows"]
+resolution = "A first-party TrueType reader and rasterizer in BTRC behind the same face contract."
+
+[[pending]]
+dependency = "libdbus"
+module = "Tray/Linux/LinuxTray"
+os = ["linux"]
+resolution = "A first-party D-Bus client: the wire protocol over the bus's own socket."
+
+[[pending]]
+dependency = "libdbus"
+module = "Bluetooth/Linux/BluetoothAdapterProvider"
+os = ["linux"]
+resolution = "The same first-party D-Bus client, on the system bus."
+
+[[pending]]
+dependency = "alsa-lib"
+module = "Audio/Linux/LinuxAudioDevice"
+os = ["linux"]
+resolution = "The kernel's ALSA PCM interface (ioctls on /dev/snd) from first-party code."
+
+[[pending]]
+dependency = "GTK 4"
+module = "GUI/Shim/Shim"
+os = ["linux"]
+resolution = "First-party windows and controls over the display server's protocol."
+
+[[pending]]
+dependency = "GTK 4"
+module = "GUI/Shim/ShimWeb"
+os = ["linux"]
+resolution = "Goes with WebKitGTK."
+
+[[pending]]
+dependency = "WebKitGTK"
+module = "GUI/Shim/ShimWeb"
+os = ["linux"]
+resolution = "Linux supplies no web engine: an owner decision."
+
+[[pending]]
+dependency = "libwayland-client"
+module = "GUI/Shim/Shim"
+os = ["linux"]
+resolution = "The Wayland wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects."
+
+[[pending]]
+dependency = "libX11"
+module = "GUI/Shim/Shim"
+os = ["linux"]
+resolution = "The X11 wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects."
+
+[[pending]]
+dependency = "wayland-protocols' viewporter binding (bundled generated source)"
+module = "GUI/Shim/Shim"
+os = ["linux"]
+resolution = "First-party protocol tables written with the first-party Wayland client."
+
+[[pending]]
+dependency = "a desktop JVM (HotSpot)"
+module = "Java/JavaVirtualMachine"
+os = ["linux", "macos", "windows"]
+resolution = "No desktop system supplies a Java VM: an owner decision."
+
+[[pending]]
+dependency = "the WebView2 SDK (header and loader DLL)"
+module = "GUI/Shim/ShimWeb"
+os = ["windows"]
+resolution = "First-party declarations of the COM interfaces used and a first-party lookup of the system's WebView2 runtime, in place of the SDK's header and WebView2Loader.dll."
+
+[[pending]]
+dependency = "musl's regex, glob and fnmatch (bundled source)"
+module = "Regex"
+os = ["windows"]
+resolution = "A first-party matcher; Windows supplies no POSIX regex."
+
+[[pending]]
+dependency = "musl's regex, glob and fnmatch (bundled source)"
+module = "Pattern"
+os = ["windows"]
+resolution = "A first-party matcher; Windows supplies no POSIX regex."
