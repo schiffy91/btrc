@@ -129,7 +129,6 @@ class Simulators:
         work.mkdir()
         if probe is not None:
             source = NativeBindingPackage.write(source, work / "package", probe[0], probe[1])
-        include, libraries = self.wgpu_native()
         row = PackageTarget.parse(TARGET).row
         if frontend == "selfhost":
             # The self-hosted compiler is a host program, keyed by the stdlib it
@@ -141,7 +140,11 @@ class Simulators:
             environment.setenv("BTRC_NATIVE_SYSROOT", self.sdk())
             # An app has no pkg-config search path: the header reader and the
             # compiler find wgpu-native's headers here, the linker its library below.
-            environment.setenv("C_INCLUDE_PATH", str(include))
+            includes = []
+            if app:
+                include, libraries = self.wgpu_native()
+                environment.setenv("C_INCLUDE_PATH", str(include))
+                includes.append(f"-I{include}")
             generated, plan = work / "Program.c", work / "Program.json"
             result = transpile(source, generated, plan, frontend, request, TARGET)
             assert result.returncode == 0, result.stderr
@@ -166,7 +169,7 @@ class Simulators:
                 generated_c=generated,
                 output=program,
                 optimization=2,
-                compile_flags=[f"-I{include}", *flags],
+                compile_flags=[*includes, *flags],
                 link_flags=link_flags,
             )
         return program
@@ -192,7 +195,7 @@ class Simulators:
         frameworks, its file system under the device's own root.
         """
         self.asked(device_class)
-        host = self.device(device_class)
+        host = self.device(device_class, gui=False)
         program = self.program(name, source, frontend, sanitized, request, app=False, probe=probe, quiet=quiet)
         variables = {"ASAN_OPTIONS": "detect_leaks=0", "UBSAN_OPTIONS": "halt_on_error=1", **(environment or {})}
         process = host.spawn([str(program), *arguments], variables)
@@ -227,20 +230,26 @@ class Simulators:
             resources=resources,
         )
 
-    def device(self, device_class):
-        """The booted simulator of this class and its injector; the other class's is let go first."""
-        if self.host is not None and self.host.device_class == device_class:
+    def device(self, device_class, *, gui=True):
+        """Boot one device, reserving the UI test model and input injector for GUI apps."""
+        name, model = DEVICES[device_class] if gui else (f"btrc-stdlib-{device_class}", None)
+        if self.host is not None and self.host.name == name:
             return self.host
         self.close()
-        name, model = DEVICES[device_class]
         host = IOSSimulatorHost(device_class, name=name, model=model)
-        host.prepare()
+        self.host = host
+        try:
+            host.prepare()
+        except Exception:
+            self.close()
+            raise
+        if not gui:
+            return host
         # An app a stopped run left behind may still have a window on the stage (runner).
         listed = host.command("listapps", host.device(), check=False).stdout.decode(errors="replace")
         for identifier in sorted(set(re.findall(r"dev\.btrc\.testhost\.[A-Za-z0-9.-]+", listed))):
             host.command("terminate", host.device(), identifier, check=False)
             host.command("uninstall", host.device(), identifier, check=False)
-        self.host = host
         self.start_injector()
         return host
 
