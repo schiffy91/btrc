@@ -1,0 +1,32 @@
+name: Qualify macOS HTTP
+on:
+  pull_request:
+    branches: [claude/exciting-cori-xcqe5y]
+permissions:
+  contents: read
+jobs:
+  http:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      BTRC_TEST_RUNNER: macos-hosted
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: d29ba155fbb9a8d4947cfdb3e0b063d8399c8d1a
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
+        with:
+          use-flakehub: false
+      - name: Verify public HTTPClient on macOS
+        shell: bash
+        run: |
+          nix develop --profile "$RUNNER_TEMP/http-shell" --command bash -euo pipefail <<'CHECK'
+          export BTRC_HOME="$PWD/src" BTRC_TEST_COMPILER_CACHE="$RUNNER_TEMP/btrcc-cache"
+          compiler="$(python -m src.tests.selfhost_cache ensure)"
+          python -m pytest -q src/tests/python/test_http_client_routing.py --compilers=both
+          python -m src.tests.target_runner --target macos-aarch64 --frontend both --btrcc "$compiler" --program 'stdlib/Http*.btrc' --output build/mac-http --jobs 2
+          for binary in build/mac-http/bundle/*-stdlib-Http*; do
+            python -m tools.qualification.dependencies binary --target macos-aarch64 "$binary"
+          done
+          CHECK
