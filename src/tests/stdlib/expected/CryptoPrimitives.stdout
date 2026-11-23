@@ -1,0 +1,6 @@
+PASS: SHA-512
+PASS: BLAKE2b
+PASS: X25519
+PASS: Ed25519
+PASS: ChaCha20 and Poly1305
+PASS: secretstream

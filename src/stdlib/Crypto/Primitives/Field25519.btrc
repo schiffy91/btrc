@@ -1,0 +1,140 @@
+/* Arithmetic modulo 2^255 - 19, the field under X25519 and Ed25519.
+ *
+ * An element is 16 signed 64-bit limbs of 16 bits each, least significant
+ * first, as in TweetNaCl: limbs may run over or under 16 bits between
+ * operations and `carry` brings them back. Elements usually hold secrets, so
+ * every operation runs the same instructions whatever the values: a choice is
+ * a masked `swap`, never a branch or a table index.
+ *
+ * Limbs go negative. A left shift of a negative value is undefined in C, so
+ * those are written as multiplications; a right shift of one is the
+ * implementation's choice, and every C compiler btrc targets makes it an
+ * arithmetic shift, which is what the carries rely on. */
+
+import Library.Crypto.Primitives.ConstantTime;
+
+class Field25519 {
+	class void copy(long long* out, long long* a) {
+		for (int index = 0; index < 16; index++) { out[index] = a[index]; }
+	}
+
+	/* The small non-negative value `value`. */
+	class void setSmall(long long* out, long long value) {
+		out[0] = value;
+		for (int index = 1; index < 16; index++) { out[index] = 0LL; }
+	}
+
+	/* One pass of carries; a carry out of the top limb re-enters at the
+	 * bottom times 38, since 2^256 = 38 (mod p). */
+	class void carry(long long* o) {
+		for (int index = 0; index < 16; index++) {
+			o[index] += 65536LL;
+			long long c = o[index] >> 16;
+			if (index < 15) { o[index + 1] += c - 1LL; }
+			else { o[0] += 38LL * (c - 1LL); }
+			o[index] -= c * 65536LL;
+		}
+	}
+
+	/* Exchange `p` and `q` when `bit` is 1 and leave them when it is 0. */
+	class void swap(long long* p, long long* q, int bit) {
+		long long mask = 0LL - (long long)bit;
+		for (int index = 0; index < 16; index++) {
+			long long difference = mask & (p[index] ^ q[index]);
+			p[index] ^= difference;
+			q[index] ^= difference;
+		}
+	}
+
+	/* The canonical 32-byte little-endian encoding. */
+	class void pack(unsigned char* out, long long* n) {
+		long long m[16];
+		long long t[16];
+		Field25519.copy(t, n);
+		Field25519.carry(t);
+		Field25519.carry(t);
+		Field25519.carry(t);
+		/* Subtract p twice, keeping each difference only when it is not negative. */
+		for (int pass = 0; pass < 2; pass++) {
+			m[0] = t[0] - 0xffedLL;
+			for (int index = 1; index < 15; index++) {
+				m[index] = t[index] - 0xffffLL - ((m[index - 1] >> 16) & 1LL);
+				m[index - 1] &= 0xffffLL;
+			}
+			m[15] = t[15] - 0x7fffLL - ((m[14] >> 16) & 1LL);
+			int borrow = (int)((m[15] >> 16) & 1LL);
+			m[14] &= 0xffffLL;
+			Field25519.swap(t, m, 1 - borrow);
+		}
+		for (int index = 0; index < 16; index++) {
+			out[2 * index] = (unsigned char)(t[index] & 0xffLL);
+			out[2 * index + 1] = (unsigned char)((t[index] >> 8) & 0xffLL);
+		}
+	}
+
+	/* Read a 32-byte encoding; the top bit is not part of the value. */
+	class void unpack(long long* out, unsigned char* bytes) {
+		for (int index = 0; index < 16; index++) { out[index] = (long long)bytes[2 * index] + (long long)bytes[2 * index + 1] * 256LL; }
+		out[15] &= 0x7fffLL;
+	}
+
+	class void add(long long* out, long long* a, long long* b) {
+		for (int index = 0; index < 16; index++) { out[index] = a[index] + b[index]; }
+	}
+
+	class void subtract(long long* out, long long* a, long long* b) {
+		for (int index = 0; index < 16; index++) { out[index] = a[index] - b[index]; }
+	}
+
+	class void multiply(long long* out, long long* a, long long* b) {
+		long long t[31];
+		for (int index = 0; index < 31; index++) { t[index] = 0LL; }
+		for (int i = 0; i < 16; i++) {
+			for (int j = 0; j < 16; j++) { t[i + j] += a[i] * b[j]; }
+		}
+		for (int index = 0; index < 15; index++) { t[index] += 38LL * t[index + 16]; }
+		for (int index = 0; index < 16; index++) { out[index] = t[index]; }
+		Field25519.carry(out);
+		Field25519.carry(out);
+	}
+
+	class void square(long long* out, long long* a) { Field25519.multiply(out, a, a); }
+
+	/* 1/a, as a^(p - 2); the exponent is public. */
+	class void invert(long long* out, long long* a) {
+		long long c[16];
+		Field25519.copy(c, a);
+		for (int bit = 253; bit >= 0; bit--) {
+			Field25519.square(c, c);
+			if (bit != 2 && bit != 4) { Field25519.multiply(c, c, a); }
+		}
+		Field25519.copy(out, c);
+	}
+
+	/* a^((p - 5) / 8), the power a square root is built from. */
+	class void power2523(long long* out, long long* a) {
+		long long c[16];
+		Field25519.copy(c, a);
+		for (int bit = 250; bit >= 0; bit--) {
+			Field25519.square(c, c);
+			if (bit != 1) { Field25519.multiply(c, c, a); }
+		}
+		Field25519.copy(out, c);
+	}
+
+	/* Whether two elements are the same value. */
+	class bool equal(long long* a, long long* b) {
+		unsigned char left[32];
+		unsigned char right[32];
+		Field25519.pack(left, a);
+		Field25519.pack(right, b);
+		return ConstantTime.equal(left, right, 32);
+	}
+
+	/* The lowest bit of the canonical value: the sign an encoding carries. */
+	class int parity(long long* a) {
+		unsigned char bytes[32];
+		Field25519.pack(bytes, a);
+		return (int)bytes[0] & 1;
+	}
+}

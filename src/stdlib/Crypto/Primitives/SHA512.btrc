@@ -1,0 +1,163 @@
+/* SHA-512 (FIPS 180-4) over raw buffers.
+ *
+ * `update` borrows its input for the call; `finish` writes the 64-byte digest
+ * and clears the state, so one instance hashes one message. Ed25519 hashes
+ * secret material with it, which is why nothing here branches on the data. */
+
+import Library.Crypto.Primitives.ConstantTime;
+
+/* The words a message passes through, kept in one structure so `finish` can
+ * clear them. */
+struct SHA512Core {
+	unsigned long long state[8];
+	unsigned long long words[80];
+	unsigned char pending[128];
+};
+
+class SHA512 {
+	private struct SHA512Core core;
+	private int pendingLength = 0;
+	private unsigned long long byteCount = 0ULL;
+	private bool finished = false;
+
+	public SHA512() {
+		static const unsigned long long initial[8] = {
+			0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL, 0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL,
+			0x510e527fade682d1ULL, 0x9b05688c2b3e6c1fULL, 0x1f83d9abfb41bd6bULL, 0x5be0cd19137e2179ULL
+		};
+		for (int index = 0; index < 8; index++) { self.core.state[index] = initial[index]; }
+	}
+
+	private unsigned long long rotateRight(unsigned long long value, int count) { return (value >> count) | (value << (64 - count)); }
+
+	private void compress(unsigned char* block) {
+		static const unsigned long long constants[80] = {
+			0x428a2f98d728ae22ULL, 0x7137449123ef65cdULL, 0xb5c0fbcfec4d3b2fULL, 0xe9b5dba58189dbbcULL,
+			0x3956c25bf348b538ULL, 0x59f111f1b605d019ULL, 0x923f82a4af194f9bULL, 0xab1c5ed5da6d8118ULL,
+			0xd807aa98a3030242ULL, 0x12835b0145706fbeULL, 0x243185be4ee4b28cULL, 0x550c7dc3d5ffb4e2ULL,
+			0x72be5d74f27b896fULL, 0x80deb1fe3b1696b1ULL, 0x9bdc06a725c71235ULL, 0xc19bf174cf692694ULL,
+			0xe49b69c19ef14ad2ULL, 0xefbe4786384f25e3ULL, 0x0fc19dc68b8cd5b5ULL, 0x240ca1cc77ac9c65ULL,
+			0x2de92c6f592b0275ULL, 0x4a7484aa6ea6e483ULL, 0x5cb0a9dcbd41fbd4ULL, 0x76f988da831153b5ULL,
+			0x983e5152ee66dfabULL, 0xa831c66d2db43210ULL, 0xb00327c898fb213fULL, 0xbf597fc7beef0ee4ULL,
+			0xc6e00bf33da88fc2ULL, 0xd5a79147930aa725ULL, 0x06ca6351e003826fULL, 0x142929670a0e6e70ULL,
+			0x27b70a8546d22ffcULL, 0x2e1b21385c26c926ULL, 0x4d2c6dfc5ac42aedULL, 0x53380d139d95b3dfULL,
+			0x650a73548baf63deULL, 0x766a0abb3c77b2a8ULL, 0x81c2c92e47edaee6ULL, 0x92722c851482353bULL,
+			0xa2bfe8a14cf10364ULL, 0xa81a664bbc423001ULL, 0xc24b8b70d0f89791ULL, 0xc76c51a30654be30ULL,
+			0xd192e819d6ef5218ULL, 0xd69906245565a910ULL, 0xf40e35855771202aULL, 0x106aa07032bbd1b8ULL,
+			0x19a4c116b8d2d0c8ULL, 0x1e376c085141ab53ULL, 0x2748774cdf8eeb99ULL, 0x34b0bcb5e19b48a8ULL,
+			0x391c0cb3c5c95a63ULL, 0x4ed8aa4ae3418acbULL, 0x5b9cca4f7763e373ULL, 0x682e6ff3d6b2b8a3ULL,
+			0x748f82ee5defb2fcULL, 0x78a5636f43172f60ULL, 0x84c87814a1f0ab72ULL, 0x8cc702081a6439ecULL,
+			0x90befffa23631e28ULL, 0xa4506cebde82bde9ULL, 0xbef9a3f7b2c67915ULL, 0xc67178f2e372532bULL,
+			0xca273eceea26619cULL, 0xd186b8c721c0c207ULL, 0xeada7dd6cde0eb1eULL, 0xf57d4f7fee6ed178ULL,
+			0x06f067aa72176fbaULL, 0x0a637dc5a2c898a6ULL, 0x113f9804bef90daeULL, 0x1b710b35131c471bULL,
+			0x28db77f523047d84ULL, 0x32caab7b40c72493ULL, 0x3c9ebe0a15c9bebcULL, 0x431d67c49c100d4cULL,
+			0x4cc5d4becb3e42b6ULL, 0x597f299cfc657e2aULL, 0x5fcb6fab3ad6faecULL, 0x6c44198c4a475817ULL
+		};
+		for (int index = 0; index < 16; index++) {
+			unsigned long long word = 0ULL;
+			for (int offset = 0; offset < 8; offset++) { word = (word << 8) | (unsigned long long)block[index * 8 + offset]; }
+			self.core.words[index] = word;
+		}
+		for (int index = 16; index < 80; index++) {
+			unsigned long long previous15 = self.core.words[index - 15];
+			unsigned long long previous2 = self.core.words[index - 2];
+			unsigned long long sigma0 = self.rotateRight(previous15, 1) ^ self.rotateRight(previous15, 8) ^ (previous15 >> 7);
+			unsigned long long sigma1 = self.rotateRight(previous2, 19) ^ self.rotateRight(previous2, 61) ^ (previous2 >> 6);
+			self.core.words[index] = self.core.words[index - 16] + sigma0 + self.core.words[index - 7] + sigma1;
+		}
+		unsigned long long a = self.core.state[0];
+		unsigned long long b = self.core.state[1];
+		unsigned long long c = self.core.state[2];
+		unsigned long long d = self.core.state[3];
+		unsigned long long e = self.core.state[4];
+		unsigned long long f = self.core.state[5];
+		unsigned long long g = self.core.state[6];
+		unsigned long long h = self.core.state[7];
+		for (int round = 0; round < 80; round++) {
+			unsigned long long sum1 = self.rotateRight(e, 14) ^ self.rotateRight(e, 18) ^ self.rotateRight(e, 41);
+			unsigned long long choice = (e & f) ^ ((~e) & g);
+			unsigned long long temporary1 = h + sum1 + choice + constants[round] + self.core.words[round];
+			unsigned long long sum0 = self.rotateRight(a, 28) ^ self.rotateRight(a, 34) ^ self.rotateRight(a, 39);
+			unsigned long long majority = (a & b) ^ (a & c) ^ (b & c);
+			unsigned long long temporary2 = sum0 + majority;
+			h = g;
+			g = f;
+			f = e;
+			e = d + temporary1;
+			d = c;
+			c = b;
+			b = a;
+			a = temporary1 + temporary2;
+		}
+		self.core.state[0] = self.core.state[0] + a;
+		self.core.state[1] = self.core.state[1] + b;
+		self.core.state[2] = self.core.state[2] + c;
+		self.core.state[3] = self.core.state[3] + d;
+		self.core.state[4] = self.core.state[4] + e;
+		self.core.state[5] = self.core.state[5] + f;
+		self.core.state[6] = self.core.state[6] + g;
+		self.core.state[7] = self.core.state[7] + h;
+	}
+
+	public void update(unsigned char* data, int length) {
+		if (self.finished) { throw "SHA512 is finished"; }
+		if (length <= 0) { return; }
+		self.byteCount = self.byteCount + (unsigned long long)length;
+		int offset = 0;
+		if (self.pendingLength > 0) {
+			while (offset < length && self.pendingLength < 128) {
+				self.core.pending[self.pendingLength] = data[offset];
+				self.pendingLength++;
+				offset++;
+			}
+			if (self.pendingLength < 128) { return; }
+			self.compress(self.core.pending);
+			self.pendingLength = 0;
+		}
+		while (length - offset >= 128) {
+			self.compress(data + offset);
+			offset += 128;
+		}
+		while (offset < length) {
+			self.core.pending[self.pendingLength] = data[offset];
+			self.pendingLength++;
+			offset++;
+		}
+	}
+
+	/* Write the 64-byte digest to `out` and clear everything the message
+	 * left in this instance. */
+	public void finish(unsigned char* out) {
+		if (self.finished) { throw "SHA512 is finished"; }
+		self.finished = true;
+		unsigned long long bitLength = self.byteCount << 3;
+		unsigned long long highBits = self.byteCount >> 61;
+		self.core.pending[self.pendingLength] = (unsigned char)0x80;
+		self.pendingLength++;
+		if (self.pendingLength > 112) {
+			while (self.pendingLength < 128) { self.core.pending[self.pendingLength] = (unsigned char)0; self.pendingLength++; }
+			self.compress(self.core.pending);
+			self.pendingLength = 0;
+		}
+		while (self.pendingLength < 112) { self.core.pending[self.pendingLength] = (unsigned char)0; self.pendingLength++; }
+		for (int index = 0; index < 8; index++) {
+			self.core.pending[112 + index] = (unsigned char)((highBits >> (56 - 8 * index)) & 0xffULL);
+			self.core.pending[120 + index] = (unsigned char)((bitLength >> (56 - 8 * index)) & 0xffULL);
+		}
+		self.compress(self.core.pending);
+		for (int index = 0; index < 8; index++) {
+			for (int offset = 0; offset < 8; offset++) { out[index * 8 + offset] = (unsigned char)((self.core.state[index] >> (56 - 8 * offset)) & 0xffULL); }
+		}
+		ConstantTime.wipe(self.core.pending, 128);
+		ConstantTime.wipe((unsigned char*)self.core.words, 640);
+		ConstantTime.wipe((unsigned char*)self.core.state, 64);
+		self.pendingLength = 0;
+	}
+
+	/* The digest of one buffer. */
+	class void digest(unsigned char* out, unsigned char* data, int length) {
+		SHA512 hash = SHA512();
+		hash.update(data, length);
+		hash.finish(out);
+	}
+}

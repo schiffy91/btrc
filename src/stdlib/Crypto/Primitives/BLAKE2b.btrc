@@ -1,0 +1,129 @@
+/* BLAKE2b (RFC 7693), unkeyed, with a digest of 1 to 64 bytes.
+ *
+ * `update` borrows its input for the call; `finish` writes the digest and
+ * clears the state, so one instance hashes one message. The key exchange
+ * hashes its shared secret with it, so nothing here branches on the data. */
+
+import Library.Crypto.Primitives.ConstantTime;
+
+/* The words a message passes through, kept in one structure so `finish` can
+ * clear them. */
+struct BLAKE2bCore {
+	unsigned long long state[8];
+	unsigned long long work[16];
+	unsigned long long words[16];
+	unsigned char pending[128];
+};
+
+class BLAKE2b {
+	private struct BLAKE2bCore core;
+	private int pendingLength = 0;
+	private unsigned long long byteCount = 0ULL;
+	private int digestLength;
+	private bool finished = false;
+
+	public BLAKE2b(int digestLength) {
+		if (digestLength < 1 || digestLength > 64) { throw "A BLAKE2b digest is 1 to 64 bytes"; }
+		self.digestLength = digestLength;
+		for (int index = 0; index < 8; index++) { self.core.state[index] = BLAKE2b.initial(index); }
+		/* The parameter block: digest length, no key, fanout 1, depth 1. */
+		self.core.state[0] = self.core.state[0] ^ 0x01010000ULL ^ (unsigned long long)digestLength;
+	}
+
+	class unsigned long long initial(int index) {
+		static const unsigned long long values[8] = {
+			0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL, 0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL,
+			0x510e527fade682d1ULL, 0x9b05688c2b3e6c1fULL, 0x1f83d9abfb41bd6bULL, 0x5be0cd19137e2179ULL
+		};
+		return values[index];
+	}
+
+	private unsigned long long rotateRight(unsigned long long value, int count) { return (value >> count) | (value << (64 - count)); }
+
+	private void mix(int a, int b, int c, int d, unsigned long long x, unsigned long long y) {
+		self.core.work[a] = self.core.work[a] + self.core.work[b] + x;
+		self.core.work[d] = self.rotateRight(self.core.work[d] ^ self.core.work[a], 32);
+		self.core.work[c] = self.core.work[c] + self.core.work[d];
+		self.core.work[b] = self.rotateRight(self.core.work[b] ^ self.core.work[c], 24);
+		self.core.work[a] = self.core.work[a] + self.core.work[b] + y;
+		self.core.work[d] = self.rotateRight(self.core.work[d] ^ self.core.work[a], 16);
+		self.core.work[c] = self.core.work[c] + self.core.work[d];
+		self.core.work[b] = self.rotateRight(self.core.work[b] ^ self.core.work[c], 63);
+	}
+
+	private void compress(unsigned char* block, bool last) {
+		static const unsigned char schedule[160] = {
+			0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+			14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3,
+			11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4,
+			7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8,
+			9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13,
+			2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9,
+			12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11,
+			13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10,
+			6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5,
+			10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0
+		};
+		for (int index = 0; index < 16; index++) {
+			unsigned long long word = 0ULL;
+			for (int offset = 7; offset >= 0; offset--) { word = (word << 8) | (unsigned long long)block[index * 8 + offset]; }
+			self.core.words[index] = word;
+		}
+		for (int index = 0; index < 8; index++) {
+			self.core.work[index] = self.core.state[index];
+			self.core.work[index + 8] = BLAKE2b.initial(index);
+		}
+		/* The byte counter fits 64 bits: lengths are C ints. */
+		self.core.work[12] = self.core.work[12] ^ self.byteCount;
+		if (last) { self.core.work[14] = ~self.core.work[14]; }
+		for (int round = 0; round < 12; round++) {
+			int row = (round % 10) * 16;
+			self.mix(0, 4, 8, 12, self.core.words[(int)schedule[row]], self.core.words[(int)schedule[row + 1]]);
+			self.mix(1, 5, 9, 13, self.core.words[(int)schedule[row + 2]], self.core.words[(int)schedule[row + 3]]);
+			self.mix(2, 6, 10, 14, self.core.words[(int)schedule[row + 4]], self.core.words[(int)schedule[row + 5]]);
+			self.mix(3, 7, 11, 15, self.core.words[(int)schedule[row + 6]], self.core.words[(int)schedule[row + 7]]);
+			self.mix(0, 5, 10, 15, self.core.words[(int)schedule[row + 8]], self.core.words[(int)schedule[row + 9]]);
+			self.mix(1, 6, 11, 12, self.core.words[(int)schedule[row + 10]], self.core.words[(int)schedule[row + 11]]);
+			self.mix(2, 7, 8, 13, self.core.words[(int)schedule[row + 12]], self.core.words[(int)schedule[row + 13]]);
+			self.mix(3, 4, 9, 14, self.core.words[(int)schedule[row + 14]], self.core.words[(int)schedule[row + 15]]);
+		}
+		for (int index = 0; index < 8; index++) { self.core.state[index] = self.core.state[index] ^ self.core.work[index] ^ self.core.work[index + 8]; }
+	}
+
+	public void update(unsigned char* data, int length) {
+		if (self.finished) { throw "BLAKE2b is finished"; }
+		/* A full block stays pending until more input shows it is not the last. */
+		for (int offset = 0; offset < length; offset++) {
+			if (self.pendingLength == 128) {
+				self.byteCount = self.byteCount + 128ULL;
+				self.compress(self.core.pending, false);
+				self.pendingLength = 0;
+			}
+			self.core.pending[self.pendingLength] = data[offset];
+			self.pendingLength++;
+		}
+	}
+
+	/* Write the digest to `out` and clear everything the message left in
+	 * this instance. */
+	public void finish(unsigned char* out) {
+		if (self.finished) { throw "BLAKE2b is finished"; }
+		self.finished = true;
+		self.byteCount = self.byteCount + (unsigned long long)self.pendingLength;
+		while (self.pendingLength < 128) { self.core.pending[self.pendingLength] = (unsigned char)0; self.pendingLength++; }
+		self.compress(self.core.pending, true);
+		for (int index = 0; index < self.digestLength; index++) { out[index] = (unsigned char)((self.core.state[index / 8] >> (8 * (index % 8))) & 0xffULL); }
+		ConstantTime.wipe(self.core.pending, 128);
+		ConstantTime.wipe((unsigned char*)self.core.words, 128);
+		ConstantTime.wipe((unsigned char*)self.core.work, 128);
+		ConstantTime.wipe((unsigned char*)self.core.state, 64);
+		self.pendingLength = 0;
+	}
+
+	/* The `digestLength`-byte digest of one buffer. */
+	class void digest(unsigned char* out, int digestLength, unsigned char* data, int length) {
+		BLAKE2b hash = BLAKE2b(digestLength);
+		hash.update(data, length);
+		hash.finish(out);
+	}
+}
