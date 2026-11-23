@@ -44,8 +44,6 @@ class Program:
     environment: tuple[tuple[str, str], ...] = ()
     # Files the program reads, made on the host into a directory it is given: their paths are its arguments.
     prepared: Callable[[Path], tuple[str, ...]] | None = None
-    # It imports Library.Crypto: its build is given the simulator's libsodium.
-    libsodium: bool = False
 
 
 def two_frame_tiff(directory: Path) -> tuple[str, ...]:
@@ -72,11 +70,7 @@ PROGRAMS = {
     # Signatures against RFC 8032, OpenSSH's key formats, the trusted-key file,
     # and the secure channel between two processes over a socket pair and TCP:
     # the program forks its peers, as the channel's and the network's rows do.
-    "crypto": Program(
-        crypto.FIXTURE / "CryptoConformance.btrc",
-        crypto.PASSED.rstrip("\n"),
-        libsodium=True,
-    ),
+    "crypto": Program(crypto.FIXTURE / "CryptoConformance.btrc", crypto.PASSED.rstrip("\n")),
     # The system's SHA-256 of a file, which the program holds to the portable one's.
     "digest": Program(
         REPO / "src/tests/btrc/fixtures/NativeDigestDriver.btrc",
@@ -139,7 +133,6 @@ def test_ios_stdlib_program(simulators, request, tmp_path, device_class, name, f
         program.probe,
         quiet=not program.warns,
         environment=dict(program.environment),
-        libsodium=program.libsodium,
     )
     where = simulators.host.provenance()
     report = f"{name} on {where['device']}, {where['os_build']} ({frontend}, {MODES[sanitized]})\n{stdout}{stderr}"

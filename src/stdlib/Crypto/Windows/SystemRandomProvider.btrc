@@ -1,0 +1,10 @@
+/* Random bytes on Windows: `BCryptGenRandom` with the system-preferred
+ * generator, from bcrypt.dll, which is part of the system. A failed call
+ * supplies nothing, so it throws. */
+
+class SystemRandomProvider {
+	class void fill(unsigned char* out, int length) {
+		if (length <= 0) { return; }
+		if (BCryptGenRandom(null, out, (ULONG)length, (ULONG)BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) { throw "The system random generator failed"; }
+	}
+}

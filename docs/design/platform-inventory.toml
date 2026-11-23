@@ -383,20 +383,20 @@ kind = "operation"
 id = "Library.Crypto"
 group = "stdlib/Crypto"
 title = "Crypto facade: Base64, identity keys, trusted keys and the secure channel"
-regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports SecureChannel, which runs over Library.Network's TCPStream, which has no Winsock provider yet, and Sodium, which has no Windows libsodium row" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports SecureChannel, which runs over Library.Network's TCPStream, which has no Winsock provider yet, and Sodium, which has no Windows libsodium row" }
-ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "every module of the facade has an ios row: Sodium links the static libsodium built for the slice, and SecureChannel runs over Library.Network's sockets (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
-ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "every module of the facade has an ios row: Sodium links the static libsodium built for the slice, and SecureChannel runs over Library.Network's sockets (src/tests/python/test_stdlib_ios_programs.py on the simulators)" }
-android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "the facade imports Sodium, whose provider needs libsodium built for Android, and SecureChannel over Library.Network, whose rows have no android spelling" }
-android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "the facade imports Sodium, whose provider needs libsodium built for Android, and SecureChannel over Library.Network, whose rows have no android spelling" }
+regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_windows_builds_keys_but_no_channel", "src/tests/python/test_crypto_runtime.py::test_android_builds_keys_but_no_channel", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports SecureChannel, which runs over Library.Network's TCPStream, which has no Winsock provider yet, and TrustedKeys, which has no Windows row; Sodium and SigningKey build there" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "the facade imports SecureChannel, which runs over Library.Network's TCPStream, which has no Winsock provider yet, and TrustedKeys, which has no Windows row; Sodium and SigningKey build there" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "every module of the facade has an ios row: the primitives are btrc, random bytes are arc4random_buf, and SecureChannel runs over Library.Network's sockets (src/tests/python/test_stdlib_ios_programs.py runs the conformance program on the simulators only; no device has run it)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "every module of the facade has an ios row: the primitives are btrc, random bytes are arc4random_buf, and SecureChannel runs over Library.Network's sockets (src/tests/python/test_stdlib_ios_programs.py runs the conformance program on the simulators)" }
+android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "the facade imports SecureChannel over Library.Network, whose rows have no android spelling; Sodium, SigningKey and TrustedKeys build there" }
+android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "the facade imports SecureChannel over Library.Network, whose rows have no android spelling; Sodium, SigningKey and TrustedKeys build there" }
 
 [[rows]]
 kind = "operation"
 id = "Library.Crypto.Base64"
 group = "stdlib/Crypto"
 title = "Base64 encoding and decoding"
-regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys"]
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_the_primitives_and_base64_are_btrc_on_every_system"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes; no I/O (Base64.btrc)" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes; no I/O (Base64.btrc)" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Bytes; no I/O (Base64.btrc)" }
@@ -409,52 +409,52 @@ kind = "operation"
 id = "Library.Crypto.SecureChannel"
 group = "stdlib/Crypto"
 title = "Encrypted, mutually authenticated message channel over a TCPStream"
-regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "runs over Library.Network's TCPStream, which has no Winsock provider yet, and Sodium, which has no Windows libsodium row" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "runs over Library.Network's TCPStream, which has no Winsock provider yet, and Sodium, which has no Windows libsodium row" }
-ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over TCPStream and Sodium, which both have ios rows (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
-ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over TCPStream and Sodium, which both have ios rows (src/tests/python/test_stdlib_ios_programs.py on the simulators)" }
-android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over TCPStream and Sodium; needs Sodium's libsodium built for Android and Library.Network's android rows" }
-android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over TCPStream and Sodium; needs Sodium's libsodium built for Android and Library.Network's android rows" }
+regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_windows_builds_keys_but_no_channel", "src/tests/python/test_crypto_runtime.py::test_android_builds_keys_but_no_channel", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
+windows-x64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "runs over Library.Network's TCPStream, which has no Winsock provider yet" }
+windows-arm64 = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "runs over Library.Network's TCPStream, which has no Winsock provider yet" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over TCPStream and Sodium, which both have ios rows (src/tests/python/test_stdlib_ios_programs.py runs the conformance program on the simulators only; no device has run it)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over TCPStream and Sodium, which both have ios rows (src/tests/python/test_stdlib_ios_programs.py runs the conformance program on the simulators)" }
+android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over TCPStream and Sodium; needs Library.Network's android rows" }
+android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over TCPStream and Sodium; needs Library.Network's android rows" }
 
 [[rows]]
 kind = "operation"
 id = "Library.Crypto.SigningKey"
 group = "stdlib/Crypto"
 title = "Ed25519 identities in OpenSSH's key formats"
-regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_reads_the_key_pair_ssh_keygen_writes", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
-windows-x64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over Sodium, which has no Windows libsodium row" }
-windows-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over Sodium, which has no Windows libsodium row" }
-ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over Sodium, which links the static libsodium built for the slice (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
-ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over Sodium, which links the static libsodium built for the slice (src/tests/python/test_stdlib_ios_programs.py on the simulators)" }
-android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over Sodium, whose provider needs libsodium built for Android" }
-android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over Sodium, whose provider needs libsodium built for Android" }
+regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_reads_the_key_pair_ssh_keygen_writes", "src/tests/python/test_crypto_runtime.py::test_windows_builds_keys_but_no_channel", "src/tests/python/test_crypto_runtime.py::test_android_builds_keys_but_no_channel", "src/tests/runner.py::test_btrc_file", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over Sodium, which has a Windows row; test_windows_builds_keys_but_no_channel cross-builds an executable that makes and checks a signature and runs it on a Windows host, and the corpus program src/tests/stdlib/CryptoKeys.btrc is its check on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over Sodium, which has a Windows row; test_windows_builds_keys_but_no_channel cross-builds an executable that makes and checks a signature and runs it on a Windows host, and the corpus program src/tests/stdlib/CryptoKeys.btrc is its check on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over Sodium, which has an ios row (src/tests/python/test_stdlib_ios_programs.py runs the conformance program on the simulators only; no device has run it)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over Sodium, which has an ios row (src/tests/python/test_stdlib_ios_programs.py runs the conformance program on the simulators)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over Sodium, which has an android row; both compilers transpile it for the slice (test_android_builds_keys_but_no_channel) and the corpus program src/tests/stdlib/CryptoKeys.btrc is its check on the slice; no emulator or device run is recorded" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over Sodium, which has an android row; both compilers transpile it for the slice (test_android_builds_keys_but_no_channel) and the corpus program src/tests/stdlib/CryptoKeys.btrc is its check on the slice; no emulator or device run is recorded" }
 
 [[rows]]
 kind = "operation"
 id = "Library.Crypto.Sodium"
 group = "stdlib/Crypto"
-title = "Signature, key exchange, hash and stream primitives from libsodium"
-regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_both_frontends_plan_the_crypto_group_alike", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
-windows-x64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "libsodium's API is the same on Windows; the provider row and a libsodium input for MinGW are missing" }
-windows-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "libsodium's API is the same on Windows; the provider row and a libsodium input for MinGW are missing" }
-ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "libsodium's API is the same on iOS: Unix/SodiumProvider over a static libsodium that tools/target_hosts/libsodium.py builds for the slice from the dev shell's pinned source (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
-ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "libsodium's API is the same on iOS: Unix/SodiumProvider over a static libsodium that tools/target_hosts/libsodium.py builds for the slice from the dev shell's pinned source (src/tests/python/test_stdlib_ios_programs.py on the simulators)" }
-android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "libsodium's API is the same on Android; the provider row and a libsodium built for the NDK slices are missing" }
-android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "libsodium's API is the same on Android; the provider row and a libsodium built for the NDK slices are missing" }
+title = "Signature, key exchange, hash and stream primitives in btrc, and the system's random bytes"
+regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_the_seam_against_known_answers", "src/tests/python/test_crypto_runtime.py::test_both_frontends_plan_the_crypto_group_alike", "src/tests/python/test_crypto_runtime.py::test_windows_builds_keys_but_no_channel", "src/tests/python/test_crypto_runtime.py::test_android_builds_keys_but_no_channel", "src/tests/runner.py::test_btrc_file", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "the primitives are btrc (Primitives/); random bytes are BCryptGenRandom with the system-preferred generator, bound from bcrypt.h and linked with bcrypt alone (Windows/SystemRandomProvider.btrc); test_windows_builds_keys_but_no_channel cross-builds the executable for both architectures and runs it on a Windows host, and the corpus program src/tests/stdlib/CryptoKeys.btrc is its check on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "the primitives are btrc (Primitives/); random bytes are BCryptGenRandom with the system-preferred generator, bound from bcrypt.h and linked with bcrypt alone (Windows/SystemRandomProvider.btrc); test_windows_builds_keys_but_no_channel cross-builds the executable for both architectures and runs it on a Windows host, and the corpus program src/tests/stdlib/CryptoKeys.btrc is its check on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "the primitives are btrc (Primitives/); random bytes are arc4random_buf (Apple/SystemRandomProvider.btrc); no library is linked (src/tests/python/test_stdlib_ios_programs.py runs the conformance program on the simulators only; no device has run it)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "the primitives are btrc (Primitives/); random bytes are arc4random_buf (Apple/SystemRandomProvider.btrc); no library is linked (src/tests/python/test_stdlib_ios_programs.py runs the conformance program on the simulators)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "the primitives are btrc (Primitives/); random bytes are getrandom, in bionic since API 28 (Unix/SystemRandomProvider.btrc); both compilers transpile it for the slice (test_android_builds_keys_but_no_channel) and the corpus program src/tests/stdlib/CryptoKeys.btrc is its check on the slice; no emulator or device run is recorded" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "the primitives are btrc (Primitives/); random bytes are getrandom, in bionic since API 28 (Unix/SystemRandomProvider.btrc); both compilers transpile it for the slice (test_android_builds_keys_but_no_channel) and the corpus program src/tests/stdlib/CryptoKeys.btrc is its check on the slice; no emulator or device run is recorded" }
 
 [[rows]]
 kind = "operation"
 id = "Library.Crypto.TrustedKeys"
 group = "stdlib/Crypto"
 title = "File of trusted public keys in OpenSSH key lines"
-regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_windows_builds_base64_but_no_keys", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
-windows-x64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's missing Windows row" }
-windows-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's missing Windows row" }
-ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's ios row (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
-ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's ios row (src/tests/python/test_stdlib_ios_programs.py on the simulators)" }
-android-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's missing Android row" }
-android-x86_64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's missing Android row" }
+regression = ["src/tests/python/test_crypto_runtime.py::test_keys_and_secure_channel_on_both_frontends", "src/tests/python/test_crypto_runtime.py::test_windows_builds_keys_but_no_channel", "src/tests/python/test_crypto_runtime.py::test_android_builds_keys_but_no_channel", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
+windows-x64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey; it keeps its file private with a POSIX mode (chmod 0600), which has no Windows row: an access-control list would have to stand in" }
+windows-arm64 = { parity = "equivalent", implementation = "missing", owner = "P4", status = "source-only", reason = "pure btrc over FileSystem and SigningKey; it keeps its file private with a POSIX mode (chmod 0600), which has no Windows row: an access-control list would have to stand in" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's ios row (src/tests/python/test_stdlib_ios_programs.py runs the conformance program on the simulators only; no device has run it)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over FileSystem and SigningKey, which follows Sodium's ios row (src/tests/python/test_stdlib_ios_programs.py runs the conformance program on the simulators)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over FileSystem and SigningKey, which both have android rows; both compilers transpile it for the slice (test_android_builds_keys_but_no_channel); no emulator or device has run it" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc over FileSystem and SigningKey, which both have android rows; both compilers transpile it for the slice (test_android_builds_keys_but_no_channel); no emulator or device has run it" }
 
 [[rows]]
 kind = "operation"
@@ -4963,3 +4963,94 @@ ios-device = { parity = "equivalent", implementation = "implemented", owner = "P
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC processes JPEG bytes and RGBA pixels with no native codec." }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC processes JPEG bytes and RGBA pixels with no native codec." }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC processes JPEG bytes and RGBA pixels with no native codec." }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.BLAKE2b"
+group = "stdlib/Crypto"
+title = "BLAKE2b hash with a 1 to 64 byte digest"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_the_primitives_and_base64_are_btrc_on_every_system"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.ChaCha20"
+group = "stdlib/Crypto"
+title = "ChaCha20 stream cipher and HChaCha20 key derivation"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_the_primitives_and_base64_are_btrc_on_every_system"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.Ed25519"
+group = "stdlib/Crypto"
+title = "Ed25519 keys, signatures and strict verification"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_the_primitives_and_base64_are_btrc_on_every_system"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.Poly1305"
+group = "stdlib/Crypto"
+title = "Poly1305 one-time authenticator"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_the_primitives_and_base64_are_btrc_on_every_system"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.SHA512"
+group = "stdlib/Crypto"
+title = "SHA-512 hash"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_the_primitives_and_base64_are_btrc_on_every_system"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.SecretStream"
+group = "stdlib/Crypto"
+title = "libsodium's XChaCha20-Poly1305 secretstream construction"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_the_primitives_and_base64_are_btrc_on_every_system"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.X25519"
+group = "stdlib/Crypto"
+title = "X25519 Diffie-Hellman"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_the_primitives_and_base64_are_btrc_on_every_system"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }

@@ -1,0 +1,54 @@
+/* Ed25519 identities and the operating system's random bytes, through the
+ * Sodium seam: an RFC 8032 key and signature, a key line and fingerprint as
+ * ssh-keygen prints them, a private key file written and read back, and
+ * fresh keys from the system's generator. Sodium has a provider on every
+ * target, so every target runs it. */
+
+import Library.Bytes;
+import Library.Crypto.SigningKey;
+import Library.Crypto.Sodium;
+
+#include <assert.h>
+
+Bytes vector(string text) {
+	Bytes? value = Bytes.fromHex(text);
+	if (value == null) { throw "a vector is not hexadecimal"; }
+	return value;
+}
+
+int main() {
+	assert(Sodium.available());
+
+	/* RFC 8032 section 7.1, test 2. */
+	SigningKey known = SigningKey.fromSeed(vector("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"));
+	assert(known.publicKey().bytes().equals(vector("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c")));
+	Bytes message = vector("72");
+	Bytes signature = known.sign(message);
+	assert(signature.equals(vector("92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00")));
+	assert(known.publicKey().verify(message, signature) && !known.publicKey().verify(vector("73"), signature));
+
+	/* A public key line and the fingerprint ssh-keygen prints for it. */
+	string line = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqFqTAxqMqOES4dhNQXRUjmV8eVu/rN7XMD+/X98bBx";
+	PublicKey? parsed = PublicKey.fromOpenSSH(line);
+	if (parsed == null) { return 2; }
+	assert(parsed.fingerprint().equals("SHA256:lYvZO5GbLeyscYFmwqAsLv6/GZzd/KpQJuoo0qIGqBo") && parsed.toOpenSSH().equals(line));
+
+	/* Fresh identities come from the system's generator: they differ, each
+	 * signs for itself alone, and each survives its OpenSSH file. */
+	SigningKey first = SigningKey.generate();
+	SigningKey second = SigningKey.generate();
+	assert(!first.publicKey().equals(second.publicKey()) && !first.seed().equals(second.seed()));
+	assert(first.publicKey().verify(message, first.sign(message)) && !second.publicKey().verify(message, first.sign(message)));
+	SigningKey? reread = SigningKey.fromOpenSSH(first.toOpenSSH("a comment"));
+	if (reread == null) { return 3; }
+	assert(reread.seed().equals(first.seed()) && reread.publicKey().equals(first.publicKey()));
+
+	/* Random bytes: the length asked for, never the same twice. */
+	assert(Sodium.randomBytes(0).length() == 0 && Sodium.randomBytes(1).length() == 1 && Sodium.randomBytes(1000).length() == 1000);
+	Bytes one = Sodium.randomBytes(64);
+	Bytes other = Sodium.randomBytes(64);
+	assert(!one.equals(other) && !one.equals(Bytes.zeros(64)) && !one.slice(0, 32).equals(one.slice(32, 64)));
+
+	print("PASS: test_stdlib_crypto_keys");
+	return 0;
+}

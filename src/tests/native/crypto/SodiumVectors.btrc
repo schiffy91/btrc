@@ -1,0 +1,210 @@
+/* The Sodium seam against known answers: SHA-256 (FIPS 180-4), BLAKE2b-256,
+ * the key exchange and message stream as libsodium 1.0.22 computes them for
+ * fixed keys, RFC 8032 signatures, and the operating system's random bytes.
+ * The primitives under the seam have their own vectors in
+ * src/tests/stdlib/CryptoPrimitives.btrc; this program is the seam's. */
+
+import Library.Bytes;
+import Library.Crypto.Sodium;
+
+#include <assert.h>
+
+class SodiumVectors {
+	class Bytes hex(string text) {
+		Bytes? value = Bytes.fromHex(text);
+		if (value == null) { throw "a vector is not hexadecimal"; }
+		return value;
+	}
+
+	class bool matches(unsigned char* actual, int length, string expected) {
+		Bytes wanted = SodiumVectors.hex(expected);
+		if (wanted.length() != length) { return false; }
+		for (int index = 0; index < length; index++) {
+			if ((int)actual[index] != wanted.get(index)) { return false; }
+		}
+		return true;
+	}
+
+	class Bytes counting(int first, int count) {
+		Bytes out = Bytes();
+		for (int index = 0; index < count; index++) { out.append((first + index) & 0xFF); }
+		return out;
+	}
+
+	class void hashes() {
+		unsigned char digest[32];
+		Bytes abc = Bytes.fromString("abc");
+		Bytes twoBlocks = Bytes.fromString("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq");
+		Bytes million = Bytes();
+		for (int index = 0; index < 1000000; index++) { million.append(97); }
+		Sodium.sha256(digest, (unsigned char*)abc.data, 0);
+		assert(SodiumVectors.matches(digest, 32, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
+		Sodium.sha256(digest, (unsigned char*)abc.data, 3);
+		assert(SodiumVectors.matches(digest, 32, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+		Sodium.sha256(digest, (unsigned char*)twoBlocks.data, twoBlocks.length());
+		assert(SodiumVectors.matches(digest, 32, "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"));
+		Sodium.sha256(digest, (unsigned char*)million.data, million.length());
+		assert(SodiumVectors.matches(digest, 32, "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"));
+
+		Sodium.hash(digest, (unsigned char*)abc.data, 0);
+		assert(SodiumVectors.matches(digest, 32, "0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8"));
+		Sodium.hash(digest, (unsigned char*)abc.data, 3);
+		assert(SodiumVectors.matches(digest, 32, "bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319"));
+		Sodium.hash(digest, (unsigned char*)million.data, million.length());
+		assert(SodiumVectors.matches(digest, 32, "0741850f36cba4259628355d1073e24ddb9ca0e1bfac36fd39ae5dc2101e23a4"));
+	}
+
+	/* Exchange secrets 00..1f (the initiator) and 20..3f (the responder). */
+	class void exchange() {
+		Bytes initiatorSecret = SodiumVectors.counting(0, 32);
+		Bytes responderSecret = SodiumVectors.counting(32, 32);
+		Bytes initiatorKey = SodiumVectors.hex("8f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f");
+		Bytes responderKey = SodiumVectors.hex("358072d6365880d1aeea329adf9121383851ed21a28e3b75e965d0d2cd166254");
+		unsigned char receiving[32];
+		unsigned char sending[32];
+		assert(Sodium.sessionKeys(true, receiving, sending, (unsigned char*)initiatorKey.data, (unsigned char*)initiatorSecret.data, (unsigned char*)responderKey.data));
+		assert(SodiumVectors.matches(receiving, 32, "09fcadb630f490a255a9461619a3a32586c5ec11be9a584832de0aad99099e02"));
+		assert(SodiumVectors.matches(sending, 32, "a1c994d365e824f318de66626a225b70a6f3be5b0febe8638882fd8a20d0bf0c"));
+		assert(Sodium.sessionKeys(false, receiving, sending, (unsigned char*)responderKey.data, (unsigned char*)responderSecret.data, (unsigned char*)initiatorKey.data));
+		assert(SodiumVectors.matches(sending, 32, "09fcadb630f490a255a9461619a3a32586c5ec11be9a584832de0aad99099e02"));
+		assert(SodiumVectors.matches(receiving, 32, "a1c994d365e824f318de66626a225b70a6f3be5b0febe8638882fd8a20d0bf0c"));
+
+		/* The hash both sides of a SecureChannel sign for these keys. */
+		Bytes transcript = Bytes.fromString("BTRCSC01");
+		transcript.appendBytes(initiatorKey);
+		transcript.appendBytes(responderKey);
+		unsigned char digest[32];
+		Sodium.hash(digest, (unsigned char*)transcript.data, transcript.length());
+		assert(SodiumVectors.matches(digest, 32, "4c2c4693f049561edb2e2f846728278ebe62b4eef880e927760b6c15432471ca"));
+
+		/* A peer key of small order gives no secret the peer contributed to. */
+		Bytes zero = SodiumVectors.hex("0000000000000000000000000000000000000000000000000000000000000000");
+		Bytes one = SodiumVectors.hex("0100000000000000000000000000000000000000000000000000000000000000");
+		Bytes eighth = SodiumVectors.hex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800");
+		Bytes prime = SodiumVectors.hex("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f");
+		assert(!Sodium.sessionKeys(true, receiving, sending, (unsigned char*)initiatorKey.data, (unsigned char*)initiatorSecret.data, (unsigned char*)zero.data));
+		assert(!Sodium.sessionKeys(true, receiving, sending, (unsigned char*)initiatorKey.data, (unsigned char*)initiatorSecret.data, (unsigned char*)one.data));
+		assert(!Sodium.sessionKeys(false, receiving, sending, (unsigned char*)responderKey.data, (unsigned char*)responderSecret.data, (unsigned char*)eighth.data));
+		assert(!Sodium.sessionKeys(false, receiving, sending, (unsigned char*)responderKey.data, (unsigned char*)responderSecret.data, (unsigned char*)prime.data));
+
+		/* Fresh pairs differ, and two of them agree on both directions. */
+		unsigned char firstKey[32];
+		unsigned char firstSecret[32];
+		unsigned char secondKey[32];
+		unsigned char secondSecret[32];
+		unsigned char firstReceiving[32];
+		unsigned char firstSending[32];
+		Sodium.exchangeKeys(firstKey, firstSecret);
+		Sodium.exchangeKeys(secondKey, secondSecret);
+		assert(!Bytes.fromRaw((char*)firstKey, 32).equals(Bytes.fromRaw((char*)secondKey, 32)));
+		assert(Sodium.sessionKeys(true, firstReceiving, firstSending, firstKey, firstSecret, secondKey));
+		assert(Sodium.sessionKeys(false, receiving, sending, secondKey, secondSecret, firstKey));
+		assert(Bytes.fromRaw((char*)firstReceiving, 32).equals(Bytes.fromRaw((char*)sending, 32)));
+		assert(Bytes.fromRaw((char*)firstSending, 32).equals(Bytes.fromRaw((char*)receiving, 32)));
+		assert(!Bytes.fromRaw((char*)firstSending, 32).equals(Bytes.fromRaw((char*)firstReceiving, 32)));
+	}
+
+	/* RFC 8032 section 7.1, test 3, and what the seam refuses. */
+	class void signatures() {
+		Bytes seed = SodiumVectors.hex("c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7");
+		Bytes message = SodiumVectors.hex("af82");
+		unsigned char publicKey[32];
+		unsigned char secretKey[64];
+		unsigned char signature[64];
+		assert(Sodium.signingKeys((unsigned char*)seed.data, publicKey, secretKey));
+		assert(SodiumVectors.matches(publicKey, 32, "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025"));
+		assert(SodiumVectors.matches(secretKey, 64, "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025"));
+		assert(Sodium.sign(signature, (unsigned char*)message.data, 2, secretKey));
+		assert(SodiumVectors.matches(signature, 64, "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"));
+		assert(Sodium.verify(signature, (unsigned char*)message.data, 2, publicKey));
+		assert(!Sodium.verify(signature, (unsigned char*)message.data, 1, publicKey));
+
+		/* The same point with the group order added to the scalar. */
+		Bytes malleated = SodiumVectors.hex("6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac05d391b0a77904e98404ef037747a56e4a7c15e9716ed28dc027beceea1ec41a");
+		assert(!Sodium.verify((unsigned char*)malleated.data, (unsigned char*)message.data, 2, publicKey));
+		/* The identity as the key, under which the base point with scalar 1
+		 * would be every message's signature. */
+		Bytes identity = SodiumVectors.hex("0100000000000000000000000000000000000000000000000000000000000000");
+		Bytes forged = SodiumVectors.hex("58666666666666666666666666666666666666666666666666666666666666660100000000000000000000000000000000000000000000000000000000000000");
+		assert(!Sodium.verify((unsigned char*)forged.data, (unsigned char*)message.data, 2, (unsigned char*)identity.data));
+	}
+
+	/* The stream for key 00..1f and header 40..57: its first two frames. */
+	class void stream() {
+		Bytes key = SodiumVectors.counting(0, 32);
+		Bytes header = SodiumVectors.counting(0x40, 24);
+		Bytes text = Bytes.fromString("first-party");
+		Bytes frame1 = SodiumVectors.hex("0dff2db0dcccf8b9cea79016f3d4ae8e52");
+		Bytes frame2 = SodiumVectors.hex("296d379956219b8fb33877456333ce376c1ac51c4e870a8ab6e5f7cc");
+		unsigned char sending[SODIUM_STREAM_STATE];
+		unsigned char receiving[SODIUM_STREAM_STATE];
+		unsigned char sealed[64];
+		unsigned char opened[64];
+		/* Both halves of a direction start from the header alike. */
+		assert(Sodium.beginReceiving(sending, (unsigned char*)header.data, (unsigned char*)key.data));
+		assert(Sodium.beginReceiving(receiving, (unsigned char*)header.data, (unsigned char*)key.data));
+		assert(SodiumVectors.matches(sending, 52, "001b38f1bc654a0470f0172049103eccb67d8bb16b11d2a468db66a2dd53d47d0100000050515253545556570000000000000000"));
+		assert(Sodium.seal(sending, sealed, (unsigned char*)text.data, 0) == 17 && SodiumVectors.matches(sealed, 17, frame1.toHex()));
+		assert(Sodium.seal(sending, sealed, (unsigned char*)text.data, 11) == 28 && SodiumVectors.matches(sealed, 28, frame2.toHex()));
+
+		/* Out of turn, altered and short frames are refused; in turn they open once. */
+		assert(Sodium.open(receiving, opened, (unsigned char*)frame2.data, 28) == -1);
+		assert(Sodium.open(receiving, opened, (unsigned char*)frame1.data, 17) == 0);
+		assert(Sodium.open(receiving, opened, (unsigned char*)frame1.data, 17) == -1);
+		Bytes altered = frame2.slice(0, 28);
+		altered.set(5, altered.get(5) ^ 1);
+		assert(Sodium.open(receiving, opened, (unsigned char*)altered.data, 28) == -1);
+		assert(Sodium.open(receiving, opened, (unsigned char*)frame2.data, 27) == -1 && Sodium.open(receiving, opened, (unsigned char*)frame2.data, 16) == -1);
+		assert(Sodium.open(receiving, opened, (unsigned char*)frame2.data, 28) == 11 && Bytes.fromRaw((char*)opened, 11).equals(text));
+		assert(Sodium.open(receiving, opened, (unsigned char*)frame2.data, 28) == -1);
+
+		/* A sender picks a fresh header each time; its receiver follows it. */
+		unsigned char firstHeader[SODIUM_STREAM_HEADER];
+		unsigned char secondHeader[SODIUM_STREAM_HEADER];
+		assert(Sodium.beginSending(sending, firstHeader, (unsigned char*)key.data));
+		assert(Sodium.beginSending(receiving, secondHeader, (unsigned char*)key.data));
+		assert(!Bytes.fromRaw((char*)firstHeader, 24).equals(Bytes.fromRaw((char*)secondHeader, 24)));
+		assert(Sodium.beginReceiving(receiving, firstHeader, (unsigned char*)key.data));
+		for (int turn = 0; turn < 20; turn++) {
+			assert(Sodium.seal(sending, sealed, (unsigned char*)text.data, 11) == 28);
+			assert(Sodium.open(receiving, opened, sealed, 28) == 11 && Bytes.fromRaw((char*)opened, 11).equals(text));
+		}
+		Sodium.wipe(sending, SODIUM_STREAM_STATE);
+		for (int index = 0; index < SODIUM_STREAM_STATE; index++) { assert((int)sending[index] == 0); }
+	}
+
+	class void random() {
+		assert(Sodium.randomBytes(0).length() == 0 && Sodium.randomBytes(-1).length() == 0);
+		int lengths[6] = {1, 31, 255, 256, 257, 5000};
+		for (int turn = 0; turn < 6; turn++) { assert(Sodium.randomBytes(lengths[turn]).length() == lengths[turn]); }
+		/* Two draws differ, and every byte value turns up in 5000 bytes. */
+		Bytes first = Sodium.randomBytes(5000);
+		Bytes second = Sodium.randomBytes(5000);
+		assert(!first.equals(second) && !first.slice(0, 32).equals(first.slice(32, 64)));
+		int seen[256];
+		for (int value = 0; value < 256; value++) { seen[value] = 0; }
+		for (int index = 0; index < 5000; index++) { seen[first.get(index)] = 1; }
+		int distinct = 0;
+		for (int value = 0; value < 256; value++) { distinct += seen[value]; }
+		assert(distinct > 250);
+		/* The raw form fills exactly the bytes it is asked for. */
+		unsigned char guarded[40];
+		for (int index = 0; index < 40; index++) { guarded[index] = (unsigned char)0; }
+		Sodium.random(guarded + 4, 32);
+		Sodium.random(guarded + 4, 0);
+		assert((int)guarded[0] == 0 && (int)guarded[3] == 0 && (int)guarded[36] == 0 && (int)guarded[39] == 0);
+		assert(!Bytes.fromRaw((char*)guarded + 4, 16).equals(Bytes.zeros(16)));
+	}
+}
+
+int main() {
+	assert(Sodium.available());
+	Sodium.require();
+	SodiumVectors.hashes();
+	SodiumVectors.exchange();
+	SodiumVectors.signatures();
+	SodiumVectors.stream();
+	SodiumVectors.random();
+	print("PASS: hashes, key exchange, signatures, message stream and random bytes");
+	return 0;
+}

@@ -1,0 +1,22 @@
+/* Random bytes on Linux and Android: `getrandom`, the kernel's generator.
+ * It waits until the kernel has gathered its first seed and never returns
+ * bytes from an unseeded pool. */
+
+#include <errno.h>
+#include <sys/random.h>
+
+class SystemRandomProvider {
+	class void fill(unsigned char* out, int length) {
+		int filled = 0;
+		while (filled < length) {
+			ssize_t count = getrandom(out + filled, (size_t)(length - filled), 0U);
+			if (count > (ssize_t)0) {
+				filled += (int)count;
+			} else if (count == (ssize_t)0 || errno != EINTR) {
+				/* A signal only interrupts the call; anything else means
+				 * this system has no generator to ask. */
+				throw "The system random generator failed";
+			}
+		}
+	}
+}
