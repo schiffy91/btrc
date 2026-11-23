@@ -17,12 +17,7 @@ os = ["windows"]
 [[package.providers]]
 module = "HTTPClient"
 implementation = "Unix.HTTPTransportProvider"
-os = ["linux", "macos"]
-
-[[package.providers]]
-module = "HTTPClient"
-implementation = "Mobile.HTTPTransportProvider"
-os = ["android", "ios"]
+os = ["android", "ios", "linux", "macos"]
 
 [[package.providers]]
 module = "HTTPClient"

@@ -1,8 +1,8 @@
-/* HTTPClient's transport on linux and macOS. `http://` is first-party
- * (HTTPPlainTransport). `https://` still goes through the curl process
- * (HTTPCurlTransport) until its replacement lands;
- * docs/design/stdlib-dependencies.md lists it. */
+/* BSD socket systems share the plain HTTP transport. Only desktop systems
+ * have the interim curl transport for HTTPS. */
+#if !defined(__ANDROID__) && !TARGET_OS_IOS
 import Library.HTTP.HTTPCurlTransport;
+#endif
 import Library.HTTP.HTTPExchange;
 import Library.HTTP.Unix.HTTPPlainTransport;
 import Library.Vector;
@@ -11,7 +11,13 @@ class HTTPTransportProvider {
 	class HTTPExchangeResult request(string method, string url, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes) {
 		HTTPClientAddress? address = HTTPClientAddress.parse(url);
 		if (address == null) { return HTTPExchangeResult.failed("invalid URL"); }
-		if (address.secure) { return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes); }
+		if (address.secure) {
+#if defined(__ANDROID__) || TARGET_OS_IOS
+			return HTTPExchangeResult.failed("https is not available on this system yet");
+#else
+			return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes);
+#endif
+		}
 		return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes);
 	}
 }
