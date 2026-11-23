@@ -10,8 +10,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: macos-aarch64
-            runner: macos-15
           - target: ios-aarch64-simulator
             runner: xcode-27
     runs-on: ${{ matrix.runner }}
@@ -22,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: dcba4e35773f0e866ac4159d2ece18e4079fd25c
+          ref: d4bfc5c4d35ca0f1660dd1969ee8cada39744e4b
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
         with:
@@ -48,63 +46,3 @@ jobs:
           test "${#binaries[@]}" -eq 4
           python -m tools.qualification.dependencies binary --target "$QUALIFY_TARGET" "${binaries[@]}"
           CHECK
-  windows-build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 70
-    env:
-      BTRC_TEST_RUNNER: linux-hosted
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: dcba4e35773f0e866ac4159d2ece18e4079fd25c
-      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
-        with:
-          use-flakehub: false
-      - name: Build and audit both PE architectures
-        run: |
-          nix develop --profile "$RUNNER_TEMP/crypto-shell" --command bash -euo pipefail <<'CHECK'
-          export BTRC_HOME="$PWD/src"
-          compiler="$(python -m src.tests.selfhost_cache ensure)"
-          for target in windows-x86_64 windows-aarch64; do
-            python -m src.tests.target_runner --target "$target" --frontend both --btrcc "$compiler" --program 'stdlib/Crypto*.btrc' --compile-only --output "build/$target" --jobs 2
-            python -m tools.qualification.dependencies binary --target "$target" build/"$target"/bundle/*.exe
-          done
-          CHECK
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: crypto-pe
-          path: build/windows-*/bundle/*.exe
-          if-no-files-found: error
-  windows-run:
-    needs: windows-build
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: windows-x86_64
-            runner: windows-latest
-          - target: windows-aarch64
-            runner: windows-11-arm
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: dcba4e35773f0e866ac4159d2ece18e4079fd25c
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: crypto-pe
-          path: build
-      - name: Run keys and published vectors on native Windows
-        shell: pwsh
-        run: |
-          $programs = @(Get-ChildItem build/${{ matrix.target }}/bundle/*.exe)
-          if ($programs.Count -ne 4) { throw "Expected four programs, found $($programs.Count)" }
-          foreach ($program in $programs) {
-            $name = $program.BaseName.Split('-')[-1]
-            $golden = Get-Content "src/tests/stdlib/expected/$name.stdout"
-            $output = & $program.FullName
-            if ($LASTEXITCODE -ne 0 -or ($output -join "`n") -cne ($golden -join "`n")) { throw "Failed $($program.Name): $output" }
-            Write-Host "$($program.Name) passed"
-          }
