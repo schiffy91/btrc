@@ -1,0 +1,80 @@
+/* X25519 (RFC 7748): Diffie-Hellman on Curve25519.
+ *
+ * The scalar is secret. The Montgomery ladder below runs the same field
+ * operations for every scalar and chooses with masked swaps, so neither its
+ * timing nor its memory accesses depend on the scalar. */
+
+import Library.Crypto.Primitives.ConstantTime;
+import Library.Crypto.Primitives.Field25519;
+
+class X25519 {
+	/* `out = scalar * point`, all 32 bytes. False when the result is all
+	 * zero, which is what a point of small order gives: such a peer key
+	 * yields a secret the peer did not contribute to. */
+	class bool multiply(unsigned char* out, unsigned char* scalar, unsigned char* point) {
+		unsigned char clamped[32];
+		long long x[16];
+		long long a[16];
+		long long b[16];
+		long long c[16];
+		long long d[16];
+		long long e[16];
+		long long f[16];
+		long long constant[16];
+		for (int index = 0; index < 32; index++) { clamped[index] = scalar[index]; }
+		clamped[0] &= (unsigned char)248;
+		clamped[31] = (unsigned char)(((int)clamped[31] & 127) | 64);
+		Field25519.unpack(x, point);
+		Field25519.copy(b, x);
+		Field25519.setSmall(a, 1LL);
+		Field25519.setSmall(c, 0LL);
+		Field25519.setSmall(d, 1LL);
+		/* 121665, which is (A - 2) / 4 for the curve's A = 486662. */
+		Field25519.setSmall(constant, 0xdb41LL);
+		constant[1] = 1LL;
+		for (int bit = 254; bit >= 0; bit--) {
+			int chosen = ((int)clamped[bit >> 3] >> (bit & 7)) & 1;
+			Field25519.swap(a, b, chosen);
+			Field25519.swap(c, d, chosen);
+			Field25519.add(e, a, c);
+			Field25519.subtract(a, a, c);
+			Field25519.add(c, b, d);
+			Field25519.subtract(b, b, d);
+			Field25519.square(d, e);
+			Field25519.square(f, a);
+			Field25519.multiply(a, c, a);
+			Field25519.multiply(c, b, e);
+			Field25519.add(e, a, c);
+			Field25519.subtract(a, a, c);
+			Field25519.square(b, a);
+			Field25519.subtract(c, d, f);
+			Field25519.multiply(a, c, constant);
+			Field25519.add(a, a, d);
+			Field25519.multiply(c, c, a);
+			Field25519.multiply(a, d, f);
+			Field25519.multiply(d, b, x);
+			Field25519.square(b, e);
+			Field25519.swap(a, b, chosen);
+			Field25519.swap(c, d, chosen);
+		}
+		Field25519.invert(c, c);
+		Field25519.multiply(a, a, c);
+		Field25519.pack(out, a);
+		ConstantTime.wipe(clamped, 32);
+		ConstantTime.wipeLimbs(a, 16);
+		ConstantTime.wipeLimbs(b, 16);
+		ConstantTime.wipeLimbs(c, 16);
+		ConstantTime.wipeLimbs(d, 16);
+		ConstantTime.wipeLimbs(e, 16);
+		ConstantTime.wipeLimbs(f, 16);
+		return !ConstantTime.isZero(out, 32);
+	}
+
+	/* The public key of a secret scalar: the scalar times the base point 9. */
+	class void publicKey(unsigned char* out, unsigned char* scalar) {
+		unsigned char base[32];
+		base[0] = (unsigned char)9;
+		for (int index = 1; index < 32; index++) { base[index] = (unsigned char)0; }
+		X25519.multiply(out, scalar, base);
+	}
+}

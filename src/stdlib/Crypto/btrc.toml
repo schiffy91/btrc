@@ -2,7 +2,11 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_crypto"
-exports = ["Base64", "Crypto", "SecureChannel", "SigningKey", "Sodium", "TrustedKeys"]
+exports = [
+	"Base64", "Crypto", "SecureChannel", "SigningKey", "Sodium", "TrustedKeys",
+	"Primitives.BLAKE2b", "Primitives.ChaCha20", "Primitives.Ed25519", "Primitives.Poly1305",
+	"Primitives.SHA512", "Primitives.SecretStream", "Primitives.X25519"
+]
 
 [[package.providers]]
 module = "Sodium"

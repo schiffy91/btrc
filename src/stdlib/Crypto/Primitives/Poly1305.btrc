@@ -1,0 +1,201 @@
+/* Poly1305 (RFC 8439): a one-time authenticator under a 32-byte key.
+ *
+ * The accumulator is five 26-bit limbs in 32-bit words, with 64-bit products,
+ * after poly1305-donna. The final reduction selects with a mask, so the tag's
+ * computation does not branch on the key or the message. `finish` clears the
+ * state: a key authenticates one message. */
+
+import Library.Crypto.Primitives.ConstantTime;
+
+/* The key halves `r` and `pad`, the accumulator `h` and a partial block,
+ * kept in one structure so `finish` can clear them. */
+struct Poly1305Core {
+	unsigned int r[5];
+	unsigned int h[5];
+	unsigned int pad[4];
+	unsigned char pending[16];
+};
+
+class Poly1305 {
+	private struct Poly1305Core core;
+	private int pendingLength = 0;
+	private bool finished = false;
+
+	public Poly1305(unsigned char* key) {
+		self.core.r[0] = Poly1305.load(key) & 0x3ffffffU;
+		self.core.r[1] = (Poly1305.load(key + 3) >> 2) & 0x3ffff03U;
+		self.core.r[2] = (Poly1305.load(key + 6) >> 4) & 0x3ffc0ffU;
+		self.core.r[3] = (Poly1305.load(key + 9) >> 6) & 0x3f03fffU;
+		self.core.r[4] = (Poly1305.load(key + 12) >> 8) & 0x00fffffU;
+		for (int index = 0; index < 5; index++) { self.core.h[index] = 0U; }
+		for (int index = 0; index < 4; index++) { self.core.pad[index] = Poly1305.load(key + 16 + 4 * index); }
+	}
+
+	class unsigned int load(unsigned char* bytes) { return (unsigned int)bytes[0] | ((unsigned int)bytes[1] << 8) | ((unsigned int)bytes[2] << 16) | ((unsigned int)bytes[3] << 24); }
+
+	/* Absorb one 16-byte block; `highBit` is 2^128 for a full block and 0
+	 * for the padded last one. */
+	private void block(unsigned char* m, unsigned int highBit) {
+		unsigned long long r0 = (unsigned long long)self.core.r[0];
+		unsigned long long r1 = (unsigned long long)self.core.r[1];
+		unsigned long long r2 = (unsigned long long)self.core.r[2];
+		unsigned long long r3 = (unsigned long long)self.core.r[3];
+		unsigned long long r4 = (unsigned long long)self.core.r[4];
+		unsigned long long s1 = r1 * 5ULL;
+		unsigned long long s2 = r2 * 5ULL;
+		unsigned long long s3 = r3 * 5ULL;
+		unsigned long long s4 = r4 * 5ULL;
+		unsigned long long h0 = (unsigned long long)(self.core.h[0] + (Poly1305.load(m) & 0x3ffffffU));
+		unsigned long long h1 = (unsigned long long)(self.core.h[1] + ((Poly1305.load(m + 3) >> 2) & 0x3ffffffU));
+		unsigned long long h2 = (unsigned long long)(self.core.h[2] + ((Poly1305.load(m + 6) >> 4) & 0x3ffffffU));
+		unsigned long long h3 = (unsigned long long)(self.core.h[3] + ((Poly1305.load(m + 9) >> 6) & 0x3ffffffU));
+		unsigned long long h4 = (unsigned long long)(self.core.h[4] + ((Poly1305.load(m + 12) >> 8) | highBit));
+
+		unsigned long long d0 = h0 * r0 + h1 * s4 + h2 * s3 + h3 * s2 + h4 * s1;
+		unsigned long long d1 = h0 * r1 + h1 * r0 + h2 * s4 + h3 * s3 + h4 * s2;
+		unsigned long long d2 = h0 * r2 + h1 * r1 + h2 * r0 + h3 * s4 + h4 * s3;
+		unsigned long long d3 = h0 * r3 + h1 * r2 + h2 * r1 + h3 * r0 + h4 * s4;
+		unsigned long long d4 = h0 * r4 + h1 * r3 + h2 * r2 + h3 * r1 + h4 * r0;
+
+		unsigned long long c = d0 >> 26;
+		d0 &= 0x3ffffffULL;
+		d1 += c;
+		c = d1 >> 26;
+		d1 &= 0x3ffffffULL;
+		d2 += c;
+		c = d2 >> 26;
+		d2 &= 0x3ffffffULL;
+		d3 += c;
+		c = d3 >> 26;
+		d3 &= 0x3ffffffULL;
+		d4 += c;
+		c = d4 >> 26;
+		d4 &= 0x3ffffffULL;
+		d0 += c * 5ULL;
+		c = d0 >> 26;
+		d0 &= 0x3ffffffULL;
+		d1 += c;
+
+		self.core.h[0] = (unsigned int)d0;
+		self.core.h[1] = (unsigned int)d1;
+		self.core.h[2] = (unsigned int)d2;
+		self.core.h[3] = (unsigned int)d3;
+		self.core.h[4] = (unsigned int)d4;
+	}
+
+	public void update(unsigned char* data, int length) {
+		if (self.finished) { throw "Poly1305 is finished"; }
+		int offset = 0;
+		if (self.pendingLength > 0) {
+			while (offset < length && self.pendingLength < 16) {
+				self.core.pending[self.pendingLength] = data[offset];
+				self.pendingLength++;
+				offset++;
+			}
+			if (self.pendingLength < 16) { return; }
+			self.block(self.core.pending, 0x1000000U);
+			self.pendingLength = 0;
+		}
+		while (length - offset >= 16) {
+			self.block(data + offset, 0x1000000U);
+			offset += 16;
+		}
+		while (offset < length) {
+			self.core.pending[self.pendingLength] = data[offset];
+			self.pendingLength++;
+			offset++;
+		}
+	}
+
+	/* Write the 16-byte tag to `out` and clear the key and accumulator. */
+	public void finish(unsigned char* out) {
+		if (self.finished) { throw "Poly1305 is finished"; }
+		self.finished = true;
+		if (self.pendingLength > 0) {
+			self.core.pending[self.pendingLength] = (unsigned char)1;
+			self.pendingLength++;
+			while (self.pendingLength < 16) { self.core.pending[self.pendingLength] = (unsigned char)0; self.pendingLength++; }
+			self.block(self.core.pending, 0U);
+		}
+		unsigned int h0 = self.core.h[0];
+		unsigned int h1 = self.core.h[1];
+		unsigned int h2 = self.core.h[2];
+		unsigned int h3 = self.core.h[3];
+		unsigned int h4 = self.core.h[4];
+
+		/* Carry fully. */
+		unsigned int c = h1 >> 26;
+		h1 &= 0x3ffffffU;
+		h2 += c;
+		c = h2 >> 26;
+		h2 &= 0x3ffffffU;
+		h3 += c;
+		c = h3 >> 26;
+		h3 &= 0x3ffffffU;
+		h4 += c;
+		c = h4 >> 26;
+		h4 &= 0x3ffffffU;
+		h0 += c * 5U;
+		c = h0 >> 26;
+		h0 &= 0x3ffffffU;
+		h1 += c;
+
+		/* g = h - p, kept only when h >= p. */
+		unsigned int g0 = h0 + 5U;
+		c = g0 >> 26;
+		g0 &= 0x3ffffffU;
+		unsigned int g1 = h1 + c;
+		c = g1 >> 26;
+		g1 &= 0x3ffffffU;
+		unsigned int g2 = h2 + c;
+		c = g2 >> 26;
+		g2 &= 0x3ffffffU;
+		unsigned int g3 = h3 + c;
+		c = g3 >> 26;
+		g3 &= 0x3ffffffU;
+		unsigned int g4 = h4 + c - 0x4000000U;
+		unsigned int keepG = (g4 >> 31) - 1U;
+		unsigned int keepH = ~keepG;
+		h0 = (h0 & keepH) | (g0 & keepG);
+		h1 = (h1 & keepH) | (g1 & keepG);
+		h2 = (h2 & keepH) | (g2 & keepG);
+		h3 = (h3 & keepH) | (g3 & keepG);
+		h4 = (h4 & keepH) | (g4 & keepG);
+
+		/* h mod 2^128, as four 32-bit words. */
+		h0 = h0 | (h1 << 26);
+		h1 = (h1 >> 6) | (h2 << 20);
+		h2 = (h2 >> 12) | (h3 << 14);
+		h3 = (h3 >> 18) | (h4 << 8);
+
+		/* tag = (h + pad) mod 2^128. */
+		unsigned long long f = (unsigned long long)h0 + (unsigned long long)self.core.pad[0];
+		Poly1305.store(out, (unsigned int)(f & 0xffffffffULL));
+		f = (unsigned long long)h1 + (unsigned long long)self.core.pad[1] + (f >> 32);
+		Poly1305.store(out + 4, (unsigned int)(f & 0xffffffffULL));
+		f = (unsigned long long)h2 + (unsigned long long)self.core.pad[2] + (f >> 32);
+		Poly1305.store(out + 8, (unsigned int)(f & 0xffffffffULL));
+		f = (unsigned long long)h3 + (unsigned long long)self.core.pad[3] + (f >> 32);
+		Poly1305.store(out + 12, (unsigned int)(f & 0xffffffffULL));
+
+		ConstantTime.wipe((unsigned char*)self.core.r, 20);
+		ConstantTime.wipe((unsigned char*)self.core.h, 20);
+		ConstantTime.wipe((unsigned char*)self.core.pad, 16);
+		ConstantTime.wipe(self.core.pending, 16);
+		self.pendingLength = 0;
+	}
+
+	class void store(unsigned char* bytes, unsigned int word) {
+		bytes[0] = (unsigned char)(word & 0xffU);
+		bytes[1] = (unsigned char)((word >> 8) & 0xffU);
+		bytes[2] = (unsigned char)((word >> 16) & 0xffU);
+		bytes[3] = (unsigned char)((word >> 24) & 0xffU);
+	}
+
+	/* The tag of one buffer. */
+	class void tag(unsigned char* out, unsigned char* key, unsigned char* data, int length) {
+		Poly1305 mac = Poly1305(key);
+		mac.update(data, length);
+		mac.finish(out);
+	}
+}
