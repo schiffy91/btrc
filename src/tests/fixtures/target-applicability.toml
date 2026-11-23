@@ -145,11 +145,19 @@ reason = "POSIX fixtures: their peers are socketpair(AF_UNIX) ends, forked write
 cites = "docs/design/http-transport.md#winsock-server-and-socket-ownership"
 
 [[programs]]
+paths = ["stdlib/HttpClientExchange.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "a POSIX fixture: its peer is a forked child answering on a loopback listener with exact bytes, and Windows has no fork; the first-party http:// exchange it checks is the BSD-socket transport, which no Windows row selects"
+cites = "docs/design/stdlib-dependencies.md"
+
+[[programs]]
 paths = ["stdlib/HttpClientLocal.btrc"]
 targets = ["windows-x86_64", "windows-aarch64"]
 status = "restricted"
 scope = "run"
-reason = "its curl stand-in is a /bin/sh script found on PATH, and Windows launches only .exe and .com programs; on Windows HTTPClient runs System32 curl.exe through the CreateProcessW provider, which WindowsHttpCases.btrc's curl-client case checks against a loopback HTTPServer (test_windows_http.py, windows.yml win32-native)"
+reason = "it checks the interim curl transport of the rows that still select one, through a /bin/sh stand-in found on PATH; on Windows HTTPClient is WinHTTP and starts no process, which WindowsHttpCases.btrc's client case checks against a loopback HTTPServer (test_windows_http.py, windows.yml win32-native)"
 cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
 
 [[programs]]

@@ -371,6 +371,16 @@ class PackageRegistration:
 
     # -- all of it -------------------------------------------------------
 
+    def refreeze(self) -> list[str]:
+        """After rows written by hand (a package with a native boundary, a new export of an old
+        package): the lock, the denominator, the published counts and the pins, and nothing else."""
+
+        self.lock()
+        before = self.release()
+        self.parity(before)
+        self.pinned_counts(before)
+        return self.changed
+
     def run(self) -> list[str]:
         self.exports()
         self.root_manifest()
@@ -390,16 +400,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--summary", help="one line for README.md's table of library groups; without it README.md is left alone"
     )
-    parser.add_argument("--reason", required=True, help="why it behaves the same on every target slice")
+    parser.add_argument("--reason", help="why it behaves the same on every target slice")
+    parser.add_argument(
+        "--refreeze",
+        action="store_true",
+        help="only refreeze: the inventory rows are already written by hand (a package with a native boundary)",
+    )
     parser.add_argument("--title", action="append", default=[], metavar="EXPORT=TITLE", help="an export's row title")
     parser.add_argument("--check", action="store_true", help="write nothing; fail if anything would change")
     arguments = parser.parse_args(argv)
     titles = dict(title.split("=", 1) for title in arguments.title)
+    if not arguments.refreeze and not arguments.reason:
+        parser.error("--reason is required unless --refreeze")
     registration = PackageRegistration(
-        REPO, arguments.name, arguments.summary, arguments.reason, titles, write=not arguments.check
+        REPO, arguments.name, arguments.summary, arguments.reason or "", titles, write=not arguments.check
     )
     try:
-        changed = registration.run()
+        changed = registration.refreeze() if arguments.refreeze else registration.run()
     except RegistrationError as error:
         print(f"register_package: {error}", file=sys.stderr)
         return 2

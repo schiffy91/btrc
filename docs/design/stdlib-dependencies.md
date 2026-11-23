@@ -20,7 +20,7 @@ failure names the module, the target and the dependency.
 | WebKitGTK | `GUI/Shim/ShimWeb` | linux | headers `webkit/webkit.h`; pkg-config `webkitgtk-6.0` | Linux supplies no web engine: an owner decision. |
 | a desktop JVM (HotSpot) | `Java/JavaVirtualMachine` | linux, macos, windows | headers `jni.h`; pkg-config `btrc-jni` | No desktop system supplies a Java VM: an owner decision. |
 | alsa-lib | `Audio/Linux/LinuxAudioDevice` | linux | headers `alsa/asoundlib.h`; pkg-config `alsa` | The kernel's ALSA PCM interface (ioctls on /dev/snd) from first-party code. |
-| curl | `HTTP/HTTPClient` | android, ios, linux, macos, windows | programs `curl` | First-party HTTP/1.1 over the stdlib's sockets, with TLS from the system where it has one. |
+| curl | `HTTP/HTTPCurlTransport` | linux, macos | programs `curl` | `http://` is first-party on every BSD-socket system, and Windows uses WinHTTP for both schemes. Left: `https://` on Linux (first-party TLS) and on macOS (NSURLSession). iOS and Android never reach curl; their `https://` waits for NSURLSession and HttpURLConnection. |
 | libX11 | `GUI/Shim/Shim` | linux | headers `X11/Xlib.h`; pkg-config `x11` | The X11 wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects. |
 | libdbus | `Bluetooth/Linux/BluetoothAdapterProvider` | linux | headers `dbus/dbus.h`; pkg-config `dbus-1` | The same first-party D-Bus client, on the system bus. |
 | libdbus | `Tray/Linux/LinuxTray` | linux | headers `dbus/dbus.h`; pkg-config `dbus-1` | A first-party D-Bus client: the wire protocol over the bus's own socket. |
@@ -56,6 +56,36 @@ and the desktop JDK moves into the test harness, which keeps the checked-JNI tes
 drops `JavaVirtualMachine.createHost` for desktop programs; (b) the desktop JDK stays as
 a second exception. Until then the requirement stays listed as pending.
 
+### The display client library a Linux GPU surface needs
+
+wgpu-native presents to a Linux window through Vulkan's window-system extensions, and a
+Vulkan driver accepts only its own client library's objects: a libwayland-client
+`wl_display` and `wl_surface`, or an Xlib or xcb connection and a window id. First-party
+code can speak either protocol over the display server's socket for windows, input and
+controls, but it cannot hand such a connection to the driver. On X11 a window id is
+global, so a first-party connection can own the window while a second connection, opened
+through libX11 only when a GPU view is created, gives the driver its handle. On Wayland a
+surface belongs to the connection that made it, so a native Wayland window with a GPU
+view has to live on libwayland-client entirely. The choices: (a) count the display client
+library as part of the wgpu-native exception (it is what that backend needs to present),
+loaded only for GPU surfaces, with X11 through first-party code and Wayland sessions
+served through Xwayland; (b) the same, and also allow libwayland-client for windows that
+hold a GPU view, to keep native Wayland; (c) no on-screen GPU view on Linux without an
+exception. The replacement plan below assumes (a) until the owner says otherwise.
+
+### TLS on Linux
+
+`https://` needs TLS. macOS and iOS, Windows and Android each supply it (and a whole HTTP
+stack, with the system's trust store). Linux supplies none: the kernel has no handshake,
+and OpenSSL, GnuTLS and libcurl are distribution packages. The replacement is a
+first-party TLS client in BTRC over the first-party cryptography, verifying against the
+system's CA bundle. That keeps the capability and adds no exception, but it is new,
+unaudited security code on the path every Linux `https://` request takes. The choices:
+(a) ship the first-party TLS client, stated as unaudited, as planned; (b) allow a
+Linux-only TLS exception instead (OpenSSL through libcurl, as the earlier transport design
+assumed); (c) `https://` unsupported on Linux in the standard library. The plan follows
+(a) until the owner says otherwise.
+
 ## The exception
 
 | Dependency | Module | Targets | How it is required |
@@ -72,4 +102,4 @@ a second exception. Until then the requirement stays listed as pending.
 - **ios**: frameworks: `CoreFoundation`, `CoreGraphics`, `CoreText`, `Foundation`, `ImageIO`, `Metal`, `QuartzCore`, `UIKit`, `WebKit`
 - **linux**: libraries: `util`; programs: `/bin/sh`
 - **macos**: frameworks: `AppKit`, `AudioToolbox`, `CoreAudio`, `CoreFoundation`, `CoreGraphics`, `CoreText`, `Foundation`, `ImageIO`, `QuartzCore`, `WebKit`; programs: `/bin/sh`
-- **windows**: libraries: `bcrypt`, `comctl32`, `dwmapi`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `ws2_32`
+- **windows**: libraries: `bcrypt`, `comctl32`, `dwmapi`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `winhttp`, `ws2_32`

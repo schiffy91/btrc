@@ -853,25 +853,38 @@ id = "Library.HTTP"
 group = "stdlib/HTTP"
 title = "HTTP package aggregate"
 regression = ["src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "codecs and HTTPServer use the Winsock HTTPSocket provider; HTTPClient uses CreateProcessW and requires curl.exe on PATH; platform runtime qualification is tracked separately" }
-windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "codecs and HTTPServer use the Winsock HTTPSocket provider; HTTPClient uses CreateProcessW and requires curl.exe on PATH; platform runtime qualification is tracked separately" }
-ios-device = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl, forbidden on iOS, needs NSURLSession" }
-ios-simulator = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl, forbidden on iOS, needs NSURLSession" }
-android-arm64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl (no curl/exec on Android), needs HttpURLConnection via JNI" }
-android-x86_64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient spawns curl (no curl/exec on Android), needs HttpURLConnection via JNI" }
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "codecs and HTTPServer use the Winsock HTTPSocket provider; HTTPClient uses WinHTTP; platform runtime qualification is tracked separately" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "codecs and HTTPServer use the Winsock HTTPSocket provider; HTTPClient uses WinHTTP; platform runtime qualification is tracked separately" }
+ios-device = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient serves http:// first-party and refuses https:// until the NSURLSession transport" }
+ios-simulator = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient serves http:// first-party and refuses https:// until the NSURLSession transport" }
+android-arm64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient serves http:// first-party and refuses https:// until the HttpURLConnection transport" }
+android-x86_64 = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "codecs and BSD-socket server build; HTTPClient serves http:// first-party and refuses https:// until the HttpURLConnection transport" }
 
 [[rows]]
 kind = "operation"
 id = "Library.HTTP.HTTPClient"
 group = "stdlib/HTTP"
-title = "HTTPS client via curl"
+title = "HTTP client"
 regression = ["src/tests/python/test_stdlib_process_security.py::test_http_client_is_direct_and_protocol_restricted", "src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "curl child launched through the CreateProcessW provider; requires curl.exe on PATH; Windows native fixtures exercise the client when curl is available" }
-windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "curl child launched through the CreateProcessW provider; requires curl.exe on PATH; Windows native fixtures exercise the client when curl is available" }
-ios-device = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "spawns curl via ChildProcess.run; iOS forbids posix_spawn of child processes, contract needs NSURLSession" }
-ios-simulator = { parity = "adapted", implementation = "missing", owner = "P3", status = "source-only", reason = "spawns curl via ChildProcess.run; iOS forbids posix_spawn of child processes, contract needs NSURLSession" }
-android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "spawns curl via ChildProcess.run; no curl on Android and W^X blocks exec of app binaries, needs HttpURLConnection/JNI" }
-android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "spawns curl via ChildProcess.run; no curl on Android and W^X blocks exec of app binaries, needs HttpURLConnection/JNI" }
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "both schemes go through WinHTTP, the system's own HTTP stack, with its proxy settings and certificate store; no process is started; the win32-native client case exercises it against a loopback HTTPServer" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "both schemes go through WinHTTP, the system's own HTTP stack, with its proxy settings and certificate store; no process is started; the win32-native client case exercises it against a loopback HTTPServer" }
+ios-device = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "http:// is the first-party exchange over a BSD socket and starts no process; https:// is refused until the NSURLSession transport" }
+ios-simulator = { parity = "adapted", implementation = "partial", owner = "P3", status = "implemented-unverified", reason = "http:// is the first-party exchange over a BSD socket and starts no process; https:// is refused until the NSURLSession transport" }
+android-arm64 = { parity = "adapted", implementation = "partial", owner = "A1", status = "implemented-unverified", reason = "http:// is the first-party exchange over a BSD socket and starts no process; https:// is refused until the HttpURLConnection transport" }
+android-x86_64 = { parity = "adapted", implementation = "partial", owner = "A1", status = "implemented-unverified", reason = "http:// is the first-party exchange over a BSD socket and starts no process; https:// is refused until the HttpURLConnection transport" }
+
+[[rows]]
+kind = "operation"
+id = "Library.HTTP.HTTPExchange"
+group = "stdlib/HTTP"
+title = "HTTP client exchange: address, request bytes and response framing"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "plain BTRC over an abstract byte stream; the Windows transport is WinHTTP and uses only its address parsing and field rules" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "plain BTRC over an abstract byte stream; the Windows transport is WinHTTP and uses only its address parsing and field rules" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "plain BTRC over an abstract byte stream; the BSD-socket transport drives it for http://" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "plain BTRC over an abstract byte stream; the BSD-socket transport drives it for http://" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "plain BTRC over an abstract byte stream; the BSD-socket transport drives it for http://" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "plain BTRC over an abstract byte stream; the BSD-socket transport drives it for http://" }
 
 [[rows]]
 kind = "operation"

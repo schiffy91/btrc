@@ -1,0 +1,99 @@
+/* The first-party `http://` transport of the BSD-socket systems: the system
+ * resolver and a socket under HTTPExchange. Each address the resolver returns
+ * is tried in order, IPv6 and IPv4 alike, and the whole request shares one
+ * deadline. The resolver itself has no deadline: a name the system cannot
+ * answer costs the system's own resolver timeout. */
+import Library.Bytes;
+import Library.HTTP.HTTPExchange;
+import Library.HTTP.HTTPSocket;
+import Library.IO;
+import Library.Timer;
+import Library.Vector;
+
+/* A connected, nonblocking, close-on-exec socket the stream owns. */
+class HTTPSocketStream implements IHTTPByteStream {
+	private int descriptor;
+
+	public HTTPSocketStream(int descriptor) { self.descriptor = descriptor; }
+
+	public int receive(Bytes into, int maximum, long long deadline) {
+		if (self.descriptor < 0 || maximum <= 0) { return -2; }
+		char buffer[16384];
+		int room = maximum < 16384 ? maximum : 16384;
+		while (true) {
+			if (!HTTPSocket.waitFor(self.descriptor, POLLIN, deadline)) { return MonotonicClock.remaining(deadline) <= 0LL ? -1 : -2; }
+			long long count = (long long)recv(self.descriptor, buffer, (size_t)room, 0);
+			if (count < 0LL && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) { continue; }
+			if (count < 0LL) { return -2; }
+			if (count > 0LL) { into.appendRaw(buffer, (int)count); }
+			return (int)count;
+		}
+		return -2;
+	}
+
+	public bool send(Bytes data, long long deadline) { return HTTPSocket.sendBytesUntil(self.descriptor, data, deadline); }
+
+	public void close() {
+		if (self.descriptor >= 0) { close(self.descriptor); }
+		self.descriptor = -1;
+	}
+
+	public void __del__() { self.close(); }
+}
+
+class HTTPPlainTransport {
+	/* A socket connected to the first address of `host` that answers before
+	 * the deadline; -1 when none does, -2 when the name does not resolve. */
+	class int connectTo(string host, int port, long long deadline) {
+		if (host.isEmpty() || host.len() > 255) { return -2; }
+		char name[256];
+		memset(name, 0, sizeof(name));
+		memcpy(name, host, (size_t)host.len());
+		char service[16];
+		snprintf(service, sizeof(service), "%d", port);
+		struct addrinfo hints;
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_family = AF_UNSPEC;
+		hints.ai_socktype = SOCK_STREAM;
+		struct addrinfo* found = NULL;
+		if (getaddrinfo(name, service, &hints, &found) != 0 || found == NULL) { return -2; }
+		int connected = -1;
+		struct addrinfo* entry = found;
+		while (entry != NULL && connected < 0 && MonotonicClock.remaining(deadline) > 0LL) {
+			int descriptor = socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
+			if (descriptor >= 0 && !DescriptorFlags.configure(descriptor, true)) {
+				close(descriptor);
+				descriptor = -1;
+			}
+			if (descriptor >= 0) {
+				int failure = 0;
+				if (connect(descriptor, entry->ai_addr, entry->ai_addrlen) != 0) {
+					failure = errno;
+					if (failure == EINPROGRESS || failure == EINTR) {
+						failure = ETIMEDOUT;
+						socklen_t length = sizeof(failure);
+						if (HTTPSocket.waitFor(descriptor, POLLOUT, deadline)) {
+							if (getsockopt(descriptor, (int)SOL_SOCKET, (int)SO_ERROR, &failure, &length) != 0) { failure = errno; }
+						}
+					}
+				}
+				if (failure == 0) { connected = descriptor; }
+				else { close(descriptor); }
+			}
+			entry = entry->ai_next;
+		}
+		freeaddrinfo(found);
+		return connected;
+	}
+
+	class HTTPExchangeResult request(string method, HTTPClientAddress address, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes) {
+		long long deadline = MonotonicClock.deadlineAfter((long long)timeoutSecs * 1000LL);
+		int descriptor = HTTPPlainTransport.connectTo(address.resolvable(), address.port, deadline);
+		if (descriptor == -2) { return HTTPExchangeResult.failed("could not resolve host"); }
+		if (descriptor < 0) { return HTTPExchangeResult.failed(MonotonicClock.remaining(deadline) <= 0LL ? "request timed out" : "could not connect"); }
+		var stream = HTTPSocketStream(descriptor);
+		HTTPExchangeResult result = HTTPExchange.run(stream, method, address, headers, body, maxResponseBytes, deadline);
+		stream.close();
+		return result;
+	}
+}

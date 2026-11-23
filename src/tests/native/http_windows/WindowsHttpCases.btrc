@@ -5,11 +5,10 @@
  * socket and cleaned up after the last, SO_EXCLUSIVEADDRUSE, sockets no child
  * process inherits, descriptors that never resolve again once closed, a
  * close that wakes a read waiting on it, platform adaptations row 6's
- * warning for an all-interfaces listener, and HTTPClient's System32 curl.exe
+ * warning for an all-interfaces listener, and HTTPClient's WinHTTP transport
  * against the provider's own server. test_windows_http.py builds it with
  * both compilers for x64 and ARM64, and windows.yml runs each build on its
- * own architecture. Every case prints one `case=<name> ok` line (or
- * `case=curl-client skipped <reason>` where no curl.exe is on PATH); the
+ * own architecture. Every case prints one `case=<name> ok` line; the
  * last line is PASS. A case that fails prints `case=<name> FAIL: <check>`
  * and the remaining cases still run; the program then exits 1. The only
  * stderr line of a passing run is the all-interfaces warning. */
@@ -411,7 +410,7 @@ void caseCloseWakesWait() {
 	print("case=close-wakes-wait ok");
 }
 
-/* The server side of the curl-client case: three requests, answered by path. */
+/* The server side of the client case: three requests, answered by path. */
 int serveThree(HTTPServer server) {
 	int served = 0;
 	for (int index = 0; index < 3; index++) {
@@ -430,14 +429,10 @@ int serveThree(HTTPServer server) {
 	return served;
 }
 
-/* HTTPClient on Windows: System32 curl.exe, started through the CreateProcessW
- * provider, against this provider's server on loopback. */
-void caseCurlClient() {
-	ExecResult probe = ChildProcess.run("curl", ["--version"], timeoutMilliseconds=10000, maxStdoutBytes=65536, maxStderrBytes=65536);
-	if (probe.code != 0) {
-		print("case=curl-client skipped no curl.exe on PATH");
-		return;
-	}
+/* HTTPClient on Windows: WinHTTP, the system's own HTTP stack, against this
+ * provider's server on loopback. test_windows_http.py checks that the
+ * program names no curl and imports winhttp.dll. */
+void caseClient() {
 	HTTPServer server = listening();
 	server.timeoutSecs = 30;
 	string base = "http://127.0.0.1:" + Strings.fromInt(portOf(server));
@@ -451,8 +446,21 @@ void caseCurlClient() {
 	HTTPClientResponse missing = client.get(base + "/missing", headers);
 	check(missing.status == 404 && !missing.ok() && missing.body.equals("nothing here") && missing.error.isEmpty(), "GET /missing: status " + Strings.fromInt(missing.status));
 	check(serving.join() == 3, "the server answered all three requests");
+
+	/* The response limit holds, and a failure carries no partial body. */
+	Thread<int> again = spawn(() => { return serveThree(server); });
+	client.maxResponseBytes = 4;
+	HTTPClientResponse bounded = client.get(base + "/hello", headers);
+	check(bounded.status == 0 && bounded.body.isEmpty() && bounded.error.equals("response body is too large"), "a response over the limit: status " + Strings.fromInt(bounded.status) + ", error '" + bounded.error + "'");
+	client.maxResponseBytes = 8388608;
+	HTTPClientResponse second = client.get(base + "/hello", headers);
+	HTTPClientResponse third = client.post(base + "/echo", headers, "again");
+	check(second.status == 200 && third.body.equals("again"), "requests after a refused response still succeed");
+	check(again.join() == 3, "the server answered the second three requests");
 	server.stop();
-	print("case=curl-client ok");
+	HTTPClientResponse refused = client.get(base + "/hello", headers);
+	check(refused.status == 0 && !refused.error.isEmpty(), "a closed port is an error, not a status");
+	print("case=client ok");
 }
 
 /* After every case: no socket is left open and Winsock is cleaned up as
@@ -479,14 +487,14 @@ void runCase(int index) {
 	if (index == 12) { caseBinaryBody(); }
 	if (index == 13) { caseStaleDescriptor(); }
 	if (index == 14) { caseCloseWakesWait(); }
-	if (index == 15) { caseCurlClient(); }
+	if (index == 15) { caseClient(); }
 	if (index == 16) { caseReleased(); }
 }
 
 int main() {
 	/* Each case runs to its first failed check, which is reported as that
 	 * case's verdict; later cases still run, so one run reports them all. */
-	Vector<string> names = ["lifecycle", "exclusive-port", "bind-any-warning", "accept-timeout", "split-request", "chunked-split", "body-limit", "slow-peer", "send-backpressure", "reset-peer", "response-framing", "bodyless-status", "binary-body", "stale-descriptor", "close-wakes-wait", "curl-client", "released"];
+	Vector<string> names = ["lifecycle", "exclusive-port", "bind-any-warning", "accept-timeout", "split-request", "chunked-split", "body-limit", "slow-peer", "send-backpressure", "reset-peer", "response-framing", "bodyless-status", "binary-body", "stale-descriptor", "close-wakes-wait", "client", "released"];
 	int failures = 0;
 	for (int index = 0; index < names.len; index++) {
 		try {

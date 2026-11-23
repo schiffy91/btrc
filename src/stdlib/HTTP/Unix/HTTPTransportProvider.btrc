@@ -1,0 +1,17 @@
+/* HTTPClient's transport on linux and macOS. `http://` is first-party
+ * (HTTPPlainTransport). `https://` still goes through the curl process
+ * (HTTPCurlTransport) until its replacement lands;
+ * docs/design/stdlib-dependencies.md lists it. */
+import Library.HTTP.HTTPCurlTransport;
+import Library.HTTP.HTTPExchange;
+import Library.HTTP.Unix.HTTPPlainTransport;
+import Library.Vector;
+
+class HTTPTransportProvider {
+	class HTTPExchangeResult request(string method, string url, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes) {
+		HTTPClientAddress? address = HTTPClientAddress.parse(url);
+		if (address == null) { return HTTPExchangeResult.failed("invalid URL"); }
+		if (address.secure) { return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes); }
+		return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes);
+	}
+}

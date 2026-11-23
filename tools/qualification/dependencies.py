@@ -280,6 +280,8 @@ class DependencyAudit:
             (row.label, row.operating_system, row.architecture, row.environment) for row in TARGET_ROWS
         )
         self._claimed: set[Path] = set()
+        self._reached: dict[str, frozenset[Path]] = {}
+        self._inventory = None
 
     # ── target and module names ────────────────────────────────────────────
 
@@ -314,6 +316,37 @@ class DependencyAudit:
     def _module(package: Path, module: str) -> str:
         return (package / Path(*module.split("."))).as_posix().removeprefix("./")
 
+    def _reachable(self, target: str) -> frozenset[Path]:
+        """The modules a program for `target` can reach: every export, and what each imports there.
+
+        A module no manifest exports is private to its package. It counts
+        only on the targets where an export, or the provider a manifest
+        selects for one, imports it.
+        """
+        if target not in self._reached:
+            # Imported here: the inventory pulls in the whole reference compiler.
+            from src.compiler.python.frontend.packages import PackageTarget
+            from tools.qualification.stdlib import StdlibInventory
+
+            if self._inventory is None:
+                self._inventory = StdlibInventory(self.stdlib, runtime_root=self.runtime / "c")
+            inventory = self._inventory
+            selected = PackageTarget.parse(target)
+            pending: list[Path] = []
+            for manifest in sorted(self.stdlib.rglob("btrc.toml")):
+                package = tomllib.loads(manifest.read_text()).get("package", {})
+                for export in package.get("exports", ()):
+                    pending.append((manifest.parent / Path(*export.split("."))).with_suffix(".btrc").resolve())
+            reached: set[Path] = set()
+            while pending:
+                module = pending.pop()
+                if module in reached or not module.is_file() or inventory.restriction(module, selected) is not None:
+                    continue
+                reached.add(module)
+                pending.extend(inventory.dependencies(module, selected))
+            self._reached[target] = frozenset(reached)
+        return self._reached[target]
+
     # ── the four sources ───────────────────────────────────────────────────
 
     def requirements(self) -> list[Requirement]:
@@ -327,6 +360,8 @@ class DependencyAudit:
             if path.suffix in (".btrc", ".java") or (path.suffix in C_FAMILY and path not in self._claimed):
                 modules = (self._name(path),)
                 targets = self._selected({}, self._path_systems(path))
+                if path.suffix == ".btrc" and path.is_relative_to(self.stdlib):
+                    targets = tuple(target for target in targets if path in self._reachable(target))
                 found.update(self._file(path, modules, targets, frozenset(), set()))
         found.update(self._bundled())
         return sorted(found)

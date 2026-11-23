@@ -255,6 +255,40 @@ drops `JavaVirtualMachine.createHost` for desktop programs; (b) the desktop JDK 
 a second exception. Until then the requirement stays listed as pending.
 """
 
+[[decisions]]
+title = "The display client library a Linux GPU surface needs"
+text = """
+wgpu-native presents to a Linux window through Vulkan's window-system extensions, and a
+Vulkan driver accepts only its own client library's objects: a libwayland-client
+`wl_display` and `wl_surface`, or an Xlib or xcb connection and a window id. First-party
+code can speak either protocol over the display server's socket for windows, input and
+controls, but it cannot hand such a connection to the driver. On X11 a window id is
+global, so a first-party connection can own the window while a second connection, opened
+through libX11 only when a GPU view is created, gives the driver its handle. On Wayland a
+surface belongs to the connection that made it, so a native Wayland window with a GPU
+view has to live on libwayland-client entirely. The choices: (a) count the display client
+library as part of the wgpu-native exception (it is what that backend needs to present),
+loaded only for GPU surfaces, with X11 through first-party code and Wayland sessions
+served through Xwayland; (b) the same, and also allow libwayland-client for windows that
+hold a GPU view, to keep native Wayland; (c) no on-screen GPU view on Linux without an
+exception. The replacement plan below assumes (a) until the owner says otherwise.
+"""
+
+[[decisions]]
+title = "TLS on Linux"
+text = """
+`https://` needs TLS. macOS and iOS, Windows and Android each supply it (and a whole HTTP
+stack, with the system's trust store). Linux supplies none: the kernel has no handshake,
+and OpenSSL, GnuTLS and libcurl are distribution packages. The replacement is a
+first-party TLS client in BTRC over the first-party cryptography, verifying against the
+system's CA bundle. That keeps the capability and adds no exception, but it is new,
+unaudited security code on the path every Linux `https://` request takes. The choices:
+(a) ship the first-party TLS client, stated as unaudited, as planned; (b) allow a
+Linux-only TLS exception instead (OpenSSL through libcurl, as the earlier transport design
+assumed); (c) `https://` unsupported on Linux in the standard library. The plan follows
+(a) until the owner says otherwise.
+"""
+
 # ── Third-party requirements known today, awaiting removal ──────────────────
 
 [[pending]]
@@ -277,9 +311,9 @@ resolution = "Library.Image.JPEG, the first-party codec already in the tree."
 
 [[pending]]
 dependency = "curl"
-module = "HTTP/HTTPClient"
-os = ["android", "ios", "linux", "macos", "windows"]
-resolution = "First-party HTTP/1.1 over the stdlib's sockets, with TLS from the system where it has one."
+module = "HTTP/HTTPCurlTransport"
+os = ["linux", "macos"]
+resolution = "`http://` is first-party on every BSD-socket system, and Windows uses WinHTTP for both schemes. Left: `https://` on Linux (first-party TLS) and on macOS (NSURLSession). iOS and Android never reach curl; their `https://` waits for NSURLSession and HttpURLConnection."
 
 [[pending]]
 dependency = "FreeType"
