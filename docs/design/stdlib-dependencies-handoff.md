@@ -69,7 +69,7 @@ Briefs in `docs/workstreams/stdlib-dependencies/` (read `common.md` first):
   needs no curl (owner decision "TLS on Linux" is recorded; the plan is (a)).
 - `regex.md`: replace the bundled musl regex, glob and fnmatch on Windows.
 - `webview2.md`: Windows web view without the WebView2 SDK header and loader DLL.
-- `x11gui.md`: Linux GUI without GTK 4 (first-party X11, controls, AT-SPI).
+- `waylandgui.md`: Linux GUI without GTK 4, with native Wayland windows, GPU presentation, controls and AT-SPI. X11 compatibility is opportunistic.
 - `alsa.md`: Linux audio without alsa-lib (kernel PCM ioctls and the
   PulseAudio protocol).
 
@@ -81,8 +81,7 @@ HttpURLConnection over JNI.
 
 `[[decisions]]` in `stdlib-dependencies.toml`: a web view on Linux
 (WebKitGTK), a Java VM on desktop systems (HotSpot), the display client
-library a Linux GPU surface needs, and TLS on Linux. Each stays a pending row
-until the owner decides; none may be dropped silently.
+library a Linux GPU surface needs, and TLS on Linux. The owner's directions are recorded there. Each requirement stays pending until its replacement or optional-package migration is verified.
 
 ## Flake and CI cleanups after each landing
 

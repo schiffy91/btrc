@@ -580,7 +580,7 @@ class DependencyAudit:
                     f"{resolutions.get((dependency, module), '**unlisted**')} |"
                 )
             lines.append("")
-        lines += ["## Decisions for the owner", ""]
+        lines += ["## Owner decisions", ""]
         if not self.policy.decisions:
             lines += ["None open.", ""]
         for row in self.policy.decisions:

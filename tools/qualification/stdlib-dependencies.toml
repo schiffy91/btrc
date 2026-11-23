@@ -226,67 +226,43 @@ dependency = "wayland-protocols' viewporter binding (bundled generated source)"
 modules = ["GUI/Shim/Shim"]
 os = ["linux"]
 
-# ── Gaps only the owner can close ───────────────────────────────────────────
-# A capability no target system supplies and first-party code cannot
-# practically provide. Each stays a pending row until the owner decides.
+# Owner decisions on capability, packaging and the supported OS baseline.
+# Keep requirements pending until their approved replacements are qualified.
 
 [[decisions]]
 title = "A web view on Linux (WebKitGTK)"
 text = """
-`IWebView` on Linux is WebKitGTK. macOS and iOS have WKWebView, Windows 11 has the
-WebView2 runtime and Android has android.webkit, all part of the system. Linux has no
-web engine of its own, and writing one is not practical. The choices: (a) `IWebView`
-becomes unsupported on Linux, and a program opens pages in the user's browser; (b)
-WebKitGTK stays as a second, Linux-only exception, which also keeps GTK in the process
-for that one view; (c) the web view moves out of the standard library into a separate
-package that names its dependency. Until then the requirement stays listed as pending.
+Move the Linux embedded web view into an optional WebKitGTK-backed package. Preserve
+embedded rendering and provide a migration for existing IWebView clients. Keep the
+existing implementation and its pending requirements until the package works.
 """
 
 [[decisions]]
 title = "A Java VM on desktop systems (HotSpot)"
 text = """
-`Library.Java` runs BTRC code inside a Java VM. On Android the application's own VM
-(ART) is part of the system. On Linux, macOS and Windows the module links a JDK's
-`libjvm` and reads its `jni.h`, which no desktop system supplies, and a VM cannot be
-written first-party. The desktop rows exist so the JNI lowering can be tested under
-`-Xcheck:jni` without an emulator. The choices: (a) `Library.Java` becomes Android-only
-and the desktop JDK moves into the test harness, which keeps the checked-JNI tests but
-drops `JavaVirtualMachine.createHost` for desktop programs; (b) the desktop JDK stays as
-a second exception. Until then the requirement stays listed as pending.
+Keep Library.Java on Android using the application's ART runtime. Move desktop VM
+hosting, including createHost, into an optional JDK-backed package with a migration for
+existing callers. Keep desktop checked-JNI tests under -Xcheck:jni.
 """
 
 [[decisions]]
 title = "The display client library a Linux GPU surface needs"
 text = """
-wgpu-native presents to a Linux window through Vulkan's window-system extensions, and a
-Vulkan driver accepts only its own client library's objects: a libwayland-client
-`wl_display` and `wl_surface`, or an Xlib or xcb connection and a window id. First-party
-code can speak either protocol over the display server's socket for windows, input and
-controls, but it cannot hand such a connection to the driver. On X11 a window id is
-global, so a first-party connection can own the window while a second connection, opened
-through libX11 only when a GPU view is created, gives the driver its handle. On Wayland a
-surface belongs to the connection that made it, so a native Wayland window with a GPU
-view has to live on libwayland-client entirely. The choices: (a) count the display client
-library as part of the wgpu-native exception (it is what that backend needs to present),
-loaded only for GPU surfaces, with X11 through first-party code and Wayland sessions
-served through Xwayland; (b) the same, and also allow libwayland-client for windows that
-hold a GPU view, to keep native Wayland; (c) no on-screen GPU view on Linux without an
-exception. The replacement plan below assumes (a) until the owner says otherwise.
+Target native Wayland. Ordinary windows and controls use a first-party client of the
+compositor protocol. GPU presentation may use libwayland-client as part of the
+wgpu-native surface integration. The driver requires a real wl_display and wl_surface
+owned by the same connection. Limit the allowance to GPU windows and verify actual loads.
+Preserve X11 compatibility where inexpensive. Do not undertake a new X11 backend or
+require Xwayland for a Wayland session.
 """
 
 [[decisions]]
 title = "TLS on Linux"
 text = """
-`https://` needs TLS. macOS and iOS, Windows and Android each supply it (and a whole HTTP
-stack, with the system's trust store). Linux supplies none: the kernel has no handshake,
-and OpenSSL, GnuTLS and libcurl are distribution packages. The replacement is a
-first-party TLS client in BTRC over the first-party cryptography, verifying against the
-system's CA bundle. That keeps the capability and adds no exception, but it is new,
-unaudited security code on the path every Linux `https://` request takes. The choices:
-(a) ship the first-party TLS client, stated as unaudited, as planned; (b) allow a
-Linux-only TLS exception instead (OpenSSL through libcurl, as the earlier transport design
-assumed); (c) `https://` unsupported on Linux in the standard library. The plan follows
-(a) until the owner says otherwise.
+Build first-party TLS over the first-party cryptography and the system CA bundle.
+Qualify certificate and hostname verification, protocol interoperability and observable
+HTTP behavior. Obtain independent security review before switching production HTTPS.
+Keep the current working transport while qualification and review are pending.
 """
 
 # ── Third-party requirements known today, awaiting removal ──────────────────
@@ -313,7 +289,7 @@ resolution = "Library.Image.JPEG, the first-party codec already in the tree."
 dependency = "curl"
 module = "HTTP/HTTPCurlTransport"
 os = ["linux", "macos"]
-resolution = "`http://` is first-party on every BSD-socket system, and Windows uses WinHTTP for both schemes. Left: `https://` on Linux (first-party TLS) and on macOS (NSURLSession). iOS and Android never reach curl; their `https://` waits for NSURLSession and HttpURLConnection."
+resolution = "Direct HTTP and HTTP forward proxies use first-party code on desktop Unix. TLS and SOCKS proxies still use curl there, as does HTTPS until first-party TLS on Linux and NSURLSession on macOS are qualified. Windows uses WinHTTP. Mobile has no curl dependency."
 
 [[pending]]
 dependency = "FreeType"
@@ -355,7 +331,7 @@ resolution = "Goes with WebKitGTK."
 dependency = "WebKitGTK"
 module = "GUI/Shim/ShimWeb"
 os = ["linux"]
-resolution = "Linux supplies no web engine: an owner decision."
+resolution = "Move the embedded WebKitGTK provider to an optional package and verify the client migration."
 
 [[pending]]
 dependency = "libwayland-client"
@@ -367,7 +343,7 @@ resolution = "The Wayland wire protocol from first-party code, except where wgpu
 dependency = "libX11"
 module = "GUI/Shim/Shim"
 os = ["linux"]
-resolution = "The X11 wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects."
+resolution = "Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend."
 
 [[pending]]
 dependency = "wayland-protocols' viewporter binding (bundled generated source)"
@@ -379,7 +355,7 @@ resolution = "First-party protocol tables written with the first-party Wayland c
 dependency = "a desktop JVM (HotSpot)"
 module = "Java/JavaVirtualMachine"
 os = ["linux", "macos", "windows"]
-resolution = "No desktop system supplies a Java VM: an owner decision."
+resolution = "Move desktop VM hosting to an optional JDK-backed package and retain checked-JNI tests."
 
 [[pending]]
 dependency = "the WebView2 SDK (header and loader DLL)"
