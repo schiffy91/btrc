@@ -13,4 +13,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+/* 0 transfers the result to the caller, -1 means timeout, -2 lookup failure. */
+int btrcHttpResolve(const char *host, const char *service, long long deadlineMs, struct addrinfo **result);
+
 #endif

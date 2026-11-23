@@ -72,7 +72,7 @@ class HTTPClientAddress {
 	}
 
 	/* Null when the URL is not `http(s)://host[:port][/path][?query]`. */
-	class HTTPClientAddress? parse(string url) {
+	class HTTPClientAddress? parse(string url, int defaultPort = 0) {
 		string lower = url.toLower();
 		bool secure = lower.startsWith("https://");
 		if (!secure && !lower.startsWith("http://")) { return null; }
@@ -108,7 +108,7 @@ class HTTPClientAddress {
 			}
 		}
 		if (!HTTPClientAddress.hostText(host, literal)) { return null; }
-		int port = secure ? 443 : 80;
+		int port = defaultPort > 0 ? defaultPort : (secure ? 443 : 80);
 		if (!portText.isEmpty()) {
 			if (portText.len() > 5) { return null; }
 			port = 0;
@@ -168,7 +168,7 @@ class HTTPExchange {
 
 	/* `user:password` from a URL's user information, decoded. */
 	class string credentials(string userInfo) {
-		string decoded = HTTPUrl.decode(userInfo);
+		string decoded = HTTPUrl.decode(userInfo.replace("+", "%2B"));
 		return decoded.find(":", 0) < 0 ? decoded + ":" : decoded;
 	}
 

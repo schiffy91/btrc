@@ -1,0 +1,32 @@
+/* Desktop HTTP proxy selection. http_proxy is lowercase only, as curl
+ * requires for CGI environments. no_proxy entries name domains or numeric
+ * networks and never trigger a lookup of the origin at the client. */
+import Library.HTTP.HTTPExchange;
+import Library.Platform;
+import Library.Strings;
+import Library.Vector;
+
+extern int btrcHttpProxyNetwork(string host, string entry);
+
+class HTTPProxy {
+	class string setting(HTTPClientAddress address) {
+		string proxy = Environment.get("http_proxy", "");
+		if (proxy.isEmpty()) { proxy = Environment.get("all_proxy", Environment.get("ALL_PROXY", "")); }
+		if (proxy.isEmpty()) { return ""; }
+		string rules = Environment.get("no_proxy", Environment.get("NO_PROXY", "")).trim();
+		if (rules.equals("*")) { return ""; }
+		string host = address.resolvable().toLower();
+		if (host.endsWith(".")) { host = host.substring(0, host.len() - 1); }
+		for rule in Strings.split(rules, ",") {
+			string entry = rule.trim().toLower();
+			if (entry.isEmpty()) { continue; }
+			int numeric = btrcHttpProxyNetwork(host, entry);
+			if (numeric == 1) { return ""; }
+			if (numeric == 0) { continue; }
+			if (entry.startsWith(".")) { entry = entry.substring(1, entry.len() - 1); }
+			if (entry.endsWith(".")) { entry = entry.substring(0, entry.len() - 1); }
+			if (!entry.isEmpty() && (host.equals(entry) || host.endsWith("." + entry))) { return ""; }
+		}
+		return proxy;
+	}
+}
