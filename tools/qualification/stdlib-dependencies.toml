@@ -25,14 +25,14 @@ headers = [
 # first-party code speaking its protocol over its socket; the client library a
 # distribution packages for it is not the operating system.
 [supplied.linux]
-libraries = ["c", "m", "pthread", "dl", "rt", "util"]
+libraries = ["c", "m", "pthread", "dl", "rt", "util", "resolv"]
 headers = [
 	"arpa/*", "dirent.h", "dlfcn.h", "fcntl.h", "fnmatch.h", "glob.h", "grp.h", "linux/*", "net/*",
 	"netdb.h", "netinet/*", "poll.h", "pthread.h", "pty.h", "pwd.h", "regex.h", "sched.h",
 	"semaphore.h", "sound/*", "spawn.h", "sys/*", "termios.h", "unistd.h", "utime.h",
 ]
 programs = ["/bin/sh"]
-binaries = ["libc.so.*", "libm.so.*", "libpthread.so.*", "libdl.so.*", "librt.so.*", "libutil.so.*", "ld-linux*.so.*"]
+binaries = ["libc.so.*", "libm.so.*", "libpthread.so.*", "libdl.so.*", "librt.so.*", "libutil.so.*", "libresolv.so.2", "ld-linux*.so.*"]
 
 # Android: bionic, the NDK's stable system libraries, and the framework classes
 # of android.jar reached through the application's own VM.
@@ -137,7 +137,7 @@ name = "libsodium"
 pkg-config = ["libsodium"]
 libraries = ["sodium"]
 headers = ["sodium.h", "sodium/*"]
-binaries = ["libsodium.so*"]
+binaries = ["libsodium.so*", "libsodium*.dylib", "*/libsodium*.dylib", "libsodium*.dll"]
 
 [[dependencies]]
 name = "libpng"
@@ -266,12 +266,6 @@ Keep the current working transport while qualification and review are pending.
 """
 
 # ── Third-party requirements known today, awaiting removal ──────────────────
-
-[[pending]]
-dependency = "libsodium"
-module = "Crypto/Unix/SodiumProvider"
-os = ["linux", "macos", "ios"]
-resolution = "One portable BTRC implementation of the primitives (Ed25519, X25519, BLAKE2b, SHA-2, XChaCha20-Poly1305 secretstream) with the system's random source, wire-compatible with libsodium, on every target."
 
 [[pending]]
 dependency = "libpng"
