@@ -377,6 +377,7 @@ class CryptoVectors {
 		unsigned char receiving[52];
 		SecretStream.begin(sending, (unsigned char*)header.data, (unsigned char*)key.data);
 		SecretStream.begin(receiving, (unsigned char*)header.data, (unsigned char*)key.data);
+		self.expect(SecretStream.seal(sending, null, null, 2147483647 - 16, SECRET_STREAM_MESSAGE) == -1, "sealed length must fit in an int");
 		self.expectBytes(sending, 52, "001b38f1bc654a0470f0172049103eccb67d8bb16b11d2a468db66a2dd53d47d0100000050515253545556570000000000000000", "secretstream initial state");
 
 		Bytes message1 = Bytes();
