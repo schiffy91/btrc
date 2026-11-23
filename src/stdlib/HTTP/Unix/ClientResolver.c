@@ -72,7 +72,7 @@ static void *resolveHost(void *context) {
     return NULL;
 }
 
-int btrcHttpResolve(const char *host, const char *service, long long deadlineMs, struct addrinfo **result) {
+int btrcHttpResolve(char *host, char *service, long long deadlineMs, void **result) {
     *result = NULL;
     if (deadlineMs <= 0) { return -1; }
     const struct timespec deadline = {(time_t)(deadlineMs / 1000), (long)(deadlineMs % 1000) * 1000000L};
@@ -115,4 +115,18 @@ int btrcHttpResolve(const char *host, const char *service, long long deadlineMs,
     pthread_mutex_unlock(&resolverLock);
     free(lookup);
     return *result == NULL ? -2 : 0;
+}
+
+/* Advance even when socket creation fails so the caller can try the next
+ * candidate. The address remains owned by the head of the resolver list. */
+int btrcHttpAddressSocket(void **cursor, struct sockaddr **address, socklen_t *length) {
+    const struct addrinfo *entry = *cursor;
+    *cursor = entry->ai_next;
+    *address = entry->ai_addr;
+    *length = entry->ai_addrlen;
+    return socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
+}
+
+void btrcHttpFreeAddresses(void *addresses) {
+    freeaddrinfo(addresses);
 }

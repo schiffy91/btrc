@@ -40,10 +40,7 @@ _SNAKE_CASE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
 _PLATFORM_STRUCT_MEMBERS = frozenset(
     {
         "ai_addr",
-        "ai_addrlen",
         "ai_family",
-        "ai_next",
-        "ai_protocol",
         "ai_socktype",  # struct addrinfo
         "d_name",  # struct dirent
         "decimal_point",  # struct lconv

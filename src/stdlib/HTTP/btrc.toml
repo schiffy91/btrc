@@ -24,15 +24,6 @@ module = "HTTPClient"
 implementation = "Windows.HTTPTransportProvider"
 os = ["windows"]
 
-# The client's resolver and socket calls on the BSD-socket systems.
-[[native.bindings]]
-module = "Unix.HTTPPlainTransport"
-header = "Unix/ClientSockets.h"
-language = "c"
-standard = "c11"
-symbols = ["addrinfo", "btrcHttpResolve", "freeaddrinfo"]
-os = ["android", "ios", "linux", "macos"]
-
 [[native.sources]]
 path = "Unix/ClientResolver.c"
 language = "c"

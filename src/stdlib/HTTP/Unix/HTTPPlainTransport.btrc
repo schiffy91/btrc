@@ -9,6 +9,10 @@ import Library.IO;
 import Library.Timer;
 import Library.Vector;
 
+extern int btrcHttpResolve(char* host, char* service, long long deadlineMs, void** result);
+extern int btrcHttpAddressSocket(void** cursor, struct sockaddr** address, socklen_t* length);
+extern void btrcHttpFreeAddresses(void* addresses);
+
 /* A connected, nonblocking, close-on-exec socket the stream owns. */
 class HTTPSocketStream implements IHTTPByteStream {
 	private int descriptor;
@@ -50,20 +54,22 @@ class HTTPPlainTransport {
 		memcpy(name, host, (size_t)host.len());
 		char service[16];
 		snprintf(service, sizeof(service), "%d", port);
-		struct addrinfo* found = NULL;
+		void* found = NULL;
 		int status = btrcHttpResolve(name, service, deadline, &found);
 		if (status != 0) { return status; }
 		int connected = -1;
-		struct addrinfo* entry = found;
+		void* entry = found;
 		while (entry != NULL && connected < 0 && MonotonicClock.remaining(deadline) > 0LL) {
-			int descriptor = socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
+			struct sockaddr* address = NULL;
+			socklen_t addressLength = 0;
+			int descriptor = btrcHttpAddressSocket(&entry, &address, &addressLength);
 			if (descriptor >= 0 && !DescriptorFlags.configure(descriptor, true)) {
 				close(descriptor);
 				descriptor = -1;
 			}
 			if (descriptor >= 0) {
 				int failure = 0;
-				if (connect(descriptor, entry->ai_addr, entry->ai_addrlen) != 0) {
+				if (connect(descriptor, address, addressLength) != 0) {
 					failure = errno;
 					if (failure == EINPROGRESS || failure == EINTR) {
 						failure = ETIMEDOUT;
@@ -76,9 +82,8 @@ class HTTPPlainTransport {
 				if (failure == 0) { connected = descriptor; }
 				else { close(descriptor); }
 			}
-			entry = entry->ai_next;
 		}
-		freeaddrinfo(found);
+		btrcHttpFreeAddresses(found);
 		return connected;
 	}
 
