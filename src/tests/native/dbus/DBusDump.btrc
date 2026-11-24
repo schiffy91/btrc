@@ -1,0 +1,66 @@
+/* What a D-Bus message holds, written out as text: the D-Bus programs
+ * compare a whole body with one string, and walking a body this way reads
+ * every value in it. */
+
+import Library.Bytes;
+import Library.DBus.DBusMessage;
+import Library.Strings;
+
+class DBusDump {
+	class string wide(unsigned long long value) {
+		Bytes units = Bytes();
+		units.appendU64BE(value);
+		return units.toHex();
+	}
+
+	/* The value `reader` stands on. */
+	class string value(DBusReader reader) {
+		DBusType type = reader.type();
+		if (type == DBUS_TYPE_BYTE) { return f"y{reader.readByte()}"; }
+		if (type == DBUS_TYPE_BOOLEAN) { return reader.readBool() ? "true" : "false"; }
+		if (type == DBUS_TYPE_INT16) { return f"n{reader.readInt16()}"; }
+		if (type == DBUS_TYPE_UINT16) { return f"q{reader.readUInt16()}"; }
+		if (type == DBUS_TYPE_INT32) { return f"i{reader.readInt32()}"; }
+		if (type == DBUS_TYPE_UINT32) { return "u" + DBusDump.wide((unsigned long long)reader.readUInt32()); }
+		if (type == DBUS_TYPE_INT64) {
+			long long number = reader.readInt64();
+			unsigned long long bits = 0ULL;
+			memcpy(&bits, &number, sizeof(bits));
+			return "x" + DBusDump.wide(bits);
+		}
+		if (type == DBUS_TYPE_UINT64) { return "t" + DBusDump.wide(reader.readUInt64()); }
+		if (type == DBUS_TYPE_DOUBLE) {
+			double number = reader.readDouble();
+			unsigned long long bits = 0ULL;
+			memcpy(&bits, &number, sizeof(bits));
+			return "d" + DBusDump.wide(bits);
+		}
+		if (type == DBUS_TYPE_STRING) { return "'" + reader.readString() + "'"; }
+		if (type == DBUS_TYPE_OBJECT_PATH) { return "o'" + reader.readObjectPath() + "'"; }
+		if (type == DBUS_TYPE_SIGNATURE) { return "g'" + reader.readSignature() + "'"; }
+		if (type == DBUS_TYPE_ARRAY) { return "[" + reader.elementSignature() + ":" + DBusDump.values(reader.recurse()) + "]"; }
+		if (type == DBUS_TYPE_STRUCT) { return "(" + DBusDump.values(reader.recurse()) + ")"; }
+		if (type == DBUS_TYPE_DICT_ENTRY) { return "{" + DBusDump.values(reader.recurse()) + "}"; }
+		if (type == DBUS_TYPE_VARIANT) {
+			DBusReader inner = reader.recurse();
+			return "<" + inner.signature() + " " + DBusDump.values(inner) + ">";
+		}
+		return "?";
+	}
+
+	/* Every value from where `reader` stands to its end, separated by spaces. */
+	class string values(DBusReader reader) {
+		StringBuilder text = StringBuilder();
+		bool first = true;
+		while (reader.type() != DBUS_TYPE_INVALID) {
+			if (!first) { text.append(" "); }
+			text.append(DBusDump.value(reader));
+			first = false;
+			reader.next();
+		}
+		return text.toString();
+	}
+
+	/* A received message's arguments. */
+	class string body(DBusMessage message) { return DBusDump.values(message.reader()); }
+}

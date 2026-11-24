@@ -1,0 +1,69 @@
+/* BluetoothAdapter's conversation with the Bluetooth daemon, held with a
+ * stand-in for BlueZ: the test owns org.bluez on a bus of its own, names it
+ * in DBUS_SYSTEM_BUS_ADDRESS, records every call this program makes and
+ * then calls the pairing agent this program serves. No controller is
+ * involved, so it runs where there is no Bluetooth; the VM check runs the
+ * real daemon. */
+
+import Library.Bluetooth.BluetoothAdapter;
+import Library.Bluetooth.BluetoothAddress;
+import Library.Bluetooth.BluetoothPairing;
+import Library.FileSystem;
+import Library.Platform;
+import Library.Timer;
+
+#include <assert.h>
+#include <poll.h>
+
+int main() {
+	BluetoothPairingWindow window = BluetoothPairingWindow();
+	/* A reachable daemon can have no adapter by the requested name. Every
+	 * failed open releases its connection before another public call. */
+	for (int attempt = 0; attempt < 3; attempt++) {
+		bool refused = false;
+		try {
+			var missing = BluetoothAdapter.open("hciMissing", window);
+			missing.close();
+		} catch (string error) { refused = error.equals("No Bluetooth adapter hciMissing (is bluetoothd running?)"); }
+		assert(refused);
+	}
+	BluetoothAdapter adapter = BluetoothAdapter.open("hci0", window);
+	assert(adapter.isOpen() && adapter.address().toString().equals("00:AA:01:00:00:23"));
+	assert(adapter.alias().equals("stand-in") && adapter.setAlias("renamed ✓") && adapter.alias().equals("renamed ✓"));
+	assert(!adapter.powered() && adapter.setPowered(true) && adapter.powered());
+	assert(!adapter.discoverable() && adapter.setDiscoverable(true, 30) && adapter.discoverable());
+
+	BluetoothAddress? known = BluetoothAddress.parse("11:22:33:44:55:66");
+	BluetoothAddress? stranger = BluetoothAddress.parse("66:55:44:33:22:11");
+	if (known == null || stranger == null) { return 2; }
+	BluetoothAddress peer = known;
+	BluetoothAddress other = stranger;
+	assert(adapter.bonded(peer) && !adapter.connected(peer));
+	/* The daemon has no such device: the error reply reads as false. */
+	assert(!adapter.bonded(other));
+
+	assert(adapter.publish("00001124-0000-1000-8000-00805f9b34fb", "<record><attribute id=\"0x0001\"/></record>"));
+	window.open(60);
+	assert(adapter.allowPairing(true) && adapter.pairable());
+
+	/* The daemon asks its questions now; they are answered until the test is done asking. */
+	string done = Environment.get("BTRC_TEST_DONE", "");
+	print("READY");
+	fflush(stdout);
+	long long deadline = MonotonicClock.deadlineAfter(30000LL);
+	while (!FileSystem.isFile(done) && MonotonicClock.before(deadline)) {
+		struct pollfd waiting[1];
+		assert(adapter.watch(waiting, 1) == 1 && waiting[0].fd >= 0);
+		poll(waiting, (nfds_t)1, 20);
+		assert(adapter.step());
+	}
+	assert(FileSystem.isFile(done));
+
+	assert(adapter.forget(peer) && !adapter.forget(other));
+	assert(adapter.allowPairing(false) && !adapter.pairable());
+	adapter.close();
+	adapter.close();
+	assert(!adapter.isOpen() && !adapter.step() && adapter.alias().isEmpty() && !adapter.setPowered(false));
+	print("PASS: the adapter's conversation with the Bluetooth daemon");
+	return 0;
+}

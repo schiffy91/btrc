@@ -1,0 +1,432 @@
+/* Library.DBus against a real bus daemon: the test starts a private
+ * dbus-daemon and passes its address as DBUS_SESSION_BUS_ADDRESS. Addresses
+ * and the codec are checked first, without the bus; then two connections of
+ * this client register, own a name, call the bus, hear its signals and
+ * exchange every type with each other. */
+
+import Library.Bytes;
+import Library.DBus;
+import Library.Platform;
+import Library.Strings;
+import Library.Timer;
+import Library.Vector;
+
+import ./DBusDump.btrc;
+import ./DBusSamples.btrc;
+#include <assert.h>
+
+class DBusConformance {
+	class string driver() { return "org.freedesktop.DBus"; }
+
+	class string echoPath() { return "/org/btrc/test/Echo"; }
+
+	class string echoInterface() { return "org.btrc.test.Echo"; }
+
+	class DBusConnection connect() {
+		DBusConnection? opened = DBusConnection.session();
+		if (opened == null) { throw "the session bus could not be reached"; }
+		DBusConnection bus = opened;
+		return bus;
+	}
+
+	class bool usable(string address) { return DBusAddress.parse(address).len == 1; }
+
+	/* A valid peer message may arrive while an application is waiting for a
+     * different reply. The old 8 MiB threshold refused the driver's reply. */
+	class void bufferedCall() {
+		DBusConnection from = DBusConformance.connect();
+		DBusConnection to = DBusConformance.connect();
+		DBusMessage queued = DBusMessage.methodCall(to.uniqueName(), DBusConformance.echoPath(), DBusConformance.echoInterface(), "Buffered");
+		queued.setNoReply(true);
+		queued.writer().appendString("a".repeat(9 * 1024 * 1024));
+		assert(from.send(queued));
+		DBusMessage fence = DBusMessage.methodCall(DBusConnection.busName(), DBusConnection.busPath(), DBusConnection.busName(), "GetId");
+		assert(from.call(fence, 15000) != null);
+		/* The daemon has now routed the large message to this connection. */
+		assert(to.call(fence, 15000) != null);
+		bool found = false;
+		DBusMessage? next = to.popMessage();
+		while (next != null) {
+			DBusMessage message = next;
+			if (message.member().equals("Buffered")) { found = message.reader().readString().len() == 9 * 1024 * 1024; }
+			next = to.popMessage();
+		}
+		assert(found);
+		from.close();
+		to.close();
+	}
+
+	class void addresses() {
+		Vector<DBusAddress> one = DBusAddress.parse("unix:path=/run/user/1000/bus");
+		assert(one.len == 1 && one.get(0).path().equals("/run/user/1000/bus") && !one.get(0).isAbstract());
+
+		/* A list: what this client cannot use is passed over, in order. */
+		Vector<DBusAddress> many = DBusAddress.parse("tcp:host=localhost,port=4;unix:abstract=/tmp/dbus-%41%2c%3b,guid=0123abcd0123abcd0123abcd0123abcd;unix:path=/a%20b;;nonce-tcp:host=x,port=1,noncefile=/n;autolaunch:;unix:tmpdir=/tmp");
+		assert(many.len == 5);
+		assert(many.get(1).isAbstract() && many.get(1).path().equals("/tmp/dbus-A,;"));
+		assert(!many.get(2).isAbstract() && many.get(2).path().equals("/a b"));
+
+		assert(!DBusConformance.usable(""));
+		assert(!DBusConformance.usable("unix:"));
+		assert(!DBusConformance.usable("unix:path="));
+		assert(!DBusConformance.usable("unix:path=/a,abstract=b"));
+		assert(!DBusConformance.usable("unix:path=/a%"));
+		assert(!DBusConformance.usable("unix:path=/a%4"));
+		assert(!DBusConformance.usable("unix:path=/a%zz"));
+		assert(!DBusConformance.usable("unix:path=/a%00b"));
+		assert(!DBusConformance.usable("unix:path"));
+		assert(!DBusConformance.usable("unix:nope=/a"));
+		assert(!DBusConformance.usable("unix:runtime=no"));
+		assert(!DBusConformance.usable("path=/a"));
+		assert(DBusConformance.usable("tcp:host=127.0.0.1,port=1"));
+		assert(!DBusConformance.usable("tcp:host=localhost,port=65536"));
+		assert(!DBusConformance.usable("unix:path=/a,guid=0123"));
+		assert(DBusConformance.usable("unixexec:path=/bin/true"));
+		assert(!DBusConformance.usable("unixexec:path=/bin/true,argv2=gap"));
+		assert(!DBusConformance.usable("launchd:env=DBUS_LAUNCHD_SESSION_BUS_SOCKET"));
+		assert(DBusConformance.usable("autolaunch:"));
+
+		string awkward = "/tmp/a b;c,d%e=é";
+		Vector<DBusAddress> escaped = DBusAddress.parse("unix:path=" + DBusAddress.escape(awkward));
+		assert(escaped.len == 1 && escaped.get(0).path().equals(awkward));
+
+		/* Where the buses are, by the environment. */
+		string session = Environment.get("DBUS_SESSION_BUS_ADDRESS", "");
+		string runtime = Environment.get("XDG_RUNTIME_DIR", "");
+		string system = Environment.get("DBUS_SYSTEM_BUS_ADDRESS", "");
+		assert(DBusAddress.session().equals(session));
+		Environment.unset("DBUS_SESSION_BUS_ADDRESS");
+		Environment.set("XDG_RUNTIME_DIR", "/run/user/a b");
+		assert(DBusAddress.session().equals("unix:path=/run/user/a%20b/bus"));
+		Vector<DBusAddress> fallback = DBusAddress.parse("unix:runtime=yes");
+		assert(fallback.len == 1 && fallback.get(0).path().equals("/run/user/a b/bus"));
+		Environment.unset("XDG_RUNTIME_DIR");
+		assert(DBusAddress.session().isEmpty() && !DBusConformance.usable("unix:runtime=yes"));
+		Environment.unset("DBUS_SYSTEM_BUS_ADDRESS");
+		assert(DBusAddress.system().equals("unix:path=/var/run/dbus/system_bus_socket"));
+		Environment.set("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/elsewhere");
+		assert(DBusAddress.system().equals("unix:path=/elsewhere"));
+		if (system.isEmpty()) { Environment.unset("DBUS_SYSTEM_BUS_ADDRESS"); }
+		else { Environment.set("DBUS_SYSTEM_BUS_ADDRESS", system); }
+		if (!runtime.isEmpty()) { Environment.set("XDG_RUNTIME_DIR", runtime); }
+		Environment.set("DBUS_SESSION_BUS_ADDRESS", session);
+
+		/* Nothing usable, nothing listening, or a name no socket can have. */
+		assert(DBusConnection.open("") == null);
+		assert(DBusConnection.open("tcp:host=127.0.0.1,port=1") == null);
+		assert(DBusConnection.open("unix:path=/nonexistent/btrc/dbus/socket") == null);
+		assert(DBusConnection.open("unix:abstract=btrc-dbus-conformance-absent") == null);
+		assert(DBusConnection.open("unix:path=/" + "long/".repeat(40)) == null);
+	}
+
+	class DBusMessage wired(DBusMessage built, unsigned int serial) {
+		Bytes? marshalled = built.marshal(serial);
+		if (marshalled == null) { throw "a message was not marshalled"; }
+		Bytes wire = marshalled;
+		DBusMessage? parsed = DBusMessage.parseBytes(wire);
+		if (parsed == null) { throw "a marshalled message was not parsed"; }
+		DBusMessage message = parsed;
+		return message;
+	}
+
+	class void copyBody(DBusMessage source, DBusMessage target) {
+		DBusReader reader = source.reader();
+		DBusWriter writer = target.writer();
+		while (reader.type() != DBUS_TYPE_INVALID) {
+			writer.appendValue(reader);
+			reader.next();
+		}
+	}
+
+	class string mangled() {
+		Bytes raw = Bytes();
+		raw.append(0x61);
+		raw.append(0xC3);
+		raw.append(0x28);
+		return raw.toString();
+	}
+
+	/* Each of these is a message a bus would drop the connection for. */
+	class bool refused(int attempt) {
+		DBusMessage message = DBusMessage.signal("/a", "org.btrc.test.Events", "Changed");
+		DBusWriter arguments = message.writer();
+		try {
+			if (attempt == 0) { arguments.appendString(DBusConformance.mangled()); }
+			else if (attempt == 1) { arguments.appendObjectPath("relative/path"); }
+			else if (attempt == 2) { arguments.appendObjectPath("/trailing/"); }
+			else if (attempt == 3) { arguments.appendObjectPath("/double//slash"); }
+			else if (attempt == 4) { arguments.appendSignature("a"); }
+			else if (attempt == 5) { arguments.appendSignature("{ss}"); }
+			else if (attempt == 6) { arguments.openArray(""); }
+			else if (attempt == 7) { arguments.openArray("ss"); }
+			else if (attempt == 8) { arguments.openArray("{vs}"); }
+			else if (attempt == 9) { arguments.openVariant("ii"); }
+			else if (attempt == 10) { arguments.openVariant(""); }
+			else if (attempt == 11) { arguments.openArray("s").appendInt32(1); }
+			else if (attempt == 12) { arguments.openVariant("s").close(); }
+			else if (attempt == 13) { arguments.openStruct().close(); }
+			else if (attempt == 14) { arguments.openDictEntry(); }
+			else if (attempt == 15) {
+				DBusWriter inner = arguments.openStruct();
+				arguments.appendInt32(1);
+			} else if (attempt == 16) {
+				DBusWriter inner = arguments.openArray("i");
+				inner.close();
+				inner.close();
+			} else if (attempt == 17) {
+				DBusWriter entries = arguments.openArray("{si}");
+				DBusWriter entry = entries.openEntry("only a key");
+				entry.close();
+			} else if (attempt == 18) {
+				DBusWriter variant = arguments.openVariant("s");
+				variant.appendString("one");
+				variant.appendString("two");
+			} else if (attempt == 19) {
+				DBusWriter deep = arguments;
+				for (int level = 0; level < 65; level++) { deep = deep.openVariant("v"); }
+			} else if (attempt == 20) {
+				for (int count = 0; count < 256; count++) { arguments.appendByte(count); }
+			} else if (attempt == 21) { DBusMessage.methodCall("org.btrc.test.Echo", "no/slash", "org.btrc.test.Echo", "Echo"); }
+			else if (attempt == 22) { DBusMessage.methodCall("org.btrc.test.Echo", "/a", "org.btrc.test.Echo", "Not.A.Member"); }
+			else if (attempt == 23) { DBusMessage.methodCall("org.btrc.test.Echo", "/a", "nodots", "Echo"); }
+			else if (attempt == 24) { DBusMessage.methodCall("not a name", "/a", "org.btrc.test.Echo", "Echo"); }
+			else if (attempt == 25) { DBusMessage.signal("/a", "", "Changed"); }
+			else if (attempt == 26) { DBusMessage.signal("/a", "org.btrc.test.Events", "9lives"); }
+			else if (attempt == 27) { DBusMessage.methodReturn(message); }
+			else if (attempt == 28) { message.reader(); }
+			else { return false; }
+		} catch (string error) { return !error.isEmpty(); }
+		return false;
+	}
+
+	class void codec() {
+		DBusMessage call = DBusMessage.methodCall("org.btrc.test.Echo", DBusConformance.echoPath(), DBusConformance.echoInterface(), "Echo");
+		DBusSamples.fill(call.writer());
+		assert(call.signature().equals(DBusSamples.signature()));
+		assert(call.serial() == 0u && call.marshal(0u) == null);
+		DBusMessage arrived = DBusConformance.wired(call, 77u);
+		assert(call.serial() == 77u);
+		assert(arrived.type() == DBUS_MESSAGE_TYPE_METHOD_CALL && arrived.serial() == 77u && arrived.replySerial() == 0u);
+		assert(arrived.path().equals(DBusConformance.echoPath()) && arrived.interfaceName().equals(DBusConformance.echoInterface()) && arrived.member().equals("Echo"));
+		assert(arrived.destination().equals("org.btrc.test.Echo") && arrived.sender().isEmpty() && arrived.errorName().isEmpty() && !arrived.noReply());
+		assert(arrived.isMethodCall(DBusConformance.echoInterface(), "Echo") && !arrived.isSignal(DBusConformance.echoInterface(), "Echo"));
+		assert(arrived.signature().equals(DBusSamples.signature()));
+		string text = DBusDump.body(arrived);
+		if (!text.equals(DBusSamples.text())) { throw "the sample body reads back as " + text; }
+
+		/* A copy made value by value marshals to the same bytes. */
+		DBusMessage copy = DBusMessage.methodCall("org.btrc.test.Echo", DBusConformance.echoPath(), DBusConformance.echoInterface(), "Echo");
+		DBusConformance.copyBody(arrived, copy);
+		Bytes? original = call.marshal(9u);
+		Bytes? copied = copy.marshal(9u);
+		if (original == null || copied == null) { throw "a copied message was not marshalled"; }
+		Bytes left = original;
+		Bytes right = copied;
+		assert(left.equals(right));
+
+		/* A read of another type is that type's zero; the cursor stays put. */
+		DBusReader first = arrived.reader();
+		assert(first.type() == DBUS_TYPE_BYTE && first.signature().equals("y"));
+		assert(first.readString().isEmpty() && first.readObjectPath().isEmpty() && first.readSignature().isEmpty() && first.readText().isEmpty());
+		assert(first.readInt32() == 0 && first.readUInt32() == 0u && first.readInt16() == 0 && first.readUInt16() == 0 && first.readInt64() == 0LL && first.readUInt64() == 0ULL && !first.readBool() && first.readDouble() == 0.0);
+		assert(first.recurse().type() == DBUS_TYPE_INVALID && first.elementSignature().isEmpty());
+		assert(first.readByte() == 255);
+		int count = 1;
+		while (first.next()) { count++; }
+		assert(count == 19 && first.type() == DBUS_TYPE_INVALID && !first.next() && first.signature().isEmpty() && first.readByte() == 0);
+
+		DBusMessage reply = DBusMessage.methodReturn(arrived);
+		reply.writer().appendString("done");
+		DBusMessage back = DBusConformance.wired(reply, 5u);
+		assert(back.type() == DBUS_MESSAGE_TYPE_METHOD_RETURN && back.replySerial() == 77u && back.serial() == 5u && back.noReply() && DBusDump.body(back).equals("'done'"));
+
+		DBusMessage failure = DBusConformance.wired(DBusMessage.error(arrived, "org.btrc.test.Error.Failed", "because"), 6u);
+		assert(failure.type() == DBUS_MESSAGE_TYPE_ERROR && failure.isError("org.btrc.test.Error.Failed") && failure.errorMessage().equals("because") && failure.replySerial() == 77u);
+
+		DBusMessage signal = DBusConformance.wired(DBusMessage.signal("/a/b", "org.btrc.test.Events", "Changed"), 7u);
+		assert(signal.isSignal("org.btrc.test.Events", "Changed") && signal.path().equals("/a/b") && signal.signature().isEmpty() && signal.reader().type() == DBUS_TYPE_INVALID);
+
+		DBusMessage quiet = DBusMessage.methodCall("", "/", "", "Ping");
+		quiet.setNoReply(true);
+		DBusMessage silent = DBusConformance.wired(quiet, 8u);
+		assert(silent.noReply() && silent.interfaceName().isEmpty() && silent.destination().isEmpty() && silent.path().equals("/"));
+
+		for (int attempt = 0; attempt < 29; attempt++) {
+			if (!DBusConformance.refused(attempt)) { throw f"refusal {attempt} was accepted"; }
+		}
+		assert(!DBusConformance.refused(29));
+
+		/* Unclosed containers are refused. A large, valid body is preserved. */
+		DBusMessage open = DBusMessage.signal("/a", "org.btrc.test.Events", "Changed");
+		DBusWriter unfinished = open.writer().openArray("s");
+		assert(open.marshal(1u) == null);
+		unfinished.close();
+		assert(open.marshal(1u) != null && open.signature().equals("as"));
+		StringBuilder large = StringBuilder();
+		large.appendRepeat('x', 1048576);
+		DBusMessage heavy = DBusMessage.signal("/a", "org.btrc.test.Events", "Changed");
+		heavy.writer().appendString(large.toString());
+		assert(heavy.marshal(1u) != null);
+	}
+
+	/* The next queued message for which `member` and `body` hold, reading
+	 * for up to two seconds; others are dropped. */
+	class DBusMessage expect(DBusConnection connection, DBusMessageType type, string member, string body) {
+		long long deadline = MonotonicClock.deadlineAfter(2000LL);
+		while (true) {
+			DBusMessage? popped = connection.popMessage();
+			while (popped != null) {
+				DBusMessage message = popped;
+				if (message.type() == type && message.member().equals(member) && (body.equals("*") || DBusDump.body(message).equals(body))) { return message; }
+				popped = connection.popMessage();
+			}
+			long long remaining = MonotonicClock.remaining(deadline);
+			if (remaining <= 0LL || !connection.readWrite((int)remaining)) { throw f"no {member} message arrived"; }
+		}
+		throw "unreachable";
+	}
+
+	/* The same from what is already queued: nothing is read. */
+	class bool queued(DBusConnection connection, string member, string body) {
+		DBusMessage? popped = connection.popMessage();
+		while (popped != null) {
+			DBusMessage message = popped;
+			if (message.member().equals(member) && DBusDump.body(message).equals(body)) { return true; }
+			popped = connection.popMessage();
+		}
+		return false;
+	}
+
+	class DBusMessage toDriver(string member) { return DBusMessage.methodCall(DBusConformance.driver(), "/org/freedesktop/DBus", DBusConformance.driver(), member); }
+
+	class void bus(string name) {
+		DBusConnection first = DBusConformance.connect();
+		DBusConnection second = DBusConformance.connect();
+		assert(first.isConnected() && first.descriptor() >= 0 && first.uniqueName().startsWith(":1."));
+		assert(second.uniqueName().startsWith(":1.") && !second.uniqueName().equals(first.uniqueName()));
+
+		/* Hello is answered with NameAcquired for the unique name; it waited in the queue. */
+		assert(DBusConformance.expect(first, DBUS_MESSAGE_TYPE_SIGNAL, "NameAcquired", f"'{first.uniqueName()}'").sender().equals(DBusConformance.driver()));
+
+		assert(first.addMatch("type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='" + name + "'"));
+		assert(!first.addMatch("this is not a match rule") && first.lastError().equals("org.freedesktop.DBus.Error.MatchRuleInvalid"));
+
+		/* The name's signals arrive before the reply to the request; the call keeps them. */
+		assert(second.requestName(name, DBusConnection.doNotQueue()) == 1);
+		assert(DBusConformance.queued(second, "NameAcquired", f"'{name}'"));
+		assert(second.requestName(name, DBusConnection.doNotQueue()) == 4 && second.ownName(name));
+		assert(first.requestName(name, DBusConnection.doNotQueue()) == 3 && !first.ownName(name));
+		assert(first.requestName("not a bus name", 0u) == 0 && first.lastError().equals("org.freedesktop.DBus.Error.InvalidArgs"));
+		DBusMessage changed = DBusConformance.expect(first, DBUS_MESSAGE_TYPE_SIGNAL, "NameOwnerChanged", f"'{name}' '' '{second.uniqueName()}'");
+		assert(changed.isSignal(DBusConformance.driver(), "NameOwnerChanged") && changed.sender().equals(DBusConformance.driver()) && changed.signature().equals("sss"));
+
+		DBusMessage? listed = first.call(DBusConformance.toDriver("ListNames"), 2000);
+		if (listed == null) { throw "ListNames failed: " + first.lastError(); }
+		DBusMessage names = listed;
+		string all = DBusDump.body(names);
+		assert(names.signature().equals("as") && names.type() == DBUS_MESSAGE_TYPE_METHOD_RETURN && names.sender().equals(DBusConformance.driver()));
+		assert(all.contains(f"'{name}'") && all.contains("'org.freedesktop.DBus'") && all.contains(f"'{first.uniqueName()}'") && all.contains(f"'{second.uniqueName()}'"));
+
+		DBusMessage owner = DBusConformance.toDriver("GetNameOwner");
+		owner.writer().appendString(name);
+		DBusMessage? owned = first.call(owner, 2000);
+		if (owned == null) { throw "GetNameOwner failed: " + first.lastError(); }
+		DBusMessage holder = owned;
+		assert(holder.replySerial() == owner.serial() && holder.reader().readString().equals(second.uniqueName()) && first.lastError().isEmpty());
+
+		/* A call the bus answers with an error. */
+		DBusMessage absent = DBusConformance.toDriver("GetNameOwner");
+		absent.writer().appendString("org.btrc.test.Absent");
+		assert(first.call(absent, 2000) == null && first.lastError().equals("org.freedesktop.DBus.Error.NameHasNoOwner"));
+		DBusMessage again = DBusConformance.toDriver("GetNameOwner");
+		again.writer().appendString("org.btrc.test.Absent");
+		DBusMessage? refusal = first.exchange(again, 2000);
+		if (refusal == null) { throw "the bus did not answer"; }
+		DBusMessage error = refusal;
+		assert(error.type() == DBUS_MESSAGE_TYPE_ERROR && error.isError("org.freedesktop.DBus.Error.NameHasNoOwner") && error.replySerial() == again.serial() && !error.errorMessage().isEmpty() && first.lastError().isEmpty());
+		assert(first.call(DBusMessage.methodCall("org.btrc.test.Absent", "/", "org.btrc.test.Absent", "Anything"), 2000) == null && first.lastError().equals("org.freedesktop.DBus.Error.ServiceUnknown"));
+		assert(first.call(DBusConformance.toDriver("NoSuchMethod"), 2000) == null && first.lastError().equals("org.freedesktop.DBus.Error.UnknownMethod"));
+
+		/* An idle connection waits out its timeout and stays open. */
+		while (first.popMessage() != null) {}
+		Timer idle = Timer();
+		idle.start();
+		assert(first.readWrite(250) && first.popMessage() == null);
+		idle.stop();
+		assert(idle.elapsedMillis() >= 200.0f && idle.elapsedMillis() < 2000.0f);
+
+		DBusConformance.peers(first, second, name);
+		second.close();
+		second.close();
+		assert(!second.isConnected() && second.descriptor() == -1 && !second.readWrite(0) && !second.send(DBusConformance.toDriver("ListNames")));
+		assert(second.call(DBusConformance.toDriver("ListNames"), 100) == null && second.lastError().equals("org.freedesktop.DBus.Error.Disconnected"));
+		assert(DBusConformance.expect(first, DBUS_MESSAGE_TYPE_SIGNAL, "NameOwnerChanged", f"'{name}' '{second.uniqueName()}' ''").sender().equals(DBusConformance.driver()));
+	}
+
+	/* `first` calls an object `second` serves: every type there and back. */
+	class void peers(DBusConnection first, DBusConnection second, string name) {
+		DBusMessage request = DBusMessage.methodCall(name, DBusConformance.echoPath(), DBusConformance.echoInterface(), "Echo");
+		DBusSamples.fill(request.writer());
+		assert(first.send(request) && request.serial() != 0u);
+		DBusMessage call = DBusConformance.expect(second, DBUS_MESSAGE_TYPE_METHOD_CALL, "Echo", DBusSamples.text());
+		assert(call.sender().equals(first.uniqueName()) && call.destination().equals(name) && call.path().equals(DBusConformance.echoPath()) && call.signature().equals(DBusSamples.signature()) && !call.noReply());
+		DBusMessage reply = DBusMessage.methodReturn(call);
+		DBusConformance.copyBody(call, reply);
+		assert(second.send(reply));
+		DBusMessage answer = DBusConformance.expect(first, DBUS_MESSAGE_TYPE_METHOD_RETURN, "", DBusSamples.text());
+		assert(answer.replySerial() == request.serial() && answer.sender().equals(second.uniqueName()) && answer.destination().equals(first.uniqueName()) && answer.signature().equals(DBusSamples.signature()));
+
+		/* A body larger than the socket's buffer arrives in pieces. */
+		StringBuilder filler = StringBuilder();
+		filler.appendRepeat('z', 400000);
+		string bulk = filler.toString();
+		DBusMessage heavy = DBusMessage.methodCall(name, DBusConformance.echoPath(), DBusConformance.echoInterface(), "Echo");
+		heavy.writer().appendString(bulk);
+		assert(first.send(heavy));
+		DBusMessage carried = DBusConformance.expect(second, DBUS_MESSAGE_TYPE_METHOD_CALL, "Echo", "*");
+		assert(carried.reader().readString().equals(bulk) && carried.wireLength() > 400000);
+
+		/* An error reply, and a call that asks for no reply. */
+		DBusMessage failing = DBusMessage.methodCall(name, DBusConformance.echoPath(), DBusConformance.echoInterface(), "Fail");
+		assert(first.send(failing));
+		DBusMessage asked = DBusConformance.expect(second, DBUS_MESSAGE_TYPE_METHOD_CALL, "Fail", "");
+		assert(second.send(DBusMessage.error(asked, "org.btrc.test.Error.Failed", "asked to fail")));
+		DBusMessage failed = DBusConformance.expect(first, DBUS_MESSAGE_TYPE_ERROR, "", "'asked to fail'");
+		assert(failed.isError("org.btrc.test.Error.Failed") && failed.replySerial() == failing.serial() && failed.errorMessage().equals("asked to fail"));
+		DBusMessage quiet = DBusMessage.methodCall(name, DBusConformance.echoPath(), DBusConformance.echoInterface(), "Quiet");
+		quiet.setNoReply(true);
+		assert(first.send(quiet));
+		assert(DBusConformance.expect(second, DBUS_MESSAGE_TYPE_METHOD_CALL, "Quiet", "").noReply());
+
+		/* A signal reaches the connection whose match rule it meets. */
+		assert(first.addMatch("type='signal',interface='org.btrc.test.Echo',member='Echoed',path='/org/btrc/test/Echo'"));
+		DBusMessage signal = DBusMessage.signal(DBusConformance.echoPath(), DBusConformance.echoInterface(), "Echoed");
+		DBusWriter told = signal.writer();
+		told.appendUInt32(3u);
+		told.appendString("told");
+		assert(second.send(signal));
+		DBusMessage heard = DBusConformance.expect(first, DBUS_MESSAGE_TYPE_SIGNAL, "Echoed", "u0000000000000003 'told'");
+		assert(heard.isSignal(DBusConformance.echoInterface(), "Echoed") && heard.sender().equals(second.uniqueName()) && heard.destination().isEmpty() && heard.noReply());
+
+		/* A call nobody answers in time fails; its late reply is an ordinary message. */
+		DBusMessage slow = DBusMessage.methodCall(name, DBusConformance.echoPath(), DBusConformance.echoInterface(), "Slow");
+		Timer waited = Timer();
+		waited.start();
+		assert(first.exchange(slow, 300) == null && first.lastError().equals("org.freedesktop.DBus.Error.NoReply"));
+		waited.stop();
+		assert(waited.elapsedMillis() >= 250.0f && waited.elapsedMillis() < 2000.0f);
+		DBusMessage late = DBusMessage.methodReturn(DBusConformance.expect(second, DBUS_MESSAGE_TYPE_METHOD_CALL, "Slow", ""));
+		late.writer().appendString("late");
+		assert(second.send(late));
+		assert(DBusConformance.expect(first, DBUS_MESSAGE_TYPE_METHOD_RETURN, "", "'late'").replySerial() == slow.serial());
+	}
+}
+
+int main() {
+	DBusConformance.addresses();
+	DBusConformance.bufferedCall();
+	DBusConformance.codec();
+	DBusConformance.bus(f"org.btrc.test.Conformance{Platform.pid()}");
+	print("PASS: D-Bus addresses, codec, bus calls, signals and a peer round trip");
+	return 0;
+}

@@ -1,0 +1,473 @@
+/* What Library.DBus does with bytes no well-behaved peer sends. Every
+ * candidate is parsed from an allocation of exactly its length, so a read
+ * past the end is a sanitizer report; a candidate that parses is then read
+ * to its last value and written out again. Built with AddressSanitizer and
+ * UndefinedBehaviorSanitizer by the test.
+ *
+ * The candidates are messages cut short at every length, messages with one
+ * byte changed at every offset, messages with random bytes changed, and
+ * frames assembled by hand to break one rule each. The hand assembler also
+ * writes big-endian frames, which this client never sends but must read. */
+
+import Library.Bytes;
+import Library.DBus.DBusMessage;
+import Library.Strings;
+import Library.Vector;
+
+import ./DBusDump.btrc;
+import ./DBusSamples.btrc;
+#include <assert.h>
+
+/* A frame written by hand, in either byte order. */
+class Frame {
+	public Bytes bytes;
+	public bool big;
+
+	public Frame(bool big) {
+		self.bytes = Bytes();
+		self.big = big;
+	}
+
+	public Frame byte(int value) {
+		self.bytes.append(value);
+		return self;
+	}
+
+	public Frame pad(int boundary) {
+		while (self.bytes.len % boundary != 0) { self.bytes.append(0); }
+		return self;
+	}
+
+	public Frame u16(int value) {
+		self.pad(2);
+		if (self.big) { self.bytes.appendU16BE(value); }
+		else { self.bytes.appendU16LE(value); }
+		return self;
+	}
+
+	public Frame u32(unsigned int value) {
+		self.pad(4);
+		if (self.big) { self.bytes.appendU32BE(value); }
+		else { self.bytes.appendU32LE(value); }
+		return self;
+	}
+
+	public Frame u64(unsigned long long value) {
+		self.pad(8);
+		if (self.big) { self.bytes.appendU64BE(value); }
+		else { self.bytes.appendU64LE(value); }
+		return self;
+	}
+
+	public Frame raw(string text) {
+		self.bytes.appendRaw((char*)text, text.len());
+		return self;
+	}
+
+	/* A string or object path: length, bytes, NUL. */
+	public Frame text(string value) { return self.u32((unsigned int)value.len()).raw(value).byte(0); }
+
+	/* A signature: one length byte, bytes, NUL. */
+	public Frame types(string value) { return self.byte(value.len()).raw(value).byte(0); }
+
+	/* A header field holding a string, an object path ('o') or a signature ('g'). */
+	public Frame field(int code, char type, string value) {
+		self.pad(8).byte(code).byte(1).byte((int)type).byte(0);
+		return type == 'g' ? self.types(value) : self.text(value);
+	}
+
+	public Frame number(int code, unsigned int value) { return self.pad(8).byte(code).byte(1).byte((int)'u').byte(0).u32(value); }
+
+	public Frame append(Frame other) {
+		self.bytes.appendBytes(other.bytes);
+		return self;
+	}
+
+	/* The whole message: the fixed header, these fields, that body. */
+	class Bytes message(int type, unsigned int serial, Frame fields, Frame body) {
+		Frame whole = Frame(fields.big);
+		whole.byte(fields.big ? (int)'B' : (int)'l').byte(type).byte(0).byte(1);
+		whole.u32((unsigned int)body.bytes.len).u32(serial).u32((unsigned int)fields.bytes.len);
+		whole.append(fields).pad(8).append(body);
+		return whole.bytes;
+	}
+}
+
+class DBusMalformed {
+	/* Parse a copy that is exactly `length` bytes long. */
+	class DBusMessage? parseExact(Bytes wire, int length) {
+		unsigned char* exact = (unsigned char*)malloc(length > 0 ? (size_t)length : (size_t)1);
+		if (exact == null) { throw "out of memory"; }
+		if (length > 0) { memcpy(exact, wire.data, (size_t)length); }
+		DBusMessage? parsed = DBusMessage.parse(exact, length);
+		free(exact);
+		return parsed;
+	}
+
+	class bool accepted(Bytes wire) { return DBusMalformed.parseExact(wire, wire.len) != null; }
+
+	/* Read everything a parsed message holds and write it out again: what
+	 * parses is a message this client can also send. */
+	class string walk(DBusMessage message) {
+		string text = DBusDump.body(message);
+		DBusMessage copy = DBusMessage.signal("/copy", "org.btrc.test.Copy", "Copy");
+		DBusWriter writer = copy.writer();
+		DBusReader reader = message.reader();
+		while (reader.type() != DBUS_TYPE_INVALID) {
+			writer.appendValue(reader);
+			reader.next();
+		}
+		Bytes? wire = copy.marshal(1u);
+		if (wire == null) { throw "a parsed body was not marshalled again"; }
+		Bytes bytes = wire;
+		DBusMessage? again = DBusMessage.parseBytes(bytes);
+		if (again == null) { throw "a parsed body did not parse again"; }
+		DBusMessage second = again;
+		if (!DBusDump.body(second).equals(text) || !second.signature().equals(message.signature())) { throw "a parsed body changed when copied"; }
+		return text;
+	}
+
+	/* Parse a candidate; true when it was refused. */
+	class bool probe(Bytes wire, int length) {
+		DBusMessage? parsed = DBusMalformed.parseExact(wire, length);
+		if (parsed == null) { return true; }
+		DBusMessage message = parsed;
+		DBusMalformed.walk(message);
+		return false;
+	}
+
+	class Bytes marshalled(DBusMessage message, unsigned int serial) {
+		Bytes? wire = message.marshal(serial);
+		if (wire == null) { throw "a sample was not marshalled"; }
+		Bytes bytes = wire;
+		return bytes;
+	}
+
+	class Vector<Bytes> samples() {
+		Vector<Bytes> all = [];
+		DBusMessage call = DBusMessage.methodCall("org.btrc.test.Echo", "/org/btrc/test/Echo", "org.btrc.test.Echo", "Echo");
+		DBusSamples.fill(call.writer());
+		Bytes first = DBusMalformed.marshalled(call, 3u);
+		all.push(first);
+		DBusMessage? received = DBusMessage.parseBytes(first);
+		if (received == null) { throw "the sample call did not parse"; }
+		DBusMessage arrived = received;
+		DBusMessage reply = DBusMessage.methodReturn(arrived);
+		DBusWriter results = reply.writer();
+		results.appendUInt32(7u);
+		results.appendString("seven");
+		all.push(DBusMalformed.marshalled(reply, 4u));
+		all.push(DBusMalformed.marshalled(DBusMessage.error(arrived, "org.btrc.test.Error.Failed", "it failed"), 5u));
+		DBusMessage signal = DBusMessage.signal("/org/btrc/test/Echo", "org.btrc.test.Echo", "Echoed");
+		DBusWriter properties = signal.writer().openArray("{sv}");
+		properties.dictString("label", "Open");
+		properties.dictBool("enabled", true);
+		properties.dictInt32("toggle-state", 1);
+		properties.close();
+		all.push(DBusMalformed.marshalled(signal, 6u));
+		all.push(DBusMalformed.marshalled(DBusMessage.methodCall("", "/", "", "Ping"), 7u));
+		return all;
+	}
+
+	/* No prefix of a message is a message, and neither is a message with more after it. */
+	class void truncations(Vector<Bytes> samples) {
+		for sample in samples {
+			assert(DBusMalformed.accepted(sample));
+			for (int length = 0; length < sample.len; length++) {
+				if (!DBusMalformed.probe(sample, length)) { throw f"a message cut to {length} bytes was accepted"; }
+			}
+			Bytes longer = sample.slice(0, sample.len);
+			longer.append(0);
+			assert(!DBusMalformed.accepted(longer));
+			for (int extra = 0; extra < 8; extra++) { longer.append(1); }
+			assert(!DBusMalformed.accepted(longer));
+		}
+	}
+
+	/* One byte changed, at every offset, six ways. Most changes are refused; one that is
+	 * not (a letter of a string, a value) still reads and writes cleanly. */
+	class void corruptions(Vector<Bytes> samples) {
+		int refused = 0;
+		int taken = 0;
+		for sample in samples {
+			for (int at = 0; at < sample.len; at++) {
+				int original = sample.get(at);
+				for (int way = 0; way < 6; way++) {
+					int changed = way == 0 ? original ^ 1 : (way == 1 ? original ^ 128 : (way == 2 ? original ^ 255 : (way == 3 ? 0 : (way == 4 ? 255 : (original + 1) & 255))));
+					if (changed == original) { continue; }
+					sample.set(at, changed);
+					if (DBusMalformed.probe(sample, sample.len)) { refused++; }
+					else { taken++; }
+				}
+				sample.set(at, original);
+			}
+			assert(DBusMalformed.accepted(sample));
+		}
+		assert(refused > taken && taken > 0);
+	}
+
+	/* Several random bytes changed, sometimes with the end cut off as well. */
+	class void fuzz(Vector<Bytes> samples, int rounds) {
+		unsigned int state = 2463534242u;
+		for (int round = 0; round < rounds; round++) {
+			state = state ^ (state << 13);
+			state = state ^ (state >> 17);
+			state = state ^ (state << 5);
+			Bytes sample = samples.get((int)(state % (unsigned int)samples.len));
+			Bytes candidate = sample.slice(0, sample.len);
+			int changes = 1 + (int)((state >> 8) % 4u);
+			for (int change = 0; change < changes; change++) {
+				state = state ^ (state << 13);
+				state = state ^ (state >> 17);
+				state = state ^ (state << 5);
+				candidate.set((int)(state % (unsigned int)candidate.len), (int)((state >> 16) & 255u));
+			}
+			int length = (state >> 28) == 0u ? (int)((state >> 4) % (unsigned int)(candidate.len + 1)) : candidate.len;
+			DBusMalformed.probe(candidate, length);
+		}
+	}
+
+	class Frame callFields(bool big, string signature) {
+		Frame fields = Frame(big);
+		fields.field(1, 'o', "/a").field(3, 's', "M");
+		if (!signature.isEmpty()) { fields.field(8, 'g', signature); }
+		return fields;
+	}
+
+	/* A method call "/a".M whose body is `body`, said to have `signature`. */
+	class bool takesBody(string signature, Frame body) { return DBusMalformed.accepted(Frame.message(1, 1u, DBusMalformed.callFields(body.big, signature), body)); }
+
+	/* A message of `type` with these header fields and no body. */
+	class bool takesHeader(int type, Frame fields) { return DBusMalformed.accepted(Frame.message(type, 1u, fields, Frame(fields.big))); }
+
+	/* One body in both byte orders reads the same. */
+	class void byteOrders() {
+		string expected = "q4660 n-2 xfffffffffffffffb t0102030405060708 d3ff8000000000000 u00000000deadbeef true [(ns):(n-3 'a') (n4 'bc')] <i i-9> 'end'";
+		for (int order = 0; order < 2; order++) {
+			Frame body = Frame(order == 1);
+			body.u16(4660).u16(65534).u64(18446744073709551611ULL).u64(72623859790382856ULL).u64(4609434218613702656ULL).u32(3735928559u).u32(1u);
+			Frame elements = Frame(order == 1);
+			elements.u16(65533).text("a").pad(8).u16(4).text("bc");
+			body.u32((unsigned int)elements.bytes.len).pad(8).append(elements);
+			body.types("i").u32(4294967287u).text("end");
+			Frame fields = DBusMalformed.callFields(order == 1, "qnxtduba(ns)vs");
+			fields.field(2, 's', "org.btrc.test.Echo").field(6, 's', "org.btrc.test.Echo").field(7, 's', ":1.42");
+			Bytes wire = Frame.message(1, 305419896u, fields, body);
+			DBusMessage? parsed = DBusMalformed.parseExact(wire, wire.len);
+			if (parsed == null) { throw f"a well-formed message in byte order {order} was refused"; }
+			DBusMessage message = parsed;
+			assert(message.isBigEndian() == (order == 1) && message.serial() == 305419896u && message.sender().equals(":1.42") && message.path().equals("/a") && message.member().equals("M"));
+			string text = DBusMalformed.walk(message);
+			if (!text.equals(expected)) { throw f"byte order {order} reads as {text}"; }
+		}
+	}
+
+	class void headers() {
+		/* The fixed header. */
+		Frame fine = DBusMalformed.callFields(false, "");
+		Bytes good = Frame.message(1, 1u, fine, Frame(false));
+		assert(DBusMalformed.accepted(good) && DBusMessage.frameLength((const unsigned char*)good.data, good.len) == good.len);
+		Vector<int> patches = [0, 120, 0, 98, 1, 0, 3, 0, 3, 2];
+		for (int index = 0; index < 5; index++) {
+			Bytes bad = good.slice(0, good.len);
+			bad.set(patches.get(index * 2), patches.get(index * 2 + 1));
+			assert(!DBusMalformed.accepted(bad));
+		}
+		assert(!DBusMalformed.accepted(Frame.message(1, 0u, DBusMalformed.callFields(false, ""), Frame(false))));
+		/* A type this client does not know parses, as the invalid type, and is for the connection to drop. */
+		DBusMessage? unknown = DBusMessage.parseBytes(Frame.message(9, 1u, Frame(false), Frame(false)));
+		if (unknown == null) { throw "a message of an unknown type was refused"; }
+		DBusMessage ignored = unknown;
+		assert(ignored.type() == DBUS_MESSAGE_TYPE_INVALID);
+
+		/* Lengths that claim more than there is, or more than this client accepts. */
+		for (int at = 4; at <= 12; at += 8) {
+			for (int way = 0; way < 4; way++) {
+				Bytes bad = good.slice(0, good.len);
+				bad.set(at, way == 0 ? 255 : (way == 1 ? bad.get(at) + 1 : (way == 2 ? bad.get(at) + 8 : bad.get(at))));
+				bad.set(at + 3, way == 0 ? 255 : (way == 3 ? 127 : 0));
+				assert(!DBusMalformed.accepted(bad));
+				assert(at == 12 || DBusMessage.frameLength((const unsigned char*)bad.data, 16) != bad.len);
+			}
+		}
+		Frame huge = Frame(false);
+		huge.byte((int)'l').byte(1).byte(0).byte(1).u32(134217729u).u32(1u).u32(0u);
+		assert(DBusMessage.frameLength((const unsigned char*)huge.bytes.data, 16) == -1);
+		Frame most = Frame(false);
+		most.byte((int)'l').byte(1).byte(0).byte(1).u32(134217728u - 16u).u32(1u).u32(0u);
+		assert(DBusMessage.frameLength((const unsigned char*)most.bytes.data, 16) == 134217728);
+		assert(DBusMessage.frameLength((const unsigned char*)most.bytes.data, 15) == -1);
+
+		/* Each kind of message needs its fields. */
+		Frame fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a")));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(1, fields.field(3, 's', "M")));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(4, fields.field(1, 'o', "/a").field(3, 's', "M")));
+		fields = Frame(false);
+		assert(DBusMalformed.takesHeader(4, fields.field(1, 'o', "/a").field(3, 's', "M").field(2, 's', "a.b")));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(2, fields.field(6, 's', ":1.2")));
+		fields = Frame(false);
+		assert(DBusMalformed.takesHeader(2, fields.number(5, 9u)));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(3, fields.number(5, 9u)));
+		fields = Frame(false);
+		assert(DBusMalformed.takesHeader(3, fields.number(5, 9u).field(4, 's', "a.b")));
+
+		/* A field twice, a field of the wrong type, the field code 0. */
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 's', "M").field(1, 'o', "/b")));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(1, fields.field(1, 's', "/a").field(3, 's', "M")));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 'o', "/M")));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 's', "M").field(0, 's', "x")));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(2, fields.field(5, 's', "nine")));
+		/* An unknown field is passed over when it is a well-formed variant, and only then. */
+		fields = Frame(false);
+		assert(DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 's', "M").field(42, 's', "ignored").number(77, 5u)));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 's', "M").field(42, 'o', "not a path")));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 's', "M").pad(8).byte(42).byte(2).raw("ii").byte(0).u32(1u).u32(2u)));
+
+		/* A reply to serial 0; descriptors, which are never negotiated. */
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(2, fields.number(5, 0u)));
+		fields = Frame(false);
+		assert(DBusMalformed.takesHeader(2, fields.number(5, 9u).number(9, 0u)));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(2, fields.number(5, 9u).number(9, 1u)));
+
+		/* Names the protocol does not allow. */
+		Vector<string> paths = ["a", "/a/", "//", "/a//b", "/a-b", ""];
+		for path in paths {
+			fields = Frame(false);
+			assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', path).field(3, 's', "M")));
+		}
+		Vector<string> members = ["a.b", "9a", "", "a-b"];
+		for member in members {
+			fields = Frame(false);
+			assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 's', member)));
+		}
+		Vector<string> interfaces = ["nodots", "a..b", ".a.b", "a.b.", "a.9b"];
+		for name in interfaces {
+			fields = Frame(false);
+			assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 's', "M").field(2, 's', name)));
+			fields = Frame(false);
+			assert(!DBusMalformed.takesHeader(3, fields.number(5, 9u).field(4, 's', name)));
+		}
+		Vector<string> names = ["bad name", ":1", "single", "a..b", ":1..2"];
+		for name in names {
+			fields = Frame(false);
+			assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 's', "M").field(6, 's', name)));
+			fields = Frame(false);
+			assert(!DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 's', "M").field(7, 's', name)));
+		}
+		fields = Frame(false);
+		assert(DBusMalformed.takesHeader(1, fields.field(1, 'o', "/a").field(3, 's', "M").field(6, 's', "a-b.c-d").field(7, 's', ":1.0-9")));
+
+		/* The names a connection keeps for its own notifications. */
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(4, fields.field(1, 'o', "/org/freedesktop/DBus/Local").field(3, 's', "Disconnected").field(2, 's', "a.b")));
+		fields = Frame(false);
+		assert(!DBusMalformed.takesHeader(4, fields.field(1, 'o', "/a").field(3, 's', "Disconnected").field(2, 's', "org.freedesktop.DBus.Local")));
+
+		/* Padding that is not zero, between fields and before the body; a field array that ends in padding. */
+		Bytes padded = Frame.message(1, 1u, DBusMalformed.callFields(false, "y"), Frame(false).byte(5));
+		assert(DBusMalformed.accepted(padded));
+		Bytes dirty = padded.slice(0, padded.len);
+		dirty.set(16 + 15, 1);
+		assert(!DBusMalformed.accepted(dirty));
+		dirty = padded.slice(0, padded.len);
+		dirty.set(padded.len - 2, 1);
+		assert(!DBusMalformed.accepted(dirty));
+		dirty = padded.slice(0, padded.len);
+		dirty.set(12, dirty.get(12) + 1);
+		assert(!DBusMalformed.accepted(dirty));
+	}
+
+	class Frame nested(int depth) {
+		Frame body = Frame(false);
+		for (int level = 1; level < depth; level++) { body.types("v"); }
+		return body.types("y").byte(1);
+	}
+
+	class void bodies() {
+		assert(DBusMalformed.takesBody("u", Frame(false).u32(7u)));
+		/* A body its signature does not account for, either way. */
+		assert(!DBusMalformed.takesBody("", Frame(false).u32(7u)));
+		assert(!DBusMalformed.takesBody("u", Frame(false)));
+		assert(!DBusMalformed.takesBody("u", Frame(false).u32(7u).byte(0)));
+		assert(!DBusMalformed.takesBody("uu", Frame(false).u32(7u)));
+		assert(!DBusMalformed.takesBody("u", Frame(false).byte(7).byte(0).byte(0)));
+
+		/* Signatures that are not types. */
+		Vector<string> signatures = ["a", "(", ")", "()", "{ss}", "a{vs}", "a{s}", "a{sss}", "a{s", "z", "(i", "a("];
+		for signature in signatures { assert(!DBusMalformed.takesBody(signature, Frame(false))); }
+		assert(!DBusMalformed.takesBody("a".repeat(33) + "y", Frame(false).u32(0u)));
+		assert(!DBusMalformed.takesBody("(".repeat(33) + "y" + ")".repeat(33), Frame(false).pad(8).byte(0)));
+		assert(DBusMalformed.takesBody("(".repeat(32) + "y" + ")".repeat(32), Frame(false).byte(0)));
+		assert(DBusMalformed.takesBody("a{sv}a(ii)ah", Frame(false).u32(0u).u32(0u).u32(0u).u32(0u).u32(0u)));
+
+		/* Booleans, strings, object paths and signatures as values. */
+		assert(DBusMalformed.takesBody("b", Frame(false).u32(1u)) && !DBusMalformed.takesBody("b", Frame(false).u32(2u)) && !DBusMalformed.takesBody("b", Frame(false).u32(256u)));
+		assert(DBusMalformed.takesBody("s", Frame(false).text("ok")));
+		assert(!DBusMalformed.takesBody("s", Frame(false).u32(3u).raw("ok").byte(0)));
+		assert(!DBusMalformed.takesBody("s", Frame(false).u32(2u).raw("ok").byte(1)));
+		assert(!DBusMalformed.takesBody("s", Frame(false).u32(2u).raw("ok")));
+		assert(!DBusMalformed.takesBody("s", Frame(false).u32(4294967295u).raw("ok").byte(0)));
+		assert(!DBusMalformed.takesBody("s", Frame(false).u32(2147483647u).raw("ok").byte(0)));
+		assert(!DBusMalformed.takesBody("s", Frame(false).u32(3u).byte(97).byte(0).byte(98).byte(0)));
+		assert(!DBusMalformed.takesBody("s", Frame(false).u32(2u).byte(195).byte(40).byte(0)));
+		assert(!DBusMalformed.takesBody("s", Frame(false).u32(1u).byte(255).byte(0)));
+		assert(!DBusMalformed.takesBody("s", Frame(false).u32(3u).byte(237).byte(160).byte(128).byte(0)));
+		assert(!DBusMalformed.takesBody("s", Frame(false).u32(2u).byte(192).byte(128).byte(0)));
+		assert(DBusMalformed.takesBody("o", Frame(false).text("/a/b_1")) && !DBusMalformed.takesBody("o", Frame(false).text("a/b")) && !DBusMalformed.takesBody("o", Frame(false).text("/a/")) && !DBusMalformed.takesBody("o", Frame(false).text("")));
+		assert(DBusMalformed.takesBody("g", Frame(false).types("a{sv}")) && !DBusMalformed.takesBody("g", Frame(false).types("a{")) && !DBusMalformed.takesBody("g", Frame(false).byte(3).raw("ii").byte(0)) && !DBusMalformed.takesBody("g", Frame(false).byte(2).raw("ii").byte(1)));
+
+		/* Variants: one complete type, present, and as deep as the protocol allows. */
+		assert(DBusMalformed.takesBody("v", Frame(false).types("u").u32(1u)));
+		assert(!DBusMalformed.takesBody("v", Frame(false).types("uu").u32(1u).u32(1u)));
+		assert(!DBusMalformed.takesBody("v", Frame(false).types("").u32(1u)));
+		assert(!DBusMalformed.takesBody("v", Frame(false).types("u")));
+		assert(!DBusMalformed.takesBody("v", Frame(false).byte(200).raw("u").byte(0).u32(1u)));
+		assert(!DBusMalformed.takesBody("v", Frame(false).types("{su}").pad(8).text("k").u32(1u)));
+		assert(DBusMalformed.takesBody("v", DBusMalformed.nested(64)));
+		assert(!DBusMalformed.takesBody("v", DBusMalformed.nested(65)));
+		assert(!DBusMalformed.takesBody("v", DBusMalformed.nested(300)));
+
+		/* Arrays: a length inside the body, a whole number of elements, the protocol's limit. */
+		assert(DBusMalformed.takesBody("au", Frame(false).u32(8u).u32(1u).u32(2u)));
+		assert(!DBusMalformed.takesBody("au", Frame(false).u32(7u).u32(1u).u32(2u)));
+		assert(!DBusMalformed.takesBody("au", Frame(false).u32(12u).u32(1u).u32(2u)));
+		assert(!DBusMalformed.takesBody("au", Frame(false).u32(4294967295u).u32(1u).u32(2u)));
+		assert(!DBusMalformed.takesBody("au", Frame(false).u32(67108868u).u32(1u).u32(2u)));
+		assert(!DBusMalformed.takesBody("ay", Frame(false).u32(2147483648u).byte(1)));
+		assert(DBusMalformed.takesBody("ax", Frame(false).u32(8u).u64(1ULL)) && DBusMalformed.takesBody("ax", Frame(false).u32(0u).pad(8)) && !DBusMalformed.takesBody("ax", Frame(false).u32(0u)));
+		assert(!DBusMalformed.takesBody("ax", Frame(false).u32(8u).byte(0).byte(0).byte(0).byte(1).u64(1ULL)));
+		assert(DBusMalformed.takesBody("as", Frame(false).u32(16u).text("a").text("bcd")) && !DBusMalformed.takesBody("as", Frame(false).u32(15u).text("a").text("bcd")) && !DBusMalformed.takesBody("as", Frame(false).u32(17u).text("a").text("bcd").byte(0)));
+		assert(DBusMalformed.takesBody("ab", Frame(false).u32(4u).u32(1u)) && !DBusMalformed.takesBody("ab", Frame(false).u32(4u).u32(3u)));
+		assert(!DBusMalformed.takesBody("ah", Frame(false).u32(4u).u32(0u)) && !DBusMalformed.takesBody("h", Frame(false).u32(0u)));
+
+		/* Padding inside a body is zero. */
+		assert(DBusMalformed.takesBody("yu", Frame(false).byte(1).u32(2u)) && !DBusMalformed.takesBody("yu", Frame(false).byte(1).byte(0).byte(9).byte(0).u32(2u)));
+		assert(DBusMalformed.takesBody("y(y)", Frame(false).byte(1).pad(8).byte(2)) && !DBusMalformed.takesBody("y(y)", Frame(false).byte(1).byte(1).pad(8).byte(2)));
+	}
+}
+
+int main() {
+	Vector<Bytes> samples = DBusMalformed.samples();
+	DBusMalformed.byteOrders();
+	DBusMalformed.headers();
+	DBusMalformed.bodies();
+	DBusMalformed.truncations(samples);
+	DBusMalformed.corruptions(samples);
+	DBusMalformed.fuzz(samples, 60000);
+	print("PASS: D-Bus refuses malformed messages");
+	return 0;
+}

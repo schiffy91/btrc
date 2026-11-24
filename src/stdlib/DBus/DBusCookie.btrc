@@ -1,0 +1,58 @@
+/* The legacy DBUS_COOKIE_SHA1 challenge, used by buses without Unix peer
+ * credentials. This digest is private to the D-Bus authentication protocol. */
+import Library.Bytes;
+import Library.Strings;
+import Library.Vector;
+
+class DBusCookie {
+	class unsigned int rotate(unsigned int value, int count) { return (value << count) | (value >> (32 - count)); }
+
+	class string digest(string challenge) {
+		Bytes data = Bytes.fromString(challenge);
+		unsigned long long bits = (unsigned long long)data.len * 8ULL;
+		data.append(128);
+		while (data.len % 64 != 56) { data.append(0); }
+		data.appendU64BE(bits);
+		unsigned int state[5] = {0x67452301u, 0xefcdab89u, 0x98badcfeu, 0x10325476u, 0xc3d2e1f0u};
+		for (int block = 0; block < data.len; block += 64) {
+			unsigned int words[80];
+			for (int i = 0; i < 16; i++) { words[i] = data.readU32BE(block + 4 * i); }
+			for (int i = 16; i < 80; i++) { words[i] = DBusCookie.rotate(words[i-3] ^ words[i-8] ^ words[i-14] ^ words[i-16], 1); }
+			unsigned int a = state[0];
+			unsigned int b = state[1];
+			unsigned int c = state[2];
+			unsigned int d = state[3];
+			unsigned int e = state[4];
+			for (int i = 0; i < 80; i++) {
+				unsigned int choice = b ^ c ^ d;
+				unsigned int constant = 0xca62c1d6u;
+				if (i < 20) { choice = (b & c) | ((~b) & d); constant = 0x5a827999u; }
+				else if (i < 40) { constant = 0x6ed9eba1u; }
+				else if (i < 60) { choice = (b & c) | (b & d) | (c & d); constant = 0x8f1bbcdcu; }
+				unsigned int next = DBusCookie.rotate(a, 5) + choice + e + constant + words[i];
+				e = d;
+				d = c;
+				c = DBusCookie.rotate(b, 30);
+				b = a;
+				a = next;
+			}
+			state[0] += a;
+			state[1] += b;
+			state[2] += c;
+			state[3] += d;
+			state[4] += e;
+		}
+		Bytes out = Bytes();
+		for (int i = 0; i < 5; i++) { out.appendU32BE(state[i]); }
+		return out.toHex();
+	}
+
+	class bool safeContext(string context) {
+		if (context.isEmpty() || context[0] == '.') { return false; }
+		for (int i = 0; i < context.len(); i++) {
+			char unit = context[i];
+			if (!Strings.isAlnum(unit) && unit != '-' && unit != '_') { return false; }
+		}
+		return true;
+	}
+}

@@ -1,0 +1,25 @@
+manifest-version = 1
+
+[package]
+name = "btrc_stdlib_dbus"
+exports = ["DBus", "DBusAddress", "DBusConnection", "DBusMessage"]
+
+# The transport is the one part that touches the system: a Unix-domain socket.
+[[package.providers]]
+module = "DBusConnection"
+implementation = "Linux.DBusTransportProvider"
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.DBusTransportProvider"
+header = "Linux/Socket.h"
+language = "c"
+standard = "c11"
+symbols = ["DBusSocketAddress", "btrcDBusReceive", "addrinfo", "getaddrinfo", "freeaddrinfo", "passwd", "getpwuid_r"]
+os = ["linux"]
+
+[[native.defines]]
+name = "_GNU_SOURCE"
+value = "1"
+modules = ["Linux.DBusTransportProvider"]
+os = ["linux"]

@@ -1,0 +1,350 @@
+/* Linux sockets, descriptor passing and service discovery for the D-Bus
+ * client. Every connected descriptor is nonblocking and close-on-exec.
+ * MSG_NOSIGNAL keeps a write to a closed peer from signalling the process. */
+
+import Library.Bytes;
+import Library.Process;
+import Library.Platform;
+import Library.Timer;
+import Library.DBus.DBusAddress;
+import Library.DBus.DBusMessage;
+import Library.Vector;
+import Library.IO;
+import Library.Strings;
+
+/* Construction unwinding can detach managed child objects before cleanup
+ * hooks run. Keep the kernel descriptors with the hook that closes them. */
+class DBusReceivedDescriptors implements IDBusDescriptors {
+	private int files[16];  /* the Linux per-message limit */
+	private int length = 0;
+
+	public bool append(int fd) {
+		if (self.length >= (int)(sizeof(self.files) / sizeof(int))) { close(fd); return false; }
+		self.files[self.length] = fd;
+		self.length++;
+		return true;
+	}
+
+	public int count() { return self.length; }
+
+	public int get(int index) { return index >= 0 && index < self.length ? self.files[index] : -1; }
+
+	public void clear() {
+		while (self.length > 0) { self.length--; close(self.files[self.length]); }
+	}
+
+	public void __del__() { self.clear(); }
+}
+
+class DBusTransportProvider {
+	class int receiveFrame(int descriptor, unsigned char* buffer, int capacity, DBusReceivedDescriptors handles) {
+		int descriptors[256];
+		int received = 0;
+		ssize_t count = btrcDBusReceive(descriptor, buffer, (size_t)capacity, descriptors, &received);
+		bool accepted = true;
+		for (int index = 0; index < received; index++) {
+			if (!handles.append(descriptors[index])) { accepted = false; }
+		}
+		if (!accepted) { return -1; }
+		if (count > (ssize_t)0) { return (int)count; }
+		if (count < (ssize_t)0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) { return 0; }
+		return -1;
+	}
+
+	/* Read a single nonce or entropy from the kernel without text conversion. */
+	class string challenge() {
+		int fd = open("/dev/urandom", (int)O_RDONLY | (int)O_CLOEXEC);
+		if (fd < 0) { return ""; }
+		Bytes bytes = Bytes();
+		unsigned char buffer[16];
+		while (bytes.len < 16) {
+			ssize_t count = read(fd, buffer, (size_t)(16 - bytes.len));
+			if (count > (ssize_t)0) { bytes.appendRaw((char*)buffer, (int)count); }
+			else if (count < (ssize_t)0 && errno == EINTR) { continue; }
+			else { break; }
+		}
+		close(fd);
+		return bytes.len == 16 ? bytes.toHex() : "";
+	}
+
+	class bool userBusAvailable() {
+		string directory = Environment.get("XDG_RUNTIME_DIR", "");
+		struct stat status;
+		if (directory.isEmpty() || stat(directory, &status) != 0 || !S_ISDIR(status.st_mode) || (unsigned long long)status.st_uid != (unsigned long long)geteuid()) { return false; }
+		string socketPath = directory + "/bus";
+		return stat(socketPath, &status) == 0 && S_ISSOCK(status.st_mode) && (unsigned long long)status.st_uid == (unsigned long long)geteuid();
+	}
+
+	class bool canDiscover() { return (unsigned long long)getuid() == (unsigned long long)geteuid() && (unsigned long long)getgid() == (unsigned long long)getegid() && !Environment.get("DISPLAY", "").isEmpty(); }
+
+	class string machineId() {
+		string machine = Path.readAll("/var/lib/dbus/machine-id").trim();
+		if (!DBusAddress.validGuid(machine)) { machine = Path.readAll("/etc/machine-id").trim(); }
+		return DBusAddress.validGuid(machine) ? machine : "";
+	}
+
+	class string accountHome() {
+		struct passwd record;
+		char storage[16384];
+		struct passwd* owner = NULL;
+		if (getpwuid_r(geteuid(), &record, storage, sizeof(storage), &owner) != 0 || owner == NULL) { return ""; }
+		return Strings.copy(record.pw_dir);
+	}
+
+	/* Read through the user's own directory, holding it open while resolving
+     * the final filename. Keyrings must be private. A saved address may be
+     * readable by others, but neither its file nor directory may be writable. */
+	class string readOwned(string relativeDirectory, string name, bool secret) {
+		string home = DBusTransportProvider.accountHome();
+		if (home.isEmpty()) { return ""; }
+		int flags = (int)O_RDONLY | (int)O_NONBLOCK | (int)O_CLOEXEC | (int)O_NOFOLLOW;
+		int parent = open(home + "/" + relativeDirectory, flags | (int)O_DIRECTORY);
+		if (parent < 0) { return ""; }
+		struct stat status;
+		mode_t disallowed = secret ? (mode_t)077 : (mode_t)022;
+		int fd = -1;
+		if (fstat(parent, &status) == 0 && (unsigned long long)status.st_uid == (unsigned long long)geteuid() && (status.st_mode & disallowed) == (mode_t)0) {
+			fd = openat(parent, name, flags);
+		}
+		close(parent);
+		if (fd < 0) { return ""; }
+		string result = "";
+		if (fstat(fd, &status) == 0 && S_ISREG(status.st_mode) && (unsigned long long)status.st_uid == (unsigned long long)geteuid() && (status.st_mode & disallowed) == (mode_t)0) {
+			Bytes text = Bytes();
+			char buffer[4096];
+			while (text.len <= 1048576) {
+				ssize_t n = read(fd, buffer, sizeof(buffer));
+				if (n < (ssize_t)0 && errno == EINTR) { continue; }
+				if (n < (ssize_t)0) { break; }
+				if (n > (ssize_t)0) { text.appendRaw(buffer, (int)n); continue; }
+				result = text.toString();
+				break;
+			}
+		}
+		close(fd);
+		return result;
+	}
+
+	class string cookie(string context, string id) {
+		string text = DBusTransportProvider.readOwned(".dbus-keyrings", context, true);
+		for line in Strings.split(text, "\n") {
+			Vector<string> fields = Strings.split(line, " ");
+			if (fields.len == 3 && fields.get(0).equals(id)) { return fields.get(2); }
+		}
+		return "";
+	}
+
+	class string savedSession(string machine) {
+		string display = Environment.get("DISPLAY", "");
+		if (display.startsWith("localhost.localdomain:")) { display = display.removePrefix("localhost.localdomain"); }
+		else if (display.startsWith("localhost:")) { display = display.removePrefix("localhost"); }
+		/* Local displays save <machine-id>-<display>, omitting the screen. */
+		if (!display.startsWith(":")) { return ""; }
+		string number = display.removePrefix(":");
+		int screen = number.indexOf(".");
+		if (screen >= 0) { number = number.substring(0, screen); }
+		if (!number.isDigit()) { return ""; }
+		string saved = DBusTransportProvider.readOwned(".dbus/session-bus", machine + "-" + number, false);
+		string key = "DBUS_SESSION_BUS_ADDRESS=";
+		for line in Strings.split(saved, "\n") {
+			if (!line.startsWith(key)) { continue; }
+			string value = line.removePrefix(key);
+			if (value.len() > 1 && value[0] == '\'' && value[value.len()-1] == '\'') { return value.substring(1, value.len()-2); }
+			return value;
+		}
+		return "";
+	}
+
+	/* The optional dbus-x11 service helper is needed only for an unaddressed
+     * legacy X11 session with no reachable runtime socket or saved address. */
+	class string launchSession(string machine) {
+		ExecResult child = ChildProcess.run("dbus-launch", ["--autolaunch=" + machine, "--binary-syntax", "--close-stderr"], "", [], [], 25000, 65536, 4096);
+		if (child.code != 0) { return ""; }
+		for (int i = 0; i < child.outBytes.len; i++) {
+			if (child.outBytes.get(i) == 0) { return child.outBytes.slice(0, i).toString(); }
+		}
+		return "";
+	}
+
+	class Bytes readNonce(string path) {
+		Bytes result = Bytes();
+		int fd = open(path, (int)O_RDONLY | (int)O_CLOEXEC | (int)O_NONBLOCK);
+		if (fd < 0) { return result; }
+		unsigned char buffer[17];
+		while (result.len < 17) {
+			ssize_t count = read(fd, buffer, (size_t)(17 - result.len));
+			if (count > (ssize_t)0) { result.appendRaw((char*)buffer, (int)count); }
+			else if (count < (ssize_t)0 && errno == EINTR) { continue; }
+			else { break; }
+		}
+		close(fd);
+		return result;
+	}
+
+	/* unixexec's argv entries come from the address. No shell parses them.
+     * A detached child owns the peer socket on stdin and stdout, as specified
+     * for a transport helper. Only async-signal-safe operations follow fork. */
+	class int connectHelper(DBusAddress address) {
+		Vector<string> arguments = [];
+		for (int i = 1; address.hasOption("argv" + Strings.fromInt(i)); i++) { arguments.push(address.option("argv" + Strings.fromInt(i))); }
+		string name = address.hasOption("argv0") ? address.option("argv0") : address.path();
+		string program = ChildProcessExecutable.resolve(address.path(), "", [], []);
+		int bound = ChildProcess.descriptorCloseBound();
+		if (program.isEmpty() || bound < 3) { return -1; }
+		char** argv = ChildProcessArguments.build(name, arguments);
+		char** env = ChildProcessEnvironment.build([], []);
+		int pair[2];
+		if (argv == NULL || env == NULL || socketpair((int)AF_UNIX, (int)SOCK_STREAM | (int)SOCK_CLOEXEC, 0, pair) != 0) {
+			CStringArray.freeAll(argv);
+			CStringArray.freeAll(env);
+			return -1;
+		}
+		int peer = fcntl(pair[1], F_DUPFD_CLOEXEC, 3);
+		close(pair[1]);
+		sigset_t previous;
+		if (peer < 0 || __btrc_exec_signal_guard_begin(&previous) != 0) {
+			if (peer >= 0) { close(peer); }
+			close(pair[0]);
+			CStringArray.freeAll(argv);
+			CStringArray.freeAll(env);
+			return -1;
+		}
+		pid_t child = fork();
+		if (child == (pid_t)0) {
+			pid_t helper = fork();
+			if (helper < (pid_t)0) { _exit(127); }
+			if (helper > (pid_t)0) { _exit(0); }
+			close(pair[0]);
+			if (dup2(peer, STDIN_FILENO) < 0 || dup2(peer, STDOUT_FILENO) < 0 || ChildProcess.closeDescriptorsForExec(bound) != 0 || __btrc_exec_signal_guard_child_end(&previous) != 0) { _exit(127); }
+			execve(program, argv, env);
+			_exit(127);
+		}
+		int restored = __btrc_exec_signal_guard_parent_end(&previous);
+		close(peer);
+		CStringArray.freeAll(argv);
+		CStringArray.freeAll(env);
+		int status = 0;
+		pid_t waited = (pid_t)0 - (pid_t)1;
+		if (child > (pid_t)0) { waited = waitpid(child, &status, 0); }
+		while (child > (pid_t)0 && waited < (pid_t)0 && errno == EINTR) { waited = waitpid(child, &status, 0); }
+		if (child < (pid_t)0 || restored != 0 || (waited < (pid_t)0 && errno != ECHILD) || status != 0 || !DescriptorFlags.nonblocking(pair[0])) {
+			close(pair[0]);
+			return -1;
+		}
+		return pair[0];
+	}
+
+	class int connectNetwork(DBusAddress address) {
+		string host = address.option("host");
+		if (host.isEmpty()) { host = "localhost"; }
+		if (host.len() > 255) { return -1; }
+		char name[256];
+		memset(name, 0, sizeof(name));
+		memcpy(name, host, (size_t)host.len());
+		char service[8];
+		snprintf(service, sizeof(service), "%d", address.option("port").toInt());
+		struct addrinfo hints;
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_socktype = SOCK_STREAM;
+		string family = address.option("family");
+		if (family.equals("ipv6")) { hints.ai_family = AF_INET6; }
+		if (family.equals("ipv4")) { hints.ai_family = AF_INET; }
+		struct addrinfo* entries = NULL;
+		if (getaddrinfo(name, service, &hints, &entries) != 0) { return -1; }
+		long long deadline = MonotonicClock.deadlineAfter(25000LL);
+		int connected = -1;
+		struct addrinfo* current = entries;
+		while (current != NULL && connected < 0) {
+			int fd = socket((int)current->ai_family, (int)SOCK_STREAM | (int)SOCK_CLOEXEC | (int)SOCK_NONBLOCK, 0);
+			if (fd >= 0) {
+				int status = connect(fd, current->ai_addr, current->ai_addrlen);
+				if (status < 0 && (errno == EINPROGRESS || errno == EINTR)) {
+					int problem = 0;
+					socklen_t size = sizeof(problem);
+					if (DBusTransportProvider.wait(fd, true, (int)MonotonicClock.remaining(deadline)) && getsockopt(fd, (int)SOL_SOCKET, (int)SO_ERROR, &problem, &size) == 0 && problem == 0) { status = 0; }
+				}
+				if (status == 0) { connected = fd; }
+				else { close(fd); }
+			}
+			current = current->ai_next;
+		}
+		freeaddrinfo(entries);
+		return connected;
+	}
+
+	/* A socket connected to `address`, or -1. Connecting to a local socket
+	 * waits only while the server's backlog is full. */
+	class int connect(DBusAddress address) {
+		if (address.transport().equals("unixexec")) { return DBusTransportProvider.connectHelper(address); }
+		if (!address.transport().equals("unix")) { return DBusTransportProvider.connectNetwork(address); }
+		string path = address.path();
+		int lead = address.isAbstract() ? 1 : 0;
+		DBusSocketAddress target;
+		memset(&target, 0, sizeof(target));
+		if (path.isEmpty() || (size_t)path.len() + (size_t)lead >= sizeof(target.sun_path)) {
+			errno = ENAMETOOLONG;
+			return -1;
+		}
+		target.sun_family = AF_UNIX;
+		memcpy(target.sun_path + lead, path, (size_t)path.len());
+		/* An abstract name is the bytes after the leading NUL, and no more. */
+		size_t size = address.isAbstract() ? sizeof(target) - sizeof(target.sun_path) + (size_t)1 + (size_t)path.len() : sizeof(target);
+		int descriptor = socket((int)AF_UNIX, (int)SOCK_STREAM | (int)SOCK_CLOEXEC, 0);
+		if (descriptor < 0) { return -1; }
+		int result = connect(descriptor, (struct sockaddr*)&target, (socklen_t)size);
+		while (result != 0 && errno == EINTR) { result = connect(descriptor, (struct sockaddr*)&target, (socklen_t)size); }
+		if ((result != 0 && errno != EISCONN) || !DescriptorFlags.nonblocking(descriptor)) {
+			int error = errno;
+			close(descriptor);
+			errno = error;
+			return -1;
+		}
+		return descriptor;
+	}
+
+	/* Wait until the socket can be read, or written when `writing`: true
+	 * when it can (or has failed, which the next read or write reports),
+	 * false when the time ran out or a signal arrived first. A negative time
+	 * waits without limit. */
+	class bool wait(int descriptor, bool writing, int timeoutMilliseconds) {
+		struct pollfd pending;
+		pending.fd = descriptor;
+		pending.events = writing ? POLLOUT : POLLIN;
+		pending.revents = 0;
+		return poll(&pending, (nfds_t)1, timeoutMilliseconds < 0 ? -1 : timeoutMilliseconds) > 0;
+	}
+
+	/* The bytes read, 0 when none are there yet, -1 when the peer closed
+	 * the stream or the socket failed. */
+	class int receive(int descriptor, unsigned char* buffer, int capacity) {
+		ssize_t count = recv(descriptor, buffer, (size_t)capacity, 0);
+		if (count > (ssize_t)0) { return (int)count; }
+		if (count < (ssize_t)0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) { return 0; }
+		return -1;
+	}
+
+	/* The bytes written, 0 when the socket takes none yet, -1 when it failed. */
+	class int transmit(int descriptor, const unsigned char* buffer, int length) {
+		ssize_t count = send(descriptor, buffer, (size_t)length, MSG_NOSIGNAL);
+		if (count >= (ssize_t)0) { return (int)count; }
+		return errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK ? 0 : -1;
+	}
+
+	class void close(int descriptor) {
+		if (descriptor < 0) { return; }
+		shutdown(descriptor, SHUT_RDWR);
+		close(descriptor);
+	}
+
+	/* Who this process is to the server: its effective user id, in decimal,
+	 * which the EXTERNAL mechanism checks against the socket's credentials. */
+	class string user() {
+		unsigned long long number = (unsigned long long)geteuid();
+		string digits = "";
+		while (number > 0ULL || digits.isEmpty()) {
+			digits = Strings.fromInt((int)(number % 10ULL)) + digits;
+			number = number / 10ULL;
+		}
+		return digits;
+	}
+}

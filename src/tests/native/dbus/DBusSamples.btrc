@@ -1,0 +1,97 @@
+/* One body that holds every basic type and every container, nested, with
+ * the alignment cases the wire format has: a value after a single byte for
+ * each alignment, an empty array whose elements align to 8, a variant in a
+ * variant, an array of arrays. `text` is what DBusDump writes for it. */
+
+import Library.DBus.DBusMessage;
+
+class DBusSamples {
+	class string signature() { return "ybnqiuxtdsoga{sv}(yxynysaxay)aasabvvah"; }
+
+	class void fill(DBusWriter arguments) {
+		arguments.appendByte(255);
+		arguments.appendBool(true);
+		arguments.appendInt16(-2);
+		arguments.appendUInt16(65535);
+		arguments.appendInt32(-2147483647 - 1);
+		arguments.appendUInt32(4294967295u);
+		arguments.appendInt64(-9000000000LL);
+		arguments.appendUInt64(18446744073709551615ULL);
+		arguments.appendDouble(-0.5);
+		arguments.appendString("héllo, wörld ✓");
+		arguments.appendObjectPath("/org/btrc/Test");
+		arguments.appendSignature("a{sv}(ii)");
+		DBusWriter dictionary = arguments.openArray("{sv}");
+		dictionary.dictString("name", "value");
+		dictionary.dictInt32("number", -7);
+		dictionary.dictUInt32("count", 7u);
+		dictionary.dictBool("flag", true);
+		dictionary.dictObjectPath("path", "/");
+		DBusWriter nested = dictionary.openEntry("nested");
+		DBusWriter table = nested.openVariant("a(ysv)");
+		DBusWriter rows = table.openArray("(ysv)");
+		DBusWriter row = rows.openStruct();
+		row.appendByte(1);
+		row.appendString("row");
+		DBusWriter cell = row.openVariant("ad");
+		DBusWriter numbers = cell.openArray("d");
+		numbers.appendDouble(1.5);
+		numbers.appendDouble(2.25);
+		numbers.close();
+		cell.close();
+		row.close();
+		DBusWriter second = rows.openStruct();
+		second.appendByte(2);
+		second.appendString("");
+		second.variantString("plain");
+		second.close();
+		rows.close();
+		table.close();
+		nested.close();
+		dictionary.close();
+		DBusWriter record = arguments.openStruct();
+		record.appendByte(7);
+		record.appendInt64(1LL);
+		record.appendByte(8);
+		record.appendInt16(3);
+		record.appendByte(9);
+		record.appendString("");
+		DBusWriter none = record.openArray("x");
+		none.close();
+		DBusWriter units = record.openArray("y");
+		units.appendByte(0);
+		units.appendByte(1);
+		units.appendByte(2);
+		units.close();
+		record.close();
+		DBusWriter lists = arguments.openArray("as");
+		DBusWriter words = lists.openArray("s");
+		words.appendString("a");
+		words.appendString("bc");
+		words.close();
+		DBusWriter silent = lists.openArray("s");
+		silent.close();
+		lists.close();
+		DBusWriter flags = arguments.openArray("b");
+		flags.appendBool(false);
+		flags.appendBool(true);
+		flags.close();
+		DBusWriter outer = arguments.openVariant("v");
+		outer.variantUInt32(5u);
+		outer.close();
+		DBusWriter grid = arguments.openVariant("(ia{sv}av)");
+		DBusWriter node = grid.openStruct();
+		node.appendInt32(0);
+		DBusWriter properties = node.openArray("{sv}");
+		properties.close();
+		DBusWriter children = node.openArray("v");
+		children.variantInt32(3);
+		children.close();
+		node.close();
+		grid.close();
+		DBusWriter descriptors = arguments.openArray("h");
+		descriptors.close();
+	}
+
+	class string text() { return "y255 true n-2 q65535 i-2147483648 u00000000ffffffff xfffffffde78ee600 tffffffffffffffff dbfe0000000000000 'héllo, wörld ✓' o'/org/btrc/Test' g'a{sv}(ii)' " + "[{sv}:{'name' <s 'value'>} {'number' <i i-7>} {'count' <u u0000000000000007>} {'flag' <b true>} {'path' <o o'/'>} {'nested' <a(ysv) [(ysv):(y1 'row' <ad [d:d3ff8000000000000 d4002000000000000]>) (y2 '' <s 'plain'>)]>}] " + "(y7 x0000000000000001 y8 n3 y9 '' [x:] [y:y0 y1 y2]) [as:[s:'a' 'bc'] [s:]] [b:false true] <v <u u0000000000000005>> <(ia{sv}av) (i0 [{sv}:] [v:<i i3>])> [h:]"; }
+}

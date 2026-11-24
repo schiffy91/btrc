@@ -1,0 +1,924 @@
+/* One D-Bus message: its header fields and its body, with a writer that
+ * marshals values into a message to send and a reader that walks the values
+ * of a message that arrived.
+ *
+ * A message is built for sending by one of the four factories and filled
+ * through `writer()`. A message that arrived comes from `parse`, which checks
+ * every length, offset, alignment, string and signature in it before any of
+ * it is read; `reader()` then walks a body known to be well formed. Sent
+ * messages are little-endian. Received ones may be either. */
+
+import Library.Bytes;
+import Library.DBus.DBusWire;
+import Library.Strings;
+
+enum DBusMessageType {
+	DBUS_MESSAGE_TYPE_INVALID = 0,
+	DBUS_MESSAGE_TYPE_METHOD_CALL = 1,
+	DBUS_MESSAGE_TYPE_METHOD_RETURN = 2,
+	DBUS_MESSAGE_TYPE_ERROR = 3,
+	DBUS_MESSAGE_TYPE_SIGNAL = 4
+};
+
+/* What a reader stands on. The values are the type codes of a signature,
+ * except that a struct and a dict entry are named by 'r' and 'e'. */
+enum DBusType {
+	DBUS_TYPE_INVALID = 0,
+	DBUS_TYPE_BYTE = 121,
+	DBUS_TYPE_BOOLEAN = 98,
+	DBUS_TYPE_INT16 = 110,
+	DBUS_TYPE_UINT16 = 113,
+	DBUS_TYPE_INT32 = 105,
+	DBUS_TYPE_UINT32 = 117,
+	DBUS_TYPE_INT64 = 120,
+	DBUS_TYPE_UINT64 = 116,
+	DBUS_TYPE_DOUBLE = 100,
+	DBUS_TYPE_STRING = 115,
+	DBUS_TYPE_OBJECT_PATH = 111,
+	DBUS_TYPE_SIGNATURE = 103,
+	DBUS_TYPE_UNIX_FD = 104,
+	DBUS_TYPE_ARRAY = 97,
+	DBUS_TYPE_VARIANT = 118,
+	DBUS_TYPE_STRUCT = 114,
+	DBUS_TYPE_DICT_ENTRY = 101
+};
+
+/* A received message owns its ancillary file descriptors. A reader borrows
+ * a descriptor until that message and its readers have been released. */
+interface IDBusDescriptors {
+	int count();
+	int get(int index);
+}
+
+class DBusMessage {
+	private IDBusDescriptors? handles = null;
+
+	public int descriptorCount() {
+		if (self.handles == null) { return 0; }
+		return self.handles.count();
+	}
+
+	public int descriptorAt(int index) {
+		if (self.handles == null) { return -1; }
+		IDBusDescriptors descriptors = self.handles;
+		if (index < 0 || index >= descriptors.count()) { return -1; }
+		return descriptors.get(index);
+	}
+
+	private DBusMessageType kind;
+	private int flagBits = 0;
+	private unsigned int ownSerial = 0u;
+	private unsigned int answered = 0u;
+	private string objectPath = "";
+	private string interfaceText = "";
+	private string memberText = "";
+	private string errorText = "";
+	private string destinationText = "";
+	private string senderText = "";
+	private string bodySignature = "";
+	private Bytes outgoing;  /* the body of a message being built */
+	private unsigned char* received = null;  /* the body of a parsed message, in an allocation of exactly its size */
+	private int receivedLength = 0;
+	private int wireBytes = 0;
+	private bool bigEndian = false;
+	private bool parsed = false;
+	private int openContainers = 0;
+
+	private DBusMessage(DBusMessageType kind) {
+		self.kind = kind;
+		self.outgoing = Bytes();
+	}
+
+	class int noReplyFlag() { return 1; }
+
+	/* A call of `member` on the object at `path`. `iface` may be empty, and
+	 * so may `destination` on a connection that is not a bus. Throws when a
+	 * name is not one the protocol allows: a bus drops a connection that
+	 * sends it such a message. */
+	class DBusMessage methodCall(string destination, string path, string iface, string member) {
+		if (path == null || !DBusWire.validObjectPath(path, path.len())) { throw "A D-Bus method call needs a valid object path"; }
+		if (member == null || !DBusWire.validMember(member, member.len())) { throw "A D-Bus method call needs a valid member name"; }
+		if (iface != null && !iface.isEmpty() && !DBusWire.validInterface(iface, iface.len())) { throw "A D-Bus method call names an invalid interface"; }
+		if (destination != null && !destination.isEmpty() && !DBusWire.validBusName(destination, destination.len())) { throw "A D-Bus method call names an invalid destination"; }
+		DBusMessage message = DBusMessage(DBUS_MESSAGE_TYPE_METHOD_CALL);
+		message.objectPath = path;
+		message.memberText = member;
+		message.interfaceText = iface == null ? "" : iface;
+		message.destinationText = destination == null ? "" : destination;
+		return message;
+	}
+
+	/* The successful reply to a call, addressed to its sender. */
+	class DBusMessage methodReturn(DBusMessage call) {
+		if (call == null || call.kind != DBUS_MESSAGE_TYPE_METHOD_CALL || call.ownSerial == 0u) { throw "A D-Bus reply answers a method call that was received"; }
+		DBusMessage message = DBusMessage(DBUS_MESSAGE_TYPE_METHOD_RETURN);
+		message.answered = call.ownSerial;
+		message.destinationText = call.senderText;
+		message.flagBits = DBusMessage.noReplyFlag();
+		return message;
+	}
+
+	/* The error reply to a call: `name` such as
+	 * "org.freedesktop.DBus.Error.UnknownMethod", and one string of text. */
+	class DBusMessage error(DBusMessage call, string name, string text) {
+		if (call == null || call.kind != DBUS_MESSAGE_TYPE_METHOD_CALL || call.ownSerial == 0u) { throw "A D-Bus error answers a method call that was received"; }
+		if (name == null || !DBusWire.validInterface(name, name.len())) { throw "A D-Bus error needs a valid error name"; }
+		DBusMessage message = DBusMessage(DBUS_MESSAGE_TYPE_ERROR);
+		message.answered = call.ownSerial;
+		message.destinationText = call.senderText;
+		message.errorText = name;
+		message.flagBits = DBusMessage.noReplyFlag();
+		if (text != null) { message.writer().appendString(text); }
+		return message;
+	}
+
+	/* A signal `member` of `iface`, emitted by the object at `path`. */
+	class DBusMessage signal(string path, string iface, string member) {
+		if (path == null || !DBusWire.validObjectPath(path, path.len())) { throw "A D-Bus signal needs a valid object path"; }
+		if (iface == null || !DBusWire.validInterface(iface, iface.len())) { throw "A D-Bus signal needs a valid interface"; }
+		if (member == null || !DBusWire.validMember(member, member.len())) { throw "A D-Bus signal needs a valid member name"; }
+		DBusMessage message = DBusMessage(DBUS_MESSAGE_TYPE_SIGNAL);
+		message.objectPath = path;
+		message.interfaceText = iface;
+		message.memberText = member;
+		message.flagBits = DBusMessage.noReplyFlag();
+		return message;
+	}
+
+	/* DBUS_MESSAGE_TYPE_INVALID for a type this client does not know, which
+	 * the protocol says to ignore. */
+	public DBusMessageType type() { return self.kind; }
+
+	/* Set when the message was sent or received; 0 before. */
+	public unsigned int serial() { return self.ownSerial; }
+
+	/* The serial of the call a reply or an error answers; 0 otherwise. */
+	public unsigned int replySerial() { return self.answered; }
+
+	/* The header fields; empty when the message has none. */
+	public string path() { return self.objectPath; }
+
+	public string interfaceName() { return self.interfaceText; }
+
+	public string member() { return self.memberText; }
+
+	public string errorName() { return self.errorText; }
+
+	public string destination() { return self.destinationText; }
+
+	public string sender() { return self.senderText; }
+
+	public string signature() { return self.bodySignature; }
+
+	/* The bytes a received message took on the wire. */
+	public int wireLength() { return self.wireBytes; }
+
+	/* Whether the sender waits for no reply to this call. */
+	public bool noReply() { return (self.flagBits & DBusMessage.noReplyFlag()) != 0; }
+
+	public void setNoReply(bool none) { self.flagBits = none ? self.flagBits | DBusMessage.noReplyFlag() : self.flagBits & ~DBusMessage.noReplyFlag(); }
+
+	public bool isSignal(string iface, string member) { return self.kind == DBUS_MESSAGE_TYPE_SIGNAL && self.interfaceText.equals(iface) && self.memberText.equals(member); }
+
+	public bool isMethodCall(string iface, string member) { return self.kind == DBUS_MESSAGE_TYPE_METHOD_CALL && self.interfaceText.equals(iface) && self.memberText.equals(member); }
+
+	public bool isError(string name) { return self.kind == DBUS_MESSAGE_TYPE_ERROR && self.errorText.equals(name); }
+
+	/* The text an error reply carries: its first argument when that is a
+	 * string, else empty. */
+	public string errorMessage() {
+		if (self.kind != DBUS_MESSAGE_TYPE_ERROR || !self.parsed) { return ""; }
+		return self.reader().readString();
+	}
+
+	/* Appends arguments to a message being built. */
+	public DBusWriter writer() {
+		if (self.parsed) { throw "A received D-Bus message cannot be written to"; }
+		return DBusWriter(self);
+	}
+
+	/* Walks the arguments of a message that arrived, from the first. */
+	public DBusReader reader() {
+		if (!self.parsed) { throw "Only a received D-Bus message can be read; parse what marshal returns to read a message that was built"; }
+		return DBusReader(self, self.bodySignature, 0, self.bodySignature.len(), 0, self.receivedLength, false);
+	}
+
+	/* For the writer and the reader. */
+	public Bytes writtenBody() { return self.outgoing; }
+
+	public const unsigned char* receivedBody() { return self.received; }
+
+	public bool isBigEndian() { return self.bigEndian; }
+
+	public void noteSignature(string signature) { self.bodySignature = signature; }
+
+	public void noteContainer(int change) { self.openContainers += change; }
+
+	private void field(Bytes wire, int code, char type, string value) {
+		while (wire.len % 8 != 0) { wire.append(0); }
+		wire.append(code);
+		wire.append(1);
+		wire.append((int)type);
+		wire.append(0);
+		if (type == 'g') { wire.append(value.len()); }
+		else { wire.appendU32LE((unsigned int)value.len()); }
+		wire.appendRaw((char*)value, value.len());
+		wire.append(0);
+	}
+
+	/* The message as it goes on the wire under `serial`, or null when it
+	 * must not be sent: a container is still open, the body or its
+	 * signature is over the limit, or the serial is 0. */
+	public Bytes? marshal(unsigned int serial) {
+		if (self.parsed || serial == 0u || self.openContainers != 0 || self.kind == DBUS_MESSAGE_TYPE_INVALID) { return null; }
+		if (!DBusWire.validSignature(self.bodySignature, self.bodySignature.len())) { return null; }
+		if (self.outgoing.len > DBusWire.maximumMessageBytes()) { return null; }
+		Bytes wire = Bytes();
+		wire.append((int)'l');
+		wire.append((int)self.kind);
+		wire.append(self.flagBits);
+		wire.append(1);
+		wire.appendU32LE((unsigned int)self.outgoing.len);
+		wire.appendU32LE(serial);
+		wire.appendU32LE(0u);
+		if (!self.objectPath.isEmpty()) { self.field(wire, 1, 'o', self.objectPath); }
+		if (!self.interfaceText.isEmpty()) { self.field(wire, 2, 's', self.interfaceText); }
+		if (!self.memberText.isEmpty()) { self.field(wire, 3, 's', self.memberText); }
+		if (!self.errorText.isEmpty()) { self.field(wire, 4, 's', self.errorText); }
+		if (self.answered != 0u) {
+			while (wire.len % 8 != 0) { wire.append(0); }
+			wire.append(5);
+			wire.append(1);
+			wire.append((int)'u');
+			wire.append(0);
+			wire.appendU32LE(self.answered);
+		}
+		if (!self.destinationText.isEmpty()) { self.field(wire, 6, 's', self.destinationText); }
+		if (!self.bodySignature.isEmpty()) { self.field(wire, 8, 'g', self.bodySignature); }
+		unsigned int fields = (unsigned int)(wire.len - 16);
+		wire.set(12, (int)(fields & 255u));
+		wire.set(13, (int)((fields >> 8) & 255u));
+		wire.set(14, (int)((fields >> 16) & 255u));
+		wire.set(15, (int)((fields >> 24) & 255u));
+		while (wire.len % 8 != 0) { wire.append(0); }
+		if (wire.len > DBusWire.maximumMessageBytes() - self.outgoing.len) { return null; }
+		wire.appendBytes(self.outgoing);
+		self.ownSerial = serial;
+		return wire;
+	}
+
+	/* The whole length of the message whose first 16 bytes are at `data`,
+	 * or -1 when those bytes cannot begin a message this client accepts:
+	 * an unknown byte order or protocol version, the invalid message type,
+	 * serial 0, or a length over the limit. */
+	class int frameLength(const unsigned char* data, int available) {
+		if (data == null || available < 16) { return -1; }
+		if (data[0] != (unsigned char)'l' && data[0] != (unsigned char)'B') { return -1; }
+		if (data[1] == (unsigned char)0 || data[3] != (unsigned char)1) { return -1; }
+		bool big = data[0] == (unsigned char)'B';
+		unsigned int limit = (unsigned int)DBusWire.maximumMessageBytes();
+		unsigned int body = DBusWire.u32(data, 4, big);
+		unsigned int fields = DBusWire.u32(data, 12, big);
+		if (DBusWire.u32(data, 8, big) == 0u || body > limit || fields > limit - 16u) { return -1; }
+		unsigned int header = (16u + fields + 7u) / 8u * 8u;
+		if (header > limit || body > limit - header) { return -1; }
+		return (int)(header + body);
+	}
+
+	/* The text of a string, object path or signature header field whose
+	 * variant begins at data[at] with the one-letter signature `type`; null
+	 * when the variant holds another type. The field has been validated. */
+	class string? fieldText(const unsigned char* data, int at, char type) {
+		if (data[at] != (unsigned char)1 || data[at + 1] != (unsigned char)type) { return null; }
+		int offset = at + 3;
+		if (type != 'g') { offset = DBusWire.aligned(offset, 4) + 4; }
+		else { offset += 1; }
+		return Strings.copy((char*)(data + offset));
+	}
+
+	/* The message in the `length` bytes at `data`, which must be exactly
+	 * one whole message; null when anything in it is malformed. Nothing
+	 * past data[length] is read, and the bytes are copied. */
+	class DBusMessage? parse(const unsigned char* data, int length, IDBusDescriptors? handles = null) {
+		if (DBusMessage.frameLength(data, length) != length) { return null; }
+		bool big = data[0] == (unsigned char)'B';
+		int code = (int)data[1];
+		int fieldsEnd = 16 + (int)DBusWire.u32(data, 12, big);
+		int bodyStart = DBusWire.aligned(fieldsEnd, 8);
+		DBusMessage message = DBusMessage(DBUS_MESSAGE_TYPE_INVALID);
+		if (code == 1) { message.kind = DBUS_MESSAGE_TYPE_METHOD_CALL; }
+		else if (code == 2) { message.kind = DBUS_MESSAGE_TYPE_METHOD_RETURN; }
+		else if (code == 3) { message.kind = DBUS_MESSAGE_TYPE_ERROR; }
+		else if (code == 4) { message.kind = DBUS_MESSAGE_TYPE_SIGNAL; }
+		message.handles = handles;
+		int descriptorCount = message.descriptorCount();
+		message.parsed = true;
+		message.bigEndian = big;
+		message.flagBits = (int)data[2];
+		message.ownSerial = DBusWire.u32(data, 8, big);
+		int seen = 0;
+		int offset = 16;
+		while (offset < fieldsEnd) {
+			/* Each field is a (yv) struct; an unknown code is validated like any
+			 * other and then ignored, as the protocol requires. */
+			int start = DBusWire.padded(data, fieldsEnd, offset, 8);
+			if (start < 0 || start >= fieldsEnd) { return null; }
+			offset = DBusWire.validateOne(data, fieldsEnd, big, "(yv)", 0, 4, start, 0, descriptorCount);
+			if (offset < 0) { return null; }
+			int name = (int)data[start];
+			if (name == 0) { return null; }
+			if (name > 9) { continue; }
+			if ((seen & (1 << name)) != 0) { return null; }
+			seen = seen | (1 << name);
+			if (name == 5 || name == 9) {
+				if (data[start + 1] != (unsigned char)1 || data[start + 2] != (unsigned char)'u') { return null; }
+				unsigned int number = DBusWire.u32(data, start + 4, big);
+				/* A reply answers a real serial. The header must match the descriptors received. */
+				if (name == 5 && number == 0u) { return null; }
+				if (name == 9 && number != (unsigned int)descriptorCount) { return null; }
+				if (name == 5) { message.answered = number; }
+				continue;
+			}
+			string? text = DBusMessage.fieldText(data, start + 1, name == 1 ? 'o' : (name == 8 ? 'g' : 's'));
+			if (text == null) { return null; }
+			string value = text;
+			if (name == 1) { message.objectPath = value; }
+			else if (name == 8) { message.bodySignature = value; }
+			else if (name == 3) {
+				if (!DBusWire.validMember(value, value.len())) { return null; }
+				message.memberText = value;
+			} else if (name == 2 || name == 4) {
+				if (!DBusWire.validInterface(value, value.len())) { return null; }
+				if (name == 2) { message.interfaceText = value; }
+				else { message.errorText = value; }
+			} else {
+				if (!DBusWire.validBusName(value, value.len())) { return null; }
+				if (name == 6) { message.destinationText = value; }
+				else { message.senderText = value; }
+			}
+		}
+		if (descriptorCount != 0 && (seen & (1 << 9)) == 0) { return null; }
+		if (DBusWire.padded(data, length, fieldsEnd, 8) != bodyStart) { return null; }
+		bool hasPath = (seen & 2) != 0;
+		bool hasInterface = (seen & 4) != 0;
+		bool hasMember = (seen & 8) != 0;
+		bool hasError = (seen & 16) != 0;
+		bool hasReply = (seen & 32) != 0;
+		if (message.kind == DBUS_MESSAGE_TYPE_METHOD_CALL && !(hasPath && hasMember)) { return null; }
+		if (message.kind == DBUS_MESSAGE_TYPE_SIGNAL && !(hasPath && hasInterface && hasMember)) { return null; }
+		if (message.kind == DBUS_MESSAGE_TYPE_METHOD_RETURN && !hasReply) { return null; }
+		if (message.kind == DBUS_MESSAGE_TYPE_ERROR && !(hasReply && hasError)) { return null; }
+		/* The local interface and path belong to a connection's own
+		 * notifications; no peer may send them. */
+		if (message.interfaceText.equals("org.freedesktop.DBus.Local") || message.objectPath.equals("/org/freedesktop/DBus/Local")) { return null; }
+		int bodyLength = length - bodyStart;
+		string signature = message.bodySignature;
+		if (DBusWire.validate(data + bodyStart, bodyLength, big, signature, 0, signature.len(), 0, 0, descriptorCount) != bodyLength) { return null; }
+		message.received = (unsigned char*)malloc(bodyLength > 0 ? (size_t)bodyLength : (size_t)1);
+		if (message.received == null) { return null; }
+		if (bodyLength > 0) { memcpy(message.received, data + bodyStart, (size_t)bodyLength); }
+		message.receivedLength = bodyLength;
+		message.wireBytes = length;
+		return message;
+	}
+
+	/* The same for bytes held in a Bytes. */
+	class DBusMessage? parseBytes(Bytes wire) {
+		if (wire == null || wire.len < 16) { return null; }
+		return DBusMessage.parse((const unsigned char*)wire.data, wire.len);
+	}
+
+	public void __del__() {
+		if (self.received != null) {
+			free(self.received);
+			self.received = null;
+		}
+		self.receivedLength = 0;
+	}
+}
+
+/* A cursor over the values of a received message, or over the values inside
+ * one of its containers. It stands on one value at a time: `type` says which,
+ * a `read` method returns it, `recurse` opens a container and `next` moves
+ * on. A read of the wrong type returns the zero of the type asked for. */
+class DBusReader {
+	private DBusMessage owner;  /* keeps the body alive */
+	private string types;
+	private int at;
+	private int end;
+	private int position;
+	private int limit;
+	private bool elements;  /* an array's reader: types[at, end) is each element's type */
+
+	public DBusReader(DBusMessage owner, string types, int at, int end, int position, int limit, bool elements) {
+		self.owner = owner;
+		self.types = types;
+		self.at = at;
+		self.end = end;
+		self.position = position;
+		self.limit = limit;
+		self.elements = elements;
+	}
+
+	private char code() {
+		if (self.at >= self.end) { return '\0'; }
+		if (self.elements && self.position >= self.limit) { return '\0'; }
+		return self.types[self.at];
+	}
+
+	/* The type of the value the reader stands on; DBUS_TYPE_INVALID past
+	 * the last. */
+	public DBusType type() {
+		char code = self.code();
+		if (code == '\0') { return DBUS_TYPE_INVALID; }
+		if (code == '(') { return DBUS_TYPE_STRUCT; }
+		if (code == '{') { return DBUS_TYPE_DICT_ENTRY; }
+		return (DBusType)(int)code;
+	}
+
+	private int width() { return self.elements ? self.end - self.at : DBusWire.extent(self.types, self.at, self.end); }
+
+	/* The signature of the value the reader stands on; empty past the last. */
+	public string signature() {
+		if (self.code() == '\0') { return ""; }
+		return self.types.substring(self.at, self.width());
+	}
+
+	/* The signature of each element of the array the reader stands on. */
+	public string elementSignature() {
+		if (self.code() != 'a') { return ""; }
+		return self.types.substring(self.at + 1, self.width() - 1);
+	}
+
+	/* Move to the next value. False when there is none. */
+	public bool next() {
+		if (self.code() == '\0') { return false; }
+		int width = self.width();
+		int after = DBusWire.validateOne(self.owner.receivedBody(), self.limit, self.owner.isBigEndian(), self.types, self.at, self.at + width, self.position, 0, self.owner.descriptorCount());
+		if (after < 0) {
+			self.at = self.end;
+			self.position = self.limit;
+			return false;
+		}
+		self.position = after;
+		if (!self.elements) { self.at += width; }
+		return self.code() != '\0';
+	}
+
+	/* Where the value of type `code` begins when the reader stands on one
+	 * and all `size` bytes of it lie inside the body; else -1. */
+	private int place(char code, int size) {
+		if (self.code() != code) { return -1; }
+		int offset = DBusWire.aligned(self.position, DBusWire.alignment(code));
+		return offset >= 0 && size <= self.limit - offset ? offset : -1;
+	}
+
+	public int readByte() {
+		int offset = self.place('y', 1);
+		const unsigned char* body = self.owner.receivedBody();
+		return offset < 0 ? 0 : (int)body[offset];
+	}
+
+	public bool readBool() {
+		int offset = self.place('b', 4);
+		return offset >= 0 && DBusWire.u32(self.owner.receivedBody(), offset, self.owner.isBigEndian()) == 1u;
+	}
+
+	public int readInt16() {
+		int offset = self.place('n', 2);
+		if (offset < 0) { return 0; }
+		int value = (int)DBusWire.u16(self.owner.receivedBody(), offset, self.owner.isBigEndian());
+		return value >= 32768 ? value - 65536 : value;
+	}
+
+	public int readUInt16() {
+		int offset = self.place('q', 2);
+		return offset < 0 ? 0 : (int)DBusWire.u16(self.owner.receivedBody(), offset, self.owner.isBigEndian());
+	}
+
+	public int readInt32() {
+		int offset = self.place('i', 4);
+		if (offset < 0) { return 0; }
+		unsigned int value = DBusWire.u32(self.owner.receivedBody(), offset, self.owner.isBigEndian());
+		int result = 0;
+		memcpy(&result, &value, sizeof(result));
+		return result;
+	}
+
+	/* A borrowed Unix file descriptor, or -1 at any other type. */
+	public int readUnixFD() {
+		int offset = self.place('h', 4);
+		if (offset < 0) { return -1; }
+		return self.owner.descriptorAt((int)DBusWire.u32(self.owner.receivedBody(), offset, self.owner.isBigEndian()));
+	}
+
+	public unsigned int readUInt32() {
+		int offset = self.place('u', 4);
+		return offset < 0 ? 0u : DBusWire.u32(self.owner.receivedBody(), offset, self.owner.isBigEndian());
+	}
+
+	public long long readInt64() {
+		int offset = self.place('x', 8);
+		if (offset < 0) { return 0LL; }
+		unsigned long long value = DBusWire.u64(self.owner.receivedBody(), offset, self.owner.isBigEndian());
+		long long result = 0LL;
+		memcpy(&result, &value, sizeof(result));
+		return result;
+	}
+
+	public unsigned long long readUInt64() {
+		int offset = self.place('t', 8);
+		return offset < 0 ? 0ULL : DBusWire.u64(self.owner.receivedBody(), offset, self.owner.isBigEndian());
+	}
+
+	public double readDouble() {
+		int offset = self.place('d', 8);
+		if (offset < 0) { return 0.0; }
+		unsigned long long value = DBusWire.u64(self.owner.receivedBody(), offset, self.owner.isBigEndian());
+		double result = 0.0;
+		memcpy(&result, &value, sizeof(result));
+		return result;
+	}
+
+	private string text(char code) {
+		int offset = self.place(code, code == 'g' ? 1 : 4);
+		if (offset < 0) { return ""; }
+		const unsigned char* body = self.owner.receivedBody();
+		int start = code == 'g' ? offset + 1 : offset + 4;
+		unsigned int count = code == 'g' ? (unsigned int)body[offset] : DBusWire.u32(body, offset, self.owner.isBigEndian());
+		if (start > self.limit || count >= (unsigned int)(self.limit - start)) { return ""; }
+		return Bytes.fromRaw((char*)(body + start), (int)count).toString();
+	}
+
+	/* The string the reader stands on; empty when it stands on anything else. */
+	public string readString() { return self.text('s'); }
+
+	public string readObjectPath() { return self.text('o'); }
+
+	public string readSignature() { return self.text('g'); }
+
+	/* A string or an object path, whichever the reader stands on. */
+	public string readText() { return self.code() == 'o' ? self.text('o') : self.text('s'); }
+
+	/* A reader over what the container the reader stands on holds: an
+	 * array's elements, a struct's or a dict entry's fields, a variant's
+	 * value. A reader with nothing to read when it stands on no container. */
+	public DBusReader recurse() {
+		char code = self.code();
+		const unsigned char* body = self.owner.receivedBody();
+		bool big = self.owner.isBigEndian();
+		int width = self.width();
+		if (code == 'a') {
+			int offset = self.place('a', 4);
+			if (offset >= 0) {
+				unsigned int count = DBusWire.u32(body, offset, big);
+				int start = DBusWire.aligned(offset + 4, DBusWire.alignment(self.types[self.at + 1]));
+				if (start <= self.limit && count <= (unsigned int)(self.limit - start)) { return DBusReader(self.owner, self.types, self.at + 1, self.at + width, start, start + (int)count, true); }
+			}
+		} else if (code == '(' || code == '{') {
+			int offset = self.place(code, 0);
+			if (offset >= 0) { return DBusReader(self.owner, self.types, self.at + 1, self.at + width - 1, offset, self.limit, false); }
+		} else if (code == 'v') {
+			int offset = self.place('v', 1);
+			if (offset >= 0) {
+				int count = (int)body[offset];
+				if (count < self.limit - offset - 1) {
+					string inner = Bytes.fromRaw((char*)(body + offset + 1), count).toString();
+					return DBusReader(self.owner, inner, 0, inner.len(), offset + count + 2, self.limit, false);
+				}
+			}
+		}
+		return DBusReader(self.owner, "", 0, 0, self.limit, self.limit, false);
+	}
+}
+
+/* Appends values to a message being built, or to a container inside it. A
+ * container is opened from the writer it goes into, filled through the
+ * writer that returns, and closed by `close` on that writer before anything
+ * else is appended to the first.
+ *
+ * A value that would make the message one a bus refuses is a mistake in the
+ * caller and throws: text that is not UTF-8, an object path or a signature
+ * that is not well formed, a value that is not of the type its array or
+ * variant was opened for, an empty struct, nesting past the protocol's
+ * limit. */
+class DBusWriter {
+	private DBusMessage message;
+	private Bytes body;
+	private DBusWriter? parent = null;
+	private char container = '\0';  /* 'a', 'r', 'e' or 'v'; NUL for the message itself */
+	private string expected = "";  /* an array's element type, a variant's type */
+	private string written = "";  /* the types appended, since the last whole element in an array */
+	private int lengthAt = 0;
+	private int startAt = 0;
+	private int depth = 0;
+	private bool busy = false;  /* a container opened from this writer is not closed yet */
+	private bool closed = false;
+
+	public DBusWriter(DBusMessage message) {
+		self.message = message;
+		self.body = message.writtenBody();
+		self.written = message.signature();
+	}
+
+	private DBusWriter child(char container, string expected) {
+		if (self.depth >= DBusWire.maximumValueDepth()) { throw "D-Bus containers nest too deep"; }
+		DBusWriter inner = DBusWriter(self.message);
+		inner.parent = self;
+		inner.container = container;
+		inner.expected = expected;
+		inner.written = "";
+		inner.depth = self.depth + 1;
+		self.busy = true;
+		self.message.noteContainer(1);
+		return inner;
+	}
+
+	private void ready() {
+		if (self.closed) { throw "This D-Bus container is closed"; }
+		if (self.busy) { throw "A D-Bus container opened here is not closed yet"; }
+	}
+
+	/* Record that a value of the complete type `type` was appended. */
+	private void note(string type) {
+		string all = self.written + type;
+		if (self.container == 'a' || self.container == 'v') {
+			if (!self.expected.startsWith(all)) { throw f"A D-Bus value of type '{type}' does not belong in a container of '{self.expected}'"; }
+			if (self.container == 'a' && all.equals(self.expected)) { all = ""; }
+		} else if (self.container == '\0') {
+			if (all.len() > DBusWire.maximumSignatureBytes()) { throw "A D-Bus message's signature is too long"; }
+			self.message.noteSignature(all);
+		}
+		self.written = all;
+	}
+
+	private void pad(int boundary) {
+		while (self.body.len % boundary != 0) { self.body.append(0); }
+	}
+
+	public void appendByte(int value) {
+		self.ready();
+		self.note("y");
+		self.body.append(value);
+	}
+
+	public void appendBool(bool value) {
+		self.ready();
+		self.note("b");
+		self.pad(4);
+		self.body.appendU32LE(value ? 1u : 0u);
+	}
+
+	public void appendInt16(int value) {
+		self.ready();
+		self.note("n");
+		self.pad(2);
+		self.body.appendU16LE(value & 65535);
+	}
+
+	public void appendUInt16(int value) {
+		self.ready();
+		self.note("q");
+		self.pad(2);
+		self.body.appendU16LE(value & 65535);
+	}
+
+	public void appendInt32(int value) {
+		self.ready();
+		self.note("i");
+		self.pad(4);
+		unsigned int wire = 0u;
+		memcpy(&wire, &value, sizeof(wire));
+		self.body.appendU32LE(wire);
+	}
+
+	public void appendUInt32(unsigned int value) {
+		self.ready();
+		self.note("u");
+		self.pad(4);
+		self.body.appendU32LE(value);
+	}
+
+	public void appendInt64(long long value) {
+		self.ready();
+		self.note("x");
+		self.pad(8);
+		unsigned long long wire = 0ULL;
+		memcpy(&wire, &value, sizeof(wire));
+		self.body.appendU64LE(wire);
+	}
+
+	public void appendUInt64(unsigned long long value) {
+		self.ready();
+		self.note("t");
+		self.pad(8);
+		self.body.appendU64LE(value);
+	}
+
+	public void appendDouble(double value) {
+		self.ready();
+		self.note("d");
+		self.pad(8);
+		unsigned long long wire = 0ULL;
+		memcpy(&wire, &value, sizeof(wire));
+		self.body.appendU64LE(wire);
+	}
+
+	private void text(string type, string value) {
+		self.ready();
+		if (value == null || !DBusWire.validText(value, value.len())) { throw "A D-Bus string must be UTF-8"; }
+		self.note(type);
+		self.pad(4);
+		self.body.appendU32LE((unsigned int)value.len());
+		self.body.appendRaw((char*)value, value.len());
+		self.body.append(0);
+	}
+
+	public void appendString(string value) { self.text("s", value); }
+
+	public void appendObjectPath(string value) {
+		if (value == null || !DBusWire.validObjectPath(value, value.len())) { throw "A D-Bus object path is not well formed"; }
+		self.text("o", value);
+	}
+
+	public void appendSignature(string value) {
+		self.ready();
+		if (value == null || !DBusWire.validSignature(value, value.len())) { throw "A D-Bus signature is not well formed"; }
+		self.note("g");
+		self.body.append(value.len());
+		self.body.appendRaw((char*)value, value.len());
+		self.body.append(0);
+	}
+
+	/* An array whose every element has the one complete type `element`,
+	 * such as "s", "{sv}" or "(ia{sv})". */
+	public DBusWriter openArray(string element) {
+		self.ready();
+		if (element == null || DBusWire.typeLength(element, 0, element.len(), 0, 0, 0, true) != element.len() || element.len() == 0 || element.len() > DBusWire.maximumSignatureBytes() - 1) { throw "A D-Bus array needs one complete element type"; }
+		DBusWriter inner = self.child('a', element);
+		self.pad(4);
+		inner.lengthAt = self.body.len;
+		self.body.appendU32LE(0u);
+		self.pad(DBusWire.alignment(element[0]));
+		inner.startAt = self.body.len;
+		return inner;
+	}
+
+	public DBusWriter openStruct() {
+		self.ready();
+		DBusWriter inner = self.child('r', "");
+		self.pad(8);
+		return inner;
+	}
+
+	/* One key and value of a dictionary: an element of an array of "{..}". */
+	public DBusWriter openDictEntry() {
+		self.ready();
+		if (self.container != 'a') { throw "A D-Bus dict entry is an element of an array"; }
+		DBusWriter inner = self.child('e', "");
+		self.pad(8);
+		return inner;
+	}
+
+	/* A variant holding one value of the complete type `type`. */
+	public DBusWriter openVariant(string type) {
+		self.ready();
+		if (type == null || !DBusWire.singleType(type, type.len())) { throw "A D-Bus variant holds one complete type"; }
+		DBusWriter inner = self.child('v', type);
+		self.body.append(type.len());
+		self.body.appendRaw((char*)type, type.len());
+		self.body.append(0);
+		return inner;
+	}
+
+	/* Close this container; its writer takes no more values. */
+	public void close() {
+		self.ready();
+		if (self.parent == null) { throw "Only a D-Bus container is closed"; }
+		DBusWriter outer = self.parent;
+		string type = "v";
+		if (self.container == 'a') {
+			if (!self.written.isEmpty()) { throw "A D-Bus array's last element is incomplete"; }
+			int size = self.body.len - self.startAt;
+			if (size > DBusWire.maximumArrayBytes()) { throw "A D-Bus array is too large"; }
+			unsigned int count = (unsigned int)size;
+			self.body.set(self.lengthAt, (int)(count & 255u));
+			self.body.set(self.lengthAt + 1, (int)((count >> 8) & 255u));
+			self.body.set(self.lengthAt + 2, (int)((count >> 16) & 255u));
+			self.body.set(self.lengthAt + 3, (int)((count >> 24) & 255u));
+			type = "a" + self.expected;
+		} else if (self.container == 'v') {
+			if (!self.written.equals(self.expected)) { throw "A D-Bus variant was not given its value"; }
+		} else if (self.container == 'r') {
+			if (self.written.isEmpty()) { throw "A D-Bus struct needs a field"; }
+			type = "(" + self.written + ")";
+		} else {
+			type = "{" + self.written + "}";
+		}
+		self.closed = true;
+		self.parent = null;
+		outer.busy = false;
+		self.message.noteContainer(-1);
+		outer.note(type);
+	}
+
+	/* The variants and "{sv}" entries that properties and menus are made of. */
+	public void variantString(string value) {
+		DBusWriter variant = self.openVariant("s");
+		variant.appendString(value);
+		variant.close();
+	}
+
+	public void variantObjectPath(string value) {
+		DBusWriter variant = self.openVariant("o");
+		variant.appendObjectPath(value);
+		variant.close();
+	}
+
+	public void variantBool(bool value) {
+		DBusWriter variant = self.openVariant("b");
+		variant.appendBool(value);
+		variant.close();
+	}
+
+	public void variantInt32(int value) {
+		DBusWriter variant = self.openVariant("i");
+		variant.appendInt32(value);
+		variant.close();
+	}
+
+	public void variantUInt32(unsigned int value) {
+		DBusWriter variant = self.openVariant("u");
+		variant.appendUInt32(value);
+		variant.close();
+	}
+
+	/* A dict entry with its string key appended, awaiting its value. */
+	public DBusWriter openEntry(string key) {
+		DBusWriter entry = self.openDictEntry();
+		entry.appendString(key);
+		return entry;
+	}
+
+	public void dictString(string key, string value) {
+		DBusWriter entry = self.openEntry(key);
+		entry.variantString(value);
+		entry.close();
+	}
+
+	public void dictObjectPath(string key, string value) {
+		DBusWriter entry = self.openEntry(key);
+		entry.variantObjectPath(value);
+		entry.close();
+	}
+
+	public void dictBool(string key, bool value) {
+		DBusWriter entry = self.openEntry(key);
+		entry.variantBool(value);
+		entry.close();
+	}
+
+	public void dictInt32(string key, int value) {
+		DBusWriter entry = self.openEntry(key);
+		entry.variantInt32(value);
+		entry.close();
+	}
+
+	public void dictUInt32(string key, unsigned int value) {
+		DBusWriter entry = self.openEntry(key);
+		entry.variantUInt32(value);
+		entry.close();
+	}
+
+	class void fill(DBusWriter copy, DBusReader inner) {
+		while (inner.type() != DBUS_TYPE_INVALID) {
+			copy.appendValue(inner);
+			inner.next();
+		}
+		copy.close();
+	}
+
+	/* Append a copy of the value `source` stands on, whatever its type. */
+	public void appendValue(DBusReader source) {
+		DBusType type = source.type();
+		if (type == DBUS_TYPE_BYTE) { self.appendByte(source.readByte()); }
+		else if (type == DBUS_TYPE_BOOLEAN) { self.appendBool(source.readBool()); }
+		else if (type == DBUS_TYPE_INT16) { self.appendInt16(source.readInt16()); }
+		else if (type == DBUS_TYPE_UINT16) { self.appendUInt16(source.readUInt16()); }
+		else if (type == DBUS_TYPE_INT32) { self.appendInt32(source.readInt32()); }
+		else if (type == DBUS_TYPE_UINT32) { self.appendUInt32(source.readUInt32()); }
+		else if (type == DBUS_TYPE_INT64) { self.appendInt64(source.readInt64()); }
+		else if (type == DBUS_TYPE_UINT64) { self.appendUInt64(source.readUInt64()); }
+		else if (type == DBUS_TYPE_DOUBLE) { self.appendDouble(source.readDouble()); }
+		else if (type == DBUS_TYPE_STRING) { self.appendString(source.readString()); }
+		else if (type == DBUS_TYPE_OBJECT_PATH) { self.appendObjectPath(source.readObjectPath()); }
+		else if (type == DBUS_TYPE_SIGNATURE) { self.appendSignature(source.readSignature()); }
+		else if (type == DBUS_TYPE_ARRAY) { DBusWriter.fill(self.openArray(source.elementSignature()), source.recurse()); }
+		else if (type == DBUS_TYPE_STRUCT) { DBusWriter.fill(self.openStruct(), source.recurse()); }
+		else if (type == DBUS_TYPE_DICT_ENTRY) { DBusWriter.fill(self.openDictEntry(), source.recurse()); }
+		else if (type == DBUS_TYPE_VARIANT) {
+			DBusReader inner = source.recurse();
+			DBusWriter.fill(self.openVariant(inner.signature()), inner);
+		} else { throw "A D-Bus value of this type cannot be copied"; }
+	}
+}

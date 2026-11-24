@@ -1,0 +1,312 @@
+/* The D-Bus wire rules, as the specification states them: type alignment,
+ * signature and name syntax, the limits a message must respect, and one
+ * walker that checks a marshalled value against its signature.
+ *
+ * Everything here reads bytes a peer chose, so nothing trusts a length,
+ * an offset or a terminator before it has been compared with the buffer's
+ * end. Signatures are passed as a pointer with explicit bounds; none of
+ * these read up to a NUL. */
+
+import Library.Strings;
+
+class DBusWire {
+	/* The D-Bus specification limits a complete frame to 128 MiB. */
+	class int maximumMessageBytes() { return 134217728; }
+
+	/* The specification's limit on one array's marshalled elements. */
+	class int maximumArrayBytes() { return 67108864; }
+
+	class int maximumSignatureBytes() { return 255; }
+
+	class int maximumNameBytes() { return 255; }
+
+	/* Arrays, structs and dict entries each nest this deep in a signature. */
+	class int maximumTypeDepth() { return 32; }
+
+	/* Containers, variants included, nest this deep in a marshalled body. */
+	class int maximumValueDepth() { return 64; }
+
+	class bool basic(char code) { return code == 'y' || code == 'b' || code == 'n' || code == 'q' || code == 'i' || code == 'u' || code == 'x' || code == 't' || code == 'd' || code == 's' || code == 'o' || code == 'g' || code == 'h'; }
+
+	/* Bytes of a fixed-size basic type; 0 for every other type. */
+	class int fixedSize(char code) {
+		if (code == 'y') { return 1; }
+		if (code == 'n' || code == 'q') { return 2; }
+		if (code == 'b' || code == 'i' || code == 'u' || code == 'h') { return 4; }
+		if (code == 'x' || code == 't' || code == 'd') { return 8; }
+		return 0;
+	}
+
+	class int alignment(char code) {
+		if (code == 'y' || code == 'g' || code == 'v') { return 1; }
+		if (code == 'n' || code == 'q') { return 2; }
+		if (code == 'x' || code == 't' || code == 'd' || code == '(' || code == '{') { return 8; }
+		return 4;
+	}
+
+	class int aligned(int offset, int boundary) { return (offset + boundary - 1) / boundary * boundary; }
+
+	/* Length of the single complete type at signature[at], checked against
+	 * the nesting limits; 0 when there is none. A dict entry is a type only
+	 * as an array's element. */
+	class int typeLength(string signature, int at, int end, int arrays, int structs, int entries, bool element) {
+		if (at < 0 || at >= end) { return 0; }
+		char code = signature[at];
+		if (DBusWire.basic(code) || code == 'v') { return 1; }
+		if (code == 'a') {
+			if (arrays >= DBusWire.maximumTypeDepth()) { return 0; }
+			int inner = DBusWire.typeLength(signature, at + 1, end, arrays + 1, structs, entries, true);
+			return inner == 0 ? 0 : inner + 1;
+		}
+		if (code == '(') {
+			if (structs >= DBusWire.maximumTypeDepth()) { return 0; }
+			int cursor = at + 1;
+			while (cursor < end && signature[cursor] != ')') {
+				int field = DBusWire.typeLength(signature, cursor, end, arrays, structs + 1, entries, false);
+				if (field == 0) { return 0; }
+				cursor += field;
+			}
+			if (cursor >= end || cursor == at + 1) { return 0; }
+			return cursor - at + 1;
+		}
+		if (code == '{') {
+			if (!element || entries >= DBusWire.maximumTypeDepth()) { return 0; }
+			if (at + 1 >= end || !DBusWire.basic(signature[at + 1])) { return 0; }
+			int value = DBusWire.typeLength(signature, at + 2, end, arrays, structs, entries + 1, false);
+			if (value == 0) { return 0; }
+			int close = at + 2 + value;
+			if (close >= end || signature[close] != '}') { return 0; }
+			return close - at + 1;
+		}
+		return 0;
+	}
+
+	/* Whether signature[0, length) is zero or more complete types. */
+	class bool validSignature(string signature, int length) {
+		if (signature == null || length < 0 || length > DBusWire.maximumSignatureBytes()) { return false; }
+		int cursor = 0;
+		while (cursor < length) {
+			int width = DBusWire.typeLength(signature, cursor, length, 0, 0, 0, false);
+			if (width == 0) { return false; }
+			cursor += width;
+		}
+		return true;
+	}
+
+	/* Whether signature[0, length) is exactly one complete type. */
+	class bool singleType(string signature, int length) {
+		if (signature == null || length < 1 || length > DBusWire.maximumSignatureBytes()) { return false; }
+		return DBusWire.typeLength(signature, 0, length, 0, 0, 0, false) == length;
+	}
+
+	/* Length of the complete type at signature[at] of a signature that has
+	 * passed validSignature; 0 past its end. */
+	class int extent(string signature, int at, int end) {
+		int cursor = at;
+		while (cursor < end && signature[cursor] == 'a') { cursor++; }
+		if (cursor < 0 || cursor >= end) { return 0; }
+		if (signature[cursor] != '(' && signature[cursor] != '{') { return cursor - at + 1; }
+		int depth = 0;
+		while (cursor < end) {
+			char code = signature[cursor];
+			if (code == '(' || code == '{') { depth++; }
+			else if (code == ')' || code == '}') {
+				depth--;
+				if (depth == 0) { return cursor - at + 1; }
+			}
+			cursor++;
+		}
+		return 0;
+	}
+
+	class bool nameCharacter(char code, bool digits, bool hyphen) {
+		if ((code >= 'a' && code <= 'z') || (code >= 'A' && code <= 'Z') || code == '_') { return true; }
+		if (code >= '0' && code <= '9') { return digits; }
+		return hyphen && code == '-';
+	}
+
+	/* "/", or "/" then elements of [A-Za-z0-9_] separated by single "/". */
+	class bool validObjectPath(string path, int length) {
+		if (path == null || length < 1 || path[0] != '/') { return false; }
+		if (length == 1) { return true; }
+		for (int at = 1; at < length; at++) {
+			char code = path[at];
+			if (code == '/') {
+				if (path[at - 1] == '/' || at == length - 1) { return false; }
+			} else if (!DBusWire.nameCharacter(code, true, false)) { return false; }
+		}
+		return true;
+	}
+
+	/* Two or more elements joined by "."; an element is [A-Za-z_][A-Za-z0-9_]*.
+	 * An error name follows the same rule. */
+	class bool validInterface(string name, int length) {
+		if (name == null || length < 1 || length > DBusWire.maximumNameBytes()) { return false; }
+		int elements = 1;
+		bool start = true;
+		for (int at = 0; at < length; at++) {
+			char code = name[at];
+			if (code == '.') {
+				if (start) { return false; }
+				elements++;
+				start = true;
+			} else {
+				if (!DBusWire.nameCharacter(code, !start, false)) { return false; }
+				start = false;
+			}
+		}
+		return !start && elements >= 2;
+	}
+
+	class bool validMember(string name, int length) {
+		if (name == null || length < 1 || length > DBusWire.maximumNameBytes()) { return false; }
+		for (int at = 0; at < length; at++) {
+			if (!DBusWire.nameCharacter(name[at], at > 0, false)) { return false; }
+		}
+		return true;
+	}
+
+	/* A unique name (":1.42") or a well-known one ("org.example.Service"). */
+	class bool validBusName(string name, int length) {
+		if (name == null || length < 1 || length > DBusWire.maximumNameBytes()) { return false; }
+		bool unique = name[0] == ':';
+		int elements = 1;
+		bool start = true;
+		for (int at = unique ? 1 : 0; at < length; at++) {
+			char code = name[at];
+			if (code == '.') {
+				if (start) { return false; }
+				elements++;
+				start = true;
+			} else {
+				if (!DBusWire.nameCharacter(code, unique || !start, true)) { return false; }
+				start = false;
+			}
+		}
+		return !start && elements >= 2;
+	}
+
+	/* Well-formed UTF-8 with no NUL in it. */
+	class bool validText(string text, int length) {
+		if (text == null || length < 0) { return false; }
+		int at = 0;
+		while (at < length) {
+			if (text[at] == '\0') { return false; }
+			int width = UTF8.width(text, length, at);
+			if (width == 0) { return false; }
+			at += width;
+		}
+		return true;
+	}
+
+	class unsigned int u16(const unsigned char* data, int offset, bool big) {
+		unsigned int first = (unsigned int)data[offset];
+		unsigned int second = (unsigned int)data[offset + 1];
+		return big ? (first << 8) | second : (second << 8) | first;
+	}
+
+	class unsigned int u32(const unsigned char* data, int offset, bool big) {
+		unsigned int value = 0u;
+		for (int index = 0; index < 4; index++) {
+			unsigned int unit = (unsigned int)data[offset + index];
+			value = big ? (value << 8) | unit : value | (unit << (index * 8));
+		}
+		return value;
+	}
+
+	class unsigned long long u64(const unsigned char* data, int offset, bool big) {
+		unsigned long long value = 0ULL;
+		for (int index = 0; index < 8; index++) {
+			unsigned long long unit = (unsigned long long)data[offset + index];
+			value = big ? (value << 8) | unit : value | (unit << (index * 8));
+		}
+		return value;
+	}
+
+	/* `offset` rounded up to `boundary`, when the padding skipped lies inside
+	 * the buffer and is zero as the specification requires; else -1. */
+	class int padded(const unsigned char* data, int length, int offset, int boundary) {
+		if (offset < 0 || offset > length) { return -1; }
+		int target = DBusWire.aligned(offset, boundary);
+		if (target > length) { return -1; }
+		for (int at = offset; at < target; at++) {
+			if (data[at] != (unsigned char)0) { return -1; }
+		}
+		return target;
+	}
+
+	/* Check the values of signature[at, end), marshalled from data[position];
+	 * the offset after the last of them, or -1 when any is malformed or would
+	 * end past `length`. The signature has passed validSignature. */
+	class int validate(const unsigned char* data, int length, bool big, string signature, int at, int end, int position, int depth, int descriptorCount = 0) {
+		int cursor = at;
+		int offset = position;
+		while (cursor < end) {
+			int width = DBusWire.extent(signature, cursor, end);
+			if (width == 0) { return -1; }
+			offset = DBusWire.validateOne(data, length, big, signature, cursor, cursor + width, offset, depth, descriptorCount);
+			if (offset < 0) { return -1; }
+			cursor += width;
+		}
+		return offset;
+	}
+
+	/* The same for the one complete type signature[at, end). */
+	class int validateOne(const unsigned char* data, int length, bool big, string signature, int at, int end, int position, int depth, int descriptorCount = 0) {
+		if (at >= end) { return -1; }
+		char code = signature[at];
+		int offset = DBusWire.padded(data, length, position, DBusWire.alignment(code));
+		if (offset < 0) { return -1; }
+		int fixed = DBusWire.fixedSize(code);
+		if (fixed > 0) {
+			if (length - offset < fixed) { return -1; }
+			if (code == 'b' && DBusWire.u32(data, offset, big) > 1u) { return -1; }
+			if (code == 'h' && DBusWire.u32(data, offset, big) >= (unsigned int)descriptorCount) { return -1; }
+			return offset + fixed;
+		}
+		if (code == 's' || code == 'o') {
+			if (length - offset < 4) { return -1; }
+			unsigned int count = DBusWire.u32(data, offset, big);
+			offset += 4;
+			if (count >= (unsigned int)(length - offset)) { return -1; }
+			int size = (int)count;
+			if (data[offset + size] != (unsigned char)0) { return -1; }
+			char* text = (char*)(data + offset);
+			if (!DBusWire.validText(text, size)) { return -1; }
+			if (code == 'o' && !DBusWire.validObjectPath(text, size)) { return -1; }
+			return offset + size + 1;
+		}
+		if (code == 'g' || code == 'v') {
+			if (length - offset < 1) { return -1; }
+			int size = (int)data[offset];
+			offset += 1;
+			if (size >= length - offset) { return -1; }
+			if (data[offset + size] != (unsigned char)0) { return -1; }
+			char* inner = (char*)(data + offset);
+			if (code == 'g') { return DBusWire.validSignature(inner, size) ? offset + size + 1 : -1; }
+			if (depth >= DBusWire.maximumValueDepth() || !DBusWire.singleType(inner, size)) { return -1; }
+			return DBusWire.validateOne(data, length, big, inner, 0, size, offset + size + 1, depth + 1, descriptorCount);
+		}
+		if (code == 'a') {
+			if (depth >= DBusWire.maximumValueDepth() || at + 1 >= end || length - offset < 4) { return -1; }
+			unsigned int count = DBusWire.u32(data, offset, big);
+			if (count > (unsigned int)DBusWire.maximumArrayBytes()) { return -1; }
+			char element = signature[at + 1];
+			offset = DBusWire.padded(data, length, offset + 4, DBusWire.alignment(element));
+			if (offset < 0 || count > (unsigned int)(length - offset)) { return -1; }
+			int limit = offset + (int)count;
+			int unit = DBusWire.fixedSize(element);
+			if (unit > 0 && element != 'b' && element != 'h') { return (int)count % unit == 0 ? limit : -1; }
+			while (offset < limit) {
+				offset = DBusWire.validateOne(data, limit, big, signature, at + 1, end, offset, depth + 1, descriptorCount);
+				if (offset < 0) { return -1; }
+			}
+			return offset == limit ? limit : -1;
+		}
+		if (code == '(' || code == '{') {
+			if (depth >= DBusWire.maximumValueDepth()) { return -1; }
+			return DBusWire.validate(data, length, big, signature, at + 1, end - 1, offset, depth + 1, descriptorCount);
+		}
+		return -1;
+	}
+}

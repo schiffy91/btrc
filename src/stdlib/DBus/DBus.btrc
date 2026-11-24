@@ -1,0 +1,9 @@
+/* btrc standard library — DBus
+ *
+ * A first-party D-Bus client: addresses, messages and their marshalling,
+ * and a connection to a message bus. The stdlib's own Linux providers use
+ * it to reach system services over their sockets; see README.md.
+ * Importing Library.DBus selects the whole group. */
+import Library.DBus.DBusAddress;
+import Library.DBus.DBusConnection;
+import Library.DBus.DBusMessage;

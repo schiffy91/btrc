@@ -189,6 +189,10 @@ headers = ["dbus/*"]
 binaries = ["libdbus-1.so*"]
 
 [[dependencies]]
+name = "dbus-launch (legacy X11 session activation)"
+programs = ["dbus-launch"]
+
+[[dependencies]]
 name = "alsa-lib"
 pkg-config = ["alsa"]
 headers = ["alsa/*"]
@@ -269,6 +273,18 @@ Keep the current working transport while qualification and review are pending.
 # ── Third-party requirements known today, awaiting removal ──────────────────
 
 [[pending]]
+dependency = "dbus-launch (legacy X11 session activation)"
+module = "DBus/Linux/DBusTransportProvider"
+os = ["linux"]
+resolution = "Only a legacy X11 session without a reachable XDG bus socket or saved bus address needs the installed dbus-x11 service helper. Moving activation out of the stdlib or retiring automatic startup needs an owner decision."
+
+[[pending]]
+dependency = "libdbus"
+module = "Tray/Linux/LinuxTray"
+os = ["linux"]
+resolution = "A first-party D-Bus client: the wire protocol over the bus's own socket."
+
+[[pending]]
 dependency = "curl"
 module = "HTTP/HTTPCurlTransport"
 os = ["android", "linux", "macos"]
@@ -279,18 +295,6 @@ dependency = "FreeType"
 module = "GUI/FreeType/FreeTypeFace"
 os = ["linux", "macos", "windows"]
 resolution = "A first-party TrueType reader and rasterizer in BTRC behind the same face contract."
-
-[[pending]]
-dependency = "libdbus"
-module = "Tray/Linux/LinuxTray"
-os = ["linux"]
-resolution = "A first-party D-Bus client: the wire protocol over the bus's own socket."
-
-[[pending]]
-dependency = "libdbus"
-module = "Bluetooth/Linux/BluetoothAdapterProvider"
-os = ["linux"]
-resolution = "The same first-party D-Bus client, on the system bus."
 
 [[pending]]
 dependency = "alsa-lib"

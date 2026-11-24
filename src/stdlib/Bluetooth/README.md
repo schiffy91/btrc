@@ -71,8 +71,8 @@ pairings. `adapter.bonded(peer)` is the fact to rely on, and
 `L2CAP` has a Linux provider: the kernel's Bluetooth sockets
 (`Linux/BluetoothSockets.h` spells the socket ABI, which the kernel's
 exported headers leave out). `BluetoothAdapter` has a Linux provider: BlueZ's
-daemon over the system bus (`Linux/BlueZ.h`; the manifest names the `dbus-1`
-pkg-config package). Listening on the HID channels needs root, and BlueZ's own
+daemon over the system bus, through `Library.DBus`, the stdlib's own D-Bus
+client (no D-Bus library is linked). Listening on the HID channels needs root, and BlueZ's own
 HID host (its `input` plugin) must be off, since it holds the same channels.
 The macOS providers report `supported()` false and fail every operation.
 Windows has no rows.
