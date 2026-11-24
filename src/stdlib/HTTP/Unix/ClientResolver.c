@@ -3,6 +3,7 @@
  * leaving its own storage in use. Saturated callers wait on the same
  * monotonic deadline, bounding the number of outstanding resolver threads. */
 #include "ClientSockets.h"
+#include <arpa/inet.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <time.h>
@@ -129,4 +130,30 @@ int btrcHttpAddressSocket(void **cursor, struct sockaddr **address, socklen_t *l
 
 void btrcHttpFreeAddresses(void *addresses) {
     freeaddrinfo(addresses);
+}
+
+/* SOCKS4 requires IPv4. SOCKS5h forwards an unresolved hostname verbatim.
+ * The local modes share the normal transport's bounded resolver worker. */
+int btrcHttpSocksAddress(char *host, int local, int onlyIPv4, long long deadline, char *output) {
+    if (inet_pton(AF_INET, host, output) == 1) return 4;
+    if (inet_pton(AF_INET6, host, output) == 1) return onlyIPv4 ? -2 : 16;
+    if (!local) return 0;
+    void *found = NULL;
+    int status = btrcHttpResolve(host, "0", deadline, &found);
+    if (status != 0) return status;
+    int size = -2;
+    for (struct addrinfo *p = found; p; p = p->ai_next) {
+        if (p->ai_family == AF_INET) {
+            memcpy(output, &((struct sockaddr_in *)p->ai_addr)->sin_addr, 4);
+            size = 4;
+            break;
+        }
+        if (!onlyIPv4 && p->ai_family == AF_INET6) {
+            memcpy(output, &((struct sockaddr_in6 *)p->ai_addr)->sin6_addr, 16);
+            size = 16;
+            break;
+        }
+    }
+    btrcHttpFreeAddresses(found);
+    return size;
 }

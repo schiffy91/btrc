@@ -2,6 +2,7 @@
 
 import http.server
 import os
+import socketserver
 import subprocess
 import sys
 import threading
@@ -9,6 +10,7 @@ import threading
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.native.http.socks_peer import SocksPeer
 from src.tests.native_build import NativeCorpusBuild
 from tools.qualification.dependencies import DependencyAudit
 
@@ -18,6 +20,7 @@ import Library.Vector;
 
 int main() {
     Vector<string> fields = [];
+    if (Environment.has("TEST_HEADER")) { fields.push(Environment.get("TEST_HEADER", "")); }
     HTTPClientResponse result = HTTPClient().timeout(1).get(Environment.get("TEST_URL", ""), fields);
     print(f"{result.status}|{result.body}|{result.error}");
     return 0;
@@ -44,6 +47,8 @@ int getaddrinfo(const char *name, const char *service, const struct addrinfo *hi
 class RoutingPeer(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         fields = (self.path, self.headers["Host"], self.headers.get("Proxy-Authorization", ""))
+        if self.path == "/socks":
+            fields += (self.headers.get("Authorization", ""),)
         body = "|".join(fields).encode()
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
@@ -110,6 +115,8 @@ def test_public_http_proxy_bypass_and_resolver_deadline(compiler, request, tmp_p
                     f"200|/direct|{authority}||"
                 )
             assert run(program, TEST_URL=f"http://{endpoint}/direct", HTTP_PROXY=proxy) == f"200|/direct|{endpoint}||"
+            if sys.platform == "linux":
+                check_socks(program, run, peer, tmp_path)
         finally:
             peer.shutdown()
             serving.join()
@@ -121,3 +128,60 @@ def test_public_http_proxy_bypass_and_resolver_deadline(compiler, request, tmp_p
     slow_client = tmp_path / "slow"
     artifact.build(slow_client, link_flags=[str(slow_object)])
     assert run(slow_client, TEST_URL="http://slow.invalid/") == "0||request timed out"
+
+
+def check_socks(program, run, origin, directory):
+    with socketserver.ThreadingTCPServer(("127.0.0.1", 0), SocksPeer) as proxy:
+        proxy.daemon_threads = True
+        proxy.origin = origin.server_address
+        proxy.observed = []
+        serving = threading.Thread(target=proxy.serve_forever, daemon=True)
+        serving.start()
+        endpoint = f"127.0.0.1:{proxy.server_address[1]}"
+        header = "Proxy-Authorization: Bearer caller"
+        try:
+            for scheme, host, auth, version, kind, address, credentials in (
+                ("socks4", "127.0.0.1", False, 4, 1, "127.0.0.1", b""),
+                ("socks4a", "proxy-only.invalid", True, 4, 3, "proxy-only.invalid", b"u:s"),
+                ("socks5", "[::1]", True, 5, 4, "::1", (b"u:s", b"p+w")),
+                ("socks5h", "proxy-only.invalid", True, 5, 3, "proxy-only.invalid", (b"u:s", b"p+w")),
+            ):
+                proxy.require_auth = auth
+                authority = f"{host}:54321"
+                user = "u%3As:p%2Bw@" if auth else ""
+                result = run(
+                    program,
+                    TEST_URL=f"http://user:ori@{authority}/socks",
+                    TEST_HEADER=header,
+                    http_proxy=f"{scheme}://{user}{endpoint}",
+                )
+                assert result == f"200|/socks|{authority}||Basic dXNlcjpvcmk=|"
+                assert proxy.observed[-1] == (version, kind, address, 54321, credentials)
+            proxy.require_auth = True
+            target = "http://proxy-only.invalid:54321/socks"
+            assert run(program, TEST_URL=target, http_proxy=f"socks5h://{endpoint}") == "0||SOCKS connection failed"
+            fake = directory / "curl"
+            fake.write_text("#!/bin/sh\nexit 42\n")
+            fake.chmod(0o755)
+            assert (
+                run(program, TEST_URL=target, http_proxy=f"socks4a://{endpoint}", PATH=str(directory))
+                == "200|/socks|proxy-only.invalid:54321|||"
+            )
+            for scheme in ("socks4a", "socks5h"):
+                assert (
+                    run(
+                        program,
+                        TEST_URL=target,
+                        TEST_HEADER=header,
+                        http_proxy=f"{scheme}://{endpoint}",
+                        PATH=str(directory),
+                    )
+                    == "0||curl failed (exit 42)"
+                )
+            assert (
+                run(program, TEST_URL=target, http_proxy=f"socks5h://{endpoint}", PATH=str(directory))
+                == "0||curl failed (exit 42)"
+            )
+        finally:
+            proxy.shutdown()
+            serving.join()

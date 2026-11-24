@@ -5,6 +5,7 @@
 import Library.Bytes;
 import Library.HTTP.HTTPExchange;
 import Library.HTTP.HTTPSocket;
+import Library.HTTP.Unix.HTTPSocks;
 import Library.IO;
 import Library.Timer;
 import Library.Vector;
@@ -45,6 +46,16 @@ class HTTPSocketStream implements IHTTPByteStream {
 }
 
 class HTTPPlainTransport {
+	class HTTPClientAddress forwardAddress(HTTPClientAddress address) { return HTTPClientAddress(false, address.userInfo, address.host, address.port, "http://" + address.authority() + address.target); }
+
+	class Vector<string> forwardHeaders(Vector<string> headers, HTTPClientAddress proxy) {
+		if (proxy.userInfo.isEmpty() || HTTPExchange.names(headers, "proxy-authorization")) { return headers; }
+		Vector<string> fields = [];
+		for header in headers { fields.push(header); }
+		fields.push("Proxy-Authorization: Basic " + HTTPExchange.base64(HTTPExchange.credentials(proxy.userInfo)));
+		return fields;
+	}
+
 	/* A socket connected to the first address of `host` that answers before
 	 * the deadline; -1 when none does, -2 when the name does not resolve. */
 	class int connectTo(string host, int port, long long deadline) {
@@ -87,25 +98,29 @@ class HTTPPlainTransport {
 		return connected;
 	}
 
-	class HTTPExchangeResult request(string method, HTTPClientAddress address, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes, HTTPClientAddress? proxy = null) {
+	class HTTPExchangeResult request(string method, HTTPClientAddress address, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes, HTTPClientAddress? proxy = null, string socks = "") {
 		long long deadline = MonotonicClock.deadlineAfter((long long)timeoutSecs * 1000LL);
 		HTTPClientAddress endpoint = address;
 		HTTPClientAddress requestAddress = address;
 		Vector<string> requestHeaders = headers;
 		if (proxy != null) {
 			endpoint = proxy;
-			requestAddress = HTTPClientAddress(false, address.userInfo, address.host, address.port, "http://" + address.authority() + address.target);
-			if (!proxy.userInfo.isEmpty() && !HTTPExchange.names(headers, "proxy-authorization")) {
-				Vector<string> fields = [];
-				for header in headers { fields.push(header); }
-				fields.push("Proxy-Authorization: Basic " + HTTPExchange.base64(HTTPExchange.credentials(proxy.userInfo)));
-				requestHeaders = fields;
+			if (socks.isEmpty()) {
+				requestAddress = HTTPPlainTransport.forwardAddress(address);
+				requestHeaders = HTTPPlainTransport.forwardHeaders(headers, proxy);
+			} else {
+				requestHeaders = [];
+				for header in headers { if (!HTTPExchange.fieldName(header).equals("proxy-authorization")) { requestHeaders.push(header); } }
 			}
 		}
 		int descriptor = HTTPPlainTransport.connectTo(endpoint.resolvable(), endpoint.port, deadline);
 		if (descriptor == -2) { return HTTPExchangeResult.failed("could not resolve host"); }
 		if (descriptor < 0) { return HTTPExchangeResult.failed(MonotonicClock.remaining(deadline) <= 0LL ? "request timed out" : "could not connect"); }
 		var stream = HTTPSocketStream(descriptor);
+		if (proxy != null && !socks.isEmpty() && !HTTPSocks.connect(stream, address, proxy.userInfo, socks, deadline)) {
+			stream.close();
+			return HTTPExchangeResult.failed(MonotonicClock.remaining(deadline) <= 0LL ? "request timed out" : "SOCKS connection failed");
+		}
 		HTTPExchangeResult result = HTTPExchange.run(stream, method, requestAddress, requestHeaders, body, maxResponseBytes, deadline);
 		stream.close();
 		return result;

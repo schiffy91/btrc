@@ -28,7 +28,7 @@ os = ["windows"]
 path = "Unix/ClientResolver.c"
 language = "c"
 standard = "c11"
-modules = ["Unix.HTTPPlainTransport"]
+modules = ["Unix.HTTPPlainTransport", "Unix.HTTPSocks"]
 os = ["android", "ios", "linux", "macos"]
 
 [[native.sources]]
@@ -42,7 +42,7 @@ os = ["android", "linux", "macos"]
 [[native.defines]]
 name = "_GNU_SOURCE"
 value = "1"
-modules = ["Unix.HTTPPlainTransport"]
+modules = ["Unix.HTTPPlainTransport", "Unix.HTTPSocks"]
 os = ["linux"]
 
 [[native.sources]]
