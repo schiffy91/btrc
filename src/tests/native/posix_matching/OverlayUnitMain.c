@@ -44,6 +44,18 @@ int main(void)
 	if (capture[0].rm_so != 1 || capture[0].rm_eo != 8 || capture[1].rm_so != 3 || capture[1].rm_eo != 6 ||
 	    capture[2].rm_so != 7 || capture[2].rm_eo != 8 || capture[3].rm_so != -1) return 1;
 	regfree(&compiled);
+	if (regcomp(&compiled, "a+b", 0) || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
+	    regexec(&compiled, "!a+b", 1, span, 0) || span[0].rm_so != 1 || span[0].rm_eo != 4) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "(ab.)", REG_EXTENDED | REG_ICASE | REG_NEWLINE) || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
+	    regexec(&compiled, "AB\n", 2, capture, 0) != REG_NOMATCH || regexec(&compiled, "xAB!", 2, capture, 0) ||
+	    capture[1].rm_so != 1 || capture[1].rm_eo != 4) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "([a-z]+)", REG_EXTENDED | REG_ICASE | REG_NOSUB) || compiled.re_nsub != 1 ||
+	    ((uintptr_t)compiled.__opaque & 3u) != 2) return 1;
+	capture[0] = (regmatch_t){17, 19};
+	if (regexec(&compiled, "AB", 1, capture, 0) || capture[0].rm_so != 17 || capture[0].rm_eo != 19) return 1;
+	regfree(&compiled);
 	char literal[] = "ababaca";
 	if (overlay_helper_compile(&compiled, literal) != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
 	literal[0] = 'z';

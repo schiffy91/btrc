@@ -57,3 +57,5 @@ The same bounded suffix window can recover a whole span after an optional bounde
 A leading word-boundary alternative can compete with the repeated choice of a nullable byte capture and a fixed-width block. When the nullable byte is absent, the first boundary or complete block limits the set of eligible starts. Trailing empty mandatory repetitions decide which later starts can replace the previous match. For example, `(\B|(((a){0,3}|([^ab]){2})){2,4})` matches the last two bytes of `xxx` on Windows. Mixed inputs containing the nullable byte still use the legacy provider.
 
 The flat matcher also reports raw subgroups when every capture encloses the complete expression or every captured span has a fixed byte offset. Those groups either share the whole match or use offsets calculated once during compilation. Variable interior captures continue to use the historical ranking rules.
+
+For eligible flat expressions the hosted interface supports BRE and ERE, including `REG_ICASE`, `REG_NEWLINE` and `REG_NOSUB`. The compiled object retains these flags when it needs the legacy retry for a resource limit. In no-submatch mode the caller’s match array remains untouched.

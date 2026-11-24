@@ -30,7 +30,7 @@ int main(void)
 		    m[1].rm_so != -1 || m[1].rm_eo != -1) return 1;
 	}
 	regfree(&re);
-	if (regcomp(&re, "([a-z]{3})([0-9]{2})", REG_EXTENDED)) return 1;
+	if (regcomp(&re, "([A-Z]{3})([0-9]{2})", REG_EXTENDED | REG_ICASE)) return 1;
 	fail_next = 1;
 	regmatch_t m[4];
 	if (regexec(&re, "!!abc12zz", 4, m, 0) || m[0].rm_so != 2 || m[0].rm_eo != 7 ||
