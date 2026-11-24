@@ -317,9 +317,12 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
     reference = tmp_path / "fixture.raw"
     reference.write_bytes(portable.read_bytes())
     env = provider_environment(sanitized)
-    compressed = tmp_path / "fixture.pcf.gz"
-    compressed.write_bytes(gzip.compress(portable.read_bytes(), mtime=0))
-    for path in (reference, portable, compressed):
+    first_party = [portable]
+    if suffix == "pcf":
+        compressed = tmp_path / "fixture.pcf.gz"
+        compressed.write_bytes(gzip.compress(portable.read_bytes(), mtime=0))
+        first_party.append(compressed)
+    for path in [reference, *first_party]:
         run = subprocess.run([executable, path], capture_output=True, text=True, timeout=60, env=env)
         assert run.returncode == 0, run.stdout + run.stderr
         assert expected in run.stdout
@@ -332,7 +335,7 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
         shared = tmp_path / "unavailable.so"
         subprocess.run(["cc", "-shared", "-fPIC", str(blocker), "-o", str(shared)], check=True, timeout=TOOL_TIMEOUT)
         blocked = {**env, "LD_PRELOAD": str(shared)}
-        for path in (portable, compressed):
+        for path in first_party:
             good = subprocess.run([executable, path], capture_output=True, text=True, timeout=60, env=blocked)
             assert good.returncode == 0, good.stdout + good.stderr
         fallback = subprocess.run([executable, reference], capture_output=True, text=True, timeout=60, env=blocked)
