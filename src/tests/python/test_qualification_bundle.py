@@ -458,7 +458,7 @@ LANE_WINDOWS = {
         # A macOS provider or probe does not select the Linux GUI shard.
         (["src/stdlib/Audio/MacOS/CoreAudio.btrc"], LANE_LINUX, LANE_MACOS),
         (["src/tests/python/linux_provider_fixtures.py"], LANE_LINUX_GUI, []),
-        (["nix/asound.conf"], LANE_LIGHT_GUI, []),
+        (["src/tests/python/pulse_audio_peer.py"], LANE_LINUX_GUI, []),
         (["src/tests/fixtures/expected-skips/linux-devcontainer.json"], LANE_LINUX_GUI, []),
         # Root files that configure pytest, the container or line endings reach every shard.
         (["pyproject.toml"], LANE_LINUX, []),

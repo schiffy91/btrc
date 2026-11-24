@@ -3,7 +3,6 @@
 !.devcontainer/bashrc
 !nix/
 !nix/*.nix
-!nix/asound.conf
 !packages/
 !packages/embedded-web/
 !packages/embedded-web/shell.nix

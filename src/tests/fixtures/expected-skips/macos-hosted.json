@@ -105,14 +105,15 @@
         "*::test_linux_gui_gpu_view_reparent*",
         "*::test_linux_gui_keeps_provider_modules_private*",
         "src/tests/python/test_native_ui_linux_spike.py::test_linux_event_boundary[[]*]",
-        "src/tests/python/test_native_ui_linux_spike.py::test_linux_controls_are_placed_at_show[[]*]"
+        "src/tests/python/test_native_ui_linux_spike.py::test_linux_controls_are_placed_at_show[[]*]",
+        "*::test_linux_pulse_faults*"
       ],
       "reason": "^requires Linux and the explicitly built native header reader$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "Image decoding, FreeType rasterization and audio fault injection need no display or PCM, the devcontainer's image installs a null default PCM (nix/asound.conf) for the audio sessions, and CI runs every Linux shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe) for the GUI windows, GPU view and scrollbar regression. Required Linux execution is tracked separately from these Mac platform skips."
+      "note": "Linux runs the audio session and fault tests with first-party PCM and Pulse fixtures. GUI cases run under a private display."
     },
     {
       "id": "linux-ui2-native-reader",
@@ -204,18 +205,6 @@
       },
       "covered_by": [],
       "note": "The tray also needs a StatusNotifierItem watcher on a session bus, which the devcontainer lacks."
-    },
-    {
-      "id": "alsa-capability",
-      "files": [
-        "src/tests/python/test_native_linux_providers.py"
-      ],
-      "reason": "^requires ALSA$",
-      "category": "platform",
-      "covered_by": [
-        "linux-devcontainer"
-      ],
-      "note": "The configured-PCM capability cases run wherever ALSA headers exist."
     },
     {
       "id": "darwin-gcc-sanitizer-runtime",
@@ -581,6 +570,21 @@
       "category": "platform",
       "covered_by": [],
       "note": "The supervisor image and its transfer are verified with native Windows handles, processes and pipes. windows-arm64.yml runs both files on its x64 and ARM64 hosts when dispatched with focus=daemon-runtime and requires seven cases with no skip; that evidence is the dispatch's JUnit artifact, not a skip report, so no runner is named."
+    },
+    {
+      "id": "linux-audio-integration",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py"
+      ],
+      "nodes": [
+        "*::test_linux_audio_loopback*",
+        "*::test_linux_audio_resampling*",
+        "*::test_linux_saved_pcm*"
+      ],
+      "reason": "^requires Linux and the explicitly built native header reader$",
+      "category": "platform",
+      "covered_by": [],
+      "note": "These Linux integration cases require the kernel loopback card, a configured monitor source or the optional ALSA plugin runtime."
     }
   ]
 }

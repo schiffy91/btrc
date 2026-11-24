@@ -544,10 +544,9 @@ test-shard-gui-macos: generated-check $(TEST_BTRCC_BUILD) ## CI shard: one exact
 	$(NIX) $(SKIP_GATE) build/skip-report-native-gui-macos-$(GUI_PARTITION).json
 
 # The Linux GUI and audio CI shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
-# the focused gate's suites plus the null-PCM check, inside one private
-# headless session per display protocol (GUI_SESSION=x11|wayland), with Mesa's
-# lavapipe as the GPU adapter and the null ALSA PCM of nix/asound.conf as the
-# sound card, so the shard needs no host device. The session's bus also carries
+# the focused gate runs inside one private headless session per display
+# protocol (GUI_SESSION=x11|wayland), with Mesa's lavapipe as the GPU adapter.
+# The audio suite supplies its own PCM and Pulse peers. The session's bus also carries
 # tools/ui/status_notifier_watcher.py, a stand-in StatusNotifierWatcher, so the
 # Linux tray provider registers its item here instead of skipping.
 # tools/ui/session_evidence.py dumps the session's AT-SPI tree to
@@ -561,11 +560,10 @@ GUI_PARTITIONS ?= 1
 GUI_PYTEST_WORKERS ?= 1
 GUI_CELL := $(GUI_SESSION)-$(GUI_PARTITION)
 GUI_SHARD_DIR := build/linux-gui/$(GUI_CELL)
-GUI_SHARD_TESTS := $(NATIVE_GUI_TESTS) \
-	src/tests/python/test_build_safety.py::test_devcontainer_installs_the_null_alsa_pcm
+GUI_SHARD_TESTS := $(NATIVE_GUI_TESTS)
 
 test-shard-gui: generated-check gpu-required $(TEST_BTRCC_BUILD) ## CI shard: native GUI and Linux audio under one headless session (GUI_SESSION=x11|wayland)
-	$(NIX) $(SHARD_BTRCC) BTRC_TEST_RUNNER=linux-devcontainer ALSA_CONFIG_PATH="$(abspath nix/asound.conf)" tools/ui/headless-session.sh --$(GUI_SESSION) -- \
+	$(NIX) $(SHARD_BTRCC) BTRC_TEST_RUNNER=linux-devcontainer tools/ui/headless-session.sh --$(GUI_SESSION) -- \
 		python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py --output $(GUI_SHARD_DIR) -- \
 		python3 -m tools.ui.gui_shards run --session $(GUI_SESSION) --index $(GUI_PARTITION) --count $(GUI_PARTITIONS) \
 		--output $(GUI_SHARD_DIR) --skip-report build/skip-report-gui-$(GUI_CELL).json \
