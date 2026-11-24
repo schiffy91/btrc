@@ -1,0 +1,11 @@
+import Library.GUI.Linux.Fonts.SystemTextABI;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.ShimControls;
+
+extern int waylandButtonTitles();
+
+int main() {
+	SystemTextABI.install();
+	if (!btrcShimInit()) { return 1; }
+	return waylandButtonTitles();
+}

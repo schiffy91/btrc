@@ -1,0 +1,43 @@
+import Library.GUI.ControlEvents;
+import Library.GUI.ILevelIndicator;
+import Library.GUI.IProgressIndicator;
+import Library.GUI.IScrollView;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.ShimContext;
+import Library.GUI.Shim.ShimIndicators;
+import Library.GUI.Shim.ShimScrollView;
+import Library.Testing;
+
+int main() {
+    if (!btrcShimInit()) { return 1; }
+    var context = ShimContext(16);
+    IProgressIndicator progress = ShimProgressIndicator(context);
+    ILevelIndicator level = ShimLevelIndicator(context, 0.7, 0.9);
+    Expect.isTrue(progress.fittingWidth() == 16.0 && progress.fittingHeight() == 16.0);
+    Expect.isTrue(level.fittingHeight() == 11.0);
+    Expect.isTrue(!progress.isRunning() && level.value() == 0.0);
+    level.setValue(0.5);
+    progress.setRunning(true);
+    Expect.isTrue(progress.isRunning() && level.value() == 0.5);
+    progress.setRunning(false);
+    Expect.isTrue(!progress.isRunning());
+    IScrollView scroll = ShimScrollView(context);
+    scroll.arrange(0.0, 0.0, 120.0, 80.0);
+    scroll.setContentSize(500.0, 240.0);
+    var target = ScrollOffset();
+    target.x = 100.0;
+    target.y = 48.0;
+    scroll.scrollToOffset(target);
+    Expect.isTrue(scroll.visibleRect().x == 100.0 && scroll.visibleRect().y == 48.0);
+    Expect.isTrue(scroll.visibleRect().width == 120.0 && scroll.visibleRect().height == 80.0);
+    scroll.scrollTo(500.0);
+    Expect.isTrue(scroll.scrollOffset() == 160.0 && scroll.offset().x == 100.0);
+    scroll.setContentSize(30.0, 20.0);
+    Expect.isTrue(scroll.offset().x == 0.0 && scroll.offset().y == 0.0);
+    Expect.isTrue(scroll.visibleRect().width == 30.0 && scroll.visibleRect().height == 20.0);
+    scroll.close();
+    progress.close();
+    level.close();
+    Expect.isTrue(!level.isOpen() && !progress.isOpen());
+    return 0;
+}

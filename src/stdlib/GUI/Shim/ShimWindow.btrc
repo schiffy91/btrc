@@ -1,3 +1,4 @@
+import Library.GUI.Shim.Features;
 import Library.Callback;
 import Library.Console;
 import Library.Timer;
@@ -1003,7 +1004,7 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 
 	public void showAlert(string title, string message) {
 		self.requireOpen(); self._context.requireNoCloseDecision();
-		btrcShimWindowShowMessage(self._window, title, message);
+		ShimFeatures.showAlert(self._window, title, message);
 	}
 
 	public ICallbackRegistration onKey(IWindowKeyHandler handler, CallbackScope owner) {

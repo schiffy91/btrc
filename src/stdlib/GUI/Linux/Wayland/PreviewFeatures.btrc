@@ -1,0 +1,34 @@
+import Library.GUI.ITextField;
+import Library.GUI.ISelect;
+import Library.GUI.Shim.ShimContext;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.DialogPump;
+import Library.GUI.Shim.ShimWindow;
+import Library.GUI.Shim.ShimDirectoryPicker;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.TextRun;
+import Library.Image;
+import Library.App;
+import Library.GUI.Linux.Fonts.SystemTextABI;
+
+/* Direct Wayland clients can choose this preview while the default toolkit
+ * supplies editable fields, selects and desktop dialogs. */
+class ShimFeatures {
+	class void initialize() { SystemTextABI.install(); }
+
+	class ITextField createTextField(ShimContext context, string text, string placeholder) {
+		throw "Text fields require the default Linux GUI backend";
+	}
+
+	class ISelect createSelect(ShimContext context) { throw "Select controls require the default Linux GUI backend"; }
+
+	class void showAlert(BtrcShimWindow* window, string title, string message) {
+		throw "Modal alerts require the default Linux GUI backend";
+	}
+
+	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) {
+		return DirectoryPickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, "Directory selection requires the default Linux GUI backend"));
+	}
+
+	class Image rasterized(TextRun run) { throw "Standalone text rasterization requires the default Linux GUI backend"; }
+}
