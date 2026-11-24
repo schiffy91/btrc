@@ -1,0 +1,263 @@
+import Library.IO;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+/* A complete, self-contained ALSA configuration can describe a null PCM or a
+ * raw recording file over a null slave without loading alsa-lib. Unresolved
+ * includes, hooks, plugin properties or expansions defer the entire document
+ * to the installed compatibility provider. */
+class ConfiguredAlsaRoute {
+	public string name;
+	public string description;
+	public string path;
+	public ConfiguredAlsaRoute(string name, string description, string path) {
+		self.name = name;
+		self.description = description;
+		self.path = path;
+	}
+}
+
+class ConfiguredAlsaRoutes {
+	private string source;
+	private int cursor = 0;
+	private Map<string, string> values = {};
+	private Vector<string> keys = [];
+	private Vector<string> devices = [];
+	private Vector<string> hints = [];
+	private bool showAll = false;
+
+	private ConfiguredAlsaRoutes(string source) { self.source = source; }
+
+	private char peek() { return self.cursor < self.source.len() ? self.source[self.cursor] : '\0'; }
+
+	private void space() {
+		while (self.cursor < self.source.len()) {
+			char c = self.peek();
+			if (c == '#') { while (self.cursor < self.source.len() && self.peek() != '\n') { self.cursor++; } }
+			else if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ';' || c == ',') { self.cursor++; }
+			else { return; }
+		}
+	}
+
+	private string token() {
+		self.space();
+		char c = self.peek();
+		if (c == '"' || c == '\'') {
+			char quote = c;
+			self.cursor++;
+			var text = StringBuilder();
+			while (self.cursor < self.source.len()) {
+				char value = self.source[self.cursor++];
+				if (value == quote) { return text.toString(); }
+				if (value == '\\') {
+					if (self.cursor >= self.source.len()) { break; }
+					value = self.source[self.cursor++];
+					if (value == 'n') { value = '\n'; }
+					else if (value == 't') { value = '\t'; }
+					else if (value != '\\' && value != '"' && value != '\'') { throw "unsupported ALSA escape"; }
+				}
+				text.appendChar(value);
+			}
+			throw "unterminated ALSA string";
+		}
+		int begin = self.cursor;
+		while (self.cursor < self.source.len()) {
+			c = self.peek();
+			if (c <= ' ' || c == '#' || c == '{' || c == '}' || c == '[' || c == ']' || c == '=' || c == ',' || c == ';') { break; }
+			if (c == '<' || c == '>' || c == '\\' || c == '"' || c == '\'') { throw "external ALSA configuration"; }
+			self.cursor++;
+		}
+		if (self.cursor == begin) { throw "expected ALSA property"; }
+		return self.source.substring(begin, self.cursor - begin);
+	}
+
+	private void parse(string parent, int depth) {
+		if (depth > 32) { throw "nested ALSA configuration"; }
+		while (true) {
+			self.space();
+			if (self.peek() == '}' && depth > 0) { self.cursor++; return; }
+			if (self.cursor == self.source.len()) {
+				if (depth == 0) { return; }
+				throw "incomplete ALSA compound";
+			}
+			bool quoted = self.peek() == '"' || self.peek() == '\'';
+			string name = self.token();
+			if (quoted && name.indexOf(".") >= 0) { throw "quoted compound ALSA key"; }
+			if (name.startsWith("pcm.!")) { name = "pcm." + name.substring(5, name.len() - 5); }
+			else if (parent == "pcm" && name.startsWith("!")) { name = name.substring(1, name.len() - 1); }
+			if (name.isEmpty() || name.startsWith("!") || name.startsWith("?") || name.startsWith("+") || name.startsWith("-")) { throw "ALSA merge directive"; }
+			string key = parent.isEmpty() ? name : parent + "." + name;
+			self.space();
+			if (self.peek() == '=') { self.cursor++; self.space(); }
+			if (self.peek() == '{') {
+				int start = self.keys.len;
+				self.cursor++;
+				self.parse(key, depth + 1);
+				if (start == self.keys.len) { throw "unsupported empty ALSA compound"; }
+				continue;
+			}
+			string value = "";
+			if (self.peek() == '[') {
+				if (!key.endsWith(".@args")) { throw "unsupported ALSA list"; }
+				self.cursor++;
+				self.space();
+				while (self.peek() != ']') {
+					string item = self.token();
+					if (item.isEmpty() || item.indexOf(" ") >= 0) { throw "invalid ALSA argument"; }
+					if (!value.isEmpty()) { value += " "; }
+					value += item;
+					self.space();
+				}
+				self.cursor++;
+			} else { value = self.token(); }
+			if (self.keys.len >= 16384 || self.values.has(key)) { throw "duplicate or oversized ALSA configuration"; }
+			self.keys.push(key);
+			self.values.put(key, value);
+			Vector<string> parts = Strings.split(key, ".");
+			if (parts.len >= 2 && parts.get(0) == "pcm" && !self.devices.contains(parts.get(1))) { self.devices.push(parts.get(1)); }
+			if (parts.len == 3 && parts.get(0) == "namehint" && parts.get(1) == "pcm") { self.hints.push(key); }
+		}
+	}
+
+	private string get(string key, string fallback) { return self.values.has(key) ? self.values.get(key) : fallback; }
+
+	class bool boolean(string text) {
+		if (text == "on" || text == "true" || text == "yes" || text == "1") { return true; }
+		if (text == "off" || text == "false" || text == "no" || text == "0") { return false; }
+		throw "invalid ALSA boolean";
+	}
+
+	/* A raw filename beginning with a pipe runs a command in alsa-lib.
+     * Percent templates and argument expressions likewise need its evaluator. */
+	private string route(string key, int depth) {
+		if (depth > 16) { throw "cyclic ALSA PCM"; }
+		if (self.values.has(key)) {
+			string target = self.values.get(key);
+			if (!self.devices.contains(target)) { throw "unknown ALSA slave"; }
+			return self.route("pcm." + target, depth + 1);
+		}
+		string kind = self.get(key + ".type", "");
+		if (kind == "null") { return "null:"; }
+		if (kind == "plug") { return self.route(key + ".slave.pcm", depth + 1); }
+		if (kind == "file") {
+			string file = self.get(key + ".file", "");
+			if (!file.startsWith("/") || !btrcConfiguredFileSupported(file) || file.indexOf("%") >= 0 || file.indexOf("$") >= 0 || self.get(key + ".format", "raw") != "raw" || self.route(key + ".slave.pcm", depth + 1) != "null:") { throw "unsupported ALSA file route"; }
+			return "file:" + file;
+		}
+		throw "external ALSA PCM";
+	}
+
+	private void validate() {
+		for key in self.keys {
+			if (key == "defaults.namehint.showall") { self.showAll = ConfiguredAlsaRoutes.boolean(self.values.get(key)); continue; }
+			if (self.hints.contains(key)) { continue; }
+			Vector<string> parts = Strings.split(key, ".");
+			if (parts.len < 2 || parts.get(0) != "pcm") { throw "external ALSA definition"; }
+			string prefix = "pcm." + parts.get(1);
+			if (key == prefix) { continue; }
+			string local = key.substring(prefix.len() + 1, key.len() - prefix.len() - 1);
+			if (self.values.has(prefix)) { throw "mixed ALSA alias and compound"; }
+			if (local == "hint.show") { ConfiguredAlsaRoutes.boolean(self.values.get(key)); continue; }
+			if (local == "hint.description") { continue; }
+			if (local == "@args") {
+				for name in Strings.split(self.values.get(key), " ") {
+					if (name.isEmpty() || !self.values.has(prefix + ".@args." + name + ".type")) { throw "unknown ALSA argument declaration"; }
+				}
+				continue;
+			}
+			if (local.startsWith("@args.") && parts.len == 5 && (parts.get(4) == "type" || parts.get(4) == "default")) {
+				if (!Strings.split(self.get(prefix + ".@args", ""), " ").contains(parts.get(3))) { throw "undeclared ALSA argument"; }
+				string argType = self.get(prefix + ".@args." + parts.get(3) + ".type", "");
+				if (argType != "string" && argType != "integer") { throw "unsupported ALSA argument type"; }
+				continue;
+			}
+			while (local.startsWith("slave.pcm.")) {
+				string parentType = self.get(prefix + ".type", "");
+				if (parentType != "file" && parentType != "plug") { throw "unsupported ALSA slave"; }
+				prefix += ".slave.pcm";
+				local = local.substring(10, local.len() - 10);
+			}
+			if (self.values.has(prefix)) { throw "mixed ALSA alias and compound"; }
+			string type = self.get(prefix + ".type", "");
+			if (local == "type") { continue; }
+			if (local == "slave.pcm" && (type == "file" || type == "plug")) { continue; }
+			if ((local == "file" || local == "format") && type == "file") { continue; }
+			throw "unknown ALSA PCM property";
+		}
+		for name in self.devices { self.route("pcm." + name, 0); }
+	}
+
+	private bool validArguments(string base, string full) {
+		string args = self.get("pcm." + base + ".@args", "");
+		if (full == base) { return args.isEmpty(); }
+		Vector<string> allowed = Strings.split(args, " ");
+		Vector<string> used = [];
+		for item in Strings.split(full.substring(base.len() + 1, full.len() - base.len() - 1), ",") {
+			int equals = item.indexOf("=");
+			if (equals < 1 || equals + 1 == item.len()) { return false; }
+			string name = item.substring(0, equals);
+			string value = item.substring(equals + 1, item.len() - equals - 1);
+			if (!allowed.contains(name) || used.contains(name)) { return false; }
+			string type = self.get("pcm." + base + ".@args." + name + ".type", "");
+			if (type == "integer") {
+				if (value.len() > 9) { return false; }
+				for (int i = 0;i < value.len();i++) { if (value[i] < '0' || value[i] > '9') { return false; } }
+			} else if (type != "string") { return false; }
+			used.push(name);
+		}
+		for name in allowed { if (!used.contains(name) && !self.values.has("pcm." + base + ".@args." + name + ".default")) { return false; } }
+		return true;
+	}
+
+	private void add(Vector<ConfiguredAlsaRoute> out, string full, string description) {
+		int colon = full.indexOf(":");
+		string name = colon < 0 ? full : full.substring(0, colon);
+		if (!self.devices.contains(name) || !self.validArguments(name, full)) { throw "unresolved ALSA hint"; }
+		if (full.len() > 511) { return; }
+		int newline = description.indexOf("\n");
+		string title = newline >= 0 ? description.substring(0, newline) : description;
+		if (title.isEmpty() || title.len() > 511) { title = full; }
+		out.push(ConfiguredAlsaRoute(full, title, self.route("pcm." + name, 0)));
+	}
+
+	private Vector<ConfiguredAlsaRoute> compile() {
+		self.parse("", 0);
+		self.validate();
+		Vector<ConfiguredAlsaRoute> result = [];
+		for name in self.devices {
+			string key = "pcm." + name;
+			if (!self.get(key + ".@args", "").isEmpty()) { continue; }
+			bool visible = self.showAll || self.values.has(key + ".hint.description");
+			if (self.values.has(key + ".hint.show")) { visible = ConfiguredAlsaRoutes.boolean(self.values.get(key + ".hint.show")); }
+			if (visible) { self.add(result, name, self.get(key + ".hint.description", "")); }
+		}
+		for key in self.hints {
+			string value = self.values.get(key);
+			int sep = value.indexOf("|");
+			self.add(result, sep < 0 ? value : value.substring(0, sep), sep < 0 ? "" : value.substring(sep + 1, value.len() - sep - 1));
+		}
+		return result;
+	}
+
+	class Vector<ConfiguredAlsaRoute>? load(string path) {
+		if (path.isEmpty() || path == "/dev/null") { return null; }
+		var stream = btrcConfiguredSource(path);
+		if (stream == null) { return null; }
+		var source = File(null);
+		source.setHandle(stream);
+		try {
+			var text = StringBuilder();
+			while (true) {
+				var line = source.readLineBounded(1048576 - text.length());
+				if (line.atEnd()) { break; }
+				if (!line.hasLine() || !line.lineIsNulFreeUtf8()) { return null; }
+				text.append(line.lineText());
+				text.appendChar('\n');
+				if (text.length() > 1048576) { return null; }
+			}
+			return ConfiguredAlsaRoutes(text.toString()).compile();
+		} catch (string error) { return null; }
+		finally { source.close(); fclose(stream); }
+	}
+}

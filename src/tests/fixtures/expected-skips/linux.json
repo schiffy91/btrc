@@ -603,7 +603,7 @@
         "src/tests/python/test_native_linux_providers.py"
       ],
       "nodes": [
-        "*::test_linux_saved_pcm*"
+        "*::test_linux_saved_pcm[[]*-plugin]"
       ],
       "reason": "^requires the existing alsa-lib PCM plugin runtime$",
       "category": "capability",

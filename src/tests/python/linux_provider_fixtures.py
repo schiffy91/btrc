@@ -127,7 +127,7 @@ def provider_environment(sanitized: bool, **extra: str) -> dict[str, str]:
 
 
 def build_observed_provider_program(
-    tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers
+    tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers, **build_options
 ):
     require_linux_reader()
     if error := linux_display_error():
@@ -141,15 +141,15 @@ def build_observed_provider_program(
         lock = request.config.cache.mkdir("linux-gui") / "execution.lock"
         with _gui_exclusive(lock, timeout=1800, owner=f"build {program} {frontend} sanitized={sanitized}"):
             return _build_observed_provider_program(
-                tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers
+                tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers, **build_options
             )
     return _build_observed_provider_program(
-        tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers
+        tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers, **build_options
     )
 
 
 def _build_observed_provider_program(
-    tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers
+    tmp_path_factory, request, frontend, sanitized, program, probe_name, symbols, wrappers, *, optimization=2
 ):
     # Function-scoped callers already own the runtime lease; module callers
     # have acquired it above. All actual compile timeouts remain unchanged.
@@ -201,5 +201,7 @@ def _build_observed_provider_program(
         return subprocess.run(command, **kwargs)
 
     executable = directory / "Program"
-    NativePlanBuilder(runner=run).build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++", optimization=optimization
+    )
     return executable

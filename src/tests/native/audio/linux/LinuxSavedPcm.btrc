@@ -13,33 +13,55 @@ import Library.Timer;
 	int frames = block.frameCount;
 	for (int frame = 0; frame < frames; frame++) {
 		size_t offset = (size_t)frame * (size_t)2;
+		if (block.inputChannelCount == 2) {
+			float left = 1.0f;
+			float right = 1.0f;
+			input.tryGet(offset, &left);
+			input.tryGet(offset + (size_t)1, &right);
+			if (left != 0.0f || right != 0.0f) { return; }
+		}
 		output.trySet(offset, 0.25f);
 		output.trySet(offset + (size_t)1, -0.5f);
 	}
 	blocks->fetchAdd(1u, MemoryOrder.RELAXED);
 }
 
-int main() {
+int main(int argc, char** argv) {
 	var opened = Audio.createDevice();
+	if (argc > 1 && !opened.succeeded()) {
+		assert(opened.status() == AUDIO_DEVICE_UNAVAILABLE);
+		Console.log("PASS: rejected unsupported PCM");
+		return 0;
+	}
 	assert(opened.succeeded());
 	var provider = opened.provider();
 	var result = provider.inventory();
+	if (argc > 1) {
+		assert(result.status() == AUDIO_DEVICE_UNAVAILABLE || (result.succeeded() && result.inventory().find("plughw:CARD=SavedRoute,DEV=7") == null));
+		assert(provider.close().succeeded());
+		Console.log("PASS: rejected unsupported PCM");
+		return 0;
+	}
 	assert(result.succeeded());
 	var inventory = result.inventory();
 	string saved = "plughw:CARD=SavedRoute,DEV=7";
 	var fallback = inventory.defaultOutput();
 	assert(fallback != null && fallback.id() == "default");
-	assert(inventory.find(saved) != null && inventory.find("unlisted") == null);
+	var selected = inventory.find(saved);
+	assert(selected != null && selected.name() == "My persisted stereo output");
+	assert(selected.outputChannels() == 256 && fallback.name() == "Independent default" && fallback.inputChannels() == 256);
+	assert(inventory.find("unlisted") == null);
 	Atomic<uint> blocks;
 	blocks.store(0u, MemoryOrder.RELAXED);
-	var request = DuplexAudioOpenRequest.outputOnly(inventory.generation(), saved, AudioChannelSelection.leading(2), AudioStreamRequest(48000, 256));
+	var channels = AudioChannelSelection.leading(2);
+	var request = DuplexAudioOpenRequest.duplex(inventory.generation(), fallback.id(), channels, saved, channels, AudioStreamRequest(8000, 256));
 	var setup = provider.openDuplex(request, RealtimeAudioProgram(savedPcmProcess, &blocks));
 	assert(setup.succeeded());
 	var session = setup.session();
 	assert(session.start().succeeded());
-	for (int wait = 0; wait < 1000 && blocks.load(MemoryOrder.RELAXED) < 3u; wait++) { Timer.sleepMillis(1); }
+	for (int wait = 0; wait < 1000 && blocks.load(MemoryOrder.RELAXED) < 128u; wait++) { Timer.sleepMillis(1); }
 	assert(session.suspend().succeeded() && session.drain().succeeded() && session.close().succeeded());
-	assert(blocks.load(MemoryOrder.RELAXED) >= 3u);
+	assert(blocks.load(MemoryOrder.RELAXED) >= 128u);
 	assert(provider.close().succeeded());
 	Console.log("PASS: persisted Linux PCM");
 	return 0;

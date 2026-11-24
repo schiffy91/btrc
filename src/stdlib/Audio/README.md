@@ -93,11 +93,14 @@ and rates for the default sink and source. Without a reachable sound server,
 `default` selects the first available kernel capture and playback devices.
 If the desktop server exposes JACK sinks or sources with `device.api=jack`,
 selecting `jack` targets those named ports independently of the default sink
-and source. A saved PCM ID can also name a user-configured ALSA plugin,
-including a JACK-only route. When installed, `libasound.so.2` supplies
-these plugin PCMs. Explicit ALSA configuration takes precedence for the IDs
-it advertises, including `default`. The existing plugin fallback remains
-pending in the dependency ledger.
+and source. Explicit ALSA configuration takes precedence for the IDs it
+advertises, including `default`. A self-contained file in `ALSA_CONFIG_PATH`
+can route a persisted ID to a null PCM, or to a regular raw float file backed
+by a null PCM. These routes support PCM aliases and pass-through `plug`
+wrappers. Like the ALSA null plugin, these PCMs can process offline audio
+faster than real time. Includes, configuration functions, command sinks, and other
+installed plugins (including a JACK-only route) use `libasound.so.2` when
+present. The dependency ledger tracks that compatibility path.
 
 Each session runs one worker, with a bounded wait for each device. Kernel
 xruns prepare the device again. A suspended kernel PCM resumes when the
