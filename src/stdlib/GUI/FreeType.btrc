@@ -3,6 +3,7 @@ import Library.GUI.FreeType.FreeTypeFace;
 
 import ./FreeType/HintedFontProvider.btrc;
 import ./Bitmap/PCFFace.btrc;
+import ./Bitmap/BDFFace.btrc;
 import ./OpenType/ColorBitmapFace.btrc;
 import ./OpenType/HintedTrueTypeFace.btrc;
 
@@ -12,6 +13,8 @@ class FreeType {
 	class Font load(string path, int pixelSize) {
 		var bitmap = PCFFace.tryOpen(path, pixelSize);
 		if (bitmap != null) { return new Font(bitmap); }
+		var bdf = BDFFace.tryOpen(path, pixelSize);
+		if (bdf != null) { return new Font(bdf); }
 		var color = ColorBitmapFace.tryOpen(path, pixelSize);
 		if (color != null) { return new Font(color); }
 		var hinted = HintedTrueTypeFace.tryOpen(path, pixelSize);
