@@ -15,6 +15,7 @@ class LayoutGlyph {
 class LayoutGlyphRun {
 	public Vector<LayoutGlyph> glyphs = [];
 	public int unitsPerEm;
+	public bool legacyPositioned = false;
 
 	public LayoutGlyphRun(int unitsPerEm) { self.unitsPerEm = unitsPerEm; }
 }

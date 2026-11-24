@@ -171,7 +171,7 @@ binaries = ["libfreetype.so*"]
 [[dependencies]]
 name = "GTK 4"
 pkg-config = ["gtk4", "gtk4-wayland", "gtk4-x11"]
-headers = ["gtk/*", "gdk/*", "glib.h", "glib/*", "gio/*", "glib-object.h"]
+headers = ["gtk/*", "gdk/*", "glib.h", "glib/*", "gio/*", "glib-object.h", "pango/pangocairo.h", "cairo-ft.h"]
 binaries = ["libgtk-4.so*", "libglib-2.0.so*", "libgobject-2.0.so*", "libgio-2.0.so*", "libcairo*.so*", "libpango*.so*", "libgdk_pixbuf*.so*", "libgraphene*.so*", "libharfbuzz*.so*"]
 
 [[dependencies]]
