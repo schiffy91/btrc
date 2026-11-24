@@ -103,8 +103,10 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 	uintptr_t pointer = (uintptr_t)re->__opaque;
 	if (!(pointer & (uintptr_t)1)) return btrc_win_legacy_regexec(re, subject, count, matches, flags);
 	const btrc_win_regex_simple *program = (const btrc_win_regex_simple *)(pointer - 1);
-	if (!program->length && !program->at_start && !program->at_end) return btrc_win_regex_match_atom(&program->atom, subject, count, matches);
-	return btrc_win_regex_match_literal(program, subject, count, matches, flags);
+	if ((program->at_start && (flags & REG_NOTBOL)) || (program->at_end && (flags & REG_NOTEOL))) return REG_NOMATCH;
+	if (program->is_atom)
+		return btrc_win_regex_match_atom(&program->atom, subject, count, matches, program->at_start, program->at_end);
+	return btrc_win_regex_match_literal(program, subject, count, matches);
 }
 
 static inline void btrc_win_dispatch_regfree(regex_t *re)

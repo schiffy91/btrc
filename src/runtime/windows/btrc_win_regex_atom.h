@@ -24,10 +24,9 @@ static inline int btrc_win_regex_bound(const unsigned char **cursor)
 	return bound;
 }
 
-static inline int btrc_win_regex_parse_atom(const char *pattern, btrc_win_regex_atom *atom)
+static inline int btrc_win_regex_parse_atom(const unsigned char *p, const unsigned char *end, btrc_win_regex_atom *atom)
 {
-	const unsigned char *p = (const unsigned char *)pattern;
-	if (!*p) return 0;
+	if (p == end) return 0;
 	if (*p == '[') {
 		const unsigned char *first = ++p;
 		if (btrc_win_parse_list(&p, &atom->bytes, 0, 0) != btrc_win_list_ok) return 0;
@@ -46,7 +45,8 @@ static inline int btrc_win_regex_parse_atom(const char *pattern, btrc_win_regex_
 		btrc_win_set_add(&atom->bytes, *p++);
 	}
 	atom->minimum = atom->maximum = 1;
-	if (!*p) return 1;
+	if (p == end) return 1;
+	if (p > end) return 0;
 	if (*p == '{') {
 		++p;
 		atom->minimum = btrc_win_regex_bound(&p);
@@ -60,9 +60,9 @@ static inline int btrc_win_regex_parse_atom(const char *pattern, btrc_win_regex_
 				if (atom->maximum < atom->minimum) return 0;
 			}
 		}
-		return p[0] == '}' && !p[1];
+		return p[0] == '}' && p + 1 == end;
 	}
-	if (p[1] || (*p != '+' && *p != '*' && *p != '?')) return 0;
+	if (p + 1 != end || (*p != '+' && *p != '*' && *p != '?')) return 0;
 	atom->minimum = *p == '+' ? 1 : 0;
 	atom->maximum = *p == '?' ? 1 : -1;
 	return 1;
@@ -75,13 +75,22 @@ static inline void btrc_win_regex_set_span(regmatch_t *matches, size_t count, re
 }
 
 static inline int btrc_win_regex_match_atom(const btrc_win_regex_atom *atom, const char *subject,
-                                            size_t count, regmatch_t *matches)
+                                            size_t count, regmatch_t *matches, int at_start, int at_end)
 {
 	const unsigned char *text = (const unsigned char *)subject;
+	if (at_end) {
+		const unsigned char *end = text + strlen(subject);
+		const unsigned char *start = end;
+		while (start > text && (atom->maximum < 0 || end - start < atom->maximum) &&
+		       btrc_win_set_has(&atom->bytes, start[-1])) --start;
+		if (end - start < atom->minimum || (at_start && start != text)) return REG_NOMATCH;
+		if (count) btrc_win_regex_set_span(matches, count, start - text, end - text);
+		return 0;
+	}
 	const unsigned char *start = text;
 	int limit = count ? atom->maximum : atom->minimum;
 	for (;;) {
-		if (atom->minimum) {
+		if (atom->minimum && !at_start) {
 			while (*start && !btrc_win_set_has(&atom->bytes, *start)) ++start;
 			if (!*start) return REG_NOMATCH;
 		}
@@ -91,7 +100,7 @@ static inline int btrc_win_regex_match_atom(const btrc_win_regex_atom *atom, con
 			if (count) btrc_win_regex_set_span(matches, count, start - text, end - text);
 			return 0;
 		}
-		if (!*end) return REG_NOMATCH;
+		if (at_start || !*end) return REG_NOMATCH;
 		/* Every suffix of this short run is too short as well. */
 		start = end + 1;
 	}
