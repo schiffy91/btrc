@@ -1,3 +1,4 @@
+import ./CFFBlueZones.btrc;
 import ./GlyphOutline.btrc;
 import ./OpenTypeData.btrc;
 
@@ -11,6 +12,7 @@ class PostScriptPath {
 	private bool open = false;
 	private bool deviceSpace;
 	private long long deviceScale;
+	private long long shiftY = 0LL;
 	public bool integral = true;
 
 	public PostScriptPath(GlyphOutline outline, long long scale, bool deviceSpace) {
@@ -18,6 +20,26 @@ class PostScriptPath {
 		self.scale = scale;
 		self.deviceSpace = deviceSpace;
 		self.deviceScale = (scale + 32LL) / 64LL;
+	}
+
+	/* With one uncaptured horizontal stem the hint map is a translation.
+	 * Snap its nearer edge to the pixel grid, preferring upward motion
+	 * when equally close. An even device-space width preserves both
+	 * half-widths exactly at 16.16 precision. */
+	public bool alignStem(long long bottom, long long width, CFFBlueZones blues) {
+		if (!self.deviceSpace || self.outline.pointCount() != 0 || width <= 0LL || bottom % 65536LL != 0LL || width % 65536LL != 0LL) { return false; }
+		int low = (int)(bottom / 65536LL);
+		int high = low + (int)(width / 65536LL);
+		if (!blues.clearOf(low, high)) { return false; }
+		long long a = (long long)low * self.deviceScale;
+		long long b = (long long)high * self.deviceScale;
+		if (((b - a) & 1LL) != 0LL) { return false; }
+		long long lower = OpenTypeFixed.floorDiv(a + 32768LL, 65536LL) * 65536LL - a;
+		long long upper = OpenTypeFixed.floorDiv(b + 32768LL, 65536LL) * 65536LL - b;
+		long long lowerDistance = lower < 0LL ? -lower : lower;
+		long long upperDistance = upper < 0LL ? -upper : upper;
+		self.shiftY = lowerDistance < upperDistance || (lowerDistance == upperDistance && lower > upper) ? lower : upper;
+		return true;
 	}
 
 	public void close() {
@@ -32,7 +54,7 @@ class PostScriptPath {
 			// Floor to 26.6 after multiplying, including negative positions.
 			if (self.x % 65536LL != 0LL || self.y % 65536LL != 0LL) { self.integral = false; }
 			long long dx = OpenTypeFixed.floorDiv((self.x / 65536LL) * self.deviceScale, 1024LL);
-			long long dy = OpenTypeFixed.floorDiv((self.y / 65536LL) * self.deviceScale, 1024LL);
+			long long dy = OpenTypeFixed.floorDiv((self.y / 65536LL) * self.deviceScale + self.shiftY, 1024LL);
 			self.outline.addPoint(dx, dy, kind);
 		} else {
 			self.outline.addPoint(OpenTypeFixed.mul(PostScriptPath.units(self.x), self.scale), OpenTypeFixed.mul(PostScriptPath.units(self.y), self.scale), kind);

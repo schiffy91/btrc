@@ -38,6 +38,18 @@ int main(int argc, char** argv) {
 			if (curve.coverage(i / 6, i % 6) != expected.get(i)) { return 8; }
 		}
 	}
+	if (argv[2][0] == 'u') {
+		var clear = font.glyph(65, true);
+		if (clear == null || clear.advanceFixed() != 448LL || clear.bitmapLeft() != 0 || clear.bitmapTop() != 1 || clear.width() != 1 || clear.rows() != 2 || clear.pitch() != 1 || clear.coverage(0, 0) != 55 || clear.coverage(1, 0) != 18) { return 15; }
+	}
+	if (argv[2][0] == 'b') {
+		var blue = font.glyph(66, true);
+		if (blue == null || blue.advanceFixed() != 448LL || blue.bitmapLeft() != 0 || blue.bitmapTop() != 2 || blue.width() != 1 || blue.rows() != 2 || blue.pitch() != 1 || blue.coverage(0, 0) != 26 || blue.coverage(1, 0) != 114) { return 14; }
+	}
+	if (argv[2][0] == 'y') {
+		var shifted = font.glyph(66, true);
+		if (shifted == null || shifted.advanceFixed() != 448LL || shifted.bitmapLeft() != 0 || shifted.bitmapTop() != 1 || shifted.width() != 1 || shifted.rows() != 2 || shifted.pitch() != 1 || shifted.coverage(0, 0) != 124 || shifted.coverage(1, 0) != 17) { return 13; }
+	}
 	if (argv[2][0] == 'v') {
 		var vertical = font.glyph(66, true);
 		if (vertical == null || vertical.advanceFixed() != 448LL || vertical.bitmapLeft() != 0 || vertical.bitmapTop() != 1 || vertical.width() != 1 || vertical.rows() != 1 || vertical.pitch() != 1 || vertical.coverage(0, 0) != 138) { return 12; }

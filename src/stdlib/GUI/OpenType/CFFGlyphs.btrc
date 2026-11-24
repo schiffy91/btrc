@@ -1,6 +1,7 @@
 import Library.Array;
 import Library.Vector;
 
+import ./CFFBlueZones.btrc;
 import ./CFFCharset.btrc;
 import ./CFFTables.btrc;
 import ./GlyphOutline.btrc;
@@ -12,9 +13,9 @@ import ./PostScriptPath.btrc;
  * 16.16 fixed point in font units; each point is taken in whole units and
  * scaled to 1/64 pixel.
  *
- * Hint operators (stems, hint masks, counter masks) are counted, because
- * the number of stems fixes the length of a mask's data, and otherwise
- * skipped: outlines are not hinted. The operand stack holds 48 numbers,
+ * Stem counts determine the length of each mask. A single uncaptured
+ * horizontal stem can translate an entire outline. Glyphs that need a
+ * multi-edge hint map defer to the native renderer. The operand stack holds 48 numbers,
  * subroutines nest ten deep, and a run executes a bounded number of
  * operators, so a charstring whose subroutines call each other is refused
  * rather than followed. The optional four-operand form of endchar records
@@ -30,6 +31,8 @@ class CFFCharString {
 	private bool widthKnown = false;
 	private bool needsHintMap = false;
 	private bool hasFlex = false;
+	private bool hasHorizontalStem = false;
+	private CFFBlueZones blues;
 	private int budget = 500000;
 	public long long base = -1LL;
 	public long long accent = -1LL;
@@ -37,7 +40,8 @@ class CFFCharString {
 	public long long accentY = 0LL;
 
 	/* `scale` is the 16.16 factor from font units to 26.6 pixels. */
-	public CFFCharString(OpenTypeData data, CFFIndex globalSubrs, CFFIndex localSubrs, GlyphOutline outline, long long scale, bool render) {
+	public CFFCharString(OpenTypeData data, CFFIndex globalSubrs, CFFIndex localSubrs, GlyphOutline outline, long long scale, bool render, CFFBlueZones blues) {
+		self.blues = blues;
 		self.data = data;
 		self.globalSubrs = globalSubrs;
 		self.localSubrs = localSubrs;
@@ -78,12 +82,14 @@ class CFFCharString {
 		return leading ? 1 : 0;
 	}
 
-	private void stemHints(bool needsMap) {
-		// The grayscale device positions vertical stems fractionally.
-		// Horizontal stems and mask changes require a Y-axis hint map.
-		if (needsMap) { self.needsHintMap = true; }
+	private void stemHints(int operator) {
 		int first = self.afterWidth((self.count & 1) != 0);
 		if (((self.count - first) & 1) != 0) { throw "CFF stem is missing an operand"; }
+		if (operator == 19 || operator == 20) { self.needsHintMap = true; }
+		if (operator == 1 || operator == 18) {
+			if (self.hasHorizontalStem || self.count - first != 2 || !self.path.alignStem(self.at(first), self.at(first + 1), self.blues)) { self.needsHintMap = true; }
+			self.hasHorizontalStem = true;
+		}
 		self.stems += (self.count - first) / 2;
 		if (self.stems > 96) { throw "CFF stem hint limit exceeded"; }
 		self.count = 0;
@@ -164,9 +170,9 @@ class CFFCharString {
 				continue;
 			}
 			if (b == 1 || b == 3 || b == 18 || b == 23) {
-				self.stemHints(b == 1 || b == 18);
+				self.stemHints(b);
 			} else if (b == 19 || b == 20) {
-				self.stemHints(true);
+				self.stemHints(b);
 				int mask = (self.stems + 7) / 8;
 				if (end - p < mask) { throw "CFF charstring is truncated"; }
 				p += mask;
@@ -269,6 +275,7 @@ class CFFGlyphs {
 	private CFFIndex localSubrs;
 	private CFFCharset charset;
 	private bool standardFill = true;
+	private CFFBlueZones blues = CFFBlueZones();
 
 	public CFFGlyphs(OpenTypeData data, OpenTypeSpan table) {
 		self.data = data;
@@ -298,6 +305,7 @@ class CFFGlyphs {
 			int offset = top.whole(18, 1);
 			if (offset > table.length || size > table.length - offset) { throw "CFF private dictionary lies outside the table"; }
 			var own = CFFDict(data, OpenTypeSpan(table.offset + offset, size));
+			self.blues.read(own);
 			if (own.count(270) >= 0 || own.count(273) >= 0 || own.count(274) >= 0) { self.standardFill = false; }
 			if (own.count(19) == 1) {
 				int subrs = own.whole(19, 0);
@@ -313,7 +321,7 @@ class CFFGlyphs {
 
 	private bool draw(int glyph, long long scale, GlyphOutline outline, int depth, bool render) {
 		if (depth >= 4) { throw "CFF components nest too deeply"; }
-		var run = CFFCharString(self.data, self.globalSubrs, self.localSubrs, outline, scale, render);
+		var run = CFFCharString(self.data, self.globalSubrs, self.localSubrs, outline, scale, render, self.blues);
 		run.run(self.charStrings.object(glyph));
 		if (run.base >= 0LL) {
 			if (render) { return false; }

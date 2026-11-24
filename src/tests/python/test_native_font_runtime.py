@@ -488,9 +488,9 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
     assert data.count(curve) == 2
     at = data.rindex(curve)
     unusual = data[:at] + b"\x00\x0e" + data[at + 2 :]
-    # Give B a 0..100 horizontal stem and a 100-unit square. Its device
+    # Give B two horizontal stems and a 100-unit square. Its device
     # coverage at 10 px is 248, as independently rendered by FreeType.
-    square = bytes.fromhex("f9508bef018b16efef27060e").ljust(len(curve), b"\x0e")
+    square = bytes.fromhex("f9508beff75cbd018b16efef27060e").ljust(len(curve), b"\x0e")
     hinted = data[:at] + square + data[at + len(curve) :]
     # Straight edges in the triangle (0,0), (90,347), (167,622) cross a
     # subpixel rounding boundary at 65 px. Compare both providers.
@@ -501,6 +501,24 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
         assert visible_edge.returncode == 0, visible_edge.stdout + visible_edge.stderr
     # A 61 by 90 unit rectangle starting at x=10 has fractional grayscale
     # coverage with both explicit vertical stem operators.
+    # cff-blue-stem.otf is the same authored face with a 10..72 horizontal stem
+    # and three BlueValues pairs in unsorted order. B is captured by
+    # the 68..75 pair. A has a 25..45 stem clear of every pair.
+    blue = (fixtures / "fixtures/cff-blue-stem.otf").read_bytes()
+    for suffix in ("otf", "raw"):
+        outside = run(suffix, "uncaptured", env, blue)
+        assert outside.returncode == 0, outside.stdout + outside.stderr
+        captured = run(suffix, "blue", env, blue)
+        assert captured.returncode == 0, captured.stdout + captured.stderr
+    single = bytes.fromhex("f95095c9019516c88b8be54e8b050e").ljust(len(curve), b"\x0e")
+    single_stem = data[:at] + single + data[at + len(curve) :]
+    for suffix in ("otf", "raw"):
+        shifted = run(suffix, "y", env, single_stem)
+        assert shifted.returncode == 0, shifted.stdout + shifted.stderr
+    odd = bytes.fromhex("f95095c8019516c88b8be54e8b050e").ljust(len(curve), b"\x0e")
+    odd_stem = data[:at] + odd + data[at + len(curve) :]
+    bypass = run("otf", "y", env, odd_stem)
+    assert bypass.returncode == 0, bypass.stdout + bypass.stderr
     vertical_faces = []
     for operator in (3, 23):
         stem = bytes.fromhex("f95095c8") + bytes([operator]) + bytes.fromhex("9516c88b8be54e8b050e")
@@ -519,6 +537,10 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
         assert rejected.returncode != 0 and "Cannot initialize FreeType library" in rejected.stderr
         measured = run("otf", "measure", blocked)
         assert measured.returncode == 0, measured.stdout + measured.stderr
+        outside = run("otf", "uncaptured", blocked, blue)
+        assert outside.returncode == 0, outside.stdout + outside.stderr
+        portable_shift = run("otf", "y", blocked, single_stem)
+        assert portable_shift.returncode == 0, portable_shift.stdout + portable_shift.stderr
         for vertical_face in vertical_faces:
             portable_vertical = run("otf", "vertical", blocked, vertical_face)
             assert portable_vertical.returncode == 0, portable_vertical.stdout + portable_vertical.stderr
@@ -526,7 +548,12 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
         assert portable_curve.returncode == 0, portable_curve.stdout + portable_curve.stderr
         portable_edge = run("otf", "edge", blocked, long_edge)
         assert portable_edge.returncode == 0, portable_edge.stdout + portable_edge.stderr
-        for suffix, mode, font_data in (("raw", "measure", data), ("otf", "hint", hinted)):
+        for suffix, mode, font_data in (
+            ("raw", "measure", data),
+            ("otf", "hint", hinted),
+            ("otf", "blue", blue),
+            ("otf", "y", odd_stem),
+        ):
             native = run(suffix, mode, blocked, font_data)
             assert native.returncode != 0 and "Cannot initialize FreeType library" in native.stderr
 
