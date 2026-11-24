@@ -25,25 +25,58 @@ static BOOL CALLBACK findCanvas(HWND child, LPARAM output) {
 }
 
 static int pixels(DWORD viewerPid) {
-	SetProcessDPIAware();
+	if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) { SetProcessDPIAware(); }
+	RECT lastRect = {0};
+	COLORREF lastUpper = 0, lastLower = 0;
+	HWND lastCover = NULL;
+	int foundCanvas = 0;
 	for (int attempt = 0; attempt < 100; ++attempt) {
 		HWND top = FindWindowW(NULL, L"Shared frame view"), canvas = NULL;
 		DWORD pid = 0;
 		GetWindowThreadProcessId(top, &pid);
-		if (top && pid == viewerPid) { EnumChildWindows(top, findCanvas, (LPARAM)&canvas); }
+		if (top && pid == viewerPid) {
+			if (IsIconic(top)) { ShowWindow(top, SW_RESTORE); }
+			SetWindowPos(top, HWND_TOPMOST, 40, 40, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+			EnumChildWindows(top, findCanvas, (LPARAM)&canvas);
+		}
 		RECT rect;
 		if (canvas && IsWindowVisible(canvas) && GetWindowRect(canvas, &rect)) {
+			foundCanvas = 1;
+			lastRect = rect;
 			int x = (rect.left + rect.right) / 2, height = rect.bottom - rect.top;
+			POINT upperPoint = {x, rect.top + height / 4};
+			POINT lowerPoint = {x, rect.top + 3 * height / 4};
+			lastCover = WindowFromPoint(upperPoint);
 			HDC screen = GetDC(NULL);
-			COLORREF upper = GetPixel(screen, x, rect.top + height / 4);
-			COLORREF lower = GetPixel(screen, x, rect.top + 3 * height / 4);
+			COLORREF upper = GetPixel(screen, upperPoint.x, upperPoint.y);
+			COLORREF lower = GetPixel(screen, lowerPoint.x, lowerPoint.y);
 			ReleaseDC(NULL, screen);
+			lastUpper = upper;
+			lastLower = lower;
 			if (GetRValue(upper) > 235 && GetGValue(upper) < 20 && GetBValue(upper) < 20 &&
-			    GetBValue(lower) > 235 && GetGValue(lower) < 20 && GetRValue(lower) < 20) { return 0; }
+			    GetBValue(lower) > 235 && GetGValue(lower) < 20 && GetRValue(lower) < 20) {
+				SetWindowPos(top, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+				return 0;
+			}
 		}
 		Sleep(40);
 	}
-	fprintf(stderr, "The screen did not show the producer's red and blue bands\n");
+	wchar_t coverClass[64] = L"", coverTitle[64] = L"";
+	DWORD coverPid = 0;
+	if (lastCover) {
+		HWND root = GetAncestor(lastCover, GA_ROOT);
+		if (!root) { root = lastCover; }
+		GetClassNameW(root, coverClass, 64);
+		GetWindowTextW(root, coverTitle, 64);
+		GetWindowThreadProcessId(root, &coverPid);
+	}
+	fprintf(stderr,
+	        "The screen did not show the producer's red and blue bands "
+	        "(canvas=%d rect=%ld,%ld,%ld,%ld upper=%u,%u,%u lower=%u,%u,%u cover=[%ls] '%ls' pid=%lu)\n",
+	        foundCanvas, (long)lastRect.left, (long)lastRect.top, (long)lastRect.right, (long)lastRect.bottom,
+	        (unsigned)GetRValue(lastUpper), (unsigned)GetGValue(lastUpper), (unsigned)GetBValue(lastUpper),
+	        (unsigned)GetRValue(lastLower), (unsigned)GetGValue(lastLower), (unsigned)GetBValue(lastLower),
+	        coverClass, coverTitle, (unsigned long)coverPid);
 	return 1;
 }
 
