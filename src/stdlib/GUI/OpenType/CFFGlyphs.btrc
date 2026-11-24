@@ -14,8 +14,8 @@ import ./PostScriptPath.btrc;
  * scaled to 1/64 pixel.
  *
  * Stem counts determine the length of each mask. A single uncaptured
- * horizontal stem can translate an entire outline. Glyphs that need a
- * multi-edge hint map defer to the native renderer. The operand stack holds 48 numbers,
+ * horizontal stem can translate an entire outline. Well-separated
+ * uncaptured stems interpolate the segments between their fitted edges. The operand stack holds 48 numbers,
  * subroutines nest ten deep, and a run executes a bounded number of
  * operators, so a charstring whose subroutines call each other is refused
  * rather than followed. The optional four-operand form of endchar records
@@ -87,7 +87,14 @@ class CFFCharString {
 		if (((self.count - first) & 1) != 0) { throw "CFF stem is missing an operand"; }
 		if (operator == 19 || operator == 20) { self.needsHintMap = true; }
 		if (operator == 1 || operator == 18) {
-			if (self.hasHorizontalStem || self.count - first != 2 || !self.path.alignStem(self.at(first), self.at(first + 1), self.blues)) { self.needsHintMap = true; }
+			if (self.hasHorizontalStem || self.count == first) { self.needsHintMap = true; }
+			long long previous = 0LL;
+			for (int i = first; !self.needsHintMap && i < self.count; i += 2) {
+				long long bottom = previous + self.at(i);
+				long long width = self.at(i + 1);
+				if (!self.path.alignStem(bottom, width, self.blues, self.count - first == 2)) { self.needsHintMap = true; }
+				previous = bottom + width;
+			}
 			self.hasHorizontalStem = true;
 		}
 		self.stems += (self.count - first) / 2;
