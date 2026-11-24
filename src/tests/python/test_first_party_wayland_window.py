@@ -30,10 +30,25 @@ NATIVE = ROOT / "src/tests/native/gui/linux"
 PROVIDER = ROOT / "src/stdlib/GUI/Linux/Wayland"
 PROBE = NATIVE.parent / "conformance/probes/linux"
 CLIENT_SOURCES = tuple(
-    PROVIDER / f"{name}.c" for name in ("Wire", "Window", "Input", "Keymap", "GPUWire", "Cursor", "TextInput", "Clipboard")
+    PROVIDER / f"{name}.c"
+    for name in ("Wire", "Window", "Input", "Keymap", "GPUWire", "Cursor", "TextInput", "Clipboard")
 )
 
-PLATFORM_SOURCES = tuple(PROVIDER / f"{name}.c" for name in ("Platform", "Scene", "Slider", "Button", "ControlText", "Tooltip", "Label", "TextLines", "EditBuffer", "TextField")) + (PROVIDER.parent.parent / "Text/LineBreak.c", PROVIDER.parent.parent / "Text/Grapheme.c")
+PLATFORM_SOURCES = tuple(
+    PROVIDER / f"{name}.c"
+    for name in (
+        "Platform",
+        "Scene",
+        "Slider",
+        "Button",
+        "ControlText",
+        "Tooltip",
+        "Label",
+        "TextLines",
+        "EditBuffer",
+        "TextField",
+    )
+) + (PROVIDER.parent.parent / "Text/LineBreak.c", PROVIDER.parent.parent / "Text/Grapheme.c")
 SYSTEM_TEXT = PROVIDER.parent.parent / "Text/SystemText.c"
 
 
@@ -88,6 +103,7 @@ def test_gpu_display_window_lifecycle(client):
 def connected_mouse(probe):
     """Advertise a virtual seat before the GUI client binds its Wayland pointer."""
     with subprocess.Popen([probe, "mouse"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as mouse:
+
         def send(command, x, y):
             mouse.stdin.write(f"{command} {x} {y}\n")
             mouse.stdin.flush()
@@ -130,7 +146,9 @@ def portal_child(client):
     scanner = shutil.which("wayland-scanner")
     directory = os.environ.get("WAYLAND_PROTOCOLS_DIR")
     if not directory:
-        path = subprocess.run(["pkg-config", "--variable=pkgdatadir", "wayland-protocols"], capture_output=True, text=True)
+        path = subprocess.run(
+            ["pkg-config", "--variable=pkgdatadir", "wayland-protocols"], capture_output=True, text=True
+        )
         directory = path.stdout.strip()
     if not scanner or not directory:
         pytest.skip("building the independent portal client needs the Wayland protocol SDK")
@@ -147,14 +165,30 @@ def portal_child(client):
         units.append(unit)
     program = folder / "portal-child"
     flags = shlex.split(subprocess.check_output(["pkg-config", "--cflags", "--libs", "wayland-client"], text=True))
-    subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", f"-I{folder}", NATIVE / "WaylandPortalParent.c",
-                    *units, *flags, "-o", program], check=True)
+    subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            f"-I{folder}",
+            NATIVE / "WaylandPortalParent.c",
+            *units,
+            *flags,
+            "-o",
+            program,
+        ],
+        check=True,
+    )
     return program
 
 
 @pytest.mark.parametrize("mode", ["export-v1", "export-v2", "export-gpu-v2"])
 def test_portal_parent_export_lifetime(mode, client, portal_child):
-    status = subprocess.run([SESSION, "--wayland", "--", sys.executable, __file__, mode, client, portal_child], timeout=25)
+    status = subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, mode, client, portal_child], timeout=25
+    )
     if status.returncode == 77:
         pytest.skip("the compositor does not provide the selected xdg-foreign protocol")
     assert status.returncode == 0
@@ -315,7 +349,8 @@ def shim_program(fixture, directory, link_flags=()):
             f"-I{PROVIDER}",
             NATIVE / f"{fixture}.c",
             *CLIENT_SOURCES,
-            *PLATFORM_SOURCES, SYSTEM_TEXT,
+            *PLATFORM_SOURCES,
+            SYSTEM_TEXT,
             *link_flags,
             "-lm",
             "-o",
@@ -332,7 +367,15 @@ def test_control_changes_submit_one_software_frame(client):
     subprocess.run([SESSION, "--wayland", "--", program], check=True, timeout=15)
 
 
-@pytest.mark.parametrize(("fixture", "scenario"), [("WaylandScene", "scene"), ("WaylandIndicators", "indicators"), ("WaylandScrollbars", "scrollbars"), ("WaylandSlider", "slider")])
+@pytest.mark.parametrize(
+    ("fixture", "scenario"),
+    [
+        ("WaylandScene", "scene"),
+        ("WaylandIndicators", "indicators"),
+        ("WaylandScrollbars", "scrollbars"),
+        ("WaylandSlider", "slider"),
+    ],
+)
 def test_software_control_placement_and_capture(fixture, scenario, client, input_device):
     program = shim_program(fixture, client.parent)
     subprocess.run(
@@ -353,7 +396,8 @@ def test_clipboard_interoperability(mode, client, input_device):
     )
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, mode, program, input_device, reader],
-        check=True, timeout=45,
+        check=True,
+        timeout=45,
     )
 
 
@@ -377,6 +421,7 @@ def clipboard(mode, program, probe, receiver):
             subprocess.Popen([probe, "keyboard"], stdin=subprocess.PIPE, stdout=subprocess.PIPE) as keyboard,
             subprocess.Popen([program, path], stdin=subprocess.PIPE, stdout=subprocess.PIPE) as app,
         ):
+
             def command(key):
                 app.stdin.write(key)
                 app.stdin.flush()
@@ -414,7 +459,9 @@ def clipboard(mode, program, probe, receiver):
                 copy(incoming)
                 read(incoming)
                 # A freshly mapped, independent window acquires keyboard focus.
-                with subprocess.Popen([program, path, "other window"], stdin=subprocess.PIPE, stdout=subprocess.PIPE) as other:
+                with subprocess.Popen(
+                    [program, path, "other window"], stdin=subprocess.PIPE, stdout=subprocess.PIPE
+                ) as other:
                     try:
                         assert other.stdout.readline().strip() == b"shown"
                         copy(b"changed in background")
@@ -547,7 +594,7 @@ def slider_pixels(program, probe):
             if start < 0:
                 continue
             row = start + width * 47 * 3
-            if screen[row+(center-7)*3 : row+(center+7)*3] == handle * 14:
+            if screen[row + (center - 7) * 3 : row + (center + 7) * 3] == handle * 14:
                 y, x = divmod((start - header.end()) // 3, width)
                 return x, y
         pytest.fail("the native slider did not show its model's thumb position")
@@ -750,7 +797,9 @@ def native_wayland_root(tmp_path_factory):
     """Qualify native control methods while the shipping Linux GUI still uses GTK."""
     root = GUIProviderRoot.create(tmp_path_factory.mktemp("wayland-provider"))
     manifest = root / "stdlib/GUI/btrc.toml"
-    text = manifest.read_text().replace('modules = ["Linux.Fonts.SystemTextABI"]', 'modules = ["Linux.Fonts.SystemTextABI", "Shim.Shim"]')
+    text = manifest.read_text().replace(
+        'modules = ["Linux.Fonts.SystemTextABI"]', 'modules = ["Linux.Fonts.SystemTextABI", "Shim.Shim"]'
+    )
     sections = re.split(r"(?=^\[\[native\.)", text, flags=re.MULTILINE)
     preserved = []
     for section in sections:
@@ -781,12 +830,18 @@ def test_native_control_interfaces(frontend, native_wayland_root, tmp_path, requ
     if subprocess.run(["pkg-config", "--exists", "wgpu-native"]).returncode:
         pytest.skip("the shared GUI painter imports the wgpu-native SDK")
     generated, plan, program = (tmp_path / name for name in ("Program.c", "Program.json", "Program"))
-    transpile_provider_program(NATIVE / "WaylandControlInterfaces.btrc", generated, plan, frontend, request, native_wayland_root)
+    transpile_provider_program(
+        NATIVE / "WaylandControlInterfaces.btrc", generated, plan, frontend, request, native_wayland_root
+    )
     dependencies = {entry["name"] for entry in json.loads(plan.read_text())["pkg-config"]}
     assert dependencies <= {"wgpu-native"}
     NativePlanBuilder().build(
-        plan_path=plan, generated_c=generated, output=program, optimization=0,
-        compile_flags=["-ffunction-sections", "-fdata-sections"], link_flags=["-Wl,--gc-sections", "-lm"],
+        plan_path=plan,
+        generated_c=generated,
+        output=program,
+        optimization=0,
+        compile_flags=["-ffunction-sections", "-fdata-sections"],
+        link_flags=["-Wl,--gc-sections", "-lm"],
     )
     assert not DependencyAudit().binary_problems(program, f"linux-{platform.machine()}")
     subprocess.run([SESSION, "--wayland", "--", program], check=True, timeout=25)
@@ -840,7 +895,8 @@ os = ["linux"]
     for unit in (
         NATIVE / "WaylandGPUPresentation.c",
         *CLIENT_SOURCES,
-        *PLATFORM_SOURCES, SYSTEM_TEXT,
+        *PLATFORM_SOURCES,
+        SYSTEM_TEXT,
         PROVIDER / "Surface.c",
     ):
         obj = tmp_path / (unit.stem + ".o")

@@ -17,19 +17,13 @@ class ShimFeatures {
 
 	class void initialize() {}
 
-	class ITextField createTextField(ShimContext context, string text, string placeholder) {
-		return ShimTextField(context, text, placeholder);
-	}
+	class ITextField createTextField(ShimContext context, string text, string placeholder) { return ShimTextField(context, text, placeholder); }
 
 	class ISelect createSelect(ShimContext context) { return ShimSelect(context); }
 
-	class void showAlert(BtrcShimWindow* window, string title, string message) {
-		btrcShimWindowShowMessage(window, title, message);
-	}
+	class void showAlert(BtrcShimWindow* window, string title, string message) { btrcShimWindowShowMessage(window, title, message); }
 
-	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) {
-		return ShimDirectoryPicker.modal(window, pump, request);
-	}
+	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) { return ShimDirectoryPicker.modal(window, pump, request); }
 
 	/* The shim's picture of a run, copied into an image the caller owns. */
 	class Image rasterized(TextRun run) {
@@ -43,5 +37,4 @@ class ShimFeatures {
 		btrcShimFreePixels(pixels);
 		return image;
 	}
-
 }
