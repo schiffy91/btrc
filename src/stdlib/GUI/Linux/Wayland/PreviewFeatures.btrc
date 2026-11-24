@@ -14,7 +14,9 @@ import Library.App;
 import Library.GUI.Linux.Fonts.SystemTextABI;
 
 /* Direct Wayland clients can choose this preview while the default toolkit
- * supplies native alerts. */
+ * provides the full desktop integration. */
+extern int btrcWaylandShowAlert(BtrcShimWindow* owner, string title, string message);
+
 class ShimFeatures {
 	class bool fieldUsesWindowInput() { return true; }
 
@@ -24,7 +26,9 @@ class ShimFeatures {
 
 	class ISelect createSelect(ShimContext context) { return ShimSelect(context); }
 
-	class void showAlert(BtrcShimWindow* window, string title, string message) { throw "Modal alerts require the default Linux GUI backend"; }
+	class void showAlert(BtrcShimWindow* window, string title, string message) {
+		if (btrcWaylandShowAlert(window, title, message) == 0) { throw "Cannot display native Wayland alert"; }
+	}
 
 	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) { return DirectoryPickerProvider.choose(window, pump, request); }
 
