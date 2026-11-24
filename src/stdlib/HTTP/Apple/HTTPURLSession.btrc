@@ -1,0 +1,41 @@
+import Library.Bytes;
+import Library.HTTP.HTTPExchange;
+import Library.Strings;
+import Library.Vector;
+
+#include "URLSessionTransport.h"
+#include <stdlib.h>
+
+extern int btrcURLSessionRequest(string method, string url, string headers, string body, int length, int timeoutSeconds, int limit, string proxyHost, int proxyPort, string bundle, char** received, int* receivedLength);
+
+class HTTPURLSession {
+	class HTTPExchangeResult request(string method, HTTPClientAddress address, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes, HTTPClientAddress? proxy = null, string bundle = "") {
+		var fields = StringBuilder();
+		if (!HTTPExchange.names(headers, "accept")) { fields.append("Accept: */*\r\n"); }
+		if (!HTTPExchange.names(headers, "accept-encoding")) { fields.append("Accept-Encoding: identity\r\n"); }
+		if (!address.userInfo.isEmpty() && !HTTPExchange.names(headers, "authorization")) { fields.append("Authorization: Basic " + HTTPExchange.base64(HTTPExchange.credentials(address.userInfo)) + "\r\n"); }
+		if (!body.isEmpty() && !HTTPExchange.names(headers, "content-type")) { fields.append("Content-Type: application/x-www-form-urlencoded\r\n"); }
+		for header in headers {
+			if (HTTPExchange.framingField(header)) { continue; }
+			fields.append(header + "\r\n");
+		}
+		char* received = NULL;
+		int length = 0;
+		string proxyHost = "";
+		int proxyPort = 0;
+		if (proxy != null) {
+			proxyHost = proxy.resolvable();
+			proxyPort = proxy.port;
+		}
+		int status = btrcURLSessionRequest(method, "https://" + address.authority() + address.target, fields.toString(), body, body.len(), timeoutSecs, maxResponseBytes, proxyHost, proxyPort, bundle, &received, &length);
+		if (status == -5) { return HTTPExchangeResult.failed("could not load CA bundle"); }
+		if (status == -1) { return HTTPExchangeResult.failed("request timed out"); }
+		if (status == -2) { return HTTPExchangeResult.failed("response body is too large"); }
+		if (status == -3) { return HTTPExchangeResult.failed("out of memory"); }
+		if (status <= 0) { return HTTPExchangeResult.failed("HTTPS request failed"); }
+		Bytes content = Bytes();
+		if (length > 0) { content.appendRaw(received, length); }
+		free(received);
+		return HTTPExchangeResult(status, content, "");
+	}
+}
