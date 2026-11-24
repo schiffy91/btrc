@@ -1,34 +1,36 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "Peer.h"
-#include <errno.h>
 #include <poll.h>
-#include <signal.h>
-#include <spawn.h>
 #include <stdio.h>
 #include <sys/socket.h>
-#include <sys/wait.h>
+#include <sys/un.h>
 #include <unistd.h>
 
-extern char **environ;
 static int channel = -1;
-static pid_t child = -1;
 
-int startFramePeer(const char *path) {
-	int pair[2];
-	if (child >= 0 || socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, pair)) { return -1; }
-	posix_spawn_file_actions_t actions;
-	int error = posix_spawn_file_actions_init(&actions);
-	if (!error) {
-		error = posix_spawn_file_actions_adddup2(&actions, pair[1], STDIN_FILENO);
-		if (!error) {
-			char *const args[] = {(char *)path, NULL};
-			error = posix_spawn(&child, path, &actions, NULL, args, environ);
+int acceptFramePeer(void) {
+	struct sockaddr_un address = {.sun_family = AF_UNIX, .sun_path = "frame-peer.pending"};
+	int listener = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+	if (listener < 0) { return -1; }
+	int pid = -1;
+	if (!bind(listener, (struct sockaddr *)&address, sizeof address) && !listen(listener, 1)
+	    && !rename(address.sun_path, "frame-peer")) {
+		struct pollfd ready = {.fd = listener, .events = POLLIN};
+		if (poll(&ready, 1, 30000) == 1) {
+			channel = accept4(listener, NULL, NULL, SOCK_CLOEXEC);
+			struct ucred peer;
+			socklen_t size = sizeof peer;
+			if (channel >= 0 && !getsockopt(channel, SOL_SOCKET, SO_PEERCRED, &peer, &size) && peer.uid == getuid()) {
+				pid = peer.pid;
+			} else { closeFramePeer(); }
 		}
-		posix_spawn_file_actions_destroy(&actions);
 	}
-	close(pair[1]);
-	if (error) { close(pair[0]); child = -1; return -1; }
-	channel = pair[0];
-	return child;
+	close(listener);
+	unlink("frame-peer");
+	unlink(address.sun_path);
+	return pid;
 }
 
 int submitFrame(const char *address, int width, int pattern) {
@@ -41,12 +43,6 @@ int submitFrame(const char *address, int width, int pattern) {
 	return result;
 }
 
-int finishFramePeer(void) {
+void closeFramePeer(void) {
 	if (channel >= 0) { close(channel); channel = -1; }
-	if (child < 0) { return -1; }
-	int status = 0;
-	pid_t done;
-	do { done = waitpid(child, &status, 0); } while (done < 0 && errno == EINTR);
-	child = -1;
-	return done >= 0 && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
