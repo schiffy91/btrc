@@ -1,4 +1,5 @@
 import Library.GUI.MacOS.MacOSViewState;
+import Library.GUI.MacOS.AppKitText;
 import Library.Console;
 import Library.Platform;
 import Library.Timer;
@@ -370,6 +371,42 @@ class MacOSApplication implements IMacOSApplication {
 		} catch (string error) { self.close(); throw error; }
 	}
 
+	private void installDefaultMenuBar() {
+		if (self._application.mainMenu() != null) { return; }
+		var mainMenu = NSMenu.new();
+		if (mainMenu == null) { return; }
+
+		/* Standard macOS Application menu: Hide (Cmd+H) and Quit (Cmd+Q). */
+		var appMenuItem = NSMenuItem.new();
+		var appMenu = NSMenu.new();
+		if (appMenuItem != null && appMenu != null) {
+			appMenu.addItemWithTitle(AppKitText.nativeValue("Hide"), sel_registerName("hide:"), AppKitText.nativeValue("h"));
+			appMenu.addItemWithTitle(AppKitText.nativeValue("Quit"), sel_registerName("terminate:"), AppKitText.nativeValue("q"));
+			appMenuItem.setSubmenu(appMenu);
+			mainMenu.addItem(appMenuItem);
+		}
+
+		/* Standard macOS File menu: Close Window (Cmd+W). */
+		var fileMenuItem = NSMenuItem.new();
+		var fileMenu = NSMenu.new();
+		if (fileMenuItem != null && fileMenu != null) {
+			fileMenu.addItemWithTitle(AppKitText.nativeValue("Close Window"), sel_registerName("performClose:"), AppKitText.nativeValue("w"));
+			fileMenuItem.setSubmenu(fileMenu);
+			mainMenu.addItem(fileMenuItem);
+		}
+
+		/* Standard macOS Window menu: Minimize (Cmd+M). */
+		var windowMenuItem = NSMenuItem.new();
+		var windowMenu = NSMenu.new();
+		if (windowMenuItem != null && windowMenu != null) {
+			windowMenu.addItemWithTitle(AppKitText.nativeValue("Minimize"), sel_registerName("performMiniaturize:"), AppKitText.nativeValue("m"));
+			windowMenuItem.setSubmenu(windowMenu);
+			mainMenu.addItem(windowMenuItem);
+		}
+
+		self._application.setMainMenu(mainMenu);
+	}
+
 	private void configureDesktop() {
 		if (self._desktopConfigured) { return; }
 		self._application.setDelegate(self._events, self._callbacks);
@@ -380,6 +417,7 @@ class MacOSApplication implements IMacOSApplication {
 		// it launches, so it never takes the user's focus.
 		var policy = Environment.has("BTRC_GUI_BACKGROUND") ? NSApplicationActivationPolicyAccessory : NSApplicationActivationPolicyRegular;
 		if (self._application.activationPolicy() != policy && !self._application.setActivationPolicy(policy)) { throw "Cannot enable native application activation"; }
+		self.installDefaultMenuBar();
 		self._application.finishLaunching();
 		self._desktopConfigured = true;
 	}

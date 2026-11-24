@@ -33,6 +33,7 @@ class ViewInteractionState {
  * focus loss, registration cancellation or close. */
 interface IViewPointerHandler { bool pointer(AppPointerEvent event); }
 interface IViewScrollHandler { bool scroll(AppScrollEvent event); }
+interface IViewMagnifyHandler { bool magnify(AppMagnifyEvent event); }
 
 /* Native view contract. Layout uses logical points from the parent's top-left.
  * Fitting sizes are native minima: an unconstrained dimension may be zero.
@@ -58,6 +59,7 @@ interface IView {
 	void setVisible(bool visible);
 	ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner);
 	ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner);
+	ICallbackRegistration onMagnify(IViewMagnifyHandler handler, CallbackScope owner);
 	CallbackCancellation close();
 	CallbackCancellation pollClose();
 }

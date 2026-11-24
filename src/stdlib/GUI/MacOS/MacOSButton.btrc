@@ -69,6 +69,8 @@ class MacOSButton implements IButton, IMacOSView {
 
 	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
 
+	public ICallbackRegistration onMagnify(IViewMagnifyHandler handler, CallbackScope owner) { return self._view.onMagnify(handler, owner); }
+
 	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
 
 	public void setVisible(bool visible) { self._view.setVisible(visible); }

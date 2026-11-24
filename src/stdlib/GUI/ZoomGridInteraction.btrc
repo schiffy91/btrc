@@ -1,0 +1,104 @@
+/* Reusable continuous pinch-to-zoom grid controller with smooth open-to-viewer threshold.
+ * Continuously scales grid cell size without snapping to discrete column steps, keeps the
+ * focal item anchored under the gesture center, and triggers viewer entry when zoomed past max. */
+
+import Library.App;
+import Library.Math;
+
+class ZoomGridOutcome {
+	public double cellWidth;
+	public double overscrollProgress;
+	public bool openTriggered;
+	public int focalItemIndex;
+
+	public ZoomGridOutcome(double cellWidth, double overscrollProgress, bool openTriggered, int focalItemIndex) {
+		self.cellWidth = cellWidth;
+		self.overscrollProgress = overscrollProgress;
+		self.openTriggered = openTriggered;
+		self.focalItemIndex = focalItemIndex;
+	}
+}
+
+class ZoomGridInteraction {
+	public double cellWidth;
+	public double minCellWidth;
+	public double maxCellFraction; /* Max continuous cell width as a fraction of viewport width. */
+	public double openOvershootFactor; /* Relative scale past maxCellWidth that snaps into viewer. */
+	public double overscrollProgress = 0.0;
+	public bool active = false;
+	public int focalItemIndex = -1;
+
+	private double _rawWidth;
+
+	public ZoomGridInteraction(double initialCellWidth = 220.0, double minCellWidth = 80.0, double maxCellFraction = 0.62, double openOvershootFactor = 1.18) {
+		self.cellWidth = initialCellWidth;
+		self.minCellWidth = minCellWidth;
+		self.maxCellFraction = maxCellFraction;
+		self.openOvershootFactor = openOvershootFactor > 1.02 ? openOvershootFactor : 1.18;
+		self._rawWidth = initialCellWidth;
+	}
+
+	public double maxCellWidthFor(double viewportW) {
+		double m = viewportW * self.maxCellFraction;
+		return m > self.minCellWidth + 40.0 ? m : (self.minCellWidth + 40.0);
+	}
+
+	public void syncCellWidth(double width) {
+		self.cellWidth = width;
+		self._rawWidth = width;
+		self.overscrollProgress = 0.0;
+	}
+
+	/* Handle an incremental pinch/magnify gesture on the grid.
+	 * Pass the item currently hit under the cursor so zooming past max opens that exact item. */
+	public ZoomGridOutcome magnify(AppMagnifyEvent ev, double viewportW, int hitItemIndex) {
+		double maxW = self.maxCellWidthFor(viewportW);
+		if (ev.phase == APP_GESTURE_BEGAN || !self.active) {
+			self.active = true;
+			self._rawWidth = self.cellWidth;
+			self.overscrollProgress = 0.0;
+			if (hitItemIndex >= 0) { self.focalItemIndex = hitItemIndex; }
+		} else if (hitItemIndex >= 0 && self.overscrollProgress <= 0.05) {
+			self.focalItemIndex = hitItemIndex;
+		}
+
+		double factor = Math.exp(ev.magnification);
+		self._rawWidth = self._rawWidth * factor;
+		if (self._rawWidth < self.minCellWidth) { self._rawWidth = self.minCellWidth; }
+
+		bool openTriggered = false;
+		if (self._rawWidth <= maxW) {
+			self.cellWidth = self._rawWidth;
+			self.overscrollProgress = 0.0;
+		} else {
+			double ratioOver = self._rawWidth / maxW;
+			double span = self.openOvershootFactor - 1.0;
+			double prog = (ratioOver - 1.0) / span;
+			if (prog < 0.0) { prog = 0.0; }
+			if (prog > 1.0) { prog = 1.0; }
+			self.overscrollProgress = prog;
+			/* Soft rubber-band expansion while pushing past maxCellWidth into viewer. */
+			self.cellWidth = maxW * (1.0 + prog * 0.08);
+			if (prog >= 1.0 && self.focalItemIndex >= 0) {
+				openTriggered = true;
+				self.active = false;
+				self.cellWidth = maxW;
+				self._rawWidth = maxW;
+				self.overscrollProgress = 0.0;
+			}
+		}
+
+		if (ev.phase == APP_GESTURE_ENDED || ev.phase == APP_GESTURE_CANCELLED) {
+			bool wasCancelled = (ev.phase == APP_GESTURE_CANCELLED);
+			if (!wasCancelled && !openTriggered && self.overscrollProgress >= 0.55 && self.focalItemIndex >= 0) {
+				openTriggered = true;
+			}
+			self.active = false;
+			if (self.cellWidth > maxW) { self.cellWidth = maxW; }
+			self._rawWidth = self.cellWidth;
+			self.overscrollProgress = 0.0;
+		}
+
+		return ZoomGridOutcome(self.cellWidth, self.overscrollProgress, openTriggered, self.focalItemIndex);
+	}
+}

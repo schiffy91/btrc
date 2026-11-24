@@ -704,8 +704,15 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 
 	/* `precise` deltas are a touchpad's points; the others are wheel notches. */
 	private void deliverScroll(double deltaX, double deltaY, bool precise) {
-		var event = AppScrollEvent(deltaX, deltaY, 0.0, 0.0, precise, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers);
 		var path = self.hitPath(self._pointerX, self._pointerY);
+		if (self._modifiers.control) {
+			double mag = deltaY * (precise ? 0.01 : 0.12);
+			for (int index = path.len - 1; index >= 0; index--) {
+				var hit = path.get(index);
+				var magEvent = AppMagnifyEvent(mag, self._pointerX - hit.originX, self._pointerY - hit.originY, APP_GESTURE_CHANGED, self._modifiers);
+				for input in hit.view.node().inputs() { if (input.handlesMagnify() && input.isOpen() && input.deliverMagnify(magEvent)) { return; } }
+			}
+		}
 		for (int index = path.len - 1; index >= 0; index--) {
 			var hit = path.get(index);
 			var local = AppScrollEvent(deltaX, deltaY, self._pointerX - hit.originX, self._pointerY - hit.originY, precise, APP_SCROLL_NONE, APP_SCROLL_NONE, self._modifiers);
@@ -725,7 +732,13 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 		}
 		if (self._host.focusedId != 0) {
 			var focused = self.locate(self._host.focusedId);
-			if (focused != null && focused.view.node().effectiveEligible()) { focused.view.key(event); }
+			if (focused != null && focused.view.node().effectiveEligible() && focused.view.key(event)) { return; }
+		}
+		/* Default host-system shortcuts when unhandled by application or focused control. */
+		if (event.action == APP_KEY_PRESSED && event.modifiers.control && !event.modifiers.alt && !event.modifiers.shift && !event.modifiers.command) {
+			if (event.key == APP_KEY_W || event.key == APP_KEY_Q) {
+				self.requestNativeClose();
+			}
 		}
 	}
 

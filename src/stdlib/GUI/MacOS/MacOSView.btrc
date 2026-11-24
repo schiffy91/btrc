@@ -133,6 +133,8 @@ class MacOSView implements IMacOSView, IMacOSViewEligibility {
 
 	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, handler, self._input, owner, self._eligibility.inputs, self._state); }
 
+	public ICallbackRegistration onMagnify(IViewMagnifyHandler handler, CallbackScope owner) { return MacOSViewInput.subscribe(self.nativeView(), null, null, self._input, owner, self._eligibility.inputs, self._state, handler); }
+
 	public void cancelPointerCapture() { MacOSViewInput.detached(self._eligibility.inputs); }
 
 	/* GPU owners close admission before draining native work, while retaining

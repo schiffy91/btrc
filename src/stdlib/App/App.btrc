@@ -73,6 +73,30 @@ class AppPointerEvent {
 
 enum AppScrollPhase { APP_SCROLL_NONE, APP_SCROLL_BEGAN, APP_SCROLL_CHANGED, APP_SCROLL_ENDED, APP_SCROLL_CANCELLED, APP_SCROLL_MAY_BEGIN, APP_SCROLL_STATIONARY };
 
+enum AppGesturePhase {
+	APP_GESTURE_NONE = 0,
+	APP_GESTURE_BEGAN = 1,
+	APP_GESTURE_CHANGED = 2,
+	APP_GESTURE_ENDED = 3,
+	APP_GESTURE_CANCELLED = 4
+};
+
+class AppMagnifyEvent {
+	public double magnification;
+	public double logicalX;
+	public double logicalY;
+	public AppGesturePhase phase;
+	public AppKeyModifiers modifiers;
+
+	public AppMagnifyEvent(double magnification, double logicalX = 0.0, double logicalY = 0.0, AppGesturePhase phase = APP_GESTURE_NONE, AppKeyModifiers? modifiers = null) {
+		self.magnification = magnification;
+		self.logicalX = logicalX;
+		self.logicalY = logicalY;
+		self.phase = phase;
+		self.modifiers = modifiers == null ? AppKeyModifiers(false, false, false, false) : modifiers;
+	}
+}
+
 class AppScrollEvent {
 	public double deltaX;
 	public double deltaY;

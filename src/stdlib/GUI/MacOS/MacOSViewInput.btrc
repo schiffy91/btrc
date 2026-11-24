@@ -31,6 +31,7 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 	private NSWindow? _interactionWindow;
 	private IViewPointerHandler? _pointer;
 	private IViewScrollHandler? _scroll;
+	private IViewMagnifyHandler? _magnify;
 	private CallbackScope _native = CallbackScope();
 	private NSTrackingArea? _tracking;
 	private bool _open = true;
@@ -40,11 +41,13 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 	private double _y = 0.0;
 	private AppKeyModifiers _modifiers = AppKeyModifiers(false, false, false, false);
 
-	public MacOSViewInput(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, MacOSViewState state) {
-		if ((pointer == null) == (scroll == null)) { throw "View input requires exactly one handler"; }
+	public MacOSViewInput(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, IViewMagnifyHandler? magnify, MacOSViewState state) {
+		int count = (pointer != null ? 1 : 0) + (scroll != null ? 1 : 0) + (magnify != null ? 1 : 0);
+		if (count != 1) { throw "View input requires exactly one handler"; }
 		self._view = view; self._state = state;
 		self._pointer = pointer;
 		self._scroll = scroll;
+		self._magnify = magnify;
 		var context = state.context();
 		if (context == null) { throw "View input requires an application context"; }
 		self._context = context;
@@ -57,7 +60,7 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 		if (view == null) { throw "View input is closed"; }
 		var window = view.window();
 		if (window == null) { throw "Attach the view to a window before subscribing to input"; }
-		unsigned long mask = NSEventMaskScrollWheel;
+		unsigned long mask = self._magnify != null ? NSEventMaskMagnify : NSEventMaskScrollWheel;
 		if (self._pointer != null) {
 			mask = NSEventMaskMouseMoved | NSEventMaskMouseEntered | NSEventMaskMouseExited | NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged | NSEventMaskRightMouseDown | NSEventMaskRightMouseUp | NSEventMaskRightMouseDragged | NSEventMaskOtherMouseDown | NSEventMaskOtherMouseUp | NSEventMaskOtherMouseDragged;
 			window.setAcceptsMouseMovedEvents(true);
@@ -100,9 +103,24 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 		return consumed;
 	}
 
+	private AppGesturePhase gesturePhase(unsigned long phase) {
+		if ((phase & NSEventPhaseCancelled) != 0UL) { return APP_GESTURE_CANCELLED; }
+		if ((phase & NSEventPhaseEnded) != 0UL) { return APP_GESTURE_ENDED; }
+		if ((phase & NSEventPhaseBegan) != 0UL) { return APP_GESTURE_BEGAN; }
+		if ((phase & NSEventPhaseChanged) != 0UL) { return APP_GESTURE_CHANGED; }
+		return APP_GESTURE_NONE;
+	}
+
 	private bool scroll(IViewScrollHandler handler, AppScrollEvent event) {
 		bool consumed = false; self._entered++;
 		try { consumed = handler.scroll(event); } finally { self._entered--; }
+		self._context.checkNativeFailure();
+		return consumed;
+	}
+
+	private bool magnify(IViewMagnifyHandler handler, AppMagnifyEvent event) {
+		bool consumed = false; self._entered++;
+		try { consumed = handler.magnify(event); } finally { self._entered--; }
 		self._context.checkNativeFailure();
 		return consumed;
 	}
@@ -191,6 +209,11 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 			if (!inside || handler == null) { return native; }
 			return self.scroll(handler, AppScrollEvent(native.scrollingDeltaX(), native.scrollingDeltaY(), self._x, self._y, native.hasPreciseScrollingDeltas(), self.phase(native.phase()), self.phase(native.momentumPhase()), self._modifiers)) ? null : native;
 		}
+		if (type == NSEventTypeMagnify) {
+			var handler = self._magnify;
+			if (!inside || handler == null) { return native; }
+			return self.magnify(handler, AppMagnifyEvent(native.magnification(), self._x, self._y, self.gesturePhase(native.phase()), self._modifiers)) ? null : native;
+		}
 		if (type == NSEventTypeMouseExited && native.trackingArea() == self._tracking) { inside = false; }
 		bool consumed = false;
 		if (inside != self._inside) {
@@ -245,15 +268,15 @@ class MacOSViewInput implements IAppKitEventMonitor, ICallbackRegistration, IMac
 		var state = self._native.pollCompletion();
 		if (state == CALLBACK_CANCELLATION_COMPLETE) {
 			if (self._settlementOwner.cancel() != CALLBACK_CANCELLATION_COMPLETE) { return CALLBACK_CANCELLATION_PENDING; }
-			self._view = null; self._pointer = null; self._scroll = null; self._interactionWindow = null;
+			self._view = null; self._pointer = null; self._scroll = null; self._magnify = null; self._interactionWindow = null;
 		}
 		return state;
 	}
 
-	class ICallbackRegistration subscribe(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, CallbackScope viewOwner, CallbackScope owner, Vector<MacOSViewInput> inputs, MacOSViewState state) {
+	class ICallbackRegistration subscribe(NSView view, IViewPointerHandler? pointer, IViewScrollHandler? scroll, CallbackScope viewOwner, CallbackScope owner, Vector<MacOSViewInput> inputs, MacOSViewState state, IViewMagnifyHandler? magnify = null) {
 		viewOwner.pollCompletion();
 		for (int index = inputs.len - 1; index >= 0; index--) { if (!inputs.get(index).isOpen()) { inputs.remove(index); } }
-		var registration = MacOSViewInput(view, pointer, scroll, state);
+		var registration = MacOSViewInput(view, pointer, scroll, magnify, state);
 		try {
 			viewOwner.track(registration);
 			owner.track(registration);

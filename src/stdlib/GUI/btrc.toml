@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["ActionMailbox", "ControlEvents", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageHandle", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISharedFrameView", "ISlider", "IStack", "ITextField", "IView", "IWebView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "Raster", "SharedFrameView", "TextRun", "WebView"]
+exports = ["ActionMailbox", "ControlEvents", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageHandle", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISharedFrameView", "ISlider", "IStack", "ITextField", "IView", "IWebView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "MediaPagerInteraction", "Raster", "SharedFrameView", "TextRun", "WebView", "ZoomGridInteraction"]
 
 [[package.providers]]
 module = "GUI"
@@ -739,6 +739,9 @@ standard = "c11"
 symbols = [
 	"+[NSTimer scheduledTimerWithTimeInterval:repeats:block:]", "-[NSTimer invalidate]", "-[NSTimer isValid]",
 	"+[NSThread isMainThread]", "+[NSApplication sharedApplication]", "-[NSApplication finishLaunching]",
+	"-[NSApplication mainMenu]", "-[NSApplication setMainMenu:]",
+	"+[NSMenu new]", "-[NSMenu addItem:]", "-[NSMenu addItemWithTitle:action:keyEquivalent:]",
+	"+[NSMenuItem new]", "-[NSMenuItem setSubmenu:]",
 	"-[NSApplication activationPolicy]", "-[NSApplication setActivationPolicy:]", "NSApplicationActivationPolicyRegular", "NSApplicationActivationPolicyAccessory",
 	"-[NSApplication run]", "-[NSApplication stop:]", "-[NSApplication isRunning]",
 	"-[NSApplication modalWindow]", "-[NSApplication stopModalWithCode:]", "NSModalResponseAbort",
@@ -766,6 +769,15 @@ executor = "caller"
 unregister = "-[NSTimer invalidate]"
 activation-failure = "abort"
 cancellation = "entry-barrier"
+
+[[native.bindings]]
+module = "MacOS.MacOSApplication"
+header = "MacOS/ObjectiveCRuntime.h"
+language = "c"
+standard = "c11"
+os = ["macos"]
+symbols = ["SEL", "sel_registerName"]
+read-only-borrows = ["sel_registerName.str"]
 
 [[native.frameworks]]
 name = "Foundation"
@@ -973,9 +985,9 @@ os = ["macos"]
 symbols = [
 	"+[NSThread isMainThread]", "-[NSView convertPoint:fromView:]", "-[NSView hitTest:]", "-[NSView visibleRect]", "-[NSView isHiddenOrHasHiddenAncestor]", "-[NSView window]", "-[NSView bounds]", "-[NSView isFlipped]", "-[NSView isDescendantOf:]",
 	"-[NSWindow setAcceptsMouseMovedEvents:]", "-[NSWindow contentView]",
-	"-[NSEvent locationInWindow]", "-[NSEvent buttonNumber]", "-[NSEvent clickCount]", "-[NSEvent scrollingDeltaX]", "-[NSEvent scrollingDeltaY]", "-[NSEvent hasPreciseScrollingDeltas]", "-[NSEvent phase]", "-[NSEvent momentumPhase]", "-[NSEvent trackingArea]",
-	"NSEventTypeMouseMoved", "NSEventTypeMouseExited", "NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp", "NSEventTypeLeftMouseDragged", "NSEventTypeRightMouseDown", "NSEventTypeRightMouseUp", "NSEventTypeRightMouseDragged", "NSEventTypeOtherMouseDown", "NSEventTypeOtherMouseUp", "NSEventTypeOtherMouseDragged", "NSEventTypeScrollWheel",
-	"NSEventMaskMouseMoved", "NSEventMaskMouseEntered", "NSEventMaskMouseExited", "NSEventMaskLeftMouseDown", "NSEventMaskLeftMouseUp", "NSEventMaskLeftMouseDragged", "NSEventMaskRightMouseDown", "NSEventMaskRightMouseUp", "NSEventMaskRightMouseDragged", "NSEventMaskOtherMouseDown", "NSEventMaskOtherMouseUp", "NSEventMaskOtherMouseDragged", "NSEventMaskScrollWheel",
+	"-[NSEvent locationInWindow]", "-[NSEvent buttonNumber]", "-[NSEvent clickCount]", "-[NSEvent scrollingDeltaX]", "-[NSEvent scrollingDeltaY]", "-[NSEvent hasPreciseScrollingDeltas]", "-[NSEvent magnification]", "-[NSEvent phase]", "-[NSEvent momentumPhase]", "-[NSEvent trackingArea]",
+	"NSEventTypeMouseMoved", "NSEventTypeMouseExited", "NSEventTypeLeftMouseDown", "NSEventTypeLeftMouseUp", "NSEventTypeLeftMouseDragged", "NSEventTypeRightMouseDown", "NSEventTypeRightMouseUp", "NSEventTypeRightMouseDragged", "NSEventTypeOtherMouseDown", "NSEventTypeOtherMouseUp", "NSEventTypeOtherMouseDragged", "NSEventTypeScrollWheel", "NSEventTypeMagnify",
+	"NSEventMaskMouseMoved", "NSEventMaskMouseEntered", "NSEventMaskMouseExited", "NSEventMaskLeftMouseDown", "NSEventMaskLeftMouseUp", "NSEventMaskLeftMouseDragged", "NSEventMaskRightMouseDown", "NSEventMaskRightMouseUp", "NSEventMaskRightMouseDragged", "NSEventMaskOtherMouseDown", "NSEventMaskOtherMouseUp", "NSEventMaskOtherMouseDragged", "NSEventMaskScrollWheel", "NSEventMaskMagnify",
 	"NSEventPhaseBegan", "NSEventPhaseChanged", "NSEventPhaseEnded", "NSEventPhaseCancelled", "NSEventPhaseMayBegin", "NSEventPhaseStationary",
 	"-[NSTrackingArea initWithRect:options:owner:userInfo:]", "-[NSView addTrackingArea:]", "-[NSView removeTrackingArea:]", "NSTrackingMouseEnteredAndExited", "NSTrackingMouseMoved", "NSTrackingActiveInKeyWindow", "NSTrackingInVisibleRect",
 	"NSWindowDidResignKeyNotification", "NSApplicationDidResignActiveNotification", "-[NSNotification name]", "-[NSNotification object]"

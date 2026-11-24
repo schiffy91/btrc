@@ -196,6 +196,8 @@ class MacOSStack implements IStack, IMacOSView {
 
 	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._container.onScroll(handler, owner); }
 
+	public ICallbackRegistration onMagnify(IViewMagnifyHandler handler, CallbackScope owner) { return self._container.onMagnify(handler, owner); }
+
 	public void cancelPointerCapture() { self._container.cancelPointerCapture(); }
 
 	public void setVisible(bool visible) { self._container.setVisible(visible); }

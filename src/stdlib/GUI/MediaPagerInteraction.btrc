@@ -1,0 +1,554 @@
+/* Reusable direct-manipulation media pager & lightbox controller.
+ * Unifies desktop click-and-drag, mobile touch-and-drag, two-finger trackpad swipe
+ * pagination, pull-down-to-dismiss with backdrop fade, and anchor-preserving pinch zoom.
+ *
+ * Physics match direct-manipulation lightbox conventions:
+ *   - Only releases animate (210 ms cubic ease-out); a new press interrupts and picks up live state.
+ *   - Panning inside zoomed bounds seamlessly overflows at the photo edge into horizontal
+ *     pagination (`page`) or vertical pull-down dismiss (`pull`).
+ *   - Release projects 160 ms of recent velocity (100 ms rolling window) to decide whether
+ *     to commit pagination, dismiss back to the grid tile, or snap back. */
+
+import Library.App;
+import Library.Math;
+import Library.Vector;
+
+enum PagerAxis {
+	PAGER_AXIS_NONE = 0,
+	PAGER_AXIS_HORIZONTAL = 1,
+	PAGER_AXIS_VERTICAL = 2
+};
+
+enum PagerEventKind {
+	PAGER_EVENT_NONE = 0,
+	PAGER_EVENT_INDEX_CHANGED = 1,
+	PAGER_EVENT_DISMISSED = 2
+};
+
+class PagerSample {
+	public double timeMs;
+	public double page;
+	public double pull;
+
+	public PagerSample(double timeMs, double page, double pull) {
+		self.timeMs = timeMs;
+		self.page = page;
+		self.pull = pull;
+	}
+}
+
+class PagerGeometry {
+	public double stageW;
+	public double stageH;
+	public double width;
+	public double height;
+	public double limitX;
+	public double limitY;
+
+	public PagerGeometry(double stageW, double stageH, double width, double height, double limitX, double limitY) {
+		self.stageW = stageW;
+		self.stageH = stageH;
+		self.width = width;
+		self.height = height;
+		self.limitX = limitX;
+		self.limitY = limitY;
+	}
+}
+
+class PagerOutcome {
+	public PagerEventKind kind;
+	public int index;
+
+	public PagerOutcome(PagerEventKind kind = PAGER_EVENT_NONE, int index = 0) {
+		self.kind = kind;
+		self.index = index;
+	}
+}
+
+class MediaPagerInteraction {
+	/* Tunable physics constants. */
+	public double minZoom = 0.15;
+	public double maxZoom = 8.0;
+	public double dismissZoomThreshold = 0.78;
+	public double dismissPullFraction = 0.22;
+	public double pageSnapFraction = 0.5;
+	public double settleDurationMs = 210.0;
+	public double velocityWindowMs = 100.0;
+	public double velocityProjectionMs = 160.0;
+	public double maxProjectionDtMs = 120.0;
+	public double deadzonePx = 5.0;
+
+	/* Live transform state (pixels relative to stage center). */
+	public double zoom = 1.0;
+	public double x = 0.0;
+	public double y = 0.0;
+	public double page = 0.0;
+	public double pull = 0.0;
+	public double fade = 0.0;
+	public double shade = 1.0;
+
+	public int index = 0;
+	public int itemCount = 0;
+	public double ratio = 1.5;
+	public bool closing = false;
+	public bool animating = false;
+
+	/* Gesture tracking (pointer drag + two-finger trackpad swipe + pinch). */
+	private bool _pointerActive = false;
+	private bool _swipeActive = false;
+	private bool _pinchActive = false;
+	private bool _isTap = false;
+	private PagerAxis _axis = PAGER_AXIS_NONE;
+	private double _startX = 0.0;
+	private double _startY = 0.0;
+	private double _lastX = 0.0;
+	private double _lastY = 0.0;
+	private double _swipeAccumX = 0.0;
+	private double _swipeAccumY = 0.0;
+	private Vector<PagerSample> _history = [];
+
+	/* Cubic ease-out settle animation state. */
+	private double _animStartMs = 0.0;
+	private double _fromZoom = 1.0;
+	private double _fromX = 0.0;
+	private double _fromY = 0.0;
+	private double _fromPage = 0.0;
+	private double _fromPull = 0.0;
+	private double _fromFade = 0.0;
+	private double _toZoom = 1.0;
+	private double _toX = 0.0;
+	private double _toY = 0.0;
+	private double _toPage = 0.0;
+	private double _toPull = 0.0;
+	private double _toFade = 0.0;
+	private int _pendingIndexDelta = 0;
+	private bool _dismissRequested = false;
+
+	/* Optional tile target rect in stage pixels for fly-back dismiss animation. */
+	private bool _hasDismissRect = false;
+	private double _dismissX = 0.0;
+	private double _dismissY = 0.0;
+	private double _dismissW = 0.0;
+	private double _dismissH = 0.0;
+
+	public MediaPagerInteraction() {}
+
+	class double clampDouble(double v, double lo, double hi) {
+		if (v < lo) { return lo; }
+		if (v > hi) { return hi; }
+		return v;
+	}
+
+	public bool isGestureActive() { return self._pointerActive || self._swipeActive || self._pinchActive; }
+
+	public bool isDismissPending() { return self._dismissRequested; }
+
+	public bool needsFrame() { return self.animating || self.isGestureActive() || self.closing; }
+
+	public void open(int itemIndex, int count, double aspectRatio) {
+		self.itemCount = count > 0 ? count : 0;
+		self.index = self.itemCount > 0 ? ((itemIndex % self.itemCount) + self.itemCount) % self.itemCount : 0;
+		self.ratio = aspectRatio > 0.05 ? aspectRatio : 1.5;
+		self.resetToFitted();
+	}
+
+	public void resetToFitted() {
+		self.zoom = 1.0;
+		self.x = 0.0;
+		self.y = 0.0;
+		self.page = 0.0;
+		self.pull = 0.0;
+		self.fade = 0.0;
+		self.shade = 1.0;
+		self.closing = false;
+		self.animating = false;
+		self._pointerActive = false;
+		self._swipeActive = false;
+		self._pinchActive = false;
+		self._axis = PAGER_AXIS_NONE;
+		self._pendingIndexDelta = 0;
+		self._dismissRequested = false;
+		self._hasDismissRect = false;
+		self._history = [];
+	}
+
+	public void setItemCount(int count) {
+		self.itemCount = count > 0 ? count : 0;
+		if (self.itemCount > 0) {
+			self.index = ((self.index % self.itemCount) + self.itemCount) % self.itemCount;
+		} else {
+			self.index = 0;
+		}
+	}
+
+	public void setAspectRatio(double aspectRatio, double stageW = 0.0, double stageH = 0.0) {
+		if (aspectRatio <= 0.05) { return; }
+		self.ratio = aspectRatio;
+		if (!self.isGestureActive() && !self.closing && stageW > 1.0 && stageH > 1.0) {
+			self.clampWithinPhoto(stageW, stageH);
+		}
+	}
+
+	public void setDismissTargetRect(double x, double y, double width, double height) {
+		if (width > 1.0 && height > 1.0) {
+			self._hasDismissRect = true;
+			self._dismissX = x;
+			self._dismissY = y;
+			self._dismissW = width;
+			self._dismissH = height;
+		} else {
+			self._hasDismissRect = false;
+		}
+	}
+
+	public PagerGeometry geometry(double stageW, double stageH, double zoomOverride = -1.0) {
+		double w = stageW > 1.0 ? stageW : 1.0;
+		double h = stageH > 1.0 ? stageH : 1.0;
+		double z = zoomOverride > 0.0 ? zoomOverride : self.zoom;
+		double r = self.ratio > 0.05 ? self.ratio : 1.5;
+		double baseW = w < h * r ? w : h * r;
+		double width = baseW * z;
+		double height = width / r;
+		double limX = (width - w) * 0.5;
+		double limY = (height - h) * 0.5;
+		if (limX < 0.0) { limX = 0.0; }
+		if (limY < 0.0) { limY = 0.0; }
+		return PagerGeometry(w, h, width, height, limX, limY);
+	}
+
+	public void updateShade(double stageH) {
+		double h = stageH > 1.0 ? stageH : 1.0;
+		double zoomLoss = 1.6 * (1.0 - self.zoom);
+		double pullLoss = 1.6 * (self.pull / h);
+		double loss = self.fade;
+		if (zoomLoss > loss) { loss = zoomLoss; }
+		if (pullLoss > loss) { loss = pullLoss; }
+		self.shade = MediaPagerInteraction.clampDouble(1.0 - loss, 0.0, 1.0);
+	}
+
+	private void clampWithinPhoto(double stageW, double stageH) {
+		PagerGeometry g = self.geometry(stageW, stageH);
+		self.x = MediaPagerInteraction.clampDouble(self.x, -g.limitX, g.limitX);
+		self.y = MediaPagerInteraction.clampDouble(self.y, -g.limitY, g.limitY);
+		self.page = 0.0;
+		self.pull = 0.0;
+		self.updateShade(stageH);
+	}
+
+	public void onResize(double stageW, double stageH) {
+		if (self.closing || self.isGestureActive()) { return; }
+		self.clampWithinPhoto(stageW, stageH);
+	}
+
+	private void cancelAnimation() {
+		self.animating = false;
+		self._pendingIndexDelta = 0;
+	}
+
+	private void startSettle(double targetZoom, double targetX, double targetY, double targetPage, double targetPull, double targetFade, double nowMs, int pendingDelta = 0) {
+		self._fromZoom = self.zoom;
+		self._fromX = self.x;
+		self._fromY = self.y;
+		self._fromPage = self.page;
+		self._fromPull = self.pull;
+		self._fromFade = self.fade;
+		self._toZoom = targetZoom;
+		self._toX = targetX;
+		self._toY = targetY;
+		self._toPage = targetPage;
+		self._toPull = targetPull;
+		self._toFade = targetFade;
+		self._animStartMs = nowMs;
+		self._pendingIndexDelta = pendingDelta;
+		self.animating = true;
+	}
+
+	private void recordSample(double nowMs) {
+		Vector<PagerSample> kept = [];
+		for (int i = 0; i < self._history.length; i++) {
+			var s = self._history.get(i);
+			if (nowMs - s.timeMs < self.velocityWindowMs) {
+				kept.push(s);
+			}
+		}
+		kept.push(PagerSample(nowMs, self.page, self.pull));
+		self._history = kept;
+	}
+
+	private double projectValue(double current, double before, double dt) {
+		if (dt > 0.0 && dt < self.maxProjectionDtMs) {
+			return current + ((current - before) / dt) * self.velocityProjectionMs;
+		}
+		return current;
+	}
+
+	private void dragBy(double dx, double dy, double stageW, double stageH) {
+		PagerGeometry g = self.geometry(stageW, stageH);
+		bool horizontal = (self._axis == PAGER_AXIS_HORIZONTAL);
+		double nx = self.x + dx + (horizontal ? self.page : 0.0);
+		double ny = self.y + dy + (horizontal ? 0.0 : self.pull);
+		/* Never jump if a pinch previously left pan slightly outside limits. */
+		double loX = self.x < -g.limitX ? self.x : -g.limitX;
+		double hiX = self.x > g.limitX ? self.x : g.limitX;
+		double loY = self.y < -g.limitY ? self.y : -g.limitY;
+		double hiY = self.y > g.limitY ? self.y : g.limitY;
+		self.x = MediaPagerInteraction.clampDouble(nx, loX, hiX);
+		self.y = MediaPagerInteraction.clampDouble(ny, loY, hiY);
+		if (horizontal && self.itemCount > 1) {
+			self.page = MediaPagerInteraction.clampDouble(nx - self.x, -g.stageW, g.stageW);
+		}
+		if (!horizontal) {
+			self.pull = MediaPagerInteraction.clampDouble(ny - self.y, 0.0, g.stageH);
+		}
+		self.updateShade(stageH);
+	}
+
+	private void scaleAt(double targetZoom, double anchorX, double anchorY, double stageH) {
+		double prevZoom = self.zoom > 0.01 ? self.zoom : 1.0;
+		double nextZoom = MediaPagerInteraction.clampDouble(targetZoom, self.minZoom, self.maxZoom);
+		double factor = nextZoom / prevZoom;
+		self.x = anchorX - self.page - (anchorX - self.x - self.page) * factor;
+		self.y = anchorY - self.pull - (anchorY - self.y - self.pull) * factor;
+		self.zoom = nextZoom;
+		self.updateShade(stageH);
+	}
+
+	/* Animate dismiss back into the optional grid tile rect (or fade down cleanly). */
+	public void beginDismiss(double stageW, double stageH, double nowMs) {
+		if (self.closing) { return; }
+		self.closing = true;
+		self._dismissRequested = false;
+		self._pointerActive = false;
+		self._swipeActive = false;
+		self._pinchActive = false;
+		if (self._hasDismissRect) {
+			PagerGeometry fittedGeom = self.geometry(stageW, stageH, 1.0);
+			double zx = fittedGeom.width > 1.0 ? (self._dismissW / fittedGeom.width) : 0.25;
+			double zy = fittedGeom.height > 1.0 ? (self._dismissH / fittedGeom.height) : 0.25;
+			double targetZ = zx < zy ? zx : zy;
+			if (targetZ < 0.05) { targetZ = 0.05; }
+			double targetX = (self._dismissX + self._dismissW * 0.5) - stageW * 0.5;
+			double targetY = (self._dismissY + self._dismissH * 0.5) - stageH * 0.5;
+			self.startSettle(targetZ, targetX, targetY, 0.0, 0.0, 1.0, nowMs, 0);
+		} else {
+			double dropY = stageH * 0.35;
+			self.startSettle(0.65, 0.0, dropY, 0.0, 0.0, 1.0, nowMs, 0);
+		}
+	}
+
+	private void settleAfterRelease(double stageW, double stageH, double nowMs, bool cancelled) {
+		double beforeTime = nowMs;
+		double beforePage = self.page;
+		double beforePull = self.pull;
+		if (self._history.length > 0) {
+			var oldest = self._history.get(0);
+			beforeTime = oldest.timeMs;
+			beforePage = oldest.page;
+			beforePull = oldest.pull;
+		}
+		double dt = nowMs - beforeTime;
+		if (!cancelled) {
+			double projPull = self.projectValue(self.pull, beforePull, dt);
+			if (self.zoom < self.dismissZoomThreshold || (self.pull > 8.0 && projPull > stageH * self.dismissPullFraction)) {
+				self._dismissRequested = true;
+				return;
+			}
+			if (self._axis == PAGER_AXIS_HORIZONTAL && self.itemCount > 1 && self.page != 0.0) {
+				double dir = self.page > 0.0 ? 1.0 : -1.0;
+				double projPage = self.projectValue(self.page, beforePage, dt);
+				if (dir * projPage > stageW * self.pageSnapFraction) {
+					int delta = dir > 0.0 ? -1 : 1;
+					self.startSettle(self.zoom, self.x, self.y, dir * stageW, 0.0, 0.0, nowMs, delta);
+					return;
+				}
+			}
+		}
+		if (self.zoom < 1.0) {
+			self.startSettle(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, nowMs, 0);
+		} else {
+			PagerGeometry g = self.geometry(stageW, stageH);
+			double cx = MediaPagerInteraction.clampDouble(self.x, -g.limitX, g.limitX);
+			double cy = MediaPagerInteraction.clampDouble(self.y, -g.limitY, g.limitY);
+			self.startSettle(self.zoom, cx, cy, 0.0, 0.0, 0.0, nowMs, 0);
+		}
+	}
+
+	/* Desktop click-and-drag & mobile touch-and-drag handlers (coordinates in stage pixels). */
+	public void pointerDown(double stageX, double stageY, double stageW, double stageH, double nowMs) {
+		if (self.closing) { return; }
+		self.cancelAnimation();
+		self._pointerActive = true;
+		self._swipeActive = false;
+		self._isTap = true;
+		self._axis = PAGER_AXIS_NONE;
+		self._startX = stageX;
+		self._startY = stageY;
+		self._lastX = stageX;
+		self._lastY = stageY;
+		self._history = [PagerSample(nowMs, self.page, self.pull)];
+		self.updateShade(stageH);
+	}
+
+	public void pointerMove(double stageX, double stageY, double stageW, double stageH, double nowMs) {
+		if (!self._pointerActive || self.closing) { return; }
+		if (self._axis == PAGER_AXIS_NONE) {
+			double totalDx = stageX - self._startX;
+			double totalDy = stageY - self._startY;
+			double dist = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
+			if (self._isTap && dist < self.deadzonePx) { return; }
+			double absDx = totalDx < 0.0 ? -totalDx : totalDx;
+			double absDy = totalDy < 0.0 ? -totalDy : totalDy;
+			self._axis = absDx >= absDy ? PAGER_AXIS_HORIZONTAL : PAGER_AXIS_VERTICAL;
+		}
+		self._isTap = false;
+		self.dragBy(stageX - self._lastX, stageY - self._lastY, stageW, stageH);
+		self._lastX = stageX;
+		self._lastY = stageY;
+		self.recordSample(nowMs);
+	}
+
+	/* Returns true if this release was a tap/click (caller handles double-click zoom reset or dismiss). */
+	public bool pointerUp(double stageW, double stageH, double nowMs, bool cancelled = false) {
+		if (!self._pointerActive) { return false; }
+		self._pointerActive = false;
+		bool wasTap = self._isTap && !cancelled;
+		if (!wasTap) {
+			self.settleAfterRelease(stageW, stageH, nowMs, cancelled);
+		}
+		return wasTap;
+	}
+
+	/* Two-finger trackpad swipe handler (horizontal swipe paginates, downward swipe minimizes). */
+	public bool scroll(AppScrollEvent ev, double scale, double stageW, double stageH, double nowMs) {
+		if (self.closing) { return true; }
+		/* Ignore OS post-lift momentum so a single flick never skips multiple photos. */
+		if (ev.momentumPhase != APP_SCROLL_NONE && ev.phase == APP_SCROLL_NONE) { return true; }
+		if (!ev.precise) {
+			/* Discrete mouse wheel: smooth zoom around cursor. */
+			double ax = ev.logicalX * scale - stageW * 0.5;
+			double ay = ev.logicalY * scale - stageH * 0.5;
+			double targetZ = self.zoom * Math.exp(ev.deltaY * 0.12);
+			self.cancelAnimation();
+			self.scaleAt(MediaPagerInteraction.clampDouble(targetZ, 1.0, self.maxZoom), ax, ay, stageH);
+			self.clampWithinPhoto(stageW, stageH);
+			return true;
+		}
+		if (ev.phase == APP_SCROLL_MAY_BEGIN || ev.phase == APP_SCROLL_STATIONARY) { return true; }
+		if (ev.phase == APP_SCROLL_BEGAN || (!self._swipeActive && ev.phase == APP_SCROLL_CHANGED)) {
+			self.cancelAnimation();
+			self._swipeActive = true;
+			self._axis = PAGER_AXIS_NONE;
+			self._swipeAccumX = 0.0;
+			self._swipeAccumY = 0.0;
+			self._history = [PagerSample(nowMs, self.page, self.pull)];
+		}
+		if (ev.phase == APP_SCROLL_ENDED || ev.phase == APP_SCROLL_CANCELLED) {
+			if (self._swipeActive) {
+				self._swipeActive = false;
+				self.settleAfterRelease(stageW, stageH, nowMs, ev.phase == APP_SCROLL_CANCELLED);
+			}
+			return true;
+		}
+		if (!self._swipeActive) { return true; }
+
+		double dx = ev.deltaX * scale;
+		double dy = ev.deltaY * scale;
+		self._swipeAccumX += dx;
+		self._swipeAccumY += dy;
+		if (self._axis == PAGER_AXIS_NONE) {
+			double dist = Math.sqrt(self._swipeAccumX * self._swipeAccumX + self._swipeAccumY * self._swipeAccumY);
+			if (dist < self.deadzonePx) { return true; }
+			double absX = self._swipeAccumX < 0.0 ? -self._swipeAccumX : self._swipeAccumX;
+			double absY = self._swipeAccumY < 0.0 ? -self._swipeAccumY : self._swipeAccumY;
+			self._axis = absX >= absY ? PAGER_AXIS_HORIZONTAL : PAGER_AXIS_VERTICAL;
+		}
+		self.dragBy(dx, dy, stageW, stageH);
+		self.recordSample(nowMs);
+		return true;
+	}
+
+	/* Pinch-to-zoom handler (zooms around cursor; pinching out below dismissZoomThreshold dismisses). */
+	public bool magnify(AppMagnifyEvent ev, double scale, double stageW, double stageH, double nowMs) {
+		if (self.closing) { return true; }
+		if (ev.phase == APP_GESTURE_BEGAN || !self._pinchActive) {
+			self.cancelAnimation();
+			self._pinchActive = true;
+			self._history = [PagerSample(nowMs, self.page, self.pull)];
+		}
+		double ax = ev.logicalX * scale - stageW * 0.5;
+		double ay = ev.logicalY * scale - stageH * 0.5;
+		double factor = Math.exp(ev.magnification);
+		self.scaleAt(self.zoom * factor, ax, ay, stageH);
+		if (ev.phase == APP_GESTURE_ENDED || ev.phase == APP_GESTURE_CANCELLED) {
+			self._pinchActive = false;
+			self.settleAfterRelease(stageW, stageH, nowMs, ev.phase == APP_GESTURE_CANCELLED);
+		}
+		return true;
+	}
+
+	/* Smooth animated reset back to 1.0x fitted view (e.g. double-click when zoomed in). */
+	public void animateToFitted(double nowMs) {
+		if (self.closing) { return; }
+		self.startSettle(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, nowMs, 0);
+	}
+
+	/* Instant keyboard pagination step (supports hold-to-repeat cleanly). */
+	public int stepImmediate(int delta) {
+		if (self.itemCount <= 0) { return 0; }
+		self.cancelAnimation();
+		self.closing = false;
+		self._dismissRequested = false;
+		self.index = ((self.index + delta) % self.itemCount + self.itemCount) % self.itemCount;
+		self.zoom = 1.0;
+		self.x = 0.0;
+		self.y = 0.0;
+		self.page = 0.0;
+		self.pull = 0.0;
+		self.fade = 0.0;
+		self.shade = 1.0;
+		return self.index;
+	}
+
+	/* Advance cubic ease-out settle animations; returns committed index change or dismiss event. */
+	public PagerOutcome tick(double nowMs, double stageW, double stageH) {
+		if (!self.animating) {
+			self.updateShade(stageH);
+			return PagerOutcome(PAGER_EVENT_NONE, self.index);
+		}
+		double elapsed = nowMs - self._animStartMs;
+		double t = self.settleDurationMs > 0.0 ? MediaPagerInteraction.clampDouble(elapsed / self.settleDurationMs, 0.0, 1.0) : 1.0;
+		double inv = 1.0 - t;
+		double rem = inv * inv * inv;
+		self.zoom = self._toZoom + (self._fromZoom - self._toZoom) * rem;
+		self.x = self._toX + (self._fromX - self._toX) * rem;
+		self.y = self._toY + (self._fromY - self._toY) * rem;
+		self.page = self._toPage + (self._fromPage - self._toPage) * rem;
+		self.pull = self._toPull + (self._fromPull - self._toPull) * rem;
+		self.fade = self._toFade + (self._fromFade - self._toFade) * rem;
+		self.updateShade(stageH);
+
+		if (t < 1.0) {
+			return PagerOutcome(PAGER_EVENT_NONE, self.index);
+		}
+
+		self.animating = false;
+		if (self.closing) {
+			self.closing = false;
+			return PagerOutcome(PAGER_EVENT_DISMISSED, self.index);
+		}
+		if (self._pendingIndexDelta != 0 && self.itemCount > 0) {
+			int nextIdx = ((self.index + self._pendingIndexDelta) % self.itemCount + self.itemCount) % self.itemCount;
+			self._pendingIndexDelta = 0;
+			self.index = nextIdx;
+			self.zoom = 1.0;
+			self.x = 0.0;
+			self.y = 0.0;
+			self.page = 0.0;
+			self.pull = 0.0;
+			self.fade = 0.0;
+			self.shade = 1.0;
+			return PagerOutcome(PAGER_EVENT_INDEX_CHANGED, self.index);
+		}
+		return PagerOutcome(PAGER_EVENT_NONE, self.index);
+	}
+}

@@ -83,6 +83,8 @@ class ShimGPUView extends ShimNodeView implements IGPUView {
 
 	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { self.requireOpen(); return self.node().onScroll(handler, owner); }
 
+	public ICallbackRegistration onMagnify(IViewMagnifyHandler handler, CallbackScope owner) { self.requireOpen(); return self.node().onMagnify(handler, owner); }
+
 	public double backingScale() { self.requireOpen(); return self.scale(); }
 
 	public int pixelWidth() { self.requireOpen(); return (int)Math.ceilDouble(self.node().width * self.scale()); }

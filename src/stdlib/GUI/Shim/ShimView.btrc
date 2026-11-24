@@ -179,20 +179,25 @@ interface IShimTextTarget {
 class ShimViewInput implements ICallbackRegistration {
 	private IViewPointerHandler? _pointer;
 	private IViewScrollHandler? _scroll;
+	private IViewMagnifyHandler? _magnify;
 	private CallbackContext<ShimViewInput, ShimViewInput>? _context;
 	private bool _open = true;
 	public bool inside = false;
 	public AppPointerButton captured = APP_POINTER_BUTTON_NONE;
 
-	public ShimViewInput(IViewPointerHandler? pointer, IViewScrollHandler? scroll) {
-		if ((pointer == null) == (scroll == null)) { throw "View input requires exactly one handler"; }
+	public ShimViewInput(IViewPointerHandler? pointer, IViewScrollHandler? scroll, IViewMagnifyHandler? magnify = null) {
+		int count = (pointer != null ? 1 : 0) + (scroll != null ? 1 : 0) + (magnify != null ? 1 : 0);
+		if (count != 1) { throw "View input requires exactly one handler"; }
 		self._pointer = pointer;
 		self._scroll = scroll;
+		self._magnify = magnify;
 	}
 
 	public bool handlesPointer() { return self._pointer != null; }
 
 	public bool handlesScroll() { return self._scroll != null; }
+
+	public bool handlesMagnify() { return self._magnify != null; }
 
 	public void activate(CallbackScope viewOwner, CallbackScope owner) {
 		var context = new CallbackContext<ShimViewInput, ShimViewInput>(self, ShimViewInput.unregister);
@@ -229,6 +234,15 @@ class ShimViewInput implements ICallbackRegistration {
 		if (handler == null || !self.admitted()) { return false; }
 		bool consumed = false;
 		try { consumed = handler.scroll(event); }
+		finally { self.leave(); }
+		return consumed;
+	}
+
+	public bool deliverMagnify(AppMagnifyEvent event) {
+		var handler = self._magnify;
+		if (handler == null || !self.admitted()) { return false; }
+		bool consumed = false;
+		try { consumed = handler.magnify(event); }
 		finally { self.leave(); }
 		return consumed;
 	}
@@ -509,15 +523,17 @@ class ShimViewNode implements IControlEventTarget, IShimActionTarget {
 		 * affected forest before committing callback routes and generations. */
 	}
 
-	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self.subscribe(handler, null, owner); }
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self.subscribe(handler, null, null, owner); }
 
-	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self.subscribe(null, handler, owner); }
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self.subscribe(null, handler, null, owner); }
 
-	private ICallbackRegistration subscribe(IViewPointerHandler? pointer, IViewScrollHandler? scroll, CallbackScope owner) {
+	public ICallbackRegistration onMagnify(IViewMagnifyHandler handler, CallbackScope owner) { return self.subscribe(null, null, handler, owner); }
+
+	private ICallbackRegistration subscribe(IViewPointerHandler? pointer, IViewScrollHandler? scroll, IViewMagnifyHandler? magnify, CallbackScope owner) {
 		self.requireOpen();
 		self._input.pollCompletion();
 		for (int index = self._inputs.len - 1; index >= 0; index--) { if (!self._inputs.get(index).isOpen()) { self._inputs.remove(index); } }
-		var registration = ShimViewInput(pointer, scroll);
+		var registration = ShimViewInput(pointer, scroll, magnify);
 		registration.activate(self._input, owner);
 		self._inputs.push(registration);
 		return registration;
@@ -631,6 +647,8 @@ class ShimNodeView implements IShimView {
 	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._node.onPointer(handler, owner); }
 
 	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._node.onScroll(handler, owner); }
+
+	public ICallbackRegistration onMagnify(IViewMagnifyHandler handler, CallbackScope owner) { return self._node.onMagnify(handler, owner); }
 
 	public CallbackCancellation close() { return self._node.close(); }
 
