@@ -28,6 +28,8 @@ class CFFCharString {
 	private int count = 0;
 	private int stems = 0;
 	private bool widthKnown = false;
+	private bool hasHints = false;
+	private bool hasFlex = false;
 	private int budget = 500000;
 	public long long base = -1LL;
 	public long long accent = -1LL;
@@ -35,14 +37,16 @@ class CFFCharString {
 	public long long accentY = 0LL;
 
 	/* `scale` is the 16.16 factor from font units to 26.6 pixels. */
-	public CFFCharString(OpenTypeData data, CFFIndex globalSubrs, CFFIndex localSubrs, GlyphOutline outline, long long scale) {
+	public CFFCharString(OpenTypeData data, CFFIndex globalSubrs, CFFIndex localSubrs, GlyphOutline outline, long long scale, bool render) {
 		self.data = data;
 		self.globalSubrs = globalSubrs;
 		self.localSubrs = localSubrs;
-		self.path = PostScriptPath(outline, scale);
+		self.path = PostScriptPath(outline, scale, render);
 		self.stack = new Array<long long>(48);
 
 	}
+
+	public bool canRasterize() { return !self.hasHints && !self.hasFlex && self.path.integral; }
 
 	public void run(OpenTypeSpan code) {
 		if (!self.execute(code, 0)) { throw "CFF glyph has no endchar"; }
@@ -75,6 +79,7 @@ class CFFCharString {
 	}
 
 	private void stemHints() {
+		self.hasHints = true;
 		int first = self.afterWidth((self.count & 1) != 0);
 		if (((self.count - first) & 1) != 0) { throw "CFF stem is missing an operand"; }
 		self.stems += (self.count - first) / 2;
@@ -102,6 +107,7 @@ class CFFCharString {
 	}
 
 	private void flex(int kind) {
+		self.hasFlex = true;
 		if (kind == 35 && self.count == 13) {
 			self.path.curveBy(self.at(0), self.at(1), self.at(2), self.at(3), self.at(4), self.at(5));
 			self.path.curveBy(self.at(6), self.at(7), self.at(8), self.at(9), self.at(10), self.at(11));
@@ -260,6 +266,7 @@ class CFFGlyphs {
 	private CFFIndex globalSubrs;
 	private CFFIndex localSubrs;
 	private CFFCharset charset;
+	private bool standardFill = true;
 
 	public CFFGlyphs(OpenTypeData data, OpenTypeSpan table) {
 		self.data = data;
@@ -277,6 +284,7 @@ class CFFGlyphs {
 		if (top.count(263) >= 0) {
 			if (top.count(263) != 6 || top.number(263, 0) <= 0.0 || top.number(263, 0) != top.number(263, 3) || top.number(263, 1) != 0.0 || top.number(263, 2) != 0.0 || top.number(263, 4) != 0.0 || top.number(263, 5) != 0.0) { throw "Unsupported CFF font matrix"; }
 		}
+		if ((top.count(263) >= 0 && top.number(263, 0) != 0.001) || top.count(261) >= 0 || top.count(276) >= 0) { self.standardFill = false; }
 		if (top.count(17) != 1) { throw "Missing CFF charstrings"; }
 		int chars = top.whole(17, 0);
 		if (chars >= table.length) { throw "CFF charstrings lie outside the table"; }
@@ -288,6 +296,7 @@ class CFFGlyphs {
 			int offset = top.whole(18, 1);
 			if (offset > table.length || size > table.length - offset) { throw "CFF private dictionary lies outside the table"; }
 			var own = CFFDict(data, OpenTypeSpan(table.offset + offset, size));
+			if (own.count(270) >= 0 || own.count(273) >= 0 || own.count(274) >= 0) { self.standardFill = false; }
 			if (own.count(19) == 1) {
 				int subrs = own.whole(19, 0);
 				if (subrs >= table.length - offset) { throw "CFF subroutines lie outside the table"; }
@@ -298,17 +307,19 @@ class CFFGlyphs {
 
 	public int glyphCount() { return self.charStrings.count(); }
 
-	public void load(int glyph, long long scale, GlyphOutline outline) { self.draw(glyph, scale, outline, 0); }
+	public bool load(int glyph, long long scale, GlyphOutline outline, bool render) { return self.draw(glyph, scale, outline, 0, render); }
 
-	private void draw(int glyph, long long scale, GlyphOutline outline, int depth) {
+	private bool draw(int glyph, long long scale, GlyphOutline outline, int depth, bool render) {
 		if (depth >= 4) { throw "CFF components nest too deeply"; }
-		var run = CFFCharString(self.data, self.globalSubrs, self.localSubrs, outline, scale);
+		var run = CFFCharString(self.data, self.globalSubrs, self.localSubrs, outline, scale, render);
 		run.run(self.charStrings.object(glyph));
 		if (run.base >= 0LL) {
-			self.draw(self.charset.standardGlyph(run.base), scale, outline, depth + 1);
+			if (render) { return false; }
+			self.draw(self.charset.standardGlyph(run.base), scale, outline, depth + 1, false);
 			int start = outline.pointCount();
-			self.draw(self.charset.standardGlyph(run.accent), scale, outline, depth + 1);
+			self.draw(self.charset.standardGlyph(run.accent), scale, outline, depth + 1, false);
 			outline.translate(start, OpenTypeFixed.mul(PostScriptPath.units(run.accentX), scale), OpenTypeFixed.mul(PostScriptPath.units(run.accentY), scale));
 		}
+		return !render || outline.isEmpty() || (self.standardFill && run.canRasterize());
 	}
 }

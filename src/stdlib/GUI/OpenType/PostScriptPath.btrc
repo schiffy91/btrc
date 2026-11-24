@@ -9,10 +9,15 @@ class PostScriptPath {
 	private GlyphOutline outline;
 	private long long scale;
 	private bool open = false;
+	private bool deviceSpace;
+	private long long deviceScale;
+	public bool integral = true;
 
-	public PostScriptPath(GlyphOutline outline, long long scale) {
+	public PostScriptPath(GlyphOutline outline, long long scale, bool deviceSpace) {
 		self.outline = outline;
 		self.scale = scale;
+		self.deviceSpace = deviceSpace;
+		self.deviceScale = (scale + 32LL) / 64LL;
 	}
 
 	public void close() {
@@ -22,7 +27,16 @@ class PostScriptPath {
 
 	private void point(GlyphPointKind kind) {
 		if (self.x > 8589934592LL || self.x < -8589934592LL || self.y > 8589934592LL || self.y < -8589934592LL) { throw "PostScript outline leaves the supported coordinate range"; }
-		self.outline.addPoint(OpenTypeFixed.mul(PostScriptPath.units(self.x), self.scale), OpenTypeFixed.mul(PostScriptPath.units(self.y), self.scale), kind);
+		if (self.deviceSpace) {
+			// A Type 2 device transform uses a 16.16 pixel-per-unit scale.
+			// Floor to 26.6 after multiplying, including negative positions.
+			if (self.x % 65536LL != 0LL || self.y % 65536LL != 0LL) { self.integral = false; }
+			long long dx = OpenTypeFixed.floorDiv((self.x / 65536LL) * self.deviceScale, 1024LL);
+			long long dy = OpenTypeFixed.floorDiv((self.y / 65536LL) * self.deviceScale, 1024LL);
+			self.outline.addPoint(dx, dy, kind);
+		} else {
+			self.outline.addPoint(OpenTypeFixed.mul(PostScriptPath.units(self.x), self.scale), OpenTypeFixed.mul(PostScriptPath.units(self.y), self.scale), kind);
+		}
 	}
 
 	/* A 16.16 coordinate in whole font units: to the nearest 1/1024, then

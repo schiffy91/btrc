@@ -298,8 +298,16 @@ def unavailable_freetype(tmp_path, env):
 @pytest.mark.parametrize(
     ("consumer", "fixture", "expected"),
     [
-        ("MonochromeFontConformance", "fixture.pcf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
-        ("MonochromeFontConformance", "mono-strike.bdf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
+        (
+            "MonochromeFontConformance",
+            "fixture.pcf",
+            "PASS: monochrome strike metrics, default glyph and packed pixels",
+        ),
+        (
+            "MonochromeFontConformance",
+            "mono-strike.bdf",
+            "PASS: monochrome strike metrics, default glyph and packed pixels",
+        ),
         ("LegacyBDFFontConformance", "legacy-strike.bdf", "PASS: BDF glyph indices and short rows"),
         ("ColorBitmapFontConformance", "color-bitmap.ttf", "PASS: color bitmap native metrics and coverage"),
     ],
@@ -347,9 +355,13 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
         # to prove which provider the existing public factory actually used.
         blocked = unavailable_freetype(tmp_path, env)
         for path in first_party:
-            good = subprocess.run([executable, path, *arguments], capture_output=True, text=True, timeout=60, env=blocked)
+            good = subprocess.run(
+                [executable, path, *arguments], capture_output=True, text=True, timeout=60, env=blocked
+            )
             assert good.returncode == 0, good.stdout + good.stderr
-        fallback = subprocess.run([executable, reference, *arguments], capture_output=True, text=True, timeout=60, env=blocked)
+        fallback = subprocess.run(
+            [executable, reference, *arguments], capture_output=True, text=True, timeout=60, env=blocked
+        )
         assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr
 
 
@@ -453,6 +465,19 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
     assert data.count(curve) == 2
     at = data.rindex(curve)
     unusual = data[:at] + b"\x00\x0e" + data[at + 2 :]
+    # Give B a 0..100 horizontal stem and a 100-unit square. Its device
+    # coverage at 10 px is 248, as independently rendered by FreeType.
+    square = bytes.fromhex("f9508bef018b16efef27060e").ljust(len(curve), b"\x0e")
+    hinted = data[:at] + square + data[at + len(curve) :]
+    # Straight edges in the triangle (0,0), (90,347), (167,622) cross a
+    # subpixel rounding boundary at 65 px. Compare both providers.
+    triangle = bytes.fromhex("f9508b16e5f7efd8f7a7050e").ljust(len(curve), b"\x0e")
+    long_edge = data[:at] + triangle + data[at + len(curve) :]
+    for suffix in ("otf", "raw"):
+        visible_edge = run(suffix, "edge", env, long_edge)
+        assert visible_edge.returncode == 0, visible_edge.stdout + visible_edge.stderr
+    visible_hint = run("otf", "hint", env, hinted)
+    assert visible_hint.returncode == 0, visible_hint.stdout + visible_hint.stderr
     fallback = run("otf", "render", env, unusual)
     assert fallback.returncode == 0, fallback.stdout + fallback.stderr
     if not sanitized:
@@ -461,8 +486,12 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
         assert rejected.returncode != 0 and "Cannot initialize FreeType library" in rejected.stderr
         measured = run("otf", "measure", blocked)
         assert measured.returncode == 0, measured.stdout + measured.stderr
-        for suffix, mode in (("raw", "measure"), ("otf", "render")):
-            native = run(suffix, mode, blocked)
+        portable_curve = run("otf", "render", blocked)
+        assert portable_curve.returncode == 0, portable_curve.stdout + portable_curve.stderr
+        portable_edge = run("otf", "edge", blocked, long_edge)
+        assert portable_edge.returncode == 0, portable_edge.stdout + portable_edge.stderr
+        for suffix, mode, font_data in (("raw", "measure", data), ("otf", "hint", hinted)):
+            native = run(suffix, mode, blocked, font_data)
             assert native.returncode != 0 and "Cannot initialize FreeType library" in native.stderr
 
 
