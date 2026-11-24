@@ -49,10 +49,27 @@ int compositeOffset(const char* path, int size) {
 	return 0;
 }
 
+/* A legacy cmap face enables vector fitting at 9 px and disables all
+ * glyph instructions at 10 px. Both public results survive an unlink. */
+int inhibitedVectorInk(const char* path, int size) {
+	var font = FreeType.load(Strings.copy((char*)path), size);
+	if (remove(path) != 0) { return 12; }
+	var glyph = font.glyph(65, true);
+	string mask = size == 9 ? "001f83cf09000027fdffff6e000059fb7af3e4070089890028d468009a0b00000a810536000000000003" : "0000003c1b0000016ed5ff96000024fffffff81a0055ffffffff900086fffffffff616b7ffeff7ffff89af5503000e2633";
+	var pixels = Bytes.fromHex(mask);
+	if (glyph == null || pixels == null || glyph.advanceFixed() != (size == 9 ? 448LL : 512LL) || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != size - 3 || glyph.width() != 7 || glyph.pitch() != 7 || glyph.rows() * 7 != pixels.length()) { return 13; }
+	for (int i = 0; i < pixels.length(); i++) {
+		if (glyph.coverage(i / 7, i % 7) != pixels.get(i)) { return 14; }
+	}
+	print("PASS: vector font with size-specific grid fitting");
+	return 0;
+}
+
 /* The final glyph uses FLIPON, a native fallback instruction. It is reached
  * after loading the supported triangle variants and unlinking the font. */
 int main(int argc, char** argv) {
 	if (argc != 3) { return 2; }
+	if (strcmp(argv[2], "vector9") == 0 || strcmp(argv[2], "vector10") == 0) { return inhibitedVectorInk(argv[1], argv[2][6] == '9' ? 9 : 10); }
 	if (strcmp(argv[2], "measure") == 0 || strcmp(argv[2], "render") == 0) { return legacyBMP(argv[1], argv[2][0] == 'r'); }
 	if (strcmp(argv[2], "composite8") == 0 || strcmp(argv[2], "composite13") == 0) { return compositeOffset(argv[1], argv[2][9] == '8' ? 8 : 13); }
 	var font = FreeType.load(argv[1], 8);
