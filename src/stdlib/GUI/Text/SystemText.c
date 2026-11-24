@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 
+typedef void *(*TextOpenDefault)(double, double, bool);
 typedef void *(*TextOpenFace)(const char *, double, double);
 typedef void (*TextRelease)(void *);
 typedef void *(*TextShapeLine)(void *, const char *, double, int);
@@ -9,6 +10,7 @@ typedef double (*TextMeasure)(void *, int);
 typedef const unsigned char *(*TextPixels)(void *);
 
 static struct {
+    TextOpenDefault openDefault;
     TextOpenFace open;
     TextRelease closeFace;
     TextShapeLine shape;
@@ -19,8 +21,9 @@ static struct {
 
 /* Installed once by the BTRC provider on its GUI thread. Native controls
  * retain only opaque handles and need no knowledge of BTRC object layout. */
-void btrcSystemTextPublish(TextOpenFace open, TextRelease closeFace, TextShapeLine shape, TextRelease closeRun,
+void btrcSystemTextPublish(TextOpenDefault openDefault, TextOpenFace open, TextRelease closeFace, TextShapeLine shape, TextRelease closeRun,
                           TextMeasure measure, TextPixels pixels) {
+    text.openDefault = openDefault;
     text.open = open;
     text.closeFace = closeFace;
     text.shape = shape;
@@ -29,6 +32,9 @@ void btrcSystemTextPublish(TextOpenFace open, TextRelease closeFace, TextShapeLi
     text.pixels = pixels;
 }
 
+BtrcSystemTextFont *btrcSystemTextOpenDefaultFont(double logicalSize, double scale, bool bold) {
+    return text.openDefault ? text.openDefault(logicalSize, scale, bold) : NULL;
+}
 BtrcSystemTextFont *btrcSystemTextOpenFont(const char *path, double logicalSize, double scale) {
     return text.open ? text.open(path, logicalSize, scale) : NULL;
 }

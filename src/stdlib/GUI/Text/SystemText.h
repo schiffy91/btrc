@@ -1,6 +1,8 @@
 #ifndef BTRC_GUI_SYSTEM_TEXT_H
 #define BTRC_GUI_SYSTEM_TEXT_H
 
+#include <stdbool.h>
+
 /* Private native control interface. Call on the GUI thread, after the BTRC
  * runtime has started. Font files and UTF-8 text are borrowed only for the
  * duration of a call. A returned run owns its immutable raster and outlives
@@ -17,6 +19,10 @@ enum BtrcSystemTextPixels {
     BTRC_TEXT_MASK8 = 1,
     BTRC_TEXT_STRAIGHT_RGBA8 = 2
 };
+
+/* Open the installed desktop sans face at the requested weight. NULL
+ * reports unavailable selection or rendering. */
+BtrcSystemTextFont *btrcSystemTextOpenDefaultFont(double logicalSize, double scale, bool bold);
 
 /* An explicitly selected face. Unsupported formats and styles return NULL.
  * logicalSize and scale are positive; rounding occurs at the backing ppem. */

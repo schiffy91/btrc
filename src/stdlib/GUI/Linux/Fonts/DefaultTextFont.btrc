@@ -1,0 +1,38 @@
+import Library.FileSystem;
+import Library.Vector;
+
+import ./DesktopFontSettings.btrc;
+import ./InstalledFontCatalog.btrc;
+
+/* The desktop's native font matcher consumes SFNT resources. Follow its
+ * configured family order among these files, with web-format fonts available
+ * when they are the only installed candidates. An explicit file selection
+ * through SystemTextFont accepts every supported container directly. */
+class DefaultTextFont {
+	class DesktopFontSettings? settings = null;
+	class InstalledFontCatalog? catalog = null;
+
+	class void invalidate() {
+		DefaultTextFont.settings = null;
+		DefaultTextFont.catalog = null;
+	}
+
+	class string path(bool bold, double logicalSize = 16.0) {
+		var config = DefaultTextFont.settings;
+		if (config == null) {
+			config = DesktopFontSettings.system();
+			DefaultTextFont.settings = config;
+		}
+		var installed = DefaultTextFont.catalog;
+		if (installed == null) {
+			installed = InstalledFontCatalog(config.roots);
+			DefaultTextFont.catalog = installed;
+		}
+		var families = config.forFace(bold, logicalSize);
+		Vector<int> latin = [32, 65];
+		int weight = bold ? 700 : 400;
+		var chosen = installed.match(families, weight, false, latin, true);
+		if (chosen == null) { chosen = installed.match(families, weight, false, latin); }
+		return chosen == null || chosen.faceIndex != 0 ? "" : chosen.path;
+	}
+}

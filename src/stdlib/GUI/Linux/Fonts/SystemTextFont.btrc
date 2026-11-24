@@ -34,12 +34,14 @@ class SystemInkRun {
 
 class SystemTextFont {
 	private HintedTrueTypeFace outlines;
+	private bool desktopPositions;
 	private LatinLayout layout;
 	private int ppem;
 	private double scale;
 	private double descent;
 
-	public SystemTextFont(string path, double logicalSize, double scale) {
+	public SystemTextFont(string path, double logicalSize, double scale, bool desktopPositions = false) {
+		self.desktopPositions = desktopPositions;
 		if (path == null || !(scale > 0.0 && scale <= 16.0 && logicalSize > 0.0 && logicalSize <= 512.0)) { throw "Invalid system font size"; }
 		self.scale = scale;
 		self.ppem = (int)(logicalSize * scale + 0.5);
@@ -74,7 +76,12 @@ class SystemTextFont {
 		return advance;
 	}
 
-	private double logicalAdvance(LayoutGlyphRun run) { return (double)self.advanceUnits(run) * (double)self.ppem / ((double)run.unitsPerEm * self.scale); }
+	private double logicalAdvance(LayoutGlyphRun run) {
+		if (!self.desktopPositions) { return (double)self.advanceUnits(run) * (double)self.ppem / ((double)run.unitsPerEm * self.scale); }
+		long long pixels = 0LL;
+		for glyph in run.glyphs { pixels += (long long)self.rounded((long long)glyph.advance, run.unitsPerEm); }
+		return (double)pixels / self.scale;
+	}
 
 	private int rounded(long long units, int em) {
 		long long n = units * (long long)self.ppem;
@@ -105,14 +112,16 @@ class SystemTextFont {
 		result.ascent = (double)metrics.ascenderFixed() / (64.0 * self.scale);
 		result.descent = self.descent;
 		result.lineHeight = (double)metrics.heightFixed() / (64.0 * self.scale);
+		if (self.desktopPositions && result.lineHeight < result.ascent + result.descent) { result.lineHeight = result.ascent + result.descent; }
 		Vector<SystemPaintedGlyph> glyphs = [];
 		long long pen = 0LL;
+		int pixelPen = 0;
 		int right = 0;
 		int bottom = 0;
 		for g in run.glyphs {
 			var ink = self.outlines.glyphByIndex(g.id, true);
 			if (ink.width() > 0 && ink.rows() > 0) {
-				int x = self.rounded(pen + (long long)g.xOffset, run.unitsPerEm) + ink.bitmapLeft();
+				int x = (self.desktopPositions ? pixelPen + self.rounded((long long)g.xOffset, run.unitsPerEm) : self.rounded(pen + (long long)g.xOffset, run.unitsPerEm)) + ink.bitmapLeft();
 				int y = -self.rounded((long long)g.yOffset, run.unitsPerEm) - ink.bitmapTop();
 				if (glyphs.isEmpty() || x < result.left) { result.left = x; }
 				if (glyphs.isEmpty() || y < result.top) { result.top = y; }
@@ -121,6 +130,7 @@ class SystemTextFont {
 				glyphs.push(new SystemPaintedGlyph(ink, x, y));
 			}
 			pen += (long long)g.advance;
+			if (self.desktopPositions) { pixelPen += self.rounded((long long)g.advance, run.unitsPerEm); }
 		}
 		result.width = right - result.left;
 		result.height = bottom - result.top;
@@ -132,7 +142,10 @@ class SystemTextFont {
 				for (int x = 0; x < part.glyph.width(); x++) {
 					int a = part.glyph.coverage(y, x);
 					int under = result.pixels.get(at + x);
-					result.pixels.set(at + x, a + ((255 - a) * under + 127) / 255);
+					// The desktop glyph string builds one alpha mask before
+					// applying it to its destination.
+					int covered = self.desktopPositions ? a + under : a + ((255 - a) * under + 127) / 255;
+					result.pixels.set(at + x, covered > 255 ? 255 : covered);
 				}
 			}
 		}

@@ -1,0 +1,206 @@
+import Library.FileSystem;
+import Library.FileSystem.FileSystemHandles;
+import Library.Map;
+import Library.Platform;
+import Library.Strings;
+import Library.Vector;
+
+import ./FontConfigTree.btrc;
+
+class DesktopFontFamilyAlias {
+	public Vector<string> names = [];
+	public Vector<string> prefer = [];
+	public Vector<string> accept = [];
+	public Vector<string> defaults = [];
+	public bool strong;
+
+	public DesktopFontFamilyAlias(FontConfigElement alias) {
+		self.strong = alias.binding.equals("strong");
+		for entry in alias.children {
+			if (entry.name.equals("family")) { self.names.push(entry.text); continue; }
+			for family in entry.children {
+				if (!family.name.equals("family") || family.text.isEmpty()) { continue; }
+				if (entry.name.equals("prefer")) { self.prefer.push(family.text); }
+				else if (entry.name.equals("accept")) { self.accept.push(family.text); }
+				else if (entry.name.equals("default")) { self.defaults.push(family.text); }
+			}
+		}
+	}
+}
+
+/* Discover the desktop's declared sans family preferences without invoking
+ * Fontconfig. A configuration that needs conditional family substitutions
+ * outside this subset can defer to the existing desktop text provider. */
+class DesktopFontSettings {
+	public Vector<string> roots = [];
+	public Vector<string> families = [];
+	private Vector<DesktopFontFamilyAlias> aliases = [];
+	private Map<string, bool> seen = {};
+	private string home;
+	private string configHome;
+	private string dataHome;
+	private string base;
+	private int files = 0;
+	private Vector<string> assigned = [];
+	private Vector<FontConfigElement> patterns = [];
+	private bool unsupported = false;
+
+	public DesktopFontSettings(string file, string home, string configHome, string dataHome) {
+		self.home = home;
+		self.configHome = configHome;
+		self.dataHome = dataHome;
+		self.base = PathTools.dirname(file);
+		self.read(file, 0);
+		self.families = self.forFace(false, 16.0);
+	}
+
+	class DesktopFontSettings system() {
+		string home = Environment.get("HOME", "");
+		string cfg = Environment.get("XDG_CONFIG_HOME", "");
+		string data = Environment.get("XDG_DATA_HOME", "");
+		if (!cfg.startsWith("/") && home.startsWith("/")) { cfg = PathTools.join(home, ".config"); }
+		if (!data.startsWith("/") && home.startsWith("/")) { data = PathTools.join(home, ".local/share"); }
+		string file = Environment.get("FONTCONFIG_FILE", "fonts.conf");
+		if (!file.startsWith("/")) {
+			var paths = Strings.split(Environment.get("FONTCONFIG_PATH", "/etc/fonts"), ":");
+			string found = "";
+			for path in paths {
+				if (!path.startsWith("/")) { continue; }
+				string candidate = PathTools.join(path, file);
+				if (FileSystem.stat(candidate).isFile()) { found = candidate; break; }
+			}
+			file = found;
+		}
+		return new DesktopFontSettings(file, home, cfg, data);
+	}
+
+	private string path(FontConfigElement e, string folder, bool config) {
+		string value = e.text;
+		if (value.startsWith("/")) { return value; }
+		if (value.startsWith("~/")) { return self.home.startsWith("/") ? PathTools.join(self.home, value.substring(2, value.length() - 2)) : ""; }
+		if (value.isEmpty()) { return ""; }
+		if (e.prefix.equals("xdg")) {
+			string root = config ? self.configHome : self.dataHome;
+			return root.startsWith("/") ? PathTools.join(root, value) : "";
+		}
+		if (e.prefix.equals("relative")) { return PathTools.join(folder, value); }
+		if (e.prefix.isEmpty() || e.prefix.equals("default")) { return PathTools.join(self.base, value); }
+		return "";
+	}
+
+	private void read(string path, int depth) {
+		if (path.isEmpty() || depth > 32 || self.files >= 1024) { return; }
+		string real = FileSystem.realPath(path);
+		if (real.isEmpty() || self.seen.contains(real)) { return; }
+		self.seen.set(real, true);
+		self.files++;
+		var status = FileSystem.stat(real);
+		if (status.isDir()) {
+			var names = FileSystem.listDir(real);
+			names.sortBy(Strings.lessThan);
+			for name in names {
+				if (name.length() > 5 && Strings.isDigit(name[0]) && name.endsWith(".conf")) { self.read(PathTools.join(path, name), depth + 1); }
+			}
+			return;
+		}
+		var opened = RegularFileSnapshot.open(real, 1048576LL);
+		if (!opened.ok()) { return; }
+		var file = opened.value();
+		var read = file.readExactAt(0LL, (int)file.size());
+		file.close();
+		if (!read.ok() || !read.value().isNulFreeUtf8()) { throw "Invalid desktop font settings"; }
+		var root = FontConfigTree(read.value().toString()).parse();
+		for entry in root.children {
+			if (entry.name.equals("include")) { self.read(self.path(entry, PathTools.dirname(path), true), depth + 1); }
+			else if (entry.name.equals("dir")) {
+				string directory = self.path(entry, PathTools.dirname(path), false);
+				if (!directory.isEmpty() && self.roots.indexOf(directory) < 0) { self.roots.push(directory); }
+			} else if (entry.name.equals("reset-dirs")) { self.roots.clear(); }
+			else if (entry.name.equals("alias")) { self.aliases.push(new DesktopFontFamilyAlias(entry)); }
+			else if (entry.name.equals("match")) { self.patterns.push(entry); }
+		}
+	}
+
+	public Vector<string> forFace(bool bold, double logicalSize) {
+		self.assigned.clear();
+		self.unsupported = false;
+		for rule in self.patterns { self.pattern(rule, bold, logicalSize); }
+		Vector<string> empty = [];
+		return self.unsupported ? empty : self.ordered();
+	}
+
+	private void pattern(FontConfigElement rule, bool bold, double logicalSize) {
+		if (!rule.target.isEmpty() && !rule.target.equals("pattern")) { return; }
+		bool uncertain = false;
+		bool relevant = false;
+		string locale = Environment.get("LC_ALL", Environment.get("LC_CTYPE", Environment.get("LANG", ""))).toLower().replace("_", "-");
+		for item in rule.children {
+			if (item.name.equals("edit") && item.field.equals("family")) { relevant = true; }
+			if (!item.name.equals("test")) { continue; }
+			if (item.children.size() != 1) { uncertain = true; continue; }
+			var test = item.children.get(0);
+			if (test.name.equals("int") || test.name.equals("double")) {
+				double actual = 0.0;
+				if (item.field.equals("weight")) { actual = bold ? 200.0 : 80.0; }
+				else if (item.field.equals("size")) { actual = logicalSize * 0.75; }
+				else if (item.field.equals("pixelsize")) { actual = logicalSize; }
+				else if (!item.field.equals("spacing")) { uncertain = true; continue; }
+				double expected = test.text.toDouble();
+				if (item.compare.isEmpty() || item.compare.equals("eq")) { if (actual != expected) { return; } }
+				else if (item.compare.equals("more_eq")) { if (actual < expected) { return; } }
+				else if (item.compare.equals("less_eq")) { if (actual > expected) { return; } }
+				else if (item.compare.equals("more")) { if (actual <= expected) { return; } }
+				else if (item.compare.equals("less")) { if (actual >= expected) { return; } }
+				else { uncertain = true; }
+				continue;
+			}
+			if (!test.name.equals("string")) { uncertain = true; continue; }
+			string value = item.children.get(0).text.toLower();
+			bool recognized = item.field.equals("family") || item.field.equals("lang");
+			bool matched = locale.startsWith(value) != 0;
+			if (item.field.equals("family")) { matched = value.equals("sans") || value.equals("sans-serif"); }
+			if (item.compare.equals("not_eq")) { matched = !matched; }
+			else if (!item.compare.isEmpty() && !item.compare.equals("eq") && !item.compare.equals("contains")) { recognized = false; }
+			if (recognized && !matched) { return; }
+			if (!recognized) { uncertain = true; }
+		}
+		if (!relevant) { return; }
+		for item in rule.children {
+			if (!item.name.equals("edit") || !item.field.equals("family")) { continue; }
+			if (item.mode.equals("append") || item.mode.equals("append_last")) { continue; }
+			if (uncertain || item.children.size() != 1 || !item.children.get(0).name.equals("string")) { self.unsupported = true; return; }
+			string family = item.children.get(0).text;
+			if (family.equals("sans-serif") || family.equals("sans")) { continue; }
+			if (item.mode.equals("assign") || item.mode.equals("assign_replace")) { self.assigned.clear(); }
+			else if (!item.mode.equals("prepend") && !item.mode.equals("prepend_first")) { self.unsupported = true; return; }
+			self.assigned.insert(0, family);
+		}
+	}
+
+	private void append(Vector<string> list, string family) {
+		if (!family.isEmpty() && list.indexOf(family) < 0) { list.push(family); }
+	}
+
+	private Vector<string> ordered() {
+		Vector<string> strong = [];
+		for name in self.assigned { self.append(strong, name); }
+		Vector<string> normal = [];
+		Vector<string> accepts = [];
+		Vector<string> defaults = [];
+		for alias in self.aliases {
+			bool matches = false;
+			for name in alias.names {
+				string lower = name.toLower();
+				if (lower.equals("sans-serif") || lower.equals("sans")) { matches = true; break; }
+			}
+			if (!matches) { continue; }
+			for family in alias.prefer { self.append(alias.strong ? strong : normal, family); }
+			for family in alias.accept { self.append(accepts, family); }
+			for family in alias.defaults { self.append(defaults, family); }
+		}
+		for family in normal { self.append(strong, family); }
+		for family in accepts { self.append(strong, family); }
+		for family in defaults { self.append(strong, family); }
+		return strong;
+	}
+}

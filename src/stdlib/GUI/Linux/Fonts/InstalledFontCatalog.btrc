@@ -70,13 +70,14 @@ class InstalledFontCatalog {
 		return current > requested ? current - requested : 1000 + requested - current;
 	}
 
-	public InstalledFont? match(Vector<string> families, int weight, bool italic, Vector<int> scalars) {
+	public InstalledFont? match(Vector<string> families, int weight, bool italic, Vector<int> scalars, bool desktopFiles = false) {
 		if (weight < 1 || weight > 1000) { return null; }
 		for requested in families {
 			string needle = requested.toLower();
 			InstalledFont? best = null;
 			int bestScore = 2147483647;
 			for face in self.faces {
+				if (desktopFiles && (face.path.toLower().endsWith(".woff") || face.path.toLower().endsWith(".woff2"))) { continue; }
 				bool named = false;
 				for alias in face.families { if (alias.toLower().equals(needle)) { named = true; break; } }
 				if (!named || face.width < 1 || face.width > 9 || face.weight < 1 || face.weight > 1000) { continue; }

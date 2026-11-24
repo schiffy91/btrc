@@ -445,8 +445,21 @@ def test_linux_system_text_runs(tmp_path, request, gui_provider_root, frontend, 
     )
     path = tmp_path / "widgets.ttf"
     path.write_bytes((tests / "fixtures/shaping-fixture.ttf").read_bytes())
+    configs = tmp_path / "font settings"
+    configs.mkdir()
+    (configs / "35-primary.conf").write_text(
+        '<fontconfig><alias binding="strong"><family>sans-serif</family><prefer><family>Test</family></prefer></alias></fontconfig>'
+    )
+    config = tmp_path / "fonts.conf"
+    config.write_text(
+        f'<fontconfig><dir>{tmp_path}</dir><include prefix="relative">font settings</include></fontconfig>'
+    )
     result = subprocess.run(
-        [program, path], capture_output=True, text=True, env=provider_environment(sanitized), timeout=60
+        [program, path],
+        capture_output=True,
+        text=True,
+        env=provider_environment(sanitized, FONTCONFIG_FILE=str(config)),
+        timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS: native text ligatures, kerning, ellipsis and owned pixels" in result.stdout
