@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from struct import pack
 
 import pytest
 
@@ -253,3 +254,74 @@ def test_linux_freetype_draws_into_owned_pixels(tmp_path, request, frontend, san
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS: FreeType draws into BTRC-owned pixels" in result.stdout
+
+
+def _pcf_strike():
+    # Table layouts are intentionally mixed: little-endian metrics and
+    # a four-byte-padded bitmap whose two-byte scan units are byte-swapped.
+    fmt = 0x1A
+    strings = b"PIXEL_SIZE\0CHARSET_REGISTRY\0CHARSET_ENCODING\0ISO10646\x001\0"
+    props = pack("<II", 0, 3)
+    for key, is_string, value in (
+        (b"PIXEL_SIZE", 0, 8),
+        (b"CHARSET_REGISTRY", 1, strings.index(b"ISO10646")),
+        (b"CHARSET_ENCODING", 1, len(strings) - 2),
+    ):
+        props += pack("<IBI", strings.index(key), is_string, value)
+    props += bytes(-len(props) % 4) + pack("<I", len(strings)) + strings
+    accelerators = pack("<I", 0) + bytes(8) + pack("<iii", 6, 2, 0) + bytes(24)
+    metrics = pack("<IH", 0x100, 2) + bytes((128, 128, 134, 128, 128, 127, 136, 134, 130, 129))
+    bitmaps = pack("<IIII4I", fmt, 2, 0, 0, 6, 6, 12, 24) + bytes.fromhex("80ff00008080000080ff0000")
+    ids = [0] + [0xFFFF] * 47 + [1]
+    encodings = pack("<I5H", 0, 32, 80, 0, 0, 80) + pack("<" + "H" * len(ids), *ids)
+    tables = [(1, 0, props), (2, 0, accelerators), (4, 0x100, metrics), (8, fmt, bitmaps), (32, 0, encodings)]
+    directory = bytearray(pack("<II", 0x70636601, len(tables)))
+    payload = bytearray()
+    for tag, format, data in tables:
+        directory.extend(pack("<4I", tag, format, len(data), 8 + len(tables) * 16 + len(payload)))
+        payload.extend(data)
+        payload.extend(bytes(-len(payload) % 4))
+    return bytes(directory + payload)
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_pcf_factory_matches_freetype(tmp_path, request, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
+
+    require_linux_reader()
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
+    ):
+        pytest.skip("requires the optional FreeType SDK for the reference provider")
+
+    source = tmp_path / "PCFFontConformance.btrc"
+    source.write_text((REPO / "src/tests/native/gui/PCFFontConformance.btrc").read_text())
+    executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
+    portable = tmp_path / "fixture.pcf"
+    portable.write_bytes(_pcf_strike())
+    reference = tmp_path / "fixture.raw"
+    reference.write_bytes(portable.read_bytes())
+    env = provider_environment(sanitized)
+    for path in (reference, portable):
+        run = subprocess.run([executable, path], capture_output=True, text=True, timeout=60, env=env)
+        assert run.returncode == 0, run.stdout + run.stderr
+        assert "PASS: PCF metrics, default glyph and packed pixels" in run.stdout
+
+    if not sanitized:
+        # The native fallback shares this binary. Make its initialization fail
+        # to prove which provider the existing public factory actually used.
+        blocker = tmp_path / "unavailable.c"
+        blocker.write_text("int FT_Init_FreeType(void **library) { *library = 0; return 1; }\n")
+        shared = tmp_path / "unavailable.so"
+        subprocess.run(["cc", "-shared", "-fPIC", str(blocker), "-o", str(shared)], check=True, timeout=TOOL_TIMEOUT)
+        blocked = {**env, "LD_PRELOAD": str(shared)}
+        good = subprocess.run([executable, portable], capture_output=True, text=True, timeout=60, env=blocked)
+        assert good.returncode == 0, good.stdout + good.stderr
+        fallback = subprocess.run([executable, reference], capture_output=True, text=True, timeout=60, env=blocked)
+        assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr

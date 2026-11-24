@@ -1,0 +1,228 @@
+import Library.Bytes;
+import Library.GUI.IFontFace;
+
+/* A PCF table starts with its own little-endian format word. The fields
+ * after that word follow the table's byte-order bit. Some font generators
+ * count trailing accelerator padding that they omit at the end of file. */
+class PCFTable {
+	public Bytes bytes;
+	public int length;
+	public int start;
+	public unsigned int format;
+
+	public PCFTable(Bytes bytes, int start, int length, unsigned int format) {
+		self.bytes = bytes;
+		self.start = start;
+		self.length = length;
+		self.format = format;
+		if (length < 4 || self.bytes.readU32LE(start) != format) { throw "Invalid PCF table format"; }
+	}
+
+	public void need(int at, long long count) {
+		if (at < 0 || at > self.length || count < 0LL || count > (long long)(self.length - at)) { throw "Truncated PCF table"; }
+	}
+
+	public int byte(int at) { self.need(at, 1LL); return self.bytes.get(self.start + at); }
+
+	public int word(int at) {
+		self.need(at, 2LL);
+		return (self.format & 4U) != 0U ? self.bytes.readU16BE(self.start + at) : self.bytes.readU16LE(self.start + at);
+	}
+
+	public int signedWord(int at) {
+		int v = self.word(at);
+		return v >= 32768 ? v - 65536 : v;
+	}
+
+	public int integer(int at) {
+		self.need(at, 4LL);
+		return (int)((self.format & 4U) != 0U ? self.bytes.readU32BE(self.start + at) : self.bytes.readU32LE(self.start + at));
+	}
+
+	public string name(int pool, int size, int offset) {
+		if (offset < 0 || offset >= size) { throw "Invalid PCF property string offset"; }
+		int end = offset;
+		/* Only short property names and charset identifiers are needed
+		 * here; skip longer values without scanning or allocating them. */
+		while (end < size && end - offset <= 64 && self.bytes.get(self.start + pool + end) != 0) { end++; }
+		if (end - offset > 64) { return ""; }
+		if (end == size) { throw "Unterminated PCF property string"; }
+		return self.bytes.slice(self.start + pool + offset, self.start + pool + end).toString();
+	}
+}
+
+class PCFFace implements IFontFace {
+	private Bytes bytes;
+	private PCFTable metricsTable;
+	private PCFTable bitmaps;
+	private PCFTable encodings;
+	private FontMetrics lineMetrics;
+	private bool compressedMetrics = false;
+	private int count;
+	private int bitmapData;
+	private int bitmapSize;
+	private int minColumn;
+	private int maxColumn;
+	private int minRow;
+	private int maxRow;
+	private int missing = 0;
+	private bool unicode = false;
+	private int requested;
+	private int height;
+
+	/* The optional SDK factory probes regular PCF paths. Seek and cap the
+	 * read before allocating, and close the file before parsing. A format
+	 * variant this reader cannot open continues through the SDK provider. */
+	class PCFFace? tryOpen(string path, int pixelSize) {
+		if (path == null || pixelSize < 1 || !path.toLower().endsWith(".pcf")) { return null; }
+		FILE* file = fopen(path, "rb");
+		if (file == null) { return null; }
+		if (fseek(file, 0L, SEEK_END) != 0) { fclose(file); return null; }
+		long length = ftell(file);
+		if (length < 8L || length > 268435456L || fseek(file, 0L, SEEK_SET) != 0) { fclose(file); return null; }
+		var bytes = Bytes.zeros((int)length);
+		size_t read = fread(bytes.data, 1, (size_t)length, file);
+		fclose(file);
+		if (read != (size_t)length || bytes.readU32LE(0) != 0x70636601U) { return null; }
+		try { return new PCFFace(bytes, pixelSize); }
+		catch (string error) { return null; }
+	}
+
+	public PCFFace(Bytes bytes, int pixelSize) {
+		self.bytes = bytes;
+		self.requested = pixelSize;
+		if (bytes.length() < 8 || bytes.length() > 268435456 || bytes.readU32LE(0) != 0x70636601U) { throw "Invalid PCF header"; }
+		unsigned int count = bytes.readU32LE(4);
+		if (count < 1U || count > 64U || count > (unsigned int)((bytes.length() - 8) / 16)) { throw "Invalid PCF directory"; }
+		var accelerators = self.table(256, false);
+		if (accelerators == null) { accelerators = self.table(2, true); }
+		if (accelerators == null) { throw "Missing PCF accelerators"; }
+		int ascender = accelerators.integer(12);
+		int descent = accelerators.integer(16);
+		if (ascender < -65535 || ascender > 65535 || descent < -65535 || descent > 65535) { throw "PCF line metrics are too large"; }
+		self.height = ascender + descent;
+		self.lineMetrics = new FontMetrics((long long)ascender * 64LL, (long long)self.height * 64LL);
+
+		var properties = self.table(1, true);
+		var metrics = self.table(4, true);
+		var bitmaps = self.table(8, true);
+		var encodings = self.table(32, true);
+		if (properties == null || metrics == null || bitmaps == null || encodings == null) { throw "Incomplete PCF font"; }
+		self.properties(properties);
+		self.metricsTable = metrics;
+		self.bitmaps = bitmaps;
+		self.encodings = encodings;
+		if ((metrics.format & ~255U) == 256U) {
+			self.compressedMetrics = true;
+			self.count = metrics.word(4);
+			metrics.need(6, 5LL * (long long)self.count);
+		} else if ((metrics.format & ~255U) == 0U) {
+			self.count = metrics.integer(4);
+			metrics.need(8, 12LL * (long long)self.count);
+		} else { throw "Unsupported PCF metric format"; }
+		if (self.count < 1 || self.count > 65535 || bitmaps.integer(4) != self.count || (bitmaps.format & ~255U) != 0U) { throw "Invalid PCF bitmap count"; }
+		self.bitmapData = 8 + self.count * 4 + 16;
+		self.bitmapSize = bitmaps.integer(self.bitmapData - 16 + (int)(bitmaps.format & 3U) * 4);
+		bitmaps.need(self.bitmapData, (long long)self.bitmapSize);
+		self.minColumn = encodings.word(4);
+		self.maxColumn = encodings.word(6);
+		self.minRow = encodings.word(8);
+		self.maxRow = encodings.word(10);
+		if (self.maxColumn > 255 || self.maxRow > 255 || self.maxColumn < self.minColumn || self.maxRow < self.minRow) { throw "Invalid PCF encoding range"; }
+		encodings.need(14, (long long)(self.maxColumn - self.minColumn + 1) * (long long)(self.maxRow - self.minRow + 1) * 2LL);
+		int defaultGlyph = self.encoded(encodings.word(12));
+		if (defaultGlyph >= 0) { self.missing = defaultGlyph; }
+	}
+
+	private PCFTable? table(int type, bool required) {
+		int count = (int)self.bytes.readU32LE(4);
+		for (int i = 0; i < count; i++) {
+			int p = 8 + i * 16;
+			if (self.bytes.readU32LE(p) != (unsigned int)type) { continue; }
+			unsigned int length = self.bytes.readU32LE(p + 8);
+			unsigned int offset = self.bytes.readU32LE(p + 12);
+			if (offset < (unsigned int)(8 + count * 16) || offset > (unsigned int)self.bytes.length()) { throw "Invalid PCF table location"; }
+			unsigned int remaining = (unsigned int)self.bytes.length() - offset;
+			return new PCFTable(self.bytes, (int)offset, (int)(length > remaining ? remaining : length), self.bytes.readU32LE(p + 4));
+		}
+		if (required) { throw "Missing PCF table"; }
+		return null;
+	}
+
+	private void properties(PCFTable props) {
+		int count = props.integer(4);
+		if (count < 0 || count > (props.length - 8) / 9) { throw "Invalid PCF property count"; }
+		int pool = (8 + count * 9 + 3) & ~3;
+		int size = props.integer(pool);
+		pool += 4;
+		props.need(pool, (long long)size);
+		int pixels = 0;
+		int points = 0;
+		int resolution = 0;
+		string registry = "";
+		string encoding = "";
+		for (int i = 0; i < count; i++) {
+			int at = 8 + i * 9;
+			string key = props.name(pool, size, props.integer(at));
+			int value = props.integer(at + 5);
+			if (props.byte(at + 4) != 0) {
+				if (key.equals("CHARSET_REGISTRY")) { registry = props.name(pool, size, value).toUpper(); }
+				else if (key.equals("CHARSET_ENCODING")) { encoding = props.name(pool, size, value); }
+			} else if (key.equals("PIXEL_SIZE")) { pixels = value; }
+			else if (key.equals("POINT_SIZE")) { points = value; }
+			else if (key.equals("RESOLUTION_Y")) { resolution = value; }
+		}
+		self.unicode = registry.equals("ISO10646") || (registry.equals("ISO8859") && encoding.equals("1")) || (registry.equals("ISO646.1991") && encoding.equals("IRV"));
+		if (pixels <= 0) {
+			if (points > 0 && resolution > 0 && points <= 65535 && resolution <= 65535) { pixels = (int)(((long long)points * (long long)resolution * 100LL + 36135LL) / 72270LL); }
+			else { pixels = self.height; }
+		}
+		if (pixels != self.requested) { throw "No PCF strike at the requested pixel size"; }
+	}
+
+	public FontMetrics metrics() { return self.lineMetrics; }
+
+	private int encoded(int code) {
+		int row = code >> 8;
+		int col = code & 255;
+		if (row < self.minRow || row > self.maxRow || col < self.minColumn || col > self.maxColumn) { return -1; }
+		int glyph = self.encodings.word(14 + ((row - self.minRow) * (self.maxColumn - self.minColumn + 1) + col - self.minColumn) * 2);
+		return glyph >= self.count ? -1 : glyph;
+	}
+
+	private int metric(int glyph, int field) { return self.compressedMetrics ? self.metricsTable.byte(6 + glyph * 5 + field) - 128 : self.metricsTable.signedWord(8 + glyph * 12 + field * 2); }
+
+	public FontGlyph? glyph(int code, bool render) {
+		if (code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) { throw "Invalid font Unicode scalar"; }
+		int id = self.unicode ? self.encoded(code) : (code == 0 ? -1 : code - 1);
+		if (id >= self.count) { return null; }
+		if (id < 0) { id = self.missing; }
+		long long advance = (long long)self.metric(id, 2) * 64LL;
+		if (!render) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_UNSUPPORTED, 0, new Bytes()); }
+		int left = self.metric(id, 0);
+		int width = self.metric(id, 1) - left;
+		int top = self.metric(id, 3);
+		int rows = top + self.metric(id, 4);
+		if (rows < 0 || width < 0) { return null; }
+		int pad = 1 << (int)(self.bitmaps.format & 3U);
+		int pitch = (((width + 7) / 8 + pad - 1) / pad) * pad;
+		long long length = (long long)pitch * (long long)rows;
+		int start = self.bitmaps.integer(8 + id * 4);
+		if (start < 0 || length > 67108864LL || start > self.bitmapSize || length > (long long)(self.bitmapSize - start)) { return null; }
+		var pixels = Bytes.zeros((int)length);
+		int unit = 1 << (int)((self.bitmaps.format >> 4) & 3U);
+		bool swap = ((self.bitmaps.format & 4U) != 0U) != ((self.bitmaps.format & 8U) != 0U);
+		bool reverse = (self.bitmaps.format & 8U) == 0U;
+		for (int i = 0; i < (int)length; i++) {
+			int byte = swap && (i | (unit - 1)) < (int)length ? (i ^ (unit - 1)) : i;
+			int v = self.bitmaps.byte(self.bitmapData + start + byte);
+			if (reverse) {
+				v = ((v & 85) << 1) | ((v >> 1) & 85);
+				v = ((v & 51) << 2) | ((v >> 2) & 51);
+				v = ((v & 15) << 4) | (v >> 4);
+			}
+			pixels.set(i, v);
+		}
+		return new FontGlyph(advance, left, top, width, rows, pitch, FONT_PIXEL_MONO, 1, pixels);
+	}
+}

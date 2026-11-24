@@ -1,8 +1,14 @@
 import Library.GUI.Font;
 import Library.GUI.FreeType.FreeTypeFace;
 
-/* Optional SDK-backed loading. Importing Raster/Font alone does not require
- * FreeType; this factory either creates the requested face or reports failure. */
+import ./Bitmap/PCFFace.btrc;
+
+/* PCF bitmap strikes use a first-party reader. Other fonts use the SDK.
+ * Raster and Font can be imported independently of this factory. */
 class FreeType {
-	class Font load(string path, int pixelSize) { return new Font(new FreeTypeFace(path, pixelSize)); }
+	class Font load(string path, int pixelSize) {
+		var bitmap = PCFFace.tryOpen(path, pixelSize);
+		if (bitmap != null) { return new Font(bitmap); }
+		return new Font(new FreeTypeFace(path, pixelSize));
+	}
 }
