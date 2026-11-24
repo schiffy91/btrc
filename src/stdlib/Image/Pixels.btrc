@@ -528,6 +528,62 @@ class Image {
 		return result;
 	}
 
+	/* Bilinearly resample the full image into exact (targetWidth, targetHeight) without per-pixel allocations. */
+	public Image scaled(int targetWidth, int targetHeight) {
+		if (self.isEmpty() || !Image.validDimensions((long long)targetWidth, (long long)targetHeight)) { return Image.empty(); }
+		if (self.width == targetWidth && self.height == targetHeight) {
+			Image dup = Image(targetWidth, targetHeight);
+			memcpy(dup.data, self.data, (size_t)targetWidth * (size_t)targetHeight * (size_t)4);
+			return dup;
+		}
+		Image result = Image(targetWidth, targetHeight);
+		unsigned char* srcData = self.data;
+		unsigned char* dstData = result.data;
+		int sw = self.width;
+		int sh = self.height;
+		double scaleX = (double)sw / (double)targetWidth;
+		double scaleY = (double)sh / (double)targetHeight;
+		for (int y = 0; y < targetHeight; y++) {
+			double fy = ((double)y + 0.5) * scaleY - 0.5;
+			if (fy < 0.0) { fy = 0.0; }
+			int y0 = (int)fy;
+			int y1 = y0 + 1;
+			if (y0 >= sh) { y0 = sh - 1; }
+			if (y1 >= sh) { y1 = sh - 1; }
+			double wy = fy - (double)y0;
+			if (wy < 0.0) { wy = 0.0; }
+			if (wy > 1.0) { wy = 1.0; }
+			int row0 = y0 * sw * 4;
+			int row1 = y1 * sw * 4;
+			int dstRow = y * targetWidth * 4;
+			for (int x = 0; x < targetWidth; x++) {
+				double fx = ((double)x + 0.5) * scaleX - 0.5;
+				if (fx < 0.0) { fx = 0.0; }
+				int x0 = (int)fx;
+				int x1 = x0 + 1;
+				if (x0 >= sw) { x0 = sw - 1; }
+				if (x1 >= sw) { x1 = sw - 1; }
+				double wx = fx - (double)x0;
+				if (wx < 0.0) { wx = 0.0; }
+				if (wx > 1.0) { wx = 1.0; }
+				int o00 = row0 + x0 * 4;
+				int o10 = row0 + x1 * 4;
+				int o01 = row1 + x0 * 4;
+				int o11 = row1 + x1 * 4;
+				double w00 = (1.0 - wx) * (1.0 - wy);
+				double w10 = wx * (1.0 - wy);
+				double w01 = (1.0 - wx) * wy;
+				double w11 = wx * wy;
+				int dstOff = dstRow + x * 4;
+				dstData[dstOff] = (unsigned char)((double)srcData[o00] * w00 + (double)srcData[o10] * w10 + (double)srcData[o01] * w01 + (double)srcData[o11] * w11 + 0.5);
+				dstData[dstOff + 1] = (unsigned char)((double)srcData[o00 + 1] * w00 + (double)srcData[o10 + 1] * w10 + (double)srcData[o01 + 1] * w01 + (double)srcData[o11 + 1] * w11 + 0.5);
+				dstData[dstOff + 2] = (unsigned char)((double)srcData[o00 + 2] * w00 + (double)srcData[o10 + 2] * w10 + (double)srcData[o01 + 2] * w01 + (double)srcData[o11 + 2] * w11 + 0.5);
+				dstData[dstOff + 3] = (unsigned char)((double)srcData[o00 + 3] * w00 + (double)srcData[o10 + 3] * w10 + (double)srcData[o01 + 3] * w01 + (double)srcData[o11 + 3] * w11 + 0.5);
+			}
+		}
+		return result;
+	}
+
 	/* Fit the full uncropped image into a tileSize x tileSize atlas cell preserving aspect ratio,
 	 * anchored at top-left (0, 0) with bilinear sampling and edge-pixel clamping across padding. */
 	public Image fitAspect(int tileSize) {
