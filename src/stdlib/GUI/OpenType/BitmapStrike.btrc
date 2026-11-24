@@ -1,0 +1,168 @@
+import Library.Bytes;
+import Library.GUI.IFontFace;
+import Library.Image.PNG;
+import Library.Image.Pixels;
+
+import ./OpenTypeData.btrc;
+
+/* Embedded color bitmap strikes (OpenType CBLC/CBDT). The caller can
+ * measure the bitmap's advance or take an owned monochrome-coverage
+ * snapshot, as required by IFontFace. */
+class BitmapStrike {
+	private OpenTypeData data;
+	private int list;
+	private int end;
+	private int tables;
+	private OpenTypeSpan images;
+	public int ascender;
+	public int height;
+
+	public BitmapStrike(OpenTypeData data, OpenTypeSpan locations, OpenTypeSpan images, int record) {
+		self.data = data;
+		self.images = images;
+		long long offset = data.u32(record);
+		long long length = data.u32(record + 4);
+		long long count = data.u32(record + 8);
+		if (offset > (long long)locations.length || length > (long long)locations.length - offset || count > length / 8LL) { throw "Invalid bitmap strike locations"; }
+		self.list = locations.offset + (int)offset;
+		self.end = self.list + (int)length;
+		self.tables = (int)count;
+		self.ascender = data.s8(record + 16);
+		self.height = self.ascender - data.s8(record + 17);
+		int previous = -1;
+		for (int i = 0; i < self.tables; i++) {
+			int at = self.list + i * 8;
+			int first = data.u16(at);
+			int last = data.u16(at + 2);
+			if (first <= previous || last < first) { throw "Invalid bitmap strike glyph ranges"; }
+			previous = last;
+			long long offset = data.u32(at + 4);
+			if (offset < (long long)self.tables * 8LL || offset > (long long)(self.end - self.list) - 8LL) { throw "Invalid bitmap strike glyph index"; }
+			int subtable = self.list + (int)offset;
+			int index = data.u16(subtable);
+			int image = data.u16(subtable + 2);
+			if (index < 1 || index > 5 || image < 17 || image > 19 || (image == 19 && index != 2 && index != 5)) { throw "Unsupported bitmap strike format"; }
+		}
+	}
+
+	class BitmapStrike? select(OpenTypeData data, OpenTypeSpan locations, OpenTypeSpan images, int ppem) {
+		if (locations.length < 8 || images.length < 4 || data.u32(locations.offset) != 0x30000LL || data.u32(images.offset) != 0x30000LL) { throw "Invalid color bitmap tables"; }
+		long long count = data.u32(locations.offset + 4);
+		if (count > (long long)(locations.length - 8) / 48LL) { throw "Truncated bitmap strikes"; }
+		for (int i = 0; i < (int)count; i++) {
+			int at = locations.offset + 8 + i * 48;
+			if (data.u8(at + 44) == ppem && data.u8(at + 45) == ppem && data.u8(at + 46) == 32 && data.u8(at + 47) == 1) {
+				return new BitmapStrike(data, locations, images, at);
+			}
+		}
+		return null;
+	}
+
+	private int record(int glyph) {
+		int lo = 0;
+		int hi = self.tables - 1;
+		while (lo <= hi) {
+			int mid = lo + (hi - lo) / 2;
+			int at = self.list + mid * 8;
+			if (glyph < self.data.u16(at)) { hi = mid - 1; }
+			else if (glyph > self.data.u16(at + 2)) { lo = mid + 1; }
+			else { return at; }
+		}
+		return -1;
+	}
+
+	/* Formats 4 and 5 list only the glyphs actually present in a range. */
+	private int find(int first, int count, int stride, int glyph) {
+		int low = 0;
+		int high = count - 1;
+		while (low <= high) {
+			int mid = low + (high - low) / 2;
+			int id = self.data.u16(first + mid * stride);
+			if (id == glyph) { return mid; }
+			if (id < glyph) { low = mid + 1; } else { high = mid - 1; }
+		}
+		return -1;
+	}
+
+	private int coverage(int r, int g, int b, int alpha) {
+		if (alpha == 0) { return 0; }
+		r = (r * alpha + 127) / 255;
+		g = (g * alpha + 127) / 255;
+		b = (b * alpha + 127) / 255;
+		/* Compare on white using squared, premultiplied sRGB channels
+		 * and 16-bit Rec.709 luminance coefficients. */
+		long long light = 13937LL * (long long)(r * r) + 46868LL * (long long)(g * g) + 4731LL * (long long)(b * b);
+		return alpha - (int)(light / (65536LL * (long long)alpha));
+	}
+
+	public FontGlyph? glyph(int id, bool render) {
+		int record = self.record(id);
+		if (record < 0) { return null; }
+		long long offset = self.data.u32(record + 4);
+		if (offset < (long long)self.tables * 8LL || offset > (long long)(self.end - self.list) - 8LL) { throw "Invalid bitmap glyph index offset"; }
+		int p = self.list + (int)offset;
+		int indexFormat = self.data.u16(p);
+		int imageFormat = self.data.u16(p + 2);
+		long long base = self.data.u32(p + 4);
+		int index = id - self.data.u16(record);
+		int span = self.data.u16(record + 2) - self.data.u16(record) + 1;
+		int metrics = -1;
+		long long from = 0LL;
+		long long to = 0LL;
+		if (indexFormat == 1 || indexFormat == 3) {
+			int width = indexFormat == 1 ? 4 : 2;
+			if (span + 1 > (self.end - p - 8) / width) { throw "Truncated bitmap glyph offsets"; }
+			from = self.data.unsignedOf(p + 8 + index * width, width);
+			to = self.data.unsignedOf(p + 8 + (index + 1) * width, width);
+		} else if (indexFormat == 2 || indexFormat == 5) {
+			if (self.end - p < 20) { throw "Truncated fixed-size bitmap index"; }
+			metrics = p + 12;
+			if (indexFormat == 5) {
+				if (self.end - p < 24) { throw "Truncated sparse bitmap index"; }
+				long long count = self.data.u32(p + 20);
+				if (count > (long long)(self.end - p - 24) / 2LL) { throw "Invalid sparse bitmap count"; }
+				index = self.find(p + 24, (int)count, 2, id);
+				if (index < 0) { return null; }
+			}
+			long long size = self.data.u32(p + 8);
+			from = (long long)index * size;
+			to = from + size;
+		} else if (indexFormat == 4) {
+			if (self.end - p < 16) { throw "Truncated sparse bitmap offsets"; }
+			long long count = self.data.u32(p + 8);
+			if (count > (long long)(self.end - p - 16) / 4LL) { throw "Invalid sparse bitmap offsets"; }
+			index = self.find(p + 12, (int)count, 4, id);
+			if (index < 0) { return null; }
+			from = (long long)self.data.u16(p + 14 + index * 4);
+			to = (long long)self.data.u16(p + 18 + index * 4);
+		} else { throw "Unsupported bitmap strike index format"; }
+		if (to < from || base < 4LL || base + to > (long long)self.images.length) { throw "Bitmap glyph lies outside its table"; }
+		if (to == from) { return null; }
+		int image = self.images.offset + (int)(base + from);
+		int length = (int)(to - from);
+		if (imageFormat == 17 || imageFormat == 18) {
+			int size = imageFormat == 17 ? 5 : 8;
+			if (length < size) { throw "Truncated bitmap glyph metrics"; }
+			metrics = image;
+			image += size;
+			length -= size;
+		} else if (imageFormat != 19 || metrics < 0) { throw "Unsupported bitmap glyph format"; }
+		if (length < 4) { throw "Truncated bitmap image"; }
+		long long size = self.data.u32(image);
+		if (size > (long long)(length - 4)) { throw "Truncated bitmap PNG"; }
+		int rows = self.data.u8(metrics);
+		int width = self.data.u8(metrics + 1);
+		int left = self.data.s8(metrics + 2);
+		int top = self.data.s8(metrics + 3);
+		long long advance = (long long)self.data.u8(metrics + 4) * 64LL;
+		var png = self.data.slice(image + 4, (int)size);
+		var bitmap = PNG.decode(png, width * rows);
+		if (bitmap.width != width || bitmap.height != rows) { throw "PNG does not match its bitmap strike metrics"; }
+		if (!render) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_UNSUPPORTED, 0, new Bytes()); }
+		var mask = Bytes.zeros(width * rows);
+		for (int i = 0; i < width * rows; i++) {
+			mask.set(i, self.coverage((int)bitmap.data[i * 4], (int)bitmap.data[i * 4 + 1], (int)bitmap.data[i * 4 + 2], (int)bitmap.data[i * 4 + 3]));
+		}
+		return new FontGlyph(advance, left, top, width, rows, width, FONT_PIXEL_GRAY, 256, mask);
+	}
+}

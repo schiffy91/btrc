@@ -1,0 +1,114 @@
+import Library.Bytes;
+
+/* 16.16 fixed-point arithmetic with the rounding font scaling is defined by:
+ * products and quotients round to nearest, halves away from zero. Operands
+ * are 64-bit so no intermediate overflows for any value a font can carry. */
+class OpenTypeFixed {
+	class long long mul(long long a, long long b) {
+		bool negative = false;
+		if (a < 0LL) { a = -a; negative = !negative; }
+		if (b < 0LL) { b = -b; negative = !negative; }
+		long long product = (a * b + 0x8000LL) / 65536LL;
+		return negative ? -product : product;
+	}
+
+	class long long div(long long a, long long b) {
+		bool negative = false;
+		if (a < 0LL) { a = -a; negative = !negative; }
+		if (b < 0LL) { b = -b; negative = !negative; }
+		long long quotient = b == 0LL ? 0x7fffffffLL : (a * 65536LL + b / 2LL) / b;
+		return negative ? -quotient : quotient;
+	}
+
+	/* Division rounding toward negative infinity; the divisor is positive. */
+	class long long floorDiv(long long a, long long b) {
+		long long quotient = a / b;
+		return (a % b != 0LL && a < 0LL) ? quotient - 1LL : quotient;
+	}
+
+	/* 26.6 fixed point rounded down, to nearest and up to whole pixels. */
+	class long long pixelFloor(long long value) { return OpenTypeFixed.floorDiv(value, 64LL) * 64LL; }
+
+	class long long pixelRound(long long value) { return OpenTypeFixed.floorDiv(value + 32LL, 64LL) * 64LL; }
+
+	class long long pixelCeil(long long value) { return OpenTypeFixed.floorDiv(value + 63LL, 64LL) * 64LL; }
+}
+
+/* Bounds-checked big-endian reads over the bytes of a font file. A font is
+ * untrusted input: every read names its offset and is refused with a thrown
+ * error when it does not lie inside the data, so no table offset, count or
+ * length taken from the file can reach storage outside it. */
+class OpenTypeData {
+	private Bytes bytes;
+	private int size;
+
+	public OpenTypeData(Bytes bytes) {
+		self.bytes = bytes;
+		self.size = bytes.length();
+	}
+
+	public int length() { return self.size; }
+
+	public Bytes slice(int offset, int length) {
+		self.need((long long)offset, (long long)length);
+		return self.bytes.slice(offset, offset + length);
+	}
+
+	public bool has(long long offset, long long count) { return offset >= 0LL && count >= 0LL && offset <= (long long)self.size && count <= (long long)self.size - offset; }
+
+	public void need(long long offset, long long count) {
+		if (!self.has(offset, count)) { throw "Font data is truncated"; }
+	}
+
+	public int u8(int offset) {
+		if (offset < 0 || offset >= self.size) { throw "Font data is truncated"; }
+		return self.bytes.get(offset);
+	}
+
+	public int s8(int offset) {
+		int value = self.u8(offset);
+		return value >= 128 ? value - 256 : value;
+	}
+
+	public int u16(int offset) {
+		if (offset < 0 || offset > self.size - 2) { throw "Font data is truncated"; }
+		return (self.bytes.get(offset) << 8) | self.bytes.get(offset + 1);
+	}
+
+	public int s16(int offset) {
+		int value = self.u16(offset);
+		return value >= 32768 ? value - 65536 : value;
+	}
+
+	public long long u32(int offset) {
+		if (offset < 0 || offset > self.size - 4) { throw "Font data is truncated"; }
+		return ((long long)self.bytes.get(offset) << 24) | ((long long)self.bytes.get(offset + 1) << 16) | ((long long)self.bytes.get(offset + 2) << 8) | (long long)self.bytes.get(offset + 3);
+	}
+
+	public long long s32(int offset) {
+		long long value = self.u32(offset);
+		return value >= 2147483648LL ? value - 4294967296LL : value;
+	}
+
+	/* An unsigned big-endian integer of one to four bytes. */
+	public long long unsignedOf(int offset, int width) {
+		if (width < 1 || width > 4) { throw "Invalid font offset size"; }
+		self.need((long long)offset, (long long)width);
+		long long value = 0LL;
+		for (int i = 0; i < width; i++) { value = value * 256LL + (long long)self.bytes.get(offset + i); }
+		return value;
+	}
+}
+
+/* One table (or any other span) of the file, already proven to lie inside it. */
+class OpenTypeSpan {
+	public int offset;
+	public int length;
+
+	public OpenTypeSpan(int offset, int length) {
+		self.offset = offset;
+		self.length = length;
+	}
+
+	public int end() { return self.offset + self.length; }
+}

@@ -1,0 +1,31 @@
+import ./OpenTypeData.btrc;
+
+/* The `hmtx` table: an advance and a left side bearing for each glyph, in
+ * font units. Glyphs past the last full record share its advance. A record
+ * the table is too short for reads as zero. */
+class OpenTypeHorizontalMetrics {
+	private OpenTypeData data;
+	private OpenTypeSpan table;
+	private int fullRecords;
+
+	public OpenTypeHorizontalMetrics(OpenTypeData data, OpenTypeSpan table, int fullRecords) {
+		self.data = data;
+		self.table = table;
+		self.fullRecords = fullRecords;
+	}
+
+	public int advance(int glyph) {
+		if (self.fullRecords < 1 || glyph < 0) { return 0; }
+		long long position = 4LL * (long long)(glyph < self.fullRecords ? glyph : self.fullRecords - 1);
+		if (position + (glyph < self.fullRecords ? 4LL : 2LL) > (long long)self.table.length) { return 0; }
+		return self.data.u16(self.table.offset + (int)position);
+	}
+
+	public int bearing(int glyph) {
+		if (self.fullRecords < 1 || glyph < 0) { return 0; }
+		long long position = glyph < self.fullRecords ? 4LL * (long long)glyph + 2LL : 4LL * (long long)self.fullRecords + 2LL * (long long)(glyph - self.fullRecords);
+		long long required = glyph < self.fullRecords ? position + 2LL : 4LL * (long long)self.fullRecords - 2LL;
+		if (position + 2LL > (long long)self.table.length || required > (long long)self.table.length) { return 0; }
+		return self.data.s16(self.table.offset + (int)position);
+	}
+}

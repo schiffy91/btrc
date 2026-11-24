@@ -1,0 +1,22 @@
+import Library.GUI.Font;
+import Library.GUI.FreeType;
+import Library.GUI.IFontFace;
+
+/* The authored two-glyph font has a transparent missing glyph and a single
+ * 2x2 RGBA PNG in CBDT image format 17, mapped to U+0049 at 16 ppem. */
+int main(int argc, char** argv) {
+	if (argc != 2) { return 2; }
+	var font = FreeType.load(argv[1], 16);
+	if (font.metrics().ascenderFixed() != 768LL || font.metrics().heightFixed() != 1024LL) { return 3; }
+	var before = font.glyph(0, true);
+	if (before == null || before.advanceFixed() != 512LL || before.numGrays() != 0 || before.pixelMode() != FONT_PIXEL_MONO) { return 4; }
+	var measured = font.glyph(73, false);
+	if (measured == null || measured.advanceFixed() != 256LL || measured.width() != 0 || measured.numGrays() != 0) { return 5; }
+	var after = font.glyph(0, true);
+	if (after == null || after.numGrays() != 256 || after.rows() != 0 || after.pixelMode() != FONT_PIXEL_MONO) { return 6; }
+	var ink = font.glyph(73, true);
+	if (ink == null || ink.advanceFixed() != 256LL || ink.width() != 2 || ink.rows() != 2 || ink.pitch() != 2 || ink.bitmapLeft() != -1 || ink.bitmapTop() != 2 || ink.numGrays() != 256 || ink.pixelMode() != FONT_PIXEL_GRAY) { return 7; }
+	if (ink.coverage(0, 0) != 201 || ink.coverage(0, 1) != 237 || ink.coverage(1, 0) != 128 || ink.coverage(1, 1) != 0) { return 8; }
+	print("PASS: color bitmap native metrics and coverage");
+	return 0;
+}

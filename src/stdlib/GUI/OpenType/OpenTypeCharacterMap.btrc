@@ -1,0 +1,150 @@
+import ./OpenTypeData.btrc;
+
+/* The `cmap` table: from a Unicode scalar value to a glyph index.
+ *
+ * A font carries several subtables; the best Unicode one is chosen: a full
+ * repertoire (format 12 or 13) before one limited to the Basic Multilingual
+ * Plane (format 4 or 6), and Windows before the Unicode platform at equal
+ * coverage. A symbol font's table is the last resort. A font with none of
+ * these, or with no table at all, maps every character to glyph zero, the font's "missing" glyph, as
+ * does any character the chosen subtable does not cover or maps outside the
+ * font.
+ *
+ * The header of the chosen subtable is checked against the table once; a
+ * lookup then reads only inside it, so unordered or overlapping ranges can
+ * produce a wrong glyph but never a read outside the table. */
+class OpenTypeCharacterMap {
+	private OpenTypeData data;
+	private int base = 0;
+	private int limit = 0;
+	private int format = 0;
+	private int entries = 0;
+	private int glyphCount;
+
+	public OpenTypeCharacterMap(OpenTypeData data, OpenTypeSpan table, int glyphCount) {
+		self.data = data;
+		self.glyphCount = glyphCount;
+		self.limit = table.end();
+		int records = table.length < 4 ? 0 : data.u16(table.offset + 2);
+		if (4 + 8 * records > table.length) { records = (table.length - 4) / 8; }
+		int best = 0;
+		for (int i = 0; i < records; i++) {
+			int record = table.offset + 4 + 8 * i;
+			int platform = data.u16(record);
+			int encoding = data.u16(record + 2);
+			long long offset = data.u32(record + 4);
+			if (offset > (long long)table.length - 4LL) { continue; }
+			int start = table.offset + (int)offset;
+			int kind = data.u16(start);
+			bool wide = kind == 12 || kind == 13;
+			bool basic = kind == 4 || kind == 6;
+			int rank = 0;
+			if (platform == 3 && encoding == 10 && wide) { rank = 6; }
+			else if (platform == 0 && (encoding == 4 || encoding == 6) && wide) { rank = 5; }
+			else if (platform == 3 && encoding == 1 && (basic || kind == 12)) { rank = 4; }
+			else if (platform == 0 && encoding <= 4 && (basic || kind == 12)) { rank = 3; }
+			else if (platform == 3 && encoding == 0 && kind == 4) { rank = 1; }
+			if (rank > best && self.accept(start, kind)) {
+				best = rank;
+				self.base = start;
+				self.format = kind;
+			}
+		}
+		if (best == 0) { self.format = 0; }
+		else { self.accept(self.base, self.format); }
+	}
+
+	/* The bitmap-only provider takes over when all base character maps name
+	 * the same Unicode table. Variation-selector records do not affect this
+	 * single-codepoint API. Other charmap choices stay with the SDK. */
+	public bool unambiguousUnicodeMap(OpenTypeSpan table) {
+		if (self.format != 4 && self.format != 12) { return false; }
+		int records = self.data.u16(table.offset + 2);
+		if (4 + 8 * records > table.length) { return false; }
+		bool windowsUnicode = false;
+		for (int i = 0; i < records; i++) {
+			int at = table.offset + 4 + i * 8;
+			int platform = self.data.u16(at);
+			int encoding = self.data.u16(at + 2);
+			if (platform == 0 && encoding == 5) { continue; }
+			if (self.data.u32(at + 4) != (long long)(self.base - table.offset)) { return false; }
+			if (platform == 3 && ((encoding == 1 && self.format == 4) || (encoding == 10 && self.format == 12))) { windowsUnicode = true; }
+		}
+		return windowsUnicode;
+	}
+
+	/* Whether the subtable's fixed part and arrays lie inside the table;
+	 * records how many segments, codes or groups it has. */
+	private bool accept(int start, int kind) {
+		long long room = (long long)(self.limit - start);
+		if (kind == 4) {
+			if (room < 16LL) { return false; }
+			self.entries = self.data.u16(start + 6) / 2;
+			return self.entries > 0 && 16LL + 8LL * (long long)self.entries <= room;
+		}
+		if (kind == 6) {
+			if (room < 10LL) { return false; }
+			self.entries = self.data.u16(start + 8);
+			return 10LL + 2LL * (long long)self.entries <= room;
+		}
+		if (room < 16LL) { return false; }
+		long long groups = self.data.u32(start + 12);
+		if (16LL + 12LL * groups > room) { return false; }
+		self.entries = (int)groups;
+		return true;
+	}
+
+	public int glyphIndex(int codepoint) {
+		long long glyph = 0LL;
+		if (self.format == 4) { glyph = self.segmented(codepoint); }
+		else if (self.format == 6) { glyph = self.trimmed(codepoint); }
+		else if (self.format == 12 || self.format == 13) { glyph = self.grouped(codepoint); }
+		return glyph < 0LL || glyph >= (long long)self.glyphCount ? 0 : (int)glyph;
+	}
+
+	private long long segmented(int codepoint) {
+		if (codepoint > 65535) { return 0LL; }
+		int ends = self.base + 14;
+		int starts = ends + 2 * self.entries + 2;
+		int deltas = starts + 2 * self.entries;
+		int offsets = deltas + 2 * self.entries;
+		int low = 0;
+		int high = self.entries - 1;
+		while (low < high) {
+			int middle = (low + high) / 2;
+			if (self.data.u16(ends + 2 * middle) < codepoint) { low = middle + 1; }
+			else { high = middle; }
+		}
+		if (self.data.u16(ends + 2 * low) < codepoint || self.data.u16(starts + 2 * low) > codepoint) { return 0LL; }
+		int delta = self.data.u16(deltas + 2 * low);
+		int offset = self.data.u16(offsets + 2 * low);
+		if (offset == 0) { return (long long)((codepoint + delta) & 65535); }
+		if (offset == 65535) { return 0LL; }
+		long long position = (long long)(offsets + 2 * low) + (long long)offset + 2LL * (long long)(codepoint - self.data.u16(starts + 2 * low));
+		if (position + 2LL > (long long)self.limit) { return 0LL; }
+		int glyph = self.data.u16((int)position);
+		return glyph == 0 ? 0LL : (long long)((glyph + delta) & 65535);
+	}
+
+	private long long trimmed(int codepoint) {
+		int first = self.data.u16(self.base + 6);
+		if (codepoint < first || codepoint - first >= self.entries) { return 0LL; }
+		return (long long)self.data.u16(self.base + 10 + 2 * (codepoint - first));
+	}
+
+	private long long grouped(int codepoint) {
+		int low = 0;
+		int high = self.entries - 1;
+		while (low < high) {
+			int middle = (low + high) / 2;
+			if (self.data.u32(self.base + 16 + 12 * middle + 4) < (long long)codepoint) { low = middle + 1; }
+			else { high = middle; }
+		}
+		if (self.entries < 1) { return 0LL; }
+		int group = self.base + 16 + 12 * low;
+		long long start = self.data.u32(group);
+		if (start > (long long)codepoint || self.data.u32(group + 4) < (long long)codepoint) { return 0LL; }
+		long long glyph = self.data.u32(group + 8);
+		return self.format == 13 ? glyph : glyph + ((long long)codepoint - start);
+	}
+}
