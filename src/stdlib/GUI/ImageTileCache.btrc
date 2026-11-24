@@ -1,0 +1,861 @@
+/* Multi-tier GPU image tile caching and background streaming for ImageGrid and ImageGallery.
+ *
+ * Tiers:
+ *   - Micro atlas (ImageMicroAtlas): permanent whole-collection low-resolution atlas (default 32x32)
+ *     for zero-blank instant scrolling and jump-to-anywhere previews.
+ *   - Thumbnail atlas (ImageThumbnailAtlas): dynamic spatial-distance LRU atlas (default 256x256)
+ *     keeping the visible viewport and nearby prefetch halo sharp in VRAM.
+ *   - Preview cache (ImagePreviewCache): bounded VRAM LRU cache of individual 2D textures (default <=2048 px)
+ *     with active-item pinning for full-screen inspection and hover prefetch. */
+
+import Library.Array;
+import Library.BackgroundJobs;
+import Library.Bytes;
+import Library.FileSystem.FileSystem;
+import Library.FileSystem.MappedFile;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUTexture;
+import Library.Image.Pixels;
+import Library.Map;
+import Library.Math;
+import Library.Timer;
+import Library.Vector;
+
+enum ImageTileTier {
+	IMAGE_TILE_MICRO = 0,
+	IMAGE_TILE_THUMBNAIL = 1,
+	IMAGE_TILE_PREVIEW = 2
+};
+
+/* Data source contract decoupling ImageGrid/ImageGallery from domain-specific catalogs or disk formats. */
+interface IImageGridSource {
+	int itemCount();
+	float itemAspectRatio(int index);
+	bool itemDimmed(int index);
+	bool itemFlagged(int index);
+	Image decodeItem(int index, int maxEdge);
+	void onAspectRatioResolved(int index, float aspectRatio);
+}
+
+class ImageAtlasSlotCoords {
+	public int layer;
+	public int pixelX;
+	public int pixelY;
+
+	public ImageAtlasSlotCoords(int layer, int pixelX, int pixelY) {
+		self.layer = layer;
+		self.pixelX = pixelX;
+		self.pixelY = pixelY;
+	}
+}
+
+/* Spatial-distance-weighted LRU slot allocator for paged GPU texture_2d_array atlases.
+ * Keeps visible and pinned items resident and evicts the farthest off-screen unpinned slot first. */
+class ImageAtlasAllocator {
+	public int pageSize;
+	public int cellSize;
+	public int cellsPerRow;
+	public int cellsPerLayer;
+	public int layerCount;
+	public int totalSlots;
+	public int usedCount;
+
+	private Array<int> _slotItem;
+	private Array<unsigned long long> _slotLastTouch;
+	private Array<bool> _slotPinned;
+	private Map<int, int> _itemToSlot = {};
+	private unsigned long long _clock;
+
+	public ImageAtlasAllocator(int pageSize = 4096, int cellSize = 256, int layerCount = 4) {
+		self.pageSize = pageSize;
+		self.cellSize = cellSize;
+		self.cellsPerRow = pageSize / cellSize;
+		self.cellsPerLayer = self.cellsPerRow * self.cellsPerRow;
+		self.layerCount = layerCount;
+		self.totalSlots = self.cellsPerLayer * layerCount;
+		self.usedCount = 0;
+		self._clock = 1ULL;
+		Array<int> items = Array(self.totalSlots);
+		Array<unsigned long long> touches = Array(self.totalSlots);
+		Array<bool> pins = Array(self.totalSlots);
+		for (int i = 0; i < self.totalSlots; i++) {
+			items.set(i, -1);
+			touches.set(i, 0ULL);
+			pins.set(i, false);
+		}
+		self._slotItem = items;
+		self._slotLastTouch = touches;
+		self._slotPinned = pins;
+	}
+
+	public int lookupSlot(int itemIndex) {
+		if (self._itemToSlot.has(itemIndex)) {
+			return self._itemToSlot.get(itemIndex);
+		}
+		return -1;
+	}
+
+	public void touch(int itemIndex) {
+		int slot = self.lookupSlot(itemIndex);
+		if (slot >= 0) {
+			self._clock++;
+			self._slotLastTouch.set(slot, self._clock);
+		}
+	}
+
+	public void setPinned(int itemIndex, bool pinned) {
+		int slot = self.lookupSlot(itemIndex);
+		if (slot >= 0) {
+			self._slotPinned.set(slot, pinned);
+		}
+	}
+
+	public void releaseItem(int itemIndex) {
+		int slot = self.lookupSlot(itemIndex);
+		if (slot < 0) { return; }
+		self._itemToSlot.remove(itemIndex);
+		self._slotItem.set(slot, -1);
+		self._slotLastTouch.set(slot, 0ULL);
+		self._slotPinned.set(slot, false);
+		if (self.usedCount > 0) { self.usedCount--; }
+	}
+
+	public void clear() {
+		self._itemToSlot = {};
+		for (int i = 0; i < self.totalSlots; i++) {
+			self._slotItem.set(i, -1);
+			self._slotLastTouch.set(i, 0ULL);
+			self._slotPinned.set(i, false);
+		}
+		self.usedCount = 0;
+	}
+
+	public ImageAtlasSlotCoords coordsOf(int slot) {
+		int layer = slot / self.cellsPerLayer;
+		int rem = slot % self.cellsPerLayer;
+		int col = rem % self.cellsPerRow;
+		int row = rem / self.cellsPerRow;
+		return ImageAtlasSlotCoords(layer, col * self.cellSize, row * self.cellSize);
+	}
+
+	/* Acquire a slot for itemIndex. Evicts the farthest off-screen unpinned slot when full. */
+	public int acquire(int itemIndex, int viewportCenterIndex) {
+		int existing = self.lookupSlot(itemIndex);
+		if (existing >= 0) {
+			self._clock++;
+			self._slotLastTouch.set(existing, self._clock);
+			return existing;
+		}
+		int chosen = -1;
+		if (self.usedCount < self.totalSlots) {
+			for (int i = 0; i < self.totalSlots; i++) {
+				if (self._slotItem.get(i) < 0) {
+					chosen = i;
+					break;
+				}
+			}
+			self.usedCount++;
+		} else {
+			long long bestScore = -1LL;
+			for (int i = 0; i < self.totalSlots; i++) {
+				if (self._slotPinned.get(i)) { continue; }
+				int resident = self._slotItem.get(i);
+				long long dist = (long long)(resident - viewportCenterIndex);
+				if (dist < 0LL) { dist = -dist; }
+				long long age = (long long)(self._clock - self._slotLastTouch.get(i));
+				long long score = dist * 8LL + age;
+				if (score > bestScore) {
+					bestScore = score;
+					chosen = i;
+				}
+			}
+			if (chosen < 0) { chosen = 0; }
+			int evicted = self._slotItem.get(chosen);
+			if (evicted >= 0 && self._itemToSlot.has(evicted)) {
+				self._itemToSlot.remove(evicted);
+			}
+		}
+		self._clock++;
+		self._slotItem.set(chosen, itemIndex);
+		self._slotLastTouch.set(chosen, self._clock);
+		self._slotPinned.set(chosen, false);
+		self._itemToSlot.put(itemIndex, chosen);
+		return chosen;
+	}
+}
+
+/* Permanent whole-collection micro-thumbnail atlas (default 32x32 RGBA8 cells in 4096x4096 layers).
+ * One 4096x4096 layer holds 16,384 items; 4 layers hold 65,536 items permanently in VRAM. */
+class ImageMicroAtlas {
+	public int pageSize;
+	public int cellSize;
+	public int cellsPerRow;
+	public int cellsPerLayer;
+	public int layerCount;
+	public int totalSlots;
+	public GPUTexture texture;
+
+	public ImageMicroAtlas(GPUDevice device, int itemCapacity, int pageSize = 4096, int cellSize = 32) {
+		self.pageSize = pageSize;
+		self.cellSize = cellSize;
+		self.cellsPerRow = pageSize / cellSize;
+		self.cellsPerLayer = self.cellsPerRow * self.cellsPerRow;
+		int layers = (itemCapacity + self.cellsPerLayer - 1) / self.cellsPerLayer;
+		if (layers < 1) { layers = 1; }
+		self.layerCount = layers;
+		self.totalSlots = layers * self.cellsPerLayer;
+		self.texture = GPUTexture.createArray(device, pageSize, pageSize, layers, GPU_FORMAT_RGBA8_UNORM, true, true, true);
+	}
+
+	public int layerOf(int slot) { return slot / self.cellsPerLayer; }
+
+	public int pixelXOf(int slot) {
+		int rem = slot % self.cellsPerLayer;
+		return (rem % self.cellsPerRow) * self.cellSize;
+	}
+
+	public int pixelYOf(int slot) {
+		int rem = slot % self.cellsPerLayer;
+		return (rem / self.cellsPerRow) * self.cellSize;
+	}
+
+	public void uploadCell(int slot, Image tile) {
+		if (slot < 0 || slot >= self.totalSlots) { throw "ImageMicroAtlas slot out of bounds"; }
+		if (tile.width != self.cellSize || tile.height != self.cellSize) {
+			throw "ImageMicroAtlas.uploadCell expects tile matching cellSize";
+		}
+		self.texture.uploadImageRegion(tile, self.pixelXOf(slot), self.pixelYOf(slot), self.layerOf(slot));
+	}
+
+	public void uploadLayerBytes(int layer, Array<unsigned char> rgbaBytes) {
+		if (layer < 0 || layer >= self.layerCount) { throw "ImageMicroAtlas layer out of bounds"; }
+		int expected = self.pageSize * self.pageSize * 4;
+		if (rgbaBytes.length != expected) { throw "ImageMicroAtlas layer byte count mismatch"; }
+		self.texture.uploadBytes(rgbaBytes, self.pageSize * 4, layer);
+	}
+
+	/* Persist packed micro-atlas header and raw RGBA8 cell data for warm startup. */
+	class void saveCellPalette(string atlasPath, int count, int cellSize, Array<unsigned char> cellData) {
+		Bytes out = Bytes();
+		out.append((int)'L'); out.append((int)'O'); out.append((int)'D'); out.append((int)'0');
+		out.appendU32LE(1U);
+		out.appendU32LE((unsigned int)count);
+		out.appendU32LE((unsigned int)cellSize);
+		int byteLen = count * cellSize * cellSize * 4;
+		if (cellData.length < byteLen) { throw "ImageMicroAtlas cellData shorter than declared count"; }
+		Bytes raw = Bytes.zeros(byteLen);
+		for (int i = 0; i < byteLen; i++) {
+			raw.set(i, (int)cellData.get(i));
+		}
+		out.appendBytes(raw);
+		string tmp = atlasPath + ".tmp";
+		if (!FileSystem.writeBytes(tmp, out)) { throw f"Failed to write {tmp}"; }
+		if (FileSystem.rename(tmp, atlasPath) != 0) { throw f"Failed to commit {atlasPath}"; }
+	}
+
+	public int loadFromMappedFile(string atlasPath) {
+		MappedFile f = MappedFile.openReadOnly(atlasPath);
+		try {
+			if (f.size() < 16LL || !f.matchesAscii(0LL, "LOD0")) { throw "Invalid micro-atlas magic"; }
+			int count = (int)f.readU32LE(8LL);
+			int cs = (int)f.readU32LE(12LL);
+			if (cs != self.cellSize) { throw "ImageMicroAtlas cellSize mismatch"; }
+			int clamped = count < self.totalSlots ? count : self.totalSlots;
+			int cellBytes = cs * cs * 4;
+			long long dataBase = 16LL;
+			for (int layer = 0; layer < self.layerCount; layer++) {
+				int startSlot = layer * self.cellsPerLayer;
+				if (startSlot >= clamped) { break; }
+				int endSlot = startSlot + self.cellsPerLayer;
+				if (endSlot > clamped) { endSlot = clamped; }
+				Array<unsigned char> page = Array(self.pageSize * self.pageSize * 4);
+				int rowStride = self.pageSize * 4;
+				int tileRowBytes = cs * 4;
+				for (int slot = startSlot; slot < endSlot; slot++) {
+					int rem = slot - startSlot;
+					int cx = (rem % self.cellsPerRow) * cs;
+					int cy = (rem / self.cellsPerRow) * cs;
+					Bytes cell = f.sliceBytes(dataBase + (long long)slot * (long long)cellBytes, cellBytes);
+					for (int y = 0; y < cs; y++) {
+						int dstOff = (cy + y) * rowStride + cx * 4;
+						int srcOff = y * tileRowBytes;
+						for (int b = 0; b < tileRowBytes; b++) {
+							page.set(dstOff + b, (unsigned char)cell.get(srcOff + b));
+						}
+					}
+				}
+				self.uploadLayerBytes(layer, page);
+			}
+			return clamped;
+		} finally {
+			f.close();
+		}
+	}
+
+	public void close() {
+		if (self.texture != null && self.texture.isOpen()) { self.texture.close(); }
+	}
+}
+
+/* Dynamic LRU grid thumbnail atlas (default 256x256 RGBA8 cells in 4096x4096 layers). */
+class ImageThumbnailAtlas {
+	public int pageSize;
+	public int cellSize;
+	public int layerCount;
+	public GPUTexture texture;
+	public ImageAtlasAllocator allocator;
+
+	public ImageThumbnailAtlas(GPUDevice device, int layerCount = 4, int pageSize = 4096, int cellSize = 256) {
+		self.pageSize = pageSize;
+		self.cellSize = cellSize;
+		self.layerCount = layerCount;
+		self.allocator = ImageAtlasAllocator(pageSize, cellSize, layerCount);
+		self.texture = GPUTexture.createArray(device, pageSize, pageSize, layerCount, GPU_FORMAT_RGBA8_UNORM, true, true, true);
+	}
+
+	public int lookupSlot(int itemIndex) { return self.allocator.lookupSlot(itemIndex); }
+
+	public void touch(int itemIndex) { self.allocator.touch(itemIndex); }
+
+	public void setPinned(int itemIndex, bool pinned) { self.allocator.setPinned(itemIndex, pinned); }
+
+	public void releaseItem(int itemIndex) { self.allocator.releaseItem(itemIndex); }
+
+	public void clear() { self.allocator.clear(); }
+
+	public ImageAtlasSlotCoords coordsOf(int slot) { return self.allocator.coordsOf(slot); }
+
+	public int uploadTile(int itemIndex, Image tile, int viewportCenterIndex) {
+		if (tile.width != self.cellSize || tile.height != self.cellSize) {
+			throw "ImageThumbnailAtlas.uploadTile expects tile matching cellSize";
+		}
+		int slot = self.allocator.acquire(itemIndex, viewportCenterIndex);
+		ImageAtlasSlotCoords c = self.allocator.coordsOf(slot);
+		self.texture.uploadImageRegion(tile, c.pixelX, c.pixelY, c.layer);
+		return slot;
+	}
+
+	public void close() {
+		if (self.texture != null && self.texture.isOpen()) { self.texture.close(); }
+	}
+}
+
+class ImagePreviewEntry {
+	public int itemIndex;
+	public GPUTexture texture;
+	public unsigned long long lastUsedTick;
+	public bool pinned;
+
+	public ImagePreviewEntry(int itemIndex, GPUTexture texture, unsigned long long tick, bool pinned) {
+		self.itemIndex = itemIndex;
+		self.texture = texture;
+		self.lastUsedTick = tick;
+		self.pinned = pinned;
+	}
+}
+
+/* Bounded VRAM LRU cache for high-resolution viewer previews (<= 2048 px) with active-item pinning. */
+class ImagePreviewCache {
+	private GPUDevice _device;
+	public int capacity;
+	private Vector<ImagePreviewEntry> _entries = [];
+	private unsigned long long _tick;
+	private int _activeItem;
+	private int _hoverItem;
+	private int _mouseDownItem;
+
+	public ImagePreviewCache(GPUDevice device, int capacity = 16) {
+		self._device = device;
+		self.capacity = capacity < 2 ? 2 : capacity;
+		self._tick = 1ULL;
+		self._activeItem = -1;
+		self._hoverItem = -1;
+		self._mouseDownItem = -1;
+	}
+
+	public int count() { return self._entries.length; }
+
+	public int activeItem() { return self._activeItem; }
+
+	public void noteHover(int itemIndex) { self._hoverItem = itemIndex; }
+
+	public void noteMouseDown(int itemIndex) { self._mouseDownItem = itemIndex; }
+
+	public int hoverItem() { return self._hoverItem; }
+
+	public int mouseDownItem() { return self._mouseDownItem; }
+
+	public void setActiveItem(int itemIndex) {
+		self._activeItem = itemIndex;
+		for (int i = 0; i < self._entries.length; i++) {
+			var e = self._entries.get(i);
+			bool isAct = (e.itemIndex == itemIndex);
+			e.pinned = isAct;
+			if (isAct) {
+				self._tick++;
+				e.lastUsedTick = self._tick;
+			}
+		}
+	}
+
+	public bool has(int itemIndex) {
+		for (int i = 0; i < self._entries.length; i++) {
+			if (self._entries.get(i).itemIndex == itemIndex) { return true; }
+		}
+		return false;
+	}
+
+	public GPUTexture? getTexture(int itemIndex) {
+		for (int i = 0; i < self._entries.length; i++) {
+			var e = self._entries.get(i);
+			if (e.itemIndex == itemIndex) {
+				self._tick++;
+				e.lastUsedTick = self._tick;
+				return e.texture;
+			}
+		}
+		return null;
+	}
+
+	public void evictItem(int itemIndex) {
+		for (int i = 0; i < self._entries.length; i++) {
+			if (self._entries.get(i).itemIndex == itemIndex) {
+				self._entries.get(i).texture.close();
+				self._entries.remove(i);
+				return;
+			}
+		}
+	}
+
+	public GPUTexture uploadImage(int itemIndex, Image img) {
+		bool shouldPin = (itemIndex == self._activeItem);
+		for (int i = 0; i < self._entries.length; i++) {
+			var e = self._entries.get(i);
+			if (e.itemIndex == itemIndex) {
+				if (e.texture.width() == img.width && e.texture.height() == img.height) {
+					e.texture.uploadImage(img, 0);
+					self._tick++;
+					e.lastUsedTick = self._tick;
+					e.pinned = shouldPin;
+					return e.texture;
+				}
+				e.texture.close();
+				self._entries.remove(i);
+				break;
+			}
+		}
+		if (self._entries.length >= self.capacity) {
+			int victimIdx = -1;
+			unsigned long long oldest = 0xFFFFFFFFFFFFFFFFULL;
+			for (int i = 0; i < self._entries.length; i++) {
+				var e = self._entries.get(i);
+				if (e.pinned || e.itemIndex == self._activeItem) { continue; }
+				if (e.lastUsedTick < oldest) {
+					oldest = e.lastUsedTick;
+					victimIdx = i;
+				}
+			}
+			if (victimIdx < 0) { victimIdx = 0; }
+			self._entries.get(victimIdx).texture.close();
+			self._entries.remove(victimIdx);
+		}
+		GPUTexture tex = GPUTexture.create2D(self._device, img.width, img.height, GPU_FORMAT_RGBA8_UNORM, false, false, true, true);
+		tex.uploadImage(img, 0);
+		self._tick++;
+		self._entries.push(ImagePreviewEntry(itemIndex, tex, self._tick, shouldPin));
+		return tex;
+	}
+
+	public void clear() {
+		for (int i = 0; i < self._entries.length; i++) {
+			self._entries.get(i).texture.close();
+		}
+		self._entries = [];
+	}
+
+	public void close() { self.clear(); }
+}
+
+class ImageTileRequest {
+	public int itemIndex;
+	public int lane; /* 0=Preview, 1=Visible Thumbnail, 2=Prefetch Thumbnail, 3=Micro Backfill */
+	public int targetSize;
+	public unsigned long long generation;
+
+	public ImageTileRequest(int itemIndex, int lane, int targetSize, unsigned long long generation) {
+		self.itemIndex = itemIndex;
+		self.lane = lane;
+		self.targetSize = targetSize;
+		self.generation = generation;
+	}
+}
+
+class ImageTileWork extends BackgroundJobWork {
+	public IImageGridSource source;
+	public int itemIndex;
+	public int lane;
+	public int targetSize;
+	public int microSize;
+	public unsigned long long generation;
+	public Image? decoded;
+	public Image? decodedMicro;
+	public float decodedAspect;
+	public bool succeeded;
+
+	public ImageTileWork(IImageGridSource source, int itemIndex, int lane, int targetSize, int microSize, unsigned long long generation) {
+		self.source = source;
+		self.itemIndex = itemIndex;
+		self.lane = lane;
+		self.targetSize = targetSize;
+		self.microSize = microSize;
+		self.generation = generation;
+		self.decoded = null;
+		self.decodedMicro = null;
+		self.decodedAspect = 0.0f;
+		self.succeeded = false;
+	}
+}
+
+/* 4-lane priority image streamer with scroll-generation cancellation and frame-budgeted GPU uploads.
+ *
+ * Lanes:
+ *   0 = Active viewer & hover high-res previews (ImagePreviewCache)
+ *   1 = Visible viewport grid thumbnails (ImageThumbnailAtlas + ImageMicroAtlas)
+ *   2 = Viewport prefetch halo thumbnails
+ *   3 = Whole-collection micro-thumbnail backfill (ImageMicroAtlas) */
+class ImageTileStreamer {
+	private IImageGridSource _source;
+	private ImageMicroAtlas _microAtlas;
+	private ImageThumbnailAtlas _thumbnailAtlas;
+	private ImagePreviewCache _previewCache;
+	private BackgroundJobExecutor _executor;
+	private unsigned long long _scrollGeneration;
+	private int _viewportCenterIndex;
+	private int _maxInFlight;
+	private Vector<ImageTileRequest> _lane0 = [];
+	private Vector<ImageTileRequest> _lane1 = [];
+	private Vector<ImageTileRequest> _lane2 = [];
+	private Vector<ImageTileRequest> _lane3 = [];
+	private Map<long long, bool> _queuedKeys = {};
+	private Map<long long, bool> _inFlightKeys = {};
+	private Vector<ImageTileWork> _readyPreviewUploads = [];
+	private Vector<ImageTileWork> _readyTileUploads = [];
+
+	public int totalSubmitted;
+	public int totalUploaded;
+	public int totalDroppedStale;
+	public int totalCancelledGenerations;
+	public bool aspectRatiosUpdated;
+
+	public ImageTileStreamer(
+		IImageGridSource source,
+		ImageMicroAtlas microAtlas,
+		ImageThumbnailAtlas thumbnailAtlas,
+		ImagePreviewCache previewCache,
+		int workerCount = 4,
+		int maxInFlight = 24
+	) {
+		self._source = source;
+		self._microAtlas = microAtlas;
+		self._thumbnailAtlas = thumbnailAtlas;
+		self._previewCache = previewCache;
+		/* Generation 1 is reserved for non-cancellable active viewer previews and micro backfill. */
+		self._scrollGeneration = 2ULL;
+		self._viewportCenterIndex = 0;
+		self._maxInFlight = maxInFlight < 4 ? 4 : maxInFlight;
+		self.totalSubmitted = 0;
+		self.totalUploaded = 0;
+		self.totalDroppedStale = 0;
+		self.totalCancelledGenerations = 0;
+		self.aspectRatiosUpdated = false;
+
+		int workers = workerCount < 1 ? 1 : (workerCount > 8 ? 8 : workerCount);
+		var opened = BackgroundJobExecutor.open(workers, self._maxInFlight * 4);
+		if (opened.kind != BACKGROUND_JOBS_OPENED || opened.executor == null) {
+			throw f"ImageTileStreamer failed to open worker pool: {opened.error}";
+		}
+		self._executor = opened.executor;
+	}
+
+	class long long requestKey(int itemIndex, int lane) {
+		int tier = lane == 0 ? 2 : (lane == 3 ? 0 : 1);
+		return ((long long)itemIndex << 4) | (long long)tier;
+	}
+
+	class BackgroundJobCompletionKind workerDecode(BackgroundJobWork rawWork, BackgroundJobCancellation cancel) {
+		if (cancel.requested()) { return BACKGROUND_JOB_CANCELLED; }
+		ImageTileWork job = (ImageTileWork)rawWork;
+		try {
+			if (job.lane == 0) {
+				Image img = job.source.decodeItem(job.itemIndex, job.targetSize);
+				if (img.isEmpty()) { return BACKGROUND_JOB_FAILED; }
+				job.decoded = img;
+				if (img.height > 0) { job.decodedAspect = (float)img.width / (float)img.height; }
+			} else {
+				int decodeEdge = job.targetSize < 64 ? 64 : job.targetSize;
+				Image raw = job.source.decodeItem(job.itemIndex, decodeEdge);
+				if (raw.isEmpty()) { return BACKGROUND_JOB_FAILED; }
+				if (raw.height > 0) { job.decodedAspect = (float)raw.width / (float)raw.height; }
+				/* Full-cell bilinear packing avoids atlas padding artifacts and gives max sharpness. */
+				job.decoded = raw.scaled(job.targetSize, job.targetSize);
+				if ((job.lane == 1 || job.lane == 2) && job.microSize > 0 && job.microSize < job.targetSize) {
+					job.decodedMicro = raw.scaled(job.microSize, job.microSize);
+				}
+			}
+			if (cancel.requested()) {
+				job.decoded = null;
+				job.decodedMicro = null;
+				return BACKGROUND_JOB_CANCELLED;
+			}
+			job.succeeded = true;
+			return BACKGROUND_JOB_COMPLETED;
+		} catch (string err) {
+			job.succeeded = false;
+			return BACKGROUND_JOB_FAILED;
+		}
+	}
+
+	public unsigned long long scrollGeneration() { return self._scrollGeneration; }
+
+	public void beginViewportJump(int newCenterIndex) {
+		unsigned long long prevGen = self._scrollGeneration;
+		self._scrollGeneration++;
+		self._viewportCenterIndex = newCenterIndex;
+		for (int i = 0; i < self._lane1.length; i++) {
+			long long k = ImageTileStreamer.requestKey(self._lane1.get(i).itemIndex, 1);
+			if (self._queuedKeys.has(k)) { self._queuedKeys.remove(k); }
+		}
+		for (int i = 0; i < self._lane2.length; i++) {
+			long long k = ImageTileStreamer.requestKey(self._lane2.get(i).itemIndex, 2);
+			if (self._queuedKeys.has(k)) { self._queuedKeys.remove(k); }
+		}
+		self._lane1 = [];
+		self._lane2 = [];
+		self._executor.cancelGeneration(BackgroundJobGeneration(prevGen));
+		self.totalCancelledGenerations++;
+	}
+
+	public void requestPreview(int itemIndex, int maxEdge = 2048) {
+		if (itemIndex < 0 || itemIndex >= self._source.itemCount()) { return; }
+		if (self._previewCache.has(itemIndex)) { return; }
+		long long key = ImageTileStreamer.requestKey(itemIndex, 0);
+		if (self._inFlightKeys.has(key) || self._queuedKeys.has(key)) { return; }
+		self._queuedKeys.put(key, true);
+		self._lane0.push(ImageTileRequest(itemIndex, 0, maxEdge, 1ULL));
+	}
+
+	public void requestActivePreview(int itemIndex, int maxEdge = 2048) {
+		if (itemIndex < 0 || itemIndex >= self._source.itemCount()) { return; }
+		if (self._previewCache.has(itemIndex)) { return; }
+		long long key = ImageTileStreamer.requestKey(itemIndex, 0);
+		if (self._inFlightKeys.has(key)) { return; }
+		if (self._queuedKeys.has(key)) {
+			if (self._lane0.length > 0 && self._lane0.get(self._lane0.length - 1).itemIndex == itemIndex) {
+				return;
+			}
+		}
+		self._queuedKeys.put(key, true);
+		self._lane0.push(ImageTileRequest(itemIndex, 0, maxEdge, 1ULL));
+	}
+
+	public void requestThumbnail(int itemIndex, bool isVisible) {
+		if (itemIndex < 0 || itemIndex >= self._source.itemCount()) { return; }
+		if (self._thumbnailAtlas.lookupSlot(itemIndex) >= 0) {
+			self._thumbnailAtlas.touch(itemIndex);
+			return;
+		}
+		int lane = isVisible ? 1 : 2;
+		long long key = ImageTileStreamer.requestKey(itemIndex, lane);
+		if (self._inFlightKeys.has(key) || self._queuedKeys.has(key)) { return; }
+		self._queuedKeys.put(key, true);
+		var req = ImageTileRequest(itemIndex, lane, self._thumbnailAtlas.cellSize, self._scrollGeneration);
+		if (isVisible) { self._lane1.push(req); }
+		else { self._lane2.push(req); }
+	}
+
+	public void requestMicro(int itemIndex) {
+		if (itemIndex < 0 || itemIndex >= self._source.itemCount()) { return; }
+		long long key = ImageTileStreamer.requestKey(itemIndex, 3);
+		if (self._inFlightKeys.has(key) || self._queuedKeys.has(key)) { return; }
+		self._queuedKeys.put(key, true);
+		self._lane3.push(ImageTileRequest(itemIndex, 3, self._microAtlas.cellSize, 1ULL));
+	}
+
+	private void pushBackRequest(ImageTileRequest req) {
+		long long key = ImageTileStreamer.requestKey(req.itemIndex, req.lane);
+		self._queuedKeys.put(key, true);
+		if (req.lane == 0) { self._lane0.push(req); }
+		else if (req.lane == 1) { self._lane1.push(req); }
+		else if (req.lane == 2) { self._lane2.push(req); }
+		else { self._lane3.push(req); }
+	}
+
+	private ImageTileRequest? popBackgroundRequest() {
+		if (self._lane1.length > 0) { return self._lane1.pop(); }
+		if (self._lane2.length > 0) { return self._lane2.pop(); }
+		if (self._lane3.length > 0) { return self._lane3.pop(); }
+		return null;
+	}
+
+	private int trySubmitRequest(ImageTileRequest req) {
+		long long key = ImageTileStreamer.requestKey(req.itemIndex, req.lane);
+		if (self._queuedKeys.has(key)) { self._queuedKeys.remove(key); }
+		if ((req.lane == 1 || req.lane == 2) && req.generation != self._scrollGeneration) {
+			self.totalDroppedStale++;
+			return 0;
+		}
+		if (req.lane == 0 && self._previewCache.has(req.itemIndex)) { return 0; }
+		if ((req.lane == 1 || req.lane == 2) && self._thumbnailAtlas.lookupSlot(req.itemIndex) >= 0) { return 0; }
+		if (self._inFlightKeys.has(key)) { return 0; }
+
+		var work = ImageTileWork(self._source, req.itemIndex, req.lane, req.targetSize, self._microAtlas.cellSize, req.generation);
+		var sub = self._executor.submit(BackgroundJobGeneration(req.generation), work, ImageTileStreamer.workerDecode);
+		if (sub.kind == BACKGROUND_JOB_SUBMITTED) {
+			self._inFlightKeys.put(key, true);
+			self.totalSubmitted++;
+			return 1;
+		}
+		self.pushBackRequest(req);
+		return -1;
+	}
+
+	public int pumpDispatch() {
+		int launched = 0;
+		int previewCap = self._maxInFlight + 4;
+		while (self._lane0.length > 0 && self._executor.outstanding() < previewCap) {
+			ImageTileRequest req = self._lane0.pop();
+			int res = self.trySubmitRequest(req);
+			if (res < 0) { break; }
+			launched += res;
+		}
+		while (self._executor.outstanding() < self._maxInFlight) {
+			ImageTileRequest? next = self.popBackgroundRequest();
+			if (next == null) { break; }
+			int res = self.trySubmitRequest(next);
+			if (res < 0) { break; }
+			launched += res;
+		}
+		return launched;
+	}
+
+	public int drainUploads(float budgetMs = 1.5f, bool allowHoverPreviews = true) {
+		Timer frameClock = Timer();
+		frameClock.start();
+		self.aspectRatiosUpdated = false;
+		int totalItems = self._source.itemCount();
+
+		for (;;) {
+			var polled = self._executor.poll();
+			var comp = polled.completion;
+			if (polled.kind != BACKGROUND_JOB_POLL_READY || comp == null) { break; }
+			ImageTileWork done = (ImageTileWork)comp.work();
+			long long key = ImageTileStreamer.requestKey(done.itemIndex, done.lane);
+			if (self._inFlightKeys.has(key)) { self._inFlightKeys.remove(key); }
+			if (comp.kind != BACKGROUND_JOB_COMPLETED || !done.succeeded || done.decoded == null) {
+				if (comp.kind == BACKGROUND_JOB_CANCELLED) { self.totalDroppedStale++; }
+				continue;
+			}
+			if (done.decodedAspect > 0.05f && done.itemIndex >= 0 && done.itemIndex < totalItems) {
+				float curAr = self._source.itemAspectRatio(done.itemIndex);
+				if (Math.fabs(curAr - done.decodedAspect) > 0.005f) {
+					self._source.onAspectRatioResolved(done.itemIndex, done.decodedAspect);
+					self.aspectRatiosUpdated = true;
+				}
+			}
+			if ((done.lane == 1 || done.lane == 2) && done.generation != self._scrollGeneration) {
+				self.totalDroppedStale++;
+				continue;
+			}
+			if (done.lane == 0) {
+				self._readyPreviewUploads.push(done);
+			} else {
+				self._readyTileUploads.push(done);
+			}
+		}
+
+		/* 1. Upload active viewer preview first, then speculative hover previews if allowed. */
+		int uploaded = 0;
+		int activeIdx = self._previewCache.activeItem();
+		if (activeIdx >= 0) {
+			for (int i = self._readyPreviewUploads.length - 1; i >= 0; i--) {
+				var cand = self._readyPreviewUploads.get(i);
+				if (cand.itemIndex == activeIdx) {
+					self._readyPreviewUploads.remove(i);
+					Image? activeImg = cand.decoded;
+					if (activeImg != null) {
+						self._previewCache.uploadImage(cand.itemIndex, activeImg);
+						uploaded++;
+						self.totalUploaded++;
+					}
+					break;
+				}
+			}
+		}
+		if (allowHoverPreviews) {
+			while (self._readyPreviewUploads.length > 0) {
+				if (uploaded > 0 && frameClock.elapsedMillis() >= budgetMs) { break; }
+				ImageTileWork item = self._readyPreviewUploads.pop();
+				Image? decodedOpt = item.decoded;
+				if (decodedOpt == null) { continue; }
+				self._previewCache.uploadImage(item.itemIndex, decodedOpt);
+				uploaded++;
+				self.totalUploaded++;
+			}
+		}
+
+		/* 2. Upload thumbnails and micro cells within frame upload budget. */
+		while (self._readyTileUploads.length > 0) {
+			if (uploaded > 0 && frameClock.elapsedMillis() >= budgetMs) { break; }
+			ImageTileWork item = self._readyTileUploads.pop();
+			if ((item.lane == 1 || item.lane == 2) && item.generation != self._scrollGeneration) {
+				self.totalDroppedStale++;
+				continue;
+			}
+			Image? decodedOpt = item.decoded;
+			if (decodedOpt == null) { continue; }
+			Image decodedImg = decodedOpt;
+			if (item.lane == 3) {
+				if (item.itemIndex >= 0 && item.itemIndex < self._microAtlas.totalSlots) {
+					self._microAtlas.uploadCell(item.itemIndex, decodedImg);
+				}
+			} else {
+				self._thumbnailAtlas.uploadTile(item.itemIndex, decodedImg, self._viewportCenterIndex);
+				Image? microOpt = item.decodedMicro;
+				if (microOpt != null && item.itemIndex >= 0 && item.itemIndex < self._microAtlas.totalSlots) {
+					self._microAtlas.uploadCell(item.itemIndex, microOpt);
+				}
+			}
+			uploaded++;
+			self.totalUploaded++;
+		}
+		return uploaded;
+	}
+
+	public int outstanding() { return self._executor.outstanding(); }
+
+	public int pendingUploadCount() { return self._readyPreviewUploads.length + self._readyTileUploads.length; }
+
+	public void resetQueues() {
+		self._scrollGeneration++;
+		self._lane0 = [];
+		self._lane1 = [];
+		self._lane2 = [];
+		self._lane3 = [];
+		self._queuedKeys = {};
+		self._readyPreviewUploads = [];
+		self._readyTileUploads = [];
+		self._executor.cancelGeneration(BackgroundJobGeneration(self._scrollGeneration - 1ULL));
+	}
+
+	public void close() {
+		self._lane0 = [];
+		self._lane1 = [];
+		self._lane2 = [];
+		self._lane3 = [];
+		self._queuedKeys = {};
+		self._inFlightKeys = {};
+		self._readyPreviewUploads = [];
+		self._readyTileUploads = [];
+		self._executor.close(BACKGROUND_JOBS_CANCEL_PENDING);
+	}
+}

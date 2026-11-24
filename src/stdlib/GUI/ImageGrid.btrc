@@ -1,0 +1,1126 @@
+/* Cross-platform 1-draw-call WebGPU image grid and multi-panel viewer renderer.
+ *
+ * Supports dynamic runtime switching between:
+ *   - IMAGE_GRID_JUSTIFIED: horizontal justified rows with constant outer border and exact photo aspect ratios.
+ *   - IMAGE_GRID_MASONRY:   vertical columns with constant outer border and exact photo aspect ratios.
+ *   - IMAGE_GRID_FIXED:     uniform cells with configurable cellAspect (Square 1.0, 3:2, 4:3, portrait, etc.).
+ *
+ * Content fit (IMAGE_FIT_COVER default center-fill, or IMAGE_FIT_CONTAIN) and tile shape
+ * (IMAGE_SHAPE_RECT with cornerRadius, IMAGE_SHAPE_SQUIRCLE, IMAGE_SHAPE_CIRCLE, IMAGE_SHAPE_CAPSULE)
+ * evaluate in the single instanced fragment shader with zero texture re-uploads or re-decoding. */
+
+import Library.Array;
+import Library.GPU.GPUCommandBatch;
+import Library.GPU.GPUComputeProgram;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUProgram;
+import Library.GPU.GPUStorageBuffer;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUTexture;
+import Library.GPU.GPUUniformBuffer;
+import Library.GPU.WebGPU;
+import Library.GUI.ImageTileCache;
+import Library.GUI.MediaPagerInteraction;
+import Library.Math;
+import Library.Vector;
+
+enum ImageGridLayout {
+	IMAGE_GRID_JUSTIFIED = 0,
+	IMAGE_GRID_MASONRY = 1,
+	IMAGE_GRID_FIXED = 2
+};
+
+enum ImageGridFit {
+	IMAGE_FIT_COVER = 0,
+	IMAGE_FIT_CONTAIN = 1
+};
+
+enum ImageGridShape {
+	IMAGE_SHAPE_RECT = 0,
+	IMAGE_SHAPE_SQUIRCLE = 1,
+	IMAGE_SHAPE_CIRCLE = 2,
+	IMAGE_SHAPE_CAPSULE = 3
+};
+
+class ImageGridOptions {
+	public ImageGridLayout layout = IMAGE_GRID_JUSTIFIED;
+	public ImageGridFit fit = IMAGE_FIT_COVER;
+	public ImageGridShape shape = IMAGE_SHAPE_RECT;
+	public float cellAspect = 1.0f;         /* Width / height for IMAGE_GRID_FIXED (1.0 = square, 1.5 = 3:2, 1.333 = 4:3). */
+	public float targetTileSize = 180.0f;   /* Logical pt: target row height (Justified) or column width (Masonry/Fixed). */
+	public float gap = 6.0f;                /* Logical pt: constant outer margin and inter-tile gap. */
+	public float cornerRadius = 5.0f;       /* Logical pt: corner radius for IMAGE_SHAPE_RECT. */
+	public int microTileSize = 32;
+	public int thumbnailTileSize = 256;
+	public int thumbnailAtlasLayers = 4;
+	public int previewCacheCapacity = 16;
+	public int previewMaxEdge = 2048;
+	public int workerCount = 4;
+	public int maxVisibleTiles = 1024;
+	public float bgRed = 0.08f;
+	public float bgGreen = 0.08f;
+	public float bgBlue = 0.09f;
+
+	public ImageGridOptions() {}
+}
+
+class ImageGridTileRect {
+	public int itemIndex;
+	public float x;
+	public float y;
+	public float width;
+	public float height;
+
+	public ImageGridTileRect(int itemIndex, float x, float y, float width, float height) {
+		self.itemIndex = itemIndex;
+		self.x = x;
+		self.y = y;
+		self.width = width;
+		self.height = height;
+	}
+}
+
+class ImageGrid {
+	private GPUDevice _device;
+	private WGPUTextureFormat _nativeFormat;
+	private GPUProgram _gridProgram;
+	private GPUProgram _previewProgram;
+	private GPUUniformBuffer _gridUniforms;
+	private GPUStorageBuffer _instanceBuffer;
+
+	/* Separate buffers for multi-panel viewer draws so same-pass grid, backdrop, and 3 panels never collide. */
+	private GPUUniformBuffer _backdropUniforms;
+	private GPUUniformBuffer _previewUniformsPrev;
+	private GPUUniformBuffer _previewUniforms;
+	private GPUUniformBuffer _previewUniformsNext;
+	private GPUUniformBuffer _viewerGridUniforms;
+	private GPUStorageBuffer _viewerFallbackBuffer;
+	private GPUTexture _backdropDummyTex;
+
+	private int _maxVisibleInstances;
+	private Array<float> _stagingFloats;
+
+	/* Cached document-space layout columns (rebuilt only on resize, zoom, style change, or source update). */
+	private Array<float> _docX;
+	private Array<float> _docY;
+	private Array<float> _docW;
+	private Array<float> _docH;
+	private int _docCount = 0;
+	private float _docTotalH = 0.0f;
+	private float _docMaxTileH = 200.0f;
+	private int _docCols = 1;
+	private float _cacheViewportW = -1.0f;
+	private float _cacheTargetTileSize = -1.0f;
+	private float _cacheGap = -1.0f;
+	private float _cacheCellAspect = -1.0f;
+	private int _cacheOrderLen = -1;
+	private ImageGridLayout _cacheLayout = IMAGE_GRID_JUSTIFIED;
+	private bool _layoutDirty = true;
+
+	/* Runtime-mutable layout and styling properties (pixel units for GPU rendering). */
+	public ImageGridLayout layout = IMAGE_GRID_JUSTIFIED;
+	public ImageGridFit fit = IMAGE_FIT_COVER;
+	public ImageGridShape shape = IMAGE_SHAPE_RECT;
+	public float cellAspect = 1.0f;
+	public float scrollY = 0.0f;
+	public float targetTileSize = 180.0f;
+	public float gap = 6.0f;
+	public float cornerRadiusPx = 5.0f;
+	public float bgRed = 0.08f;
+	public float bgGreen = 0.08f;
+	public float bgBlue = 0.09f;
+	public int selectedItemIndex = -1;
+	public int hoveredItemIndex = -1;
+
+	/* Screen-space rects of tiles drawn in the last frame (for O(visible) hit-testing). */
+	public Vector<ImageGridTileRect> lastVisibleRects = [];
+
+	class ImageGrid createForFormat(GPUDevice device, GPUTextureFormat targetFormat, int maxVisibleInstances = 2048) {
+		return ImageGrid(device, GPUTexture.toNativeFormat(targetFormat), maxVisibleInstances);
+	}
+
+	class ImageGrid createForSurface(GPUSurfaceRenderer surface, int maxVisibleInstances = 2048) {
+		return ImageGrid(surface.device(), surface.nativeFormat(), maxVisibleInstances);
+	}
+
+	public ImageGrid(GPUDevice device, WGPUTextureFormat nativeFormat, int maxVisibleInstances = 2048) {
+		self._device = device;
+		self._nativeFormat = nativeFormat;
+		self._maxVisibleInstances = maxVisibleInstances < 64 ? 64 : maxVisibleInstances;
+
+		Array<float> empty0 = Array(1); self._docX = empty0;
+		Array<float> empty1 = Array(1); self._docY = empty1;
+		Array<float> empty2 = Array(1); self._docW = empty2;
+		Array<float> empty3 = Array(1); self._docH = empty3;
+
+		/* 12 floats (48 bytes) per visible tile instance. */
+		Array<float> stage = Array(self._maxVisibleInstances * 12);
+		self._stagingFloats = stage;
+		self._instanceBuffer = GPUStorageBuffer.create(device, self._maxVisibleInstances * 48, false, false);
+		self._gridUniforms = GPUUniformBuffer(device, 16);
+
+		self._backdropUniforms = GPUUniformBuffer(device, 12);
+		self._previewUniformsPrev = GPUUniformBuffer(device, 12);
+		self._previewUniforms = GPUUniformBuffer(device, 12);
+		self._previewUniformsNext = GPUUniformBuffer(device, 12);
+		self._viewerGridUniforms = GPUUniformBuffer(device, 16);
+		self._viewerFallbackBuffer = GPUStorageBuffer.create(device, 4 * 48, false, false);
+		self._backdropDummyTex = GPUTexture.create2D(device, 1, 1, GPU_FORMAT_RGBA8_UNORM, false, false, true, true);
+
+		GPUBindLayout gridLayout = GPUBindLayout()
+			.addUniform(0, GPU_STAGE_VERTEX_FRAGMENT)
+			.addStorageRead(1, GPU_STAGE_VERTEX_FRAGMENT)
+			.addTexture2DArray(2, GPU_STAGE_FRAGMENT)
+			.addTexture2DArray(3, GPU_STAGE_FRAGMENT)
+			.addSampler(4, GPU_STAGE_FRAGMENT);
+
+		string gridWGSLPart1 = """
+struct GridParams {
+    viewport: vec4f,      // (width, height, microPageSize, microCellSize)
+    thumbInfo: vec4f,     // (thumbPageSize, thumbCellSize, microCellsPerRow, thumbCellsPerRow)
+    atlasMeta: vec4f,     // (microCellsPerLayer, thumbCellsPerLayer, fitMode, shapeMode)
+    styleMeta: vec4f,     // (cornerRadiusPx, bgR, bgG, bgB)
+};
+
+struct TileInstance {
+    rectPx: vec4f,        // (x, y, w, h) in viewport pixels (top-down)
+    slots: vec4f,         // (microSlot, thumbSlot, selectedFlag, stateFlags)
+    extra: vec4f,         // (reserved0, reserved1, hoveredFlag, photoAspect)
+};
+
+@group(0) @binding(0) var<uniform> params: GridParams;
+@group(0) @binding(1) var<storage, read> tiles: array<TileInstance>;
+@group(0) @binding(2) var microAtlas: texture_2d_array<f32>;
+@group(0) @binding(3) var thumbAtlas: texture_2d_array<f32>;
+@group(0) @binding(4) var atlasSampler: sampler;
+
+struct VSOut {
+    @builtin(position) pos: vec4f,
+    @location(0) localUV: vec2f,
+    @location(1) @interpolate(flat) instanceIdx: u32,
+};
+
+@vertex fn vs_main(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -> VSOut {
+    var quad = array<vec2f, 6>(
+        vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
+        vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0)
+    );
+    let uv = quad[vid];
+    let t = tiles[iid];
+    let px = t.rectPx.xy + uv * t.rectPx.zw;
+    let ndcX = (px.x / params.viewport.x) * 2.0 - 1.0;
+    let ndcY = 1.0 - (px.y / params.viewport.y) * 2.0;
+    var out: VSOut;
+    out.pos = vec4f(ndcX, ndcY, 0.0, 1.0);
+    out.localUV = uv;
+    out.instanceIdx = iid;
+    return out;
+}
+""";
+		string gridWGSLPart2 = """
+fn tileShapeSDF(localUV: vec2f, sizePx: vec2f, shapeMode: f32, cornerRadiusPx: f32) -> f32 {
+    let halfSize = max(sizePx * 0.5, vec2f(0.5, 0.5));
+    let p = (localUV - vec2f(0.5, 0.5)) * sizePx;
+    if (shapeMode > 1.5 && shapeMode < 2.5) {
+        // Circle inscribed in tile rect.
+        let r = min(halfSize.x, halfSize.y);
+        return length(p) - r;
+    }
+    if (shapeMode > 0.5 && shapeMode < 1.5) {
+        // Continuous squircle (n = 4 superellipse) with pixel-space gradient normalization.
+        let ap = abs(p);
+        let nx = ap.x / halfSize.x;
+        let ny = ap.y / halfSize.y;
+        let f = nx * nx * nx * nx + ny * ny * ny * ny - 1.0;
+        let gx = 4.0 * nx * nx * nx / halfSize.x;
+        let gy = 4.0 * ny * ny * ny / halfSize.y;
+        let g = max(sqrt(gx * gx + gy * gy), 0.0001);
+        return f / g;
+    }
+    var r = min(cornerRadiusPx, min(halfSize.x, halfSize.y));
+    if (shapeMode > 2.5) {
+        // Capsule / pill.
+        r = min(halfSize.x, halfSize.y);
+    }
+    let q = abs(p) - (halfSize - vec2f(r, r));
+    return length(max(q, vec2f(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
+}
+
+fn sampleAtlasCell(
+    atlas: texture_2d_array<f32>,
+    slotF: f32,
+    pageSize: f32,
+    cellSize: f32,
+    cellsPerRow: f32,
+    cellsPerLayer: f32,
+    uvIn: vec2f
+) -> vec4f {
+    let slot = i32(slotF);
+    let cpl = i32(cellsPerLayer);
+    let cpr = i32(cellsPerRow);
+    let layer = slot / cpl;
+    let rem = slot - layer * cpl;
+    let cx = rem % cpr;
+    let cy = rem / cpr;
+    let cellSpan = cellSize / pageSize;
+    let halfTexel = 0.5 / pageSize;
+    let innerSpan = max(0.0, cellSpan - 2.0 * halfTexel);
+    let baseUV = vec2f(f32(cx) * cellSpan, f32(cy) * cellSpan);
+    let uv = baseUV + vec2f(halfTexel + clamp(uvIn.x, 0.0, 1.0) * innerSpan, halfTexel + clamp(uvIn.y, 0.0, 1.0) * innerSpan);
+    return textureSampleLevel(atlas, atlasSampler, uv, layer, 0.0);
+}
+""";
+		string gridWGSLPart3 = """
+@fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
+    let t = tiles[in.instanceIdx];
+    let sdf = tileShapeSDF(in.localUV, t.rectPx.zw, params.atlasMeta.w, params.styleMeta.x);
+    let needsAA = params.atlasMeta.w > 0.5 || params.styleMeta.x > 0.25;
+    let edgeAlpha = select(1.0, 1.0 - smoothstep(-0.75, 0.75, sdf), needsAA);
+    if (edgeAlpha <= 0.002) { discard; }
+
+    let photoAspect = select(1.5, clamp(t.extra.w, 0.2, 5.0), t.extra.w > 0.05);
+    let tileAspect = t.rectPx.z / max(t.rectPx.w, 1.0);
+    let rel = photoAspect / max(tileAspect, 0.05);
+    var sampleUV = in.localUV;
+    var inBounds = true;
+
+    if (params.atlasMeta.z > 0.5) {
+        // IMAGE_FIT_CONTAIN: fit full image inside tile with mat bars.
+        if (rel > 1.001) {
+            sampleUV.y = 0.5 + (in.localUV.y - 0.5) * rel;
+        } else if (rel < 0.999) {
+            sampleUV.x = 0.5 + (in.localUV.x - 0.5) / rel;
+        }
+        inBounds = sampleUV.x >= 0.0 && sampleUV.x <= 1.0 && sampleUV.y >= 0.0 && sampleUV.y <= 1.0;
+    } else {
+        // IMAGE_FIT_COVER (default CenterFill): crop cleanly around center with zero distortion.
+        if (rel > 1.001) {
+            sampleUV.x = 0.5 + (in.localUV.x - 0.5) / rel;
+        } else if (rel < 0.999) {
+            sampleUV.y = 0.5 + (in.localUV.y - 0.5) * rel;
+        }
+    }
+
+    var color = vec4f(0.13, 0.13, 0.15, 1.0);
+    if (inBounds) {
+        if (t.slots.y >= 0.0) {
+            color = sampleAtlasCell(thumbAtlas, t.slots.y, params.thumbInfo.x, params.thumbInfo.y, params.thumbInfo.w, params.atlasMeta.y, sampleUV);
+        } else if (t.slots.x >= 0.0) {
+            color = sampleAtlasCell(microAtlas, t.slots.x, params.viewport.z, params.viewport.w, params.thumbInfo.z, params.atlasMeta.x, sampleUV);
+        }
+    }
+    // Dimmed state (e.g. rejected item).
+    if (t.slots.w > 1.5) {
+        color = vec4f(color.rgb * 0.45, 1.0);
+    }
+    // Subtle hover dim on the single hovered tile.
+    if (t.extra.z > 0.5) {
+        color = vec4f(color.rgb * 0.86, 1.0);
+    }
+    // Shape-conforming selection outline on the selected tile.
+    if (t.slots.z > 0.5 && sdf > -3.0) {
+        return vec4f(0.24, 0.60, 1.0, edgeAlpha);
+    }
+    // Flagged top-left marker.
+    if (t.slots.w > 0.5 && t.slots.w < 1.5 && in.localUV.x < 0.08 && in.localUV.y < 0.08) {
+        return vec4f(0.95, 0.95, 0.98, edgeAlpha);
+    }
+    return vec4f(color.rgb, edgeAlpha);
+}
+""";
+		string gridWGSL = gridWGSLPart1 + gridWGSLPart2 + gridWGSLPart3;
+		self._gridProgram = GPUProgram.createWithLayoutSync(device, nativeFormat, gridWGSL, gridLayout, true);
+
+		/* Alpha-blended full-screen preview shader (for high-res ImagePreviewCache panels & backdrop). */
+		GPUBindLayout previewLayout = GPUBindLayout()
+			.addUniform(0, GPU_STAGE_VERTEX_FRAGMENT)
+			.addTexture2D(1, GPU_STAGE_FRAGMENT)
+			.addSampler(2, GPU_STAGE_FRAGMENT);
+
+		string previewWGSL = """
+struct PreviewParams {
+    dstRect: vec4f,   // (x0, y0, x1, y1) in NDC
+    uvRect: vec4f,    // (u0, v0, u1, v1)
+    extra: vec4f,     // (zoom, exposureScale, alpha, solidBackdropFlag)
+};
+@group(0) @binding(0) var<uniform> params: PreviewParams;
+@group(0) @binding(1) var photoTex: texture_2d<f32>;
+@group(0) @binding(2) var photoSampler: sampler;
+
+struct VSOut {
+    @builtin(position) pos: vec4f,
+    @location(0) uv: vec2f,
+};
+
+@vertex fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
+    var quad = array<vec2f, 6>(
+        vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
+        vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0)
+    );
+    let q = quad[vid];
+    let x = mix(params.dstRect.x, params.dstRect.z, q.x);
+    let y = mix(params.dstRect.y, params.dstRect.w, q.y);
+    var out: VSOut;
+    out.pos = vec4f(x, y, 0.0, 1.0);
+    out.uv = vec2f(mix(params.uvRect.x, params.uvRect.z, q.x), mix(params.uvRect.y, params.uvRect.w, q.y));
+    return out;
+}
+
+@fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
+    if (params.extra.w > 0.5) {
+        return vec4f(0.05, 0.05, 0.06, params.extra.z);
+    }
+    let c = textureSampleLevel(photoTex, photoSampler, in.uv, 0.0);
+    return vec4f(c.rgb * params.extra.y, params.extra.z);
+}
+""";
+		self._previewProgram = GPUProgram.createWithLayoutSync(device, nativeFormat, previewWGSL, previewLayout, true);
+	}
+
+	/* Runtime-mutable style & layout setters (zero texture re-upload or re-decode). */
+	public void setLayout(ImageGridLayout nextLayout) {
+		if (self.layout != nextLayout) {
+			self.layout = nextLayout;
+			self._layoutDirty = true;
+		}
+	}
+
+	public void setFixedAspect(float aspect) {
+		float clamped = aspect < 0.25f ? 0.25f : (aspect > 4.0f ? 4.0f : aspect);
+		if (Math.fabs(self.cellAspect - clamped) > 0.0001f) {
+			self.cellAspect = clamped;
+			self._layoutDirty = true;
+		}
+	}
+
+	public void setFit(ImageGridFit nextFit) { self.fit = nextFit; }
+
+	public void setShape(ImageGridShape nextShape) { self.shape = nextShape; }
+
+	public void setCornerRadiusPx(float radiusPx) { self.cornerRadiusPx = radiusPx < 0.0f ? 0.0f : radiusPx; }
+
+	public void setTargetTileSize(float tileSizePx) {
+		float clamped = tileSizePx < 40.0f ? 40.0f : tileSizePx;
+		if (Math.fabs(self.targetTileSize - clamped) > 0.01f) {
+			self.targetTileSize = clamped;
+			self._layoutDirty = true;
+		}
+	}
+
+	public void setGap(float gapPx) {
+		float clamped = gapPx < 0.0f ? 0.0f : gapPx;
+		if (Math.fabs(self.gap - clamped) > 0.01f) {
+			self.gap = clamped;
+			self._layoutDirty = true;
+		}
+	}
+
+	public void invalidateLayout() { self._layoutDirty = true; }
+
+	private float clampedAspect(IImageGridSource source, int itemIndex) {
+		float ar = source.itemAspectRatio(itemIndex);
+		if (ar < 0.35f) { ar = 0.35f; }
+		if (ar > 3.5f) { ar = 3.5f; }
+		return ar;
+	}
+
+	/* Rebuild cached document-space layout only when viewport width, tile size, gap, mode, aspect, or item list changes. */
+	private void ensureLayout(IImageGridSource source, Vector<int> visibleOrder, float viewportW) {
+		int total = visibleOrder.length;
+		if (!self._layoutDirty &&
+		    self._cacheOrderLen == total &&
+		    self._cacheLayout == self.layout &&
+		    self._cacheViewportW == viewportW &&
+		    self._cacheTargetTileSize == self.targetTileSize &&
+		    self._cacheGap == self.gap &&
+		    self._cacheCellAspect == self.cellAspect) {
+			return;
+		}
+		self._layoutDirty = false;
+		self._cacheOrderLen = total;
+		self._cacheLayout = self.layout;
+		self._cacheViewportW = viewportW;
+		self._cacheTargetTileSize = self.targetTileSize;
+		self._cacheGap = self.gap;
+		self._cacheCellAspect = self.cellAspect;
+		self._docCount = total;
+
+		if (total <= 0 || viewportW <= 1.0f) {
+			self._docTotalH = 0.0f;
+			return;
+		}
+
+		if (self._docX.length < total) {
+			Array<float> nx = Array(total); self._docX = nx;
+			Array<float> ny = Array(total); self._docY = ny;
+			Array<float> nw = Array(total); self._docW = nw;
+			Array<float> nh = Array(total); self._docH = nh;
+		}
+
+		float pad = self.gap;
+		float innerW = viewportW - 2.0f * pad;
+		if (innerW < 40.0f) { innerW = 40.0f; }
+		float targetSize = self.targetTileSize;
+		if (targetSize < 40.0f) { targetSize = 40.0f; }
+
+		if (self.layout == IMAGE_GRID_FIXED) {
+			/* Uniform fixed cells with constant outer border `pad` and configurable cellAspect. */
+			int cols = (int)((innerW + pad) / (targetSize + pad));
+			if (cols < 1) { cols = 1; }
+			float cellW = (innerW - (float)(cols - 1) * pad) / (float)cols;
+			if (cellW < 20.0f) { cellW = 20.0f; }
+			float aspect = self.cellAspect > 0.1f ? self.cellAspect : 1.0f;
+			float cellH = cellW / aspect;
+			float strideY = cellH + pad;
+			self._docCols = cols;
+			self._docMaxTileH = cellH;
+			for (int pos = 0; pos < total; pos++) {
+				int row = pos / cols;
+				int col = pos % cols;
+				float x = pad + (float)col * (cellW + pad);
+				float w = (col == cols - 1) ? (pad + innerW - x) : cellW;
+				self._docX.set(pos, x);
+				self._docY.set(pos, pad + (float)row * strideY);
+				self._docW.set(pos, w);
+				self._docH.set(pos, cellH);
+			}
+			int rows = (total + cols - 1) / cols;
+			self._docTotalH = pad + (float)rows * strideY;
+		} else if (self.layout == IMAGE_GRID_MASONRY) {
+			/* Vertical shortest-column masonry with constant outer border `pad` (zero variable side gutters). */
+			int cols = (int)((innerW + pad) / (targetSize + pad));
+			if (cols < 1) { cols = 1; }
+			float colW = (innerW - (float)(cols - 1) * pad) / (float)cols;
+			if (colW < 20.0f) { colW = 20.0f; }
+			self._docCols = cols;
+			Array<float> colHeights = Array(cols);
+			for (int c = 0; c < cols; c++) { colHeights.set(c, pad); }
+			float maxH = pad;
+			float maxTileH = colW;
+			for (int pos = 0; pos < total; pos++) {
+				int bestCol = 0;
+				float minY = colHeights.get(0);
+				for (int c = 1; c < cols; c++) {
+					float cy = colHeights.get(c);
+					if (cy < minY) {
+						minY = cy;
+						bestCol = c;
+					}
+				}
+				int itemIdx = visibleOrder.get(pos);
+				float ar = self.clampedAspect(source, itemIdx);
+				float x = pad + (float)bestCol * (colW + pad);
+				float w = (bestCol == cols - 1) ? (pad + innerW - x) : colW;
+				float tileH = colW / ar;
+				if (tileH > maxTileH) { maxTileH = tileH; }
+				self._docX.set(pos, x);
+				self._docY.set(pos, minY);
+				self._docW.set(pos, w);
+				self._docH.set(pos, tileH);
+				float nextH = minY + tileH + pad;
+				colHeights.set(bestCol, nextH);
+				if (nextH > maxH) { maxH = nextH; }
+			}
+			self._docMaxTileH = maxTileH;
+			self._docTotalH = maxH;
+		} else {
+			/* IMAGE_GRID_JUSTIFIED: horizontal justified rows with constant outer border `pad`,
+			 * exact per-item aspect ratios, nearest-fit geometric row breaking, and natural last row. */
+			float y = pad;
+			float maxRowH = targetSize;
+			int rowStart = 0;
+			while (rowStart < total) {
+				float firstAr = self.clampedAspect(source, visibleOrder.get(rowStart));
+				float sumAr = firstAr;
+				int rowEnd = rowStart + 1;
+				while (rowEnd < total) {
+					float nextAr = self.clampedAspect(source, visibleOrder.get(rowEnd));
+					int curCount = rowEnd - rowStart;
+					float usableCur = innerW - (float)(curCount - 1) * pad;
+					float usableNext = innerW - (float)curCount * pad;
+					if (usableNext < 20.0f) { break; }
+					float hWithout = usableCur / sumAr;
+					float hWith = usableNext / (sumAr + nextAr);
+					if (hWithout <= targetSize) { break; }
+					if (hWith < targetSize && (hWithout * hWith < targetSize * targetSize)) { break; }
+					sumAr += nextAr;
+					rowEnd++;
+				}
+
+				int count = rowEnd - rowStart;
+				float usableW = innerW - (float)(count - 1) * pad;
+				if (usableW < 20.0f) { usableW = 20.0f; }
+				bool isLastRow = (rowEnd == total);
+				float justifiedH = usableW / sumAr;
+				float rowH = justifiedH;
+				bool justifyFull = !isLastRow;
+				if (isLastRow && justifiedH > targetSize) {
+					rowH = targetSize;
+					justifyFull = false;
+				}
+				float singleCapH = innerW * 1.35f;
+				if (count == 1 && rowH > singleCapH) {
+					rowH = singleCapH;
+					justifyFull = false;
+				}
+				if (rowH > maxRowH) { maxRowH = rowH; }
+
+				float curX = pad;
+				for (int pos = rowStart; pos < rowEnd; pos++) {
+					float ar = self.clampedAspect(source, visibleOrder.get(pos));
+					float w = (justifyFull && pos == rowEnd - 1) ? (pad + innerW - curX) : (rowH * ar);
+					if (w < 1.0f) { w = 1.0f; }
+					self._docX.set(pos, curX);
+					self._docY.set(pos, y);
+					self._docW.set(pos, w);
+					self._docH.set(pos, rowH);
+					curX += w + pad;
+				}
+				y += rowH + pad;
+				rowStart = rowEnd;
+			}
+			self._docMaxTileH = maxRowH;
+			self._docTotalH = y;
+		}
+	}
+
+	public float maxScrollYFor(IImageGridSource source, Vector<int> visibleOrder, float viewportW, float viewportH) {
+		self.ensureLayout(source, visibleOrder, viewportW);
+		float maxY = self._docTotalH - viewportH;
+		return maxY > 0.0f ? maxY : 0.0f;
+	}
+
+	public ImageGridTileRect? screenRectForItem(int itemIdx, IImageGridSource source, Vector<int> visibleOrder, float viewportW, float viewportH) {
+		self.ensureLayout(source, visibleOrder, viewportW);
+		float maxY = self._docTotalH - viewportH;
+		if (maxY < 0.0f) { maxY = 0.0f; }
+		if (self.scrollY > maxY) { self.scrollY = maxY; }
+		if (self.scrollY < 0.0f) { self.scrollY = 0.0f; }
+		for (int pos = 0; pos < self._docCount; pos++) {
+			if (visibleOrder.get(pos) == itemIdx) {
+				return ImageGridTileRect(itemIdx, self._docX.get(pos), self._docY.get(pos) - self.scrollY, self._docW.get(pos), self._docH.get(pos));
+			}
+		}
+		return null;
+	}
+
+	public void scrollItemIntoView(int itemIdx, IImageGridSource source, Vector<int> visibleOrder, float viewportW, float viewportH) {
+		self.ensureLayout(source, visibleOrder, viewportW);
+		for (int pos = 0; pos < self._docCount; pos++) {
+			if (visibleOrder.get(pos) == itemIdx) {
+				float top = self._docY.get(pos);
+				float bot = top + self._docH.get(pos);
+				float margin = self.gap * 2.0f;
+				if (top < self.scrollY + margin) {
+					self.scrollY = top - margin;
+				} else if (bot > self.scrollY + viewportH - margin) {
+					self.scrollY = bot - viewportH + margin;
+				}
+				break;
+			}
+		}
+		float maxY = self._docTotalH - viewportH;
+		if (maxY < 0.0f) { maxY = 0.0f; }
+		if (self.scrollY < 0.0f) { self.scrollY = 0.0f; }
+		if (self.scrollY > maxY) { self.scrollY = maxY; }
+	}
+
+	public void anchorItemAtY(int itemIdx, float targetScreenY, IImageGridSource source, Vector<int> visibleOrder, float viewportW, float viewportH) {
+		self.ensureLayout(source, visibleOrder, viewportW);
+		for (int pos = 0; pos < self._docCount; pos++) {
+			if (visibleOrder.get(pos) == itemIdx) {
+				float centerDocY = self._docY.get(pos) + self._docH.get(pos) * 0.5f;
+				self.scrollY = centerDocY - targetScreenY;
+				break;
+			}
+		}
+		float maxY = self._docTotalH - viewportH;
+		if (maxY < 0.0f) { maxY = 0.0f; }
+		if (self.scrollY < 0.0f) { self.scrollY = 0.0f; }
+		if (self.scrollY > maxY) { self.scrollY = maxY; }
+	}
+
+	/* Compute visible tile instances from cached document layout and upload instance buffer. */
+	public int prepareVisibleGrid(IImageGridSource source, Vector<int> visibleOrder, ImageThumbnailAtlas thumbnailAtlas, float viewportW, float viewportH) {
+		self.lastVisibleRects = [];
+		int total = visibleOrder.length;
+		if (total == 0 || viewportW <= 1.0f || viewportH <= 1.0f) { return 0; }
+
+		self.ensureLayout(source, visibleOrder, viewportW);
+
+		/* Always clamp scrollY to resized bounds so returning to Grid is never blank. */
+		float maxY = self._docTotalH - viewportH;
+		if (maxY < 0.0f) { maxY = 0.0f; }
+		if (self.scrollY > maxY) { self.scrollY = maxY; }
+		if (self.scrollY < 0.0f) { self.scrollY = 0.0f; }
+
+		int instanceCount = 0;
+		float viewTop = self.scrollY;
+		float viewBot = self.scrollY + viewportH;
+
+		if (self.layout == IMAGE_GRID_FIXED) {
+			float pad = self.gap;
+			int cols = self._docCols > 0 ? self._docCols : 1;
+			float strideY = self._docH.get(0) + pad;
+			int firstRow = (int)((viewTop - pad) / strideY);
+			if (firstRow < 0) { firstRow = 0; }
+			int lastRow = (int)(viewBot / strideY) + 1;
+			int startPos = firstRow * cols;
+			int endPos = (lastRow + 1) * cols;
+			if (endPos > total) { endPos = total; }
+			for (int pos = startPos; pos < endPos && instanceCount < self._maxVisibleInstances; pos++) {
+				float docY = self._docY.get(pos);
+				float h = self._docH.get(pos);
+				if (docY + h < viewTop || docY > viewBot) { continue; }
+				int itemIdx = visibleOrder.get(pos);
+				self.pushInstance(instanceCount, source, itemIdx, thumbnailAtlas, self._docX.get(pos), docY - viewTop, self._docW.get(pos), h);
+				instanceCount++;
+			}
+		} else {
+			/* Both Justified and shortest-column Masonry produce monotonically non-decreasing docY! */
+			int lo = 0;
+			int hi = total;
+			float searchTop = viewTop - self._docMaxTileH - self.gap;
+			while (lo < hi) {
+				int mid = lo + (hi - lo) / 2;
+				if (self._docY.get(mid) < searchTop) { lo = mid + 1; }
+				else { hi = mid; }
+			}
+			for (int pos = lo; pos < total && instanceCount < self._maxVisibleInstances; pos++) {
+				float docY = self._docY.get(pos);
+				if (docY > viewBot) { break; }
+				float h = self._docH.get(pos);
+				if (docY + h < viewTop) { continue; }
+				int itemIdx = visibleOrder.get(pos);
+				self.pushInstance(instanceCount, source, itemIdx, thumbnailAtlas, self._docX.get(pos), docY - viewTop, self._docW.get(pos), h);
+				instanceCount++;
+			}
+		}
+
+		if (instanceCount > 0) {
+			int floatCount = instanceCount * 12;
+			Array<float> uploadSlice = Array(floatCount);
+			for (int i = 0; i < floatCount; i++) {
+				uploadSlice.set(i, self._stagingFloats.get(i));
+			}
+			self._instanceBuffer.writeFloats(uploadSlice, 0);
+		}
+		return instanceCount;
+	}
+
+	private void pushInstance(int slotIdx, IImageGridSource source, int itemIdx, ImageThumbnailAtlas thumbnailAtlas, float x, float y, float w, float h) {
+		int base = slotIdx * 12;
+		int thumbSlot = thumbnailAtlas.lookupSlot(itemIdx);
+		float stateFlag = source.itemDimmed(itemIdx) ? 2.0f : (source.itemFlagged(itemIdx) ? 1.0f : 0.0f);
+		self._stagingFloats.set(base + 0, x);
+		self._stagingFloats.set(base + 1, y);
+		self._stagingFloats.set(base + 2, w);
+		self._stagingFloats.set(base + 3, h);
+		self._stagingFloats.set(base + 4, (float)itemIdx);
+		self._stagingFloats.set(base + 5, (float)thumbSlot);
+		self._stagingFloats.set(base + 6, itemIdx == self.selectedItemIndex ? 1.0f : 0.0f);
+		self._stagingFloats.set(base + 7, stateFlag);
+		self._stagingFloats.set(base + 8, 0.0f);
+		self._stagingFloats.set(base + 9, 0.0f);
+		self._stagingFloats.set(base + 10, itemIdx == self.hoveredItemIndex ? 1.0f : 0.0f);
+		self._stagingFloats.set(base + 11, source.itemAspectRatio(itemIdx));
+		self.lastVisibleRects.push(ImageGridTileRect(itemIdx, x, y, w, h));
+	}
+
+	public int hitTest(float x, float y) {
+		for (int i = 0; i < self.lastVisibleRects.length; i++) {
+			var r = self.lastVisibleRects.get(i);
+			if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
+				return r.itemIndex;
+			}
+		}
+		return -1;
+	}
+
+	public int nearestVisibleItem(float x, float y) {
+		int hit = self.hitTest(x, y);
+		if (hit >= 0) { return hit; }
+		int best = -1;
+		float bestDist2 = 1e30f;
+		for (int i = 0; i < self.lastVisibleRects.length; i++) {
+			var r = self.lastVisibleRects.get(i);
+			float cx = r.x + r.width * 0.5f;
+			float cy = r.y + r.height * 0.5f;
+			float dx = cx - x;
+			float dy = cy - y;
+			float d2 = dx * dx + dy * dy;
+			if (d2 < bestDist2) {
+				bestDist2 = d2;
+				best = r.itemIndex;
+			}
+		}
+		return best;
+	}
+
+	private void updateGridUniforms(
+		GPUUniformBuffer buf,
+		float viewportW,
+		float viewportH,
+		ImageMicroAtlas microAtlas,
+		ImageThumbnailAtlas thumbnailAtlas,
+		float fitCode,
+		float shapeCode,
+		float radiusPx
+	) {
+		buf.set(0, viewportW);
+		buf.set(1, viewportH);
+		buf.set(2, (float)microAtlas.pageSize);
+		buf.set(3, (float)microAtlas.cellSize);
+		buf.set(4, (float)thumbnailAtlas.pageSize);
+		buf.set(5, (float)thumbnailAtlas.cellSize);
+		buf.set(6, (float)microAtlas.cellsPerRow);
+		buf.set(7, (float)thumbnailAtlas.allocator.cellsPerRow);
+		buf.set(8, (float)microAtlas.cellsPerLayer);
+		buf.set(9, (float)thumbnailAtlas.allocator.cellsPerLayer);
+		buf.set(10, fitCode);
+		buf.set(11, shapeCode);
+		buf.set(12, radiusPx);
+		buf.set(13, self.bgRed);
+		buf.set(14, self.bgGreen);
+		buf.set(15, self.bgBlue);
+		buf.uploadNow();
+	}
+
+	public int renderGridOffscreen(GPUTexture target, IImageGridSource source, Vector<int> visibleOrder, ImageMicroAtlas microAtlas, ImageThumbnailAtlas thumbnailAtlas) {
+		float w = (float)target.width();
+		float h = (float)target.height();
+		int count = self.prepareVisibleGrid(source, visibleOrder, thumbnailAtlas, w, h);
+		self.updateGridUniforms(self._gridUniforms, w, h, microAtlas, thumbnailAtlas, (float)(int)self.fit, (float)(int)self.shape, self.cornerRadiusPx);
+
+		GPUBindResources res = GPUBindResources()
+			.bindUniform(0, self._gridUniforms)
+			.bindStorage(1, self._instanceBuffer)
+			.bindTexture(2, microAtlas.texture)
+			.bindTexture(3, thumbnailAtlas.texture)
+			.bindSampler(4, thumbnailAtlas.texture);
+
+		GPUCommandBatch batch = GPUCommandBatch.begin(self._device);
+		batch.beginRenderPass(target, (double)self.bgRed, (double)self.bgGreen, (double)self.bgBlue, 1.0, 0);
+		if (count > 0) {
+			batch.drawProgram(self._gridProgram, res, 6, count);
+		}
+		batch.submitAndWait();
+		return count;
+	}
+
+	public int renderGridToSurface(GPUSurfaceRenderer surface, IImageGridSource source, Vector<int> visibleOrder, ImageMicroAtlas microAtlas, ImageThumbnailAtlas thumbnailAtlas, float viewportW, float viewportH) {
+		int count = self.prepareVisibleGrid(source, visibleOrder, thumbnailAtlas, viewportW, viewportH);
+		if (count <= 0) { return 0; }
+		self.updateGridUniforms(self._gridUniforms, viewportW, viewportH, microAtlas, thumbnailAtlas, (float)(int)self.fit, (float)(int)self.shape, self.cornerRadiusPx);
+		GPUBindResources res = GPUBindResources()
+			.bindUniform(0, self._gridUniforms)
+			.bindStorage(1, self._instanceBuffer)
+			.bindTexture(2, microAtlas.texture)
+			.bindTexture(3, thumbnailAtlas.texture)
+			.bindSampler(4, thumbnailAtlas.texture);
+		self._gridProgram.drawInstanced(surface, res, 6, count);
+		return count;
+	}
+
+	private float aspectForItem(IImageGridSource source, int itemIdx, ImagePreviewCache previewCache) {
+		GPUTexture? tex = previewCache.getTexture(itemIdx);
+		if (tex != null && tex.width() > 0 && tex.height() > 0) {
+			return (float)tex.width() / (float)tex.height();
+		}
+		float ar = source.itemAspectRatio(itemIdx);
+		return ar > 0.05f ? ar : 1.5f;
+	}
+
+	private int drawViewerPanel(
+		GPUSurfaceRenderer surface,
+		GPUUniformBuffer panelUniforms,
+		IImageGridSource source,
+		int itemIdx,
+		ImagePreviewCache previewCache,
+		float x0,
+		float y0,
+		float drawW,
+		float drawH,
+		float viewportW,
+		float viewportH,
+		Array<float> fallbackFloats,
+		int fallbackSlot
+	) {
+		GPUTexture? previewTex = previewCache.getTexture(itemIdx);
+		if (previewTex != null) {
+			float ndcX0 = (x0 / viewportW) * 2.0f - 1.0f;
+			float ndcX1 = ((x0 + drawW) / viewportW) * 2.0f - 1.0f;
+			float ndcY0 = 1.0f - (y0 / viewportH) * 2.0f;
+			float ndcY1 = 1.0f - ((y0 + drawH) / viewportH) * 2.0f;
+			panelUniforms.set(0, ndcX0);
+			panelUniforms.set(1, ndcY0);
+			panelUniforms.set(2, ndcX1);
+			panelUniforms.set(3, ndcY1);
+			panelUniforms.set(4, 0.0f);
+			panelUniforms.set(5, 0.0f);
+			panelUniforms.set(6, 1.0f);
+			panelUniforms.set(7, 1.0f);
+			panelUniforms.set(8, 1.0f);
+			panelUniforms.set(9, 1.0f);
+			panelUniforms.set(10, 1.0f);
+			panelUniforms.set(11, 0.0f);
+			panelUniforms.uploadNow();
+			GPUBindResources res = GPUBindResources()
+				.bindUniform(0, panelUniforms)
+				.bindTexture(1, previewTex)
+				.bindSampler(2, previewTex);
+			self._previewProgram.drawInstanced(surface, res, 6, 1);
+			return 0;
+		}
+		int base = fallbackSlot * 12;
+		fallbackFloats.set(base + 0, x0);
+		fallbackFloats.set(base + 1, y0);
+		fallbackFloats.set(base + 2, drawW);
+		fallbackFloats.set(base + 3, drawH);
+		fallbackFloats.set(base + 4, (float)itemIdx);
+		fallbackFloats.set(base + 5, -1.0f);
+		fallbackFloats.set(base + 6, 0.0f);
+		fallbackFloats.set(base + 7, 0.0f);
+		fallbackFloats.set(base + 8, 0.0f);
+		fallbackFloats.set(base + 9, 0.0f);
+		fallbackFloats.set(base + 10, 0.0f);
+		fallbackFloats.set(base + 11, source.itemAspectRatio(itemIdx));
+		return 1;
+	}
+
+	/* Render the direct-manipulation multi-panel pager (live grid behind translucent backdrop + prev/current/next). */
+	public ImageTileTier renderViewerPagerToSurface(
+		GPUSurfaceRenderer surface,
+		IImageGridSource source,
+		Vector<int> visibleOrder,
+		MediaPagerInteraction pager,
+		ImageMicroAtlas microAtlas,
+		ImageThumbnailAtlas thumbnailAtlas,
+		ImagePreviewCache previewCache,
+		float viewportW,
+		float viewportH
+	) {
+		int total = visibleOrder.length;
+		if (total <= 0) { return IMAGE_TILE_MICRO; }
+		int curPos = ((pager.index % total) + total) % total;
+		int curItem = visibleOrder.get(curPos);
+
+		float shade = (float)pager.shade;
+		if (shade < 0.999f) {
+			self.renderGridToSurface(surface, source, visibleOrder, microAtlas, thumbnailAtlas, viewportW, viewportH);
+		}
+		if (shade > 0.001f) {
+			self._backdropUniforms.set(0, -1.0f);
+			self._backdropUniforms.set(1, 1.0f);
+			self._backdropUniforms.set(2, 1.0f);
+			self._backdropUniforms.set(3, -1.0f);
+			self._backdropUniforms.set(4, 0.0f);
+			self._backdropUniforms.set(5, 0.0f);
+			self._backdropUniforms.set(6, 1.0f);
+			self._backdropUniforms.set(7, 1.0f);
+			self._backdropUniforms.set(8, 1.0f);
+			self._backdropUniforms.set(9, 1.0f);
+			self._backdropUniforms.set(10, shade);
+			self._backdropUniforms.set(11, 1.0f);
+			self._backdropUniforms.uploadNow();
+			GPUBindResources bgRes = GPUBindResources()
+				.bindUniform(0, self._backdropUniforms)
+				.bindTexture(1, self._backdropDummyTex)
+				.bindSampler(2, self._backdropDummyTex);
+			self._previewProgram.drawInstanced(surface, bgRes, 6, 1);
+		}
+
+		float pagePx = (float)pager.page;
+		float pullPx = (float)pager.pull;
+		float zoom = (float)pager.zoom;
+		float panX = (float)pager.x;
+		float panY = (float)pager.y;
+
+		Array<float> fbFloats = Array(36);
+		int fbCount = 0;
+
+		if (total > 1 && pagePx > 1.0f) {
+			int prevItem = visibleOrder.get((curPos - 1 + total) % total);
+			float pAr = self.aspectForItem(source, prevItem, previewCache);
+			float pw = viewportW;
+			float ph = pw / pAr;
+			if (ph > viewportH) { ph = viewportH; pw = ph * pAr; }
+			float px0 = (viewportW - pw) * 0.5f + pagePx - viewportW;
+			float py0 = (viewportH - ph) * 0.5f;
+			int added = self.drawViewerPanel(surface, self._previewUniformsPrev, source, prevItem, previewCache, px0, py0, pw, ph, viewportW, viewportH, fbFloats, fbCount);
+			if (added > 0) {
+				fbFloats.set(fbCount * 12 + 5, (float)thumbnailAtlas.lookupSlot(prevItem));
+				fbCount++;
+			}
+		}
+
+		if (total > 1 && pagePx < -1.0f) {
+			int nextItem = visibleOrder.get((curPos + 1) % total);
+			float nAr = self.aspectForItem(source, nextItem, previewCache);
+			float nw = viewportW;
+			float nh = nw / nAr;
+			if (nh > viewportH) { nh = viewportH; nw = nh * nAr; }
+			float nx0 = (viewportW - nw) * 0.5f + pagePx + viewportW;
+			float ny0 = (viewportH - nh) * 0.5f;
+			int added = self.drawViewerPanel(surface, self._previewUniformsNext, source, nextItem, previewCache, nx0, ny0, nw, nh, viewportW, viewportH, fbFloats, fbCount);
+			if (added > 0) {
+				fbFloats.set(fbCount * 12 + 5, (float)thumbnailAtlas.lookupSlot(nextItem));
+				fbCount++;
+			}
+		}
+
+		float cAr = self.aspectForItem(source, curItem, previewCache);
+		float baseW = viewportW;
+		float baseH = baseW / cAr;
+		if (baseH > viewportH) { baseH = viewportH; baseW = baseH * cAr; }
+		float cw = baseW * zoom;
+		float ch = baseH * zoom;
+		float cx0 = (viewportW - cw) * 0.5f + panX + pagePx;
+		float cy0 = (viewportH - ch) * 0.5f + panY + pullPx;
+		int curFb = self.drawViewerPanel(surface, self._previewUniforms, source, curItem, previewCache, cx0, cy0, cw, ch, viewportW, viewportH, fbFloats, fbCount);
+		if (curFb > 0) {
+			fbFloats.set(fbCount * 12 + 5, (float)thumbnailAtlas.lookupSlot(curItem));
+			fbCount++;
+		}
+
+		if (fbCount > 0) {
+			Array<float> slice = Array(fbCount * 12);
+			for (int i = 0; i < fbCount * 12; i++) { slice.set(i, fbFloats.get(i)); }
+			self._viewerFallbackBuffer.writeFloats(slice, 0);
+			/* Sharp corners (radius=0) and exact aspect fill for full-screen viewer fallbacks. */
+			self.updateGridUniforms(self._viewerGridUniforms, viewportW, viewportH, microAtlas, thumbnailAtlas, 0.0f, 0.0f, 0.0f);
+			GPUBindResources fbRes = GPUBindResources()
+				.bindUniform(0, self._viewerGridUniforms)
+				.bindStorage(1, self._viewerFallbackBuffer)
+				.bindTexture(2, microAtlas.texture)
+				.bindTexture(3, thumbnailAtlas.texture)
+				.bindSampler(4, thumbnailAtlas.texture);
+			self._gridProgram.drawInstanced(surface, fbRes, 6, fbCount);
+		}
+		return curFb == 0 ? IMAGE_TILE_PREVIEW : (thumbnailAtlas.lookupSlot(curItem) >= 0 ? IMAGE_TILE_THUMBNAIL : IMAGE_TILE_MICRO);
+	}
+
+	public ImageTileTier renderSinglePreviewToSurface(
+		GPUSurfaceRenderer surface,
+		IImageGridSource source,
+		int itemIdx,
+		ImageMicroAtlas microAtlas,
+		ImageThumbnailAtlas thumbnailAtlas,
+		ImagePreviewCache previewCache,
+		float viewportW,
+		float viewportH
+	) {
+		float ar = self.aspectForItem(source, itemIdx, previewCache);
+		float drawW = viewportW * 0.92f;
+		float drawH = drawW / ar;
+		if (drawH > viewportH * 0.92f) { drawH = viewportH * 0.92f; drawW = drawH * ar; }
+		float x0 = (viewportW - drawW) * 0.5f;
+		float y0 = (viewportH - drawH) * 0.5f;
+
+		Array<float> fbFloats = Array(12);
+		int added = self.drawViewerPanel(surface, self._previewUniforms, source, itemIdx, previewCache, x0, y0, drawW, drawH, viewportW, viewportH, fbFloats, 0);
+		if (added == 0) { return IMAGE_TILE_PREVIEW; }
+		fbFloats.set(5, (float)thumbnailAtlas.lookupSlot(itemIdx));
+		self._viewerFallbackBuffer.writeFloats(fbFloats, 0);
+		self.updateGridUniforms(self._viewerGridUniforms, viewportW, viewportH, microAtlas, thumbnailAtlas, 0.0f, 0.0f, 0.0f);
+		GPUBindResources res = GPUBindResources()
+			.bindUniform(0, self._viewerGridUniforms)
+			.bindStorage(1, self._viewerFallbackBuffer)
+			.bindTexture(2, microAtlas.texture)
+			.bindTexture(3, thumbnailAtlas.texture)
+			.bindSampler(4, thumbnailAtlas.texture);
+		self._gridProgram.drawInstanced(surface, res, 6, 1);
+		return thumbnailAtlas.lookupSlot(itemIdx) >= 0 ? IMAGE_TILE_THUMBNAIL : IMAGE_TILE_MICRO;
+	}
+
+	public ImageTileTier renderPreviewOffscreen(
+		GPUTexture target,
+		IImageGridSource source,
+		int itemIdx,
+		ImageMicroAtlas microAtlas,
+		ImageThumbnailAtlas thumbnailAtlas,
+		ImagePreviewCache previewCache
+	) {
+		float viewportW = (float)target.width();
+		float viewportH = (float)target.height();
+		GPUTexture? previewTex = previewCache.getTexture(itemIdx);
+		GPUCommandBatch batch = GPUCommandBatch.begin(self._device);
+		batch.beginRenderPass(target, 0.06, 0.06, 0.07, 1.0, 0);
+		if (previewTex != null) {
+			float aspect = (previewTex.width() > 0 && previewTex.height() > 0)
+				? ((float)previewTex.width() / (float)previewTex.height())
+				: source.itemAspectRatio(itemIdx);
+			if (aspect <= 0.05f) { aspect = 1.5f; }
+			float drawW = viewportW * 0.92f;
+			float drawH = drawW / aspect;
+			if (drawH > viewportH * 0.92f) { drawH = viewportH * 0.92f; drawW = drawH * aspect; }
+			float x0 = (viewportW - drawW) * 0.5f;
+			float y0 = (viewportH - drawH) * 0.5f;
+			self._previewUniforms.set(0, (x0 / viewportW) * 2.0f - 1.0f);
+			self._previewUniforms.set(1, 1.0f - (y0 / viewportH) * 2.0f);
+			self._previewUniforms.set(2, ((x0 + drawW) / viewportW) * 2.0f - 1.0f);
+			self._previewUniforms.set(3, 1.0f - ((y0 + drawH) / viewportH) * 2.0f);
+			self._previewUniforms.set(4, 0.0f);
+			self._previewUniforms.set(5, 0.0f);
+			self._previewUniforms.set(6, 1.0f);
+			self._previewUniforms.set(7, 1.0f);
+			self._previewUniforms.set(8, 1.0f);
+			self._previewUniforms.set(9, 1.0f);
+			self._previewUniforms.set(10, 1.0f);
+			self._previewUniforms.set(11, 0.0f);
+			self._previewUniforms.uploadNow();
+			GPUBindResources res = GPUBindResources()
+				.bindUniform(0, self._previewUniforms)
+				.bindTexture(1, previewTex)
+				.bindSampler(2, previewTex);
+			batch.drawProgram(self._previewProgram, res, 6, 1);
+			batch.submitAndWait();
+			return IMAGE_TILE_PREVIEW;
+		}
+		float aspect = source.itemAspectRatio(itemIdx);
+		if (aspect <= 0.05f) { aspect = 1.5f; }
+		float drawW = viewportW * 0.92f;
+		float drawH = drawW / aspect;
+		if (drawH > viewportH * 0.92f) { drawH = viewportH * 0.92f; drawW = drawH * aspect; }
+		float x0 = (viewportW - drawW) * 0.5f;
+		float y0 = (viewportH - drawH) * 0.5f;
+		Array<float> one = Array(12);
+		one.set(0, x0);
+		one.set(1, y0);
+		one.set(2, drawW);
+		one.set(3, drawH);
+		one.set(4, (float)itemIdx);
+		one.set(5, (float)thumbnailAtlas.lookupSlot(itemIdx));
+		one.set(6, 0.0f);
+		one.set(7, 0.0f);
+		one.set(8, 0.0f);
+		one.set(9, 0.0f);
+		one.set(10, 0.0f);
+		one.set(11, aspect);
+		self._viewerFallbackBuffer.writeFloats(one, 0);
+		self.updateGridUniforms(self._viewerGridUniforms, viewportW, viewportH, microAtlas, thumbnailAtlas, 0.0f, 0.0f, 0.0f);
+		GPUBindResources res = GPUBindResources()
+			.bindUniform(0, self._viewerGridUniforms)
+			.bindStorage(1, self._viewerFallbackBuffer)
+			.bindTexture(2, microAtlas.texture)
+			.bindTexture(3, thumbnailAtlas.texture)
+			.bindSampler(4, thumbnailAtlas.texture);
+		batch.drawProgram(self._gridProgram, res, 6, 1);
+		batch.submitAndWait();
+		return thumbnailAtlas.lookupSlot(itemIdx) >= 0 ? IMAGE_TILE_THUMBNAIL : IMAGE_TILE_MICRO;
+	}
+
+	public void close() {
+		self._gridProgram.close();
+		self._previewProgram.close();
+		self._instanceBuffer.close();
+		self._gridUniforms.close();
+		self._backdropUniforms.close();
+		self._previewUniformsPrev.close();
+		self._previewUniforms.close();
+		self._previewUniformsNext.close();
+		self._viewerGridUniforms.close();
+		self._viewerFallbackBuffer.close();
+		self._backdropDummyTex.close();
+	}
+}

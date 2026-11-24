@@ -1,0 +1,800 @@
+/* Cross-platform interactive GPU image gallery combining ImageGrid, multi-tier tile caching,
+ * continuous pinch-to-zoom (ZoomGridInteraction), and direct-manipulation viewer pagination
+ * (MediaPagerInteraction) over a portable IGPUView surface.
+ *
+ * Works identically across macOS, Linux, Windows, iOS, and Android with zero OS-specific code.
+ * Supports dynamic runtime switching of layout (Justified, Masonry, Fixed), fixed aspect ratios,
+ * content fit (Cover / Contain), and tile shapes (Rect, Squircle, Circle, Capsule) with zero re-decode. */
+
+import Library.App;
+import Library.Callback;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUReadback;
+import Library.GPU.GPUSurfaceRenderer;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IGPUView;
+import Library.GUI.IView;
+import Library.GUI.IWindow;
+import Library.GUI.ImageGrid;
+import Library.GUI.ImageTileCache;
+import Library.GUI.MediaPagerInteraction;
+import Library.GUI.ZoomGridInteraction;
+import Library.Image.Pixels;
+import Library.Map;
+import Library.Timer;
+import Library.Vector;
+
+enum ImageGalleryMode {
+	GALLERY_MODE_GRID = 0,
+	GALLERY_MODE_VIEWER = 1
+};
+
+/* Optional host keyboard interceptor evaluated before built-in gallery navigation keys. */
+interface IImageGalleryKeyHandler {
+	bool handleKey(ImageGallery gallery, AppKeyboardEvent event);
+}
+
+/* Optional hook invoked once GPU resources are created (e.g. to pre-seed micro-atlas cells). */
+interface IImageGallerySetupHook {
+	void onGalleryGPUReady(ImageGallery gallery, GPUDevice device, ImageMicroAtlas microAtlas, ImageThumbnailAtlas thumbnailAtlas, ImagePreviewCache previewCache);
+}
+
+class ImageGalleryPointerAdapter implements IViewPointerHandler {
+	private ImageGallery _gallery;
+
+	public ImageGalleryPointerAdapter(ImageGallery gallery) { self._gallery = gallery; }
+
+	public bool pointer(AppPointerEvent event) { return self._gallery.onPointer(event); }
+}
+
+class ImageGalleryScrollAdapter implements IViewScrollHandler {
+	private ImageGallery _gallery;
+
+	public ImageGalleryScrollAdapter(ImageGallery gallery) { self._gallery = gallery; }
+
+	public bool scroll(AppScrollEvent event) { return self._gallery.onScroll(event); }
+}
+
+class ImageGalleryMagnifyAdapter implements IViewMagnifyHandler {
+	private ImageGallery _gallery;
+
+	public ImageGalleryMagnifyAdapter(ImageGallery gallery) { self._gallery = gallery; }
+
+	public bool magnify(AppMagnifyEvent event) { return self._gallery.onMagnify(event); }
+}
+
+class ImageGalleryKeyAdapter implements IWindowKeyHandler {
+	private ImageGallery _gallery;
+
+	public ImageGalleryKeyAdapter(ImageGallery gallery) { self._gallery = gallery; }
+
+	public bool key(AppKeyboardEvent event) { return self._gallery.onKey(event); }
+}
+
+class ImageGallery implements IApplicationWork {
+	private IWindow _window;
+	private IGPUView _view;
+	private CallbackScope _scope;
+	private IImageGridSource _source;
+	private ImageGridOptions _options;
+	private Vector<int> _visibleOrder = [];
+	private Map<int, int> _itemToVisiblePos = {};
+	private IImageGalleryKeyHandler? _customKeyHandler = null;
+	private IImageGallerySetupHook? _setupHook = null;
+	private bool _enableStreaming = true;
+	private bool _verifyCapture = false;
+
+	private ImageMicroAtlas? _microAtlas = null;
+	private ImageThumbnailAtlas? _thumbnailAtlas = null;
+	private ImagePreviewCache? _previewCache = null;
+	private ImageGrid? _grid = null;
+	private ImageTileStreamer? _streamer = null;
+	private GPUReadback? _readback = null;
+
+	private MediaPagerInteraction _pager;
+	private ZoomGridInteraction _zoomGrid;
+
+	public ImageGalleryMode mode = GALLERY_MODE_GRID;
+	public int activeItemIndex = 0;
+	public bool verifiedGridCapture = false;
+	public bool verifiedViewerCapture = false;
+	public double frame0OpenMs = 0.0;
+
+	private int _verifyStage = 0;
+	private Timer _clock;
+	private float _lastVw = 1280.0f;
+	private float _lastVh = 800.0f;
+	private double _lastScale = 1.0;
+	private double _scrollQuietUntilMs = 0.0;
+	private double _activeUntilMs = 0.0;
+	private int _pendingHoverItem = -1;
+	private double _pendingHoverSinceMs = 0.0;
+	private bool _userPinchedGrid = false;
+
+	public ImageGallery(
+		IWindow window,
+		IGPUView view,
+		IImageGridSource source,
+		ImageGridOptions? options = null,
+		bool enableStreaming = true,
+		bool verifyCapture = false
+	) {
+		self._window = window;
+		self._view = view;
+		self._scope = CallbackScope();
+		self._source = source;
+		self._options = options == null ? ImageGridOptions() : options;
+		self._enableStreaming = enableStreaming;
+		self._verifyCapture = verifyCapture;
+		self._pager = MediaPagerInteraction();
+		self._zoomGrid = ZoomGridInteraction(180.0, 56.0, 0.56, 1.18);
+		self._clock = Timer();
+		self._clock.start();
+
+		int count = source.itemCount();
+		for (int i = 0; i < count; i++) {
+			self._visibleOrder.push(i);
+		}
+		self.rebuildVisiblePosIndex();
+
+		view.onPointer(ImageGalleryPointerAdapter(self), self._scope);
+		view.onScroll(ImageGalleryScrollAdapter(self), self._scope);
+		view.onMagnify(ImageGalleryMagnifyAdapter(self), self._scope);
+		window.onKey(ImageGalleryKeyAdapter(self), self._scope);
+	}
+
+	public IGPUView view() { return self._view; }
+
+	public ImageGrid? grid() { return self._grid; }
+
+	public ImageMicroAtlas? microAtlas() { return self._microAtlas; }
+
+	public ImageThumbnailAtlas? thumbnailAtlas() { return self._thumbnailAtlas; }
+
+	public ImagePreviewCache? previewCache() { return self._previewCache; }
+
+	public ImageTileStreamer? streamer() { return self._streamer; }
+
+	public ImageGridOptions options() { return self._options; }
+
+	public bool isViewerOpen() { return self.mode == GALLERY_MODE_VIEWER; }
+
+	public void setKeyHandler(IImageGalleryKeyHandler? handler) { self._customKeyHandler = handler; }
+
+	public void setSetupHook(IImageGallerySetupHook? hook) { self._setupHook = hook; }
+
+	public void setVisibleOrder(Vector<int> order) {
+		self._visibleOrder = order;
+		self.rebuildVisiblePosIndex();
+		if (self._grid != null) { self._grid.invalidateLayout(); }
+		self.markInteractive(200.0);
+	}
+
+	private int anchorItemForReflow() {
+		var g = self._grid;
+		if (g == null) { return self.activeItemIndex; }
+		if (g.selectedItemIndex >= 0) { return g.selectedItemIndex; }
+		if (g.lastVisibleRects.length > 0) {
+			return g.lastVisibleRects.get(g.lastVisibleRects.length / 2).itemIndex;
+		}
+		return self.activeItemIndex;
+	}
+
+	/* Dynamic runtime style and layout switching (zero texture re-upload or re-decode). */
+	public void setLayout(ImageGridLayout layout) {
+		self._options.layout = layout;
+		var g = self._grid;
+		if (g != null) {
+			int anchor = self.anchorItemForReflow();
+			g.setLayout(layout);
+			if (anchor >= 0) {
+				g.anchorItemAtY(anchor, self._lastVh * 0.5f, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+			}
+		}
+		self.markInteractive(200.0);
+	}
+
+	public void setFixedAspect(float aspect) {
+		self._options.cellAspect = aspect;
+		var g = self._grid;
+		if (g != null) {
+			int anchor = self.anchorItemForReflow();
+			g.setFixedAspect(aspect);
+			if (anchor >= 0) {
+				g.anchorItemAtY(anchor, self._lastVh * 0.5f, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+			}
+		}
+		self.markInteractive(200.0);
+	}
+
+	public void setFit(ImageGridFit fit) {
+		self._options.fit = fit;
+		if (self._grid != null) { self._grid.setFit(fit); }
+		self.markInteractive(150.0);
+	}
+
+	public void setShape(ImageGridShape shape) {
+		self._options.shape = shape;
+		if (self._grid != null) { self._grid.setShape(shape); }
+		self.markInteractive(150.0);
+	}
+
+	public void setCornerRadius(float logicalPt) {
+		self._options.cornerRadius = logicalPt < 0.0f ? 0.0f : logicalPt;
+		if (self._grid != null) { self._grid.setCornerRadiusPx((float)((double)self._options.cornerRadius * self._lastScale)); }
+		self.markInteractive(150.0);
+	}
+
+	public void setGap(float logicalPt) {
+		self._options.gap = logicalPt < 0.0f ? 0.0f : logicalPt;
+		if (self._grid != null) { self._grid.setGap((float)((double)self._options.gap * self._lastScale)); }
+		self.markInteractive(150.0);
+	}
+
+	public void setTargetTileSize(float logicalPt) {
+		float clamped = logicalPt < 40.0f ? 40.0f : logicalPt;
+		self._options.targetTileSize = clamped;
+		self._userPinchedGrid = true;
+		float px = (float)((double)clamped * self._lastScale);
+		self._zoomGrid.syncCellWidth((double)px);
+		var g = self._grid;
+		if (g != null) {
+			int anchor = self.anchorItemForReflow();
+			g.setTargetTileSize(px);
+			if (anchor >= 0) {
+				g.anchorItemAtY(anchor, self._lastVh * 0.5f, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+			}
+		}
+		self.markInteractive(200.0);
+	}
+
+	public void adjustTileSizeByFactor(double factor) {
+		var g = self._grid;
+		if (g == null) { return; }
+		double scale = self._lastScale > 0.0 ? self._lastScale : 1.0;
+		double minPx = 56.0 * scale;
+		double maxPx = (double)self._lastVh * 0.56;
+		if (maxPx < minPx + 40.0) { maxPx = minPx + 40.0; }
+		double nextPx = (double)g.targetTileSize * factor;
+		if (nextPx < minPx) { nextPx = minPx; }
+		if (nextPx > maxPx) { nextPx = maxPx; }
+		self.setTargetTileSize((float)(nextPx / scale));
+	}
+
+	public void invalidateItem(int itemIndex) {
+		if (self._previewCache != null) { self._previewCache.evictItem(itemIndex); }
+		if (self._thumbnailAtlas != null) { self._thumbnailAtlas.releaseItem(itemIndex); }
+		if (self._streamer != null) {
+			self._streamer.requestThumbnail(itemIndex, true);
+			if (self.mode == GALLERY_MODE_VIEWER && self.activeItemIndex == itemIndex) {
+				self._streamer.requestActivePreview(itemIndex, self._options.previewMaxEdge);
+			}
+		}
+		self.markInteractive(250.0);
+	}
+
+	private double nowMs() { return (double)self._clock.elapsedMillis(); }
+
+	private void markInteractive(double durationMs = 250.0) {
+		double until = self.nowMs() + durationMs;
+		if (until > self._activeUntilMs) { self._activeUntilMs = until; }
+	}
+
+	private void rebuildVisiblePosIndex() {
+		self._itemToVisiblePos = {};
+		for (int i = 0; i < self._visibleOrder.length; i++) {
+			self._itemToVisiblePos.put(self._visibleOrder.get(i), i);
+		}
+	}
+
+	private int visiblePositionOf(int itemIndex) {
+		if (self._itemToVisiblePos.has(itemIndex)) {
+			return self._itemToVisiblePos.get(itemIndex);
+		}
+		return 0;
+	}
+
+	private void initializeGPU(GPUSurfaceRenderer surface) {
+		GPUDevice device = surface.device();
+		int totalItems = self._source.itemCount();
+		int cap = totalItems > 256 ? totalItems : 256;
+		ImageMicroAtlas micro = ImageMicroAtlas(device, cap, 4096, self._options.microTileSize);
+		ImageThumbnailAtlas thumbs = ImageThumbnailAtlas(device, self._options.thumbnailAtlasLayers, 4096, self._options.thumbnailTileSize);
+		ImagePreviewCache previews = ImagePreviewCache(device, self._options.previewCacheCapacity);
+		ImageGrid grid = ImageGrid.createForSurface(surface, self._options.maxVisibleTiles);
+
+		double scale = self._view.backingScale();
+		if (scale < 1.0) { scale = 1.0; }
+		self._lastScale = scale;
+		float vw = (float)surface.width();
+		float vh = (float)surface.height();
+		if (vw > 1.0f) { self._lastVw = vw; }
+		if (vh > 1.0f) { self._lastVh = vh; }
+
+		grid.layout = self._options.layout;
+		grid.fit = self._options.fit;
+		grid.shape = self._options.shape;
+		grid.cellAspect = self._options.cellAspect;
+		grid.gap = (float)((double)self._options.gap * scale);
+		grid.cornerRadiusPx = (float)((double)self._options.cornerRadius * scale);
+		grid.bgRed = self._options.bgRed;
+		grid.bgGreen = self._options.bgGreen;
+		grid.bgBlue = self._options.bgBlue;
+
+		if (self._options.layout == IMAGE_GRID_JUSTIFIED && !self._userPinchedGrid) {
+			/* Responsive justified row height: clamp(8rem, 20vw, 16rem). */
+			float initH = self._lastVw * 0.20f;
+			float minInitH = (float)(128.0 * scale);
+			float maxInitH = (float)(256.0 * scale);
+			if (initH < minInitH) { initH = minInitH; }
+			if (initH > maxInitH) { initH = maxInitH; }
+			grid.targetTileSize = initH;
+		} else {
+			grid.targetTileSize = (float)((double)self._options.targetTileSize * scale);
+		}
+		self._zoomGrid = ZoomGridInteraction((double)grid.targetTileSize, 56.0 * scale, 0.56, 1.18);
+
+		self._microAtlas = micro;
+		self._thumbnailAtlas = thumbs;
+		self._previewCache = previews;
+		self._grid = grid;
+
+		if (self._setupHook != null) {
+			self._setupHook.onGalleryGPUReady(self, device, micro, thumbs, previews);
+		}
+		if (self._enableStreaming && totalItems > 0) {
+			ImageTileStreamer streamer = ImageTileStreamer(self._source, micro, thumbs, previews, self._options.workerCount, 24);
+			int initBatch = totalItems < 36 ? totalItems : 36;
+			for (int i = 0; i < initBatch; i++) {
+				streamer.requestThumbnail(i, true);
+			}
+			int backfillEnd = totalItems < 512 ? totalItems : 512;
+			for (int i = initBatch; i < backfillEnd; i++) {
+				streamer.requestMicro(i);
+			}
+			self._streamer = streamer;
+		}
+	}
+
+	private double aspectForItem(int itemIdx) {
+		var previews = self._previewCache;
+		if (previews != null) {
+			var tex = previews.getTexture(itemIdx);
+			if (tex != null && tex.width() > 0 && tex.height() > 0) {
+				return (double)tex.width() / (double)tex.height();
+			}
+		}
+		if (itemIdx >= 0 && itemIdx < self._source.itemCount()) {
+			float ar = self._source.itemAspectRatio(itemIdx);
+			if (ar > 0.05f) { return (double)ar; }
+		}
+		return 1.5;
+	}
+
+	private void prefetchViewerNeighbors(int itemIndex) {
+		var streamer = self._streamer;
+		if (streamer == null || self._visibleOrder.length <= 1) { return; }
+		int n = self._visibleOrder.length;
+		int pos = self.visiblePositionOf(itemIndex);
+		int nextIdx = self._visibleOrder.get((pos + 1) % n);
+		int prevIdx = self._visibleOrder.get((pos + n - 1) % n);
+		int edge = self._options.previewMaxEdge;
+		if (nextIdx != itemIndex) { streamer.requestPreview(nextIdx, edge); }
+		if (prevIdx != itemIndex && prevIdx != nextIdx) { streamer.requestPreview(prevIdx, edge); }
+	}
+
+	private void syncActiveViewerItem(int itemIndex) {
+		self.activeItemIndex = itemIndex;
+		var g = self._grid;
+		if (g != null) {
+			g.selectedItemIndex = itemIndex;
+			g.scrollItemIntoView(itemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+		}
+		if (self._previewCache != null) { self._previewCache.setActiveItem(itemIndex); }
+		if (self._streamer != null) {
+			self.prefetchViewerNeighbors(itemIndex);
+			self._streamer.requestActivePreview(itemIndex, self._options.previewMaxEdge);
+		}
+	}
+
+	public void openViewer(int itemIndex) {
+		Timer t = Timer();
+		t.start();
+		self.mode = GALLERY_MODE_VIEWER;
+		int pos = self.visiblePositionOf(itemIndex);
+		self._pager.open(pos, self._visibleOrder.length, self.aspectForItem(itemIndex));
+		self.syncActiveViewerItem(itemIndex);
+		self.markInteractive(300.0);
+		self.frame0OpenMs = (double)t.elapsedMillis();
+	}
+
+	public void dismissViewer() {
+		var g = self._grid;
+		if (g != null) {
+			g.scrollItemIntoView(self.activeItemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+			ImageGridTileRect? tileRect = g.screenRectForItem(self.activeItemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+			if (tileRect != null) {
+				self._pager.setDismissTargetRect((double)tileRect.x, (double)tileRect.y, (double)tileRect.width, (double)tileRect.height);
+			}
+		}
+		self._pager.beginDismiss((double)self._lastVw, (double)self._lastVh, self.nowMs());
+		self.markInteractive(350.0);
+	}
+
+	public void closeViewer() {
+		self.mode = GALLERY_MODE_GRID;
+		self._pager.resetToFitted();
+		if (self._previewCache != null) { self._previewCache.setActiveItem(-1); }
+		if (self._grid != null) {
+			self._grid.scrollItemIntoView(self.activeItemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+		}
+		self.markInteractive(200.0);
+	}
+
+	public bool onPointer(AppPointerEvent ev) {
+		var g = self._grid;
+		if (g == null) { return false; }
+		double scale = self._lastScale > 0.0 ? self._lastScale : 1.0;
+		float px = (float)(ev.logicalX * scale);
+		float py = (float)(ev.logicalY * scale);
+		double now = self.nowMs();
+
+		if (self.mode == GALLERY_MODE_GRID) {
+			int hit = g.hitTest(px, py);
+			if (ev.action == APP_POINTER_MOVED) {
+				int prevHover = g.hoveredItemIndex;
+				g.hoveredItemIndex = hit;
+				if (hit != prevHover) {
+					self._pendingHoverItem = hit;
+					self._pendingHoverSinceMs = now;
+					if (hit >= 0 && self._previewCache != null) { self._previewCache.noteHover(hit); }
+					self.markInteractive(100.0);
+				}
+				return true;
+			}
+			if (ev.action == APP_POINTER_PRESSED && ev.button == APP_POINTER_BUTTON_PRIMARY) {
+				if (hit >= 0) {
+					g.selectedItemIndex = hit;
+					if (self._previewCache != null) { self._previewCache.noteMouseDown(hit); }
+					if (ev.clickCount >= 2) {
+						self.openViewer(hit);
+					} else if (self._streamer != null) {
+						self._streamer.requestPreview(hit, self._options.previewMaxEdge);
+					}
+					self.markInteractive(200.0);
+				}
+				return true;
+			}
+			return false;
+		}
+
+		/* Direct-manipulation viewer drag pagination & pull-down dismiss. */
+		if (ev.button == APP_POINTER_BUTTON_PRIMARY || ev.action == APP_POINTER_CANCELLED) {
+			self.markInteractive(300.0);
+			if (ev.action == APP_POINTER_PRESSED) {
+				self._pager.pointerDown((double)px, (double)py, (double)self._lastVw, (double)self._lastVh, now);
+				return true;
+			}
+			if (ev.action == APP_POINTER_DRAGGED) {
+				self._pager.pointerMove((double)px, (double)py, (double)self._lastVw, (double)self._lastVh, now);
+				return true;
+			}
+			if (ev.action == APP_POINTER_RELEASED || ev.action == APP_POINTER_CANCELLED) {
+				bool cancelled = (ev.action == APP_POINTER_CANCELLED);
+				bool wasTap = self._pager.pointerUp((double)self._lastVw, (double)self._lastVh, now, cancelled);
+				if (wasTap && ev.clickCount >= 2) {
+					if (self._pager.zoom > 1.01) {
+						self._pager.animateToFitted(now);
+					} else {
+						self.dismissViewer();
+					}
+				} else if (self._pager.isDismissPending()) {
+					self.dismissViewer();
+				}
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public bool onScroll(AppScrollEvent ev) {
+		var g = self._grid;
+		if (g == null) { return false; }
+		double scale = self._lastScale > 0.0 ? self._lastScale : 1.0;
+		double now = self.nowMs();
+		self.markInteractive(280.0);
+
+		if (self.mode == GALLERY_MODE_VIEWER) {
+			bool handled = self._pager.scroll(ev, scale, (double)self._lastVw, (double)self._lastVh, now);
+			if (self._pager.isDismissPending()) { self.dismissViewer(); }
+			return handled;
+		}
+
+		self._scrollQuietUntilMs = now + 200.0;
+		double mult = ev.precise ? 1.5 : 24.0;
+		float nextY = g.scrollY - (float)(ev.deltaY * scale * mult);
+		float maxY = g.maxScrollYFor(self._source, self._visibleOrder, self._lastVw, self._lastVh);
+		if (nextY < 0.0f) { nextY = 0.0f; }
+		if (nextY > maxY) { nextY = maxY; }
+		float jump = nextY - g.scrollY;
+		if (jump < 0.0f) { jump = -jump; }
+		g.scrollY = nextY;
+		var streamer = self._streamer;
+		if (streamer != null && jump > self._lastVh * 1.5f) {
+			int estCenter = 0;
+			if (g.lastVisibleRects.length > 0) {
+				estCenter = g.lastVisibleRects.get(g.lastVisibleRects.length / 2).itemIndex;
+			}
+			streamer.beginViewportJump(estCenter);
+		}
+		return true;
+	}
+
+	public bool onMagnify(AppMagnifyEvent ev) {
+		var g = self._grid;
+		if (g == null) { return false; }
+		double scale = self._lastScale > 0.0 ? self._lastScale : 1.0;
+		double now = self.nowMs();
+		self.markInteractive(300.0);
+
+		if (self.mode == GALLERY_MODE_VIEWER) {
+			bool handled = self._pager.magnify(ev, scale, (double)self._lastVw, (double)self._lastVh, now);
+			if (self._pager.isDismissPending()) { self.dismissViewer(); }
+			return handled;
+		}
+
+		float px = (float)(ev.logicalX * scale);
+		float py = (float)(ev.logicalY * scale);
+		int hitItem = g.nearestVisibleItem(px, py);
+		self._scrollQuietUntilMs = now + 200.0;
+		self._userPinchedGrid = true;
+		var outcome = self._zoomGrid.magnify(ev, (double)self._lastVh, hitItem);
+		g.setTargetTileSize((float)outcome.cellWidth);
+		if (outcome.focalItemIndex >= 0) {
+			g.anchorItemAtY(outcome.focalItemIndex, py, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+		}
+		if (outcome.openTriggered && outcome.focalItemIndex >= 0) {
+			self.openViewer(outcome.focalItemIndex);
+		}
+		return true;
+	}
+
+	private void stepSelection(int delta) {
+		int n = self._visibleOrder.length;
+		if (n <= 0) { return; }
+		self.markInteractive(250.0);
+		if (self.mode == GALLERY_MODE_VIEWER) {
+			int nextPos = self._pager.stepImmediate(delta);
+			int nextItem = self._visibleOrder.get(nextPos);
+			self.syncActiveViewerItem(nextItem);
+			self._pager.setAspectRatio(self.aspectForItem(nextItem), (double)self._lastVw, (double)self._lastVh);
+			return;
+		}
+		int curItem = self.activeItemIndex;
+		if (self._grid != null && self._grid.selectedItemIndex >= 0) {
+			curItem = self._grid.selectedItemIndex;
+		}
+		int pos = self.visiblePositionOf(curItem);
+		int nextPos = ((pos + delta) % n + n) % n;
+		int nextItem = self._visibleOrder.get(nextPos);
+		self.activeItemIndex = nextItem;
+		if (self._grid != null) {
+			self._grid.selectedItemIndex = nextItem;
+			self._grid.scrollItemIntoView(nextItem, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+		}
+		if (self._streamer != null) { self._streamer.requestPreview(nextItem, self._options.previewMaxEdge); }
+	}
+
+	public bool onKey(AppKeyboardEvent ev) {
+		/* Let host-system shortcuts (Cmd+Q/W/M/H on macOS, Ctrl+W/Q on Shim) pass through natively. */
+		if (ev.modifiers.command || ev.modifiers.control || ev.modifiers.alt) { return false; }
+		if (self._customKeyHandler != null && self._customKeyHandler.handleKey(self, ev)) { return true; }
+		bool isDown = (ev.action == APP_KEY_PRESSED || ev.action == APP_KEY_REPEATED);
+		if (!isDown) { return false; }
+
+		if (ev.key == APP_KEY_ESCAPE && ev.action == APP_KEY_PRESSED && self.mode == GALLERY_MODE_VIEWER) {
+			if (self._verifyCapture) { self.closeViewer(); }
+			else { self.dismissViewer(); }
+			return true;
+		}
+		if ((ev.key == APP_KEY_ENTER || ev.key == APP_KEY_SPACE) && ev.action == APP_KEY_PRESSED && self.mode == GALLERY_MODE_GRID && self._grid != null && self._grid.selectedItemIndex >= 0) {
+			self.openViewer(self._grid.selectedItemIndex);
+			return true;
+		}
+		if (ev.key == APP_KEY_RIGHT && self._visibleOrder.length > 0) {
+			self.stepSelection(1);
+			return true;
+		}
+		if (ev.key == APP_KEY_LEFT && self._visibleOrder.length > 0) {
+			self.stepSelection(-1);
+			return true;
+		}
+		return false;
+	}
+
+	public void run() {
+		Timer frameTimer = Timer();
+		frameTimer.start();
+
+		if (!self._window.isOpen()) {
+			self.close();
+			GUI.requestQuit();
+			return;
+		}
+		if (self._verifyCapture && self._clock.elapsed() > 20.0f) {
+			throw "ImageGallery visual capture verification timed out";
+		}
+		bool ready = self._view.poll();
+		if (!self._view.error().isEmpty()) { throw self._view.error(); }
+
+		bool hasStreamingWork = false;
+		if (ready) {
+			var surface = self._view.frameRenderer();
+			if (self._grid == null) { self.initializeGPU(surface); }
+
+			double now = self.nowMs();
+			bool scrollingNow = (now < self._scrollQuietUntilMs);
+
+			if (self.mode == GALLERY_MODE_GRID && !scrollingNow && self._pendingHoverItem >= 0 && (now - self._pendingHoverSinceMs) >= 120.0) {
+				if (self._streamer != null) { self._streamer.requestPreview(self._pendingHoverItem, self._options.previewMaxEdge); }
+				self._pendingHoverItem = -1;
+			}
+
+			var activeStreamer = self._streamer;
+			if (activeStreamer != null) {
+				float uploadBudget = self.mode == GALLERY_MODE_VIEWER ? 4.0f : (scrollingNow ? 0.7f : 1.5f);
+				activeStreamer.drainUploads(uploadBudget, !scrollingNow || self.mode == GALLERY_MODE_VIEWER);
+				if (activeStreamer.aspectRatiosUpdated && self._grid != null) {
+					self._grid.invalidateLayout();
+				}
+				activeStreamer.pumpDispatch();
+				hasStreamingWork = activeStreamer.outstanding() > 0 || activeStreamer.pendingUploadCount() > 0;
+			}
+
+			var rb = self._readback;
+			if (rb != null) {
+				if (rb.poll() == GPU_READBACK_FAILED) { throw rb.error(); }
+				if (rb.state() == GPU_READBACK_READY) {
+					Image pixels = rb.takeImage();
+					self._readback = null;
+					if (self._verifyStage == 1) {
+						int sampleX = 60;
+						int sampleY = 60;
+						if (self._grid != null && self._grid.lastVisibleRects.length > 0) {
+							var r0 = self._grid.lastVisibleRects.get(0);
+							sampleX = (int)(r0.x + r0.width * 0.5f);
+							sampleY = (int)(r0.y + r0.height * 0.5f);
+						}
+						var px = pixels.pixel(sampleX, sampleY);
+						if (px.red > 150 && px.green < 100 && px.blue < 100) {
+							self.verifiedGridCapture = true;
+						}
+						self.openViewer(1);
+						self._verifyStage = 2;
+					} else if (self._verifyStage == 2) {
+						var center = pixels.pixel(pixels.width / 2, pixels.height / 2);
+						if (center.green > 150 && center.red < 100 && center.blue < 100) {
+							self.verifiedViewerCapture = true;
+						}
+						self._verifyStage = 3;
+						self.close();
+						GUI.requestQuit();
+						return;
+					}
+				}
+			} else {
+				var g = self._grid;
+				var micro = self._microAtlas;
+				var thumbs = self._thumbnailAtlas;
+				var previews = self._previewCache;
+				if (g != null && micro != null && thumbs != null && previews != null) {
+					var frame = self._view.beginFrame((double)self._options.bgRed, (double)self._options.bgGreen, (double)self._options.bgBlue, 1.0);
+					if (frame == GPU_SURFACE_FRAME_READY) {
+						float vw = (float)surface.width();
+						float vh = (float)surface.height();
+						if (vw != self._lastVw || vh != self._lastVh) {
+							self._lastVw = vw;
+							self._lastVh = vh;
+							self._lastScale = self._view.backingScale();
+							if (self._lastScale < 1.0) { self._lastScale = 1.0; }
+							g.setGap((float)((double)self._options.gap * self._lastScale));
+							g.setCornerRadiusPx((float)((double)self._options.cornerRadius * self._lastScale));
+							if (g.layout == IMAGE_GRID_JUSTIFIED && !self._userPinchedGrid) {
+								float respH = vw * 0.20f;
+								float minH = (float)(128.0 * self._lastScale);
+								float maxH = (float)(256.0 * self._lastScale);
+								if (respH < minH) { respH = minH; }
+								if (respH > maxH) { respH = maxH; }
+								g.setTargetTileSize(respH);
+								self._zoomGrid.syncCellWidth((double)respH);
+							}
+							self._pager.onResize((double)vw, (double)vh);
+							g.invalidateLayout();
+						}
+
+						if (self.mode == GALLERY_MODE_VIEWER) {
+							var outcome = self._pager.tick(now, (double)vw, (double)vh);
+							if (outcome.kind == PAGER_EVENT_DISMISSED) {
+								self.closeViewer();
+							} else if (outcome.kind == PAGER_EVENT_INDEX_CHANGED && self._visibleOrder.length > 0) {
+								int newItem = self._visibleOrder.get(outcome.index);
+								self.syncActiveViewerItem(newItem);
+								self._pager.setAspectRatio(self.aspectForItem(newItem), (double)vw, (double)vh);
+							}
+						}
+
+						if (self.mode == GALLERY_MODE_GRID) {
+							g.renderGridToSurface(surface, self._source, self._visibleOrder, micro, thumbs, vw, vh);
+							if (activeStreamer != null && g.lastVisibleRects.length > 0) {
+								int minVisPos = self._visibleOrder.length;
+								int maxVisPos = -1;
+								for (int vi = 0; vi < g.lastVisibleRects.length; vi++) {
+									int itemIdx = g.lastVisibleRects.get(vi).itemIndex;
+									if (thumbs.lookupSlot(itemIdx) < 0) {
+										activeStreamer.requestThumbnail(itemIdx, true);
+									}
+									int vPos = self.visiblePositionOf(itemIdx);
+									if (vPos < minVisPos) { minVisPos = vPos; }
+									if (vPos > maxVisPos) { maxVisPos = vPos; }
+								}
+								int aheadEnd = maxVisPos + 24;
+								if (aheadEnd >= self._visibleOrder.length) { aheadEnd = self._visibleOrder.length - 1; }
+								for (int p = maxVisPos + 1; p <= aheadEnd; p++) {
+									int iIdx = self._visibleOrder.get(p);
+									if (thumbs.lookupSlot(iIdx) < 0) { activeStreamer.requestThumbnail(iIdx, false); }
+								}
+								int behindStart = minVisPos - 12;
+								if (behindStart < 0) { behindStart = 0; }
+								for (int p = behindStart; p < minVisPos; p++) {
+									int iIdx = self._visibleOrder.get(p);
+									if (thumbs.lookupSlot(iIdx) < 0) { activeStreamer.requestThumbnail(iIdx, false); }
+								}
+							}
+						} else {
+							if (activeStreamer != null && !previews.has(self.activeItemIndex)) {
+								activeStreamer.requestActivePreview(self.activeItemIndex, self._options.previewMaxEdge);
+							}
+							self._pager.setAspectRatio(self.aspectForItem(self.activeItemIndex), (double)vw, (double)vh);
+							if (self._verifyCapture) {
+								g.renderSinglePreviewToSurface(surface, self._source, self.activeItemIndex, micro, thumbs, previews, vw, vh);
+							} else {
+								g.renderViewerPagerToSurface(surface, self._source, self._visibleOrder, self._pager, micro, thumbs, previews, vw, vh);
+							}
+						}
+
+						if (self._verifyCapture && (self._verifyStage == 0 || self._verifyStage == 2)) {
+							if (self._verifyStage == 0) { self._verifyStage = 1; }
+							var readback = self._view.readback();
+							self._readback = readback;
+							if (!readback.submit()) { throw readback.error(); }
+						} else if (!surface.present()) {
+							throw surface.error();
+						}
+					} else if (frame == GPU_SURFACE_FRAME_UNAVAILABLE) {
+						throw self._view.error();
+					}
+				}
+			}
+		}
+
+		bool highRate = self._verifyCapture || self._pager.needsFrame() || self._zoomGrid.active || hasStreamingWork || self.nowMs() < self._activeUntilMs;
+		double targetPeriod = highRate ? (1.0 / 120.0) : (1.0 / 60.0);
+		double elapsedSec = (double)frameTimer.elapsedMillis() / 1000.0;
+		double delay = targetPeriod - elapsedSec - 0.001;
+		if (delay < 0.001) { delay = 0.001; }
+		GUI.postAfter(delay, self);
+	}
+
+	public void close() {
+		self._scope.cancel();
+		if (self._streamer != null) { self._streamer.close(); self._streamer = null; }
+		if (self._grid != null) { self._grid.close(); self._grid = null; }
+		if (self._previewCache != null) { self._previewCache.close(); self._previewCache = null; }
+		if (self._thumbnailAtlas != null) { self._thumbnailAtlas.close(); self._thumbnailAtlas = null; }
+		if (self._microAtlas != null) { self._microAtlas.close(); self._microAtlas = null; }
+		self._readback = null;
+	}
+
+	public void __del__() { self.close(); }
+}
