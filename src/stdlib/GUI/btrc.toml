@@ -64,7 +64,7 @@ symbols = [
 	"btrcShimTicksNS", "btrcShimWindowCreate", "btrcShimWindowDestroy", "btrcShimWindowId", "btrcShimWindowShow", "btrcShimWindowHide",
 	"btrcShimWindowIsHidden", "btrcShimWindowIsMinimized", "btrcShimWindowSetTitle", "btrcShimWindowSetSize", "btrcShimWindowSetMinimumSize",
 	"btrcShimWindowWidth", "btrcShimWindowHeight", "btrcShimWindowPixelWidth", "btrcShimWindowPixelHeight", "btrcShimWindowPixelDensity",
-	"btrcShimWindowSetCursor", "btrcShimWindowShowMessage", "btrcShimWindowShowsPictures", "btrcShimWindowShowPicture", "btrcShimWindowStartTextInput",
+	"btrcShimWindowSetCursor", "btrcShimWindowShowMessage", "btrcShimWindowSupportsSoftware", "btrcShimWindowShowsPictures", "btrcShimWindowShowPicture", "btrcShimWindowStartTextInput",
 	"btrcShimWindowStopTextInput", "btrcShimWindowTextInputActive", "btrcShimWindowClearComposition", "btrcShimWindowSetTextInputArea",
 	"btrcShimModState", "btrcShimSetClipboardText", "btrcShimHasClipboardText", "btrcShimRasterizeText", "btrcShimFreePixels",
 	"btrcShimGetClipboardText", "btrcShimFree", "btrcShimPollEvent", "btrcShimWaitEvent", "btrcShimPushWake", "btrcShimFolderDialogOpen",
