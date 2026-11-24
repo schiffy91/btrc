@@ -296,14 +296,15 @@ def unavailable_freetype(tmp_path, env):
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 @pytest.mark.parametrize(
-    ("consumer", "suffix", "expected"),
+    ("consumer", "fixture", "expected"),
     [
-        ("MonochromeFontConformance", "pcf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
-        ("MonochromeFontConformance", "bdf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
-        ("ColorBitmapFontConformance", "ttf", "PASS: color bitmap native metrics and coverage"),
+        ("MonochromeFontConformance", "fixture.pcf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
+        ("MonochromeFontConformance", "mono-strike.bdf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
+        ("LegacyBDFFontConformance", "legacy-strike.bdf", "PASS: BDF glyph indices and short rows"),
+        ("ColorBitmapFontConformance", "color-bitmap.ttf", "PASS: color bitmap native metrics and coverage"),
     ],
 )
-def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sanitized, consumer, suffix, expected):
+def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sanitized, consumer, fixture, expected):
     from src.tests.python.linux_provider_fixtures import (
         build_provider_program,
         provider_environment,
@@ -321,11 +322,11 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
     source = tmp_path / f"{consumer}.btrc"
     source.write_text((fixtures / source.name).read_text())
     executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
-    portable = tmp_path / f"fixture.{suffix}"
+    portable = tmp_path / fixture
+    suffix = portable.suffix[1:]
     if suffix == "pcf":
         portable.write_bytes(_pcf_strike())
     else:
-        fixture = "mono-strike.bdf" if suffix == "bdf" else "color-bitmap.ttf"
         portable.write_bytes((fixtures / "fixtures" / fixture).read_bytes())
     arguments = [suffix] if consumer == "MonochromeFontConformance" else []
     reference = tmp_path / "fixture.raw"

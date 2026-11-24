@@ -1,0 +1,21 @@
+import Library.GUI.FreeType;
+
+int main(int argc, char** argv) {
+	if (argc != 2) { return 2; }
+	var font = FreeType.load(argv[1], 8);
+	var space = font.glyph(1, true);
+	if (space == null || space.advanceFixed() != 192LL || space.width() != 0 || space.rows() != 0) { return 3; }
+	for (int code = 0; code <= 2; code += 2) {
+		var glyph = font.glyph(code, true);
+		if (glyph == null || glyph.advanceFixed() != 384LL || glyph.width() != 9 || glyph.rows() != 3 || glyph.pitch() != 2) { return 4; }
+		for (int y = 0; y < 3; y++) {
+			for (int x = 0; x < 9; x++) {
+				int expected = y != 1 || x == 0 ? 255 : 0;
+				if (glyph.coverage(y, x) != expected) { return 5; }
+			}
+		}
+	}
+	if (font.glyph(3, true) != null || font.glyph(80, false) != null) { return 6; }
+	print("PASS: BDF glyph indices and short rows");
+	return 0;
+}
