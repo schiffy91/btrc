@@ -394,6 +394,18 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Audio", (
         BuiltinMemberSpec("createDevice", "AudioDeviceProviderOpenOutcome", "method", (), "createDevice"),
     )),
+    ("LinuxAudioPcm", (
+        BuiltinMemberSpec("wait", "int", "method", (("struct LinuxPcmStream*", "pcm"), ("int", "timeout"),), "wait"),
+        BuiltinMemberSpec("transfer", "long", "method", (("struct LinuxPcmStream*", "pcm"), ("float*", "samples"), ("int", "frames"), ("Atomic<uint>*", "stopping"),), "transfer"),
+        BuiltinMemberSpec("recover", "int", "method", (("struct LinuxPcmStream*", "pcm"), ("int", "error"),), "recover"),
+        BuiltinMemberSpec("takeDiscontinuity", "bool", "method", (("struct LinuxPcmStream*", "pcm"),), "takeDiscontinuity"),
+        BuiltinMemberSpec("startIfPrepared", "int", "method", (("struct LinuxPcmStream*", "pcm"),), "startIfPrepared"),
+        BuiltinMemberSpec("start", "int", "method", (("struct LinuxPcmStream*", "pcm"),), "start"),
+        BuiltinMemberSpec("prepare", "int", "method", (("struct LinuxPcmStream*", "pcm"),), "prepare"),
+        BuiltinMemberSpec("drop", "int", "method", (("struct LinuxPcmStream*", "pcm"),), "drop"),
+        BuiltinMemberSpec("needsDrop", "bool", "method", (("struct LinuxPcmStream*", "pcm"),), "needsDrop"),
+        BuiltinMemberSpec("close", "int", "method", (("struct LinuxPcmStream*", "pcm"),), "close"),
+    )),
     ("LinuxAudioDevice", (
         BuiltinMemberSpec("open", "AudioDeviceProviderOpenOutcome", "method", (), "open"),
     )),
