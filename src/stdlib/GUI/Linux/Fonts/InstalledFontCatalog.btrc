@@ -55,13 +55,11 @@ class InstalledFontCatalog {
 		var opened = RegularFileSnapshot.open(real, 67108864LL);
 		if (!opened.ok()) { return; }
 		var file = opened.value();
-		var read = file.readExactAt(0LL, (int)file.size());
-		file.close();
-		if (!read.ok()) { return; }
 		try {
-			var fonts = InstalledFont.read(real, read.value());
+			var fonts = InstalledFont.read(file);
 			for font in fonts { self.faces.push(font); }
-		} catch (string error) { return; }
+		} catch (string error) { file.close(); return; }
+		file.close();
 	}
 
 	/* CSS Fonts face matching, restricted to normal width and an upright or

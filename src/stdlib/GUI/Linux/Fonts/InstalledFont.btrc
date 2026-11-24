@@ -1,4 +1,5 @@
 import Library.Bytes;
+import Library.FileSystem.FileSystemHandles;
 import Library.Vector;
 
 import ../../OpenType/FamilyNames.btrc;
@@ -19,20 +20,22 @@ class InstalledFont {
 	public bool italic;
 	private OpenTypeCharacterMap map;
 
-	public InstalledFont(string path, int index, OpenTypeData data, int offset) {
+	public InstalledFont(string path, int index, InstalledFontSource source, int offset) {
 		self.path = path;
 		self.faceIndex = index;
-		var dir = SFNTDirectory(data, offset, true);
-		self.families = OpenTypeFamilyNames(data, dir.required(0x6e616d65LL, 6)).values;
+		var header = source.bytes(offset, 12);
+		var directory = source.bytes(offset, 12 + header.u16(4) * 16);
+		var dir = SFNTDirectory(directory, 0, true, source.length);
+		var names = source.table(dir.required(0x6e616d65LL, 6));
+		self.families = OpenTypeFamilyNames(names, OpenTypeSpan(0, names.length())).values;
 		if (self.families.size() == 0) { throw "Font has no Unicode family name"; }
-		var os2 = dir.required(0x4f532f32LL, 64);
-		self.weight = data.u16(os2.offset + 4);
-		self.width = data.u16(os2.offset + 6);
-		self.italic = (data.u16(os2.offset + 62) & 513) != 0;
-		var maxp = dir.required(0x6d617870LL, 6);
-		var cmap = dir.required(0x636d6170LL, 4);
-		var bytes = OpenTypeData(data.slice(cmap.offset, cmap.length));
-		self.map = OpenTypeCharacterMap(bytes, OpenTypeSpan(0, cmap.length), data.u16(maxp.offset + 4));
+		var os2 = source.bytes(dir.required(0x4f532f32LL, 64).offset, 64);
+		self.weight = os2.u16(4);
+		self.width = os2.u16(6);
+		self.italic = (os2.u16(62) & 513) != 0;
+		int glyphCount = source.bytes(dir.required(0x6d617870LL, 6).offset + 4, 2).u16(0);
+		var map = source.table(dir.required(0x636d6170LL, 4));
+		self.map = OpenTypeCharacterMap(map, OpenTypeSpan(0, map.length()), glyphCount);
 	}
 
 	public bool covers(Vector<int> scalars) {
@@ -42,29 +45,57 @@ class InstalledFont {
 		return true;
 	}
 
-	class Vector<InstalledFont> read(string path, Bytes file) {
-		unsigned int flavor = file.readU32BE(0);
-		Bytes sfnt = file;
-		if (flavor == 0x774f4632U || flavor == 0x774f4646U) {
-			if (file.readU32BE(16) > 67108864U) { throw "Installed font exceeds scan limit"; }
-			sfnt = flavor == 0x774f4632U ? WOFF2Font().unpack(file) : WOFFFont().unpack(file);
-		}
-		var data = OpenTypeData(sfnt);
+	class Vector<InstalledFont> read(RegularFileSnapshot file) {
+		var source = InstalledFontSource(file);
+		var header = source.bytes(0, 12);
 		Vector<InstalledFont> faces = [];
-		if (data.u32(0) != 0x74746366LL) {
-			faces.push(new InstalledFont(path, 0, data, 0));
+		if (header.u32(0) != 0x74746366LL) {
+			faces.push(new InstalledFont(file.path(), 0, source, 0));
 			return faces;
 		}
-		long long version = data.u32(4);
-		long long count = data.u32(8);
+		long long version = header.u32(4);
+		long long count = header.u32(8);
 		if ((version != 65536LL && version != 131072LL) || count < 1LL || count > 256LL) { throw "Unsupported font collection"; }
-		data.need(12LL, count * 4LL);
+		var offsets = source.bytes(12, (int)count * 4);
 		for (int i = 0; i < (int)count; i++) {
-			long long offset = data.u32(12 + i * 4);
-			data.need(offset, 12LL);
-			try { faces.push(new InstalledFont(path, i, data, (int)offset)); }
+			long long offset = offsets.u32(i * 4);
+			if (offset + 12LL > (long long)source.length) { throw "Font data is truncated"; }
+			try { faces.push(new InstalledFont(file.path(), i, source, (int)offset)); }
 			catch (string error) { continue; }
 		}
 		return faces;
 	}
+}
+
+/* Desktop SFNT discovery needs the name, style and character map of a face.
+ * Use the same small, revision-checked reads for each member of a TTC. Web
+ * wrappers first reconstruct their SFNT in memory and share the same parser. */
+class InstalledFontSource {
+	private RegularFileSnapshot file;
+	private OpenTypeData? decoded = null;
+	public int length;
+
+	public InstalledFontSource(RegularFileSnapshot file) {
+		self.file = file;
+		self.length = (int)file.size();
+		long long flavor = self.bytes(0, 4).u32(0);
+		if (flavor == 0x774f4632LL || flavor == 0x774f4646LL) {
+			if (self.bytes(16, 4).u32(0) > 67108864LL) { throw "Installed font exceeds scan limit"; }
+			var input = file.readExactAt(0LL, self.length);
+			if (!input.ok()) { throw "Cannot read installed font"; }
+			var sfnt = flavor == 0x774f4632LL ? WOFF2Font().unpack(input.value()) : WOFFFont().unpack(input.value());
+			self.decoded = OpenTypeData(sfnt);
+			self.length = sfnt.length();
+		}
+	}
+
+	public OpenTypeData bytes(int offset, int count) {
+		var memory = self.decoded;
+		if (memory != null) { return new OpenTypeData(memory.slice(offset, count)); }
+		var result = self.file.readExactAt((long long)offset, count);
+		if (!result.ok()) { throw "Cannot read installed font"; }
+		return new OpenTypeData(result.value());
+	}
+
+	public OpenTypeData table(OpenTypeSpan span) { return self.bytes(span.offset, span.length); }
 }
