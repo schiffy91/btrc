@@ -729,6 +729,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("fontWidth", "int", "method", (("Font", "font"), ("string", "text"),), "fontWidth"),
         BuiltinMemberSpec("fontText", "void", "method", (("struct GUIRasterPixels*", "pixels"), ("Font", "font"), ("int", "x"), ("int", "y"), ("string", "text"), ("unsigned int", "rgba"),), "fontText"),
     )),
+    ("SharedFrameView", (
+        BuiltinMemberSpec("tryCreate", "ISharedFrameView?", "method", (), "tryCreate"),
+        BuiltinMemberSpec("create", "ISharedFrameView", "method", (), "create"),
+    )),
     ("WebView", (
         BuiltinMemberSpec("create", "IWebView", "method", (), "create"),
     )),
