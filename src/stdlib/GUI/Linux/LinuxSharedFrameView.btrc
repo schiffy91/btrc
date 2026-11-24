@@ -7,58 +7,61 @@ import Library.GUI.Shim.ShimPainter;
 import Library.GUI.Shim.ShimControls;
 
 class LinuxSharedFrameView extends ShimNodeView implements ISharedFrameView {
-    private BtrcShimControl* _picture;
-    private BtrcDmaBufReceiver* _receiver = null;
+	private BtrcShimControl* _picture;
+	private BtrcDmaBufReceiver* _receiver = null;
 
-    class bool supported() { return btrcGtkSupportsSharedFrames(); }
+	class bool supported() { return btrcGtkSupportsSharedFrames(); }
 
-    public LinuxSharedFrameView(ShimContext context) {
-        self.adoptNode(ShimViewNode(context));
-        self._picture = btrcGtkSharedFrameCreate((unsigned int)self.node().id);
-        if (self._picture == null) { throw "Cannot create shared frame view"; }
-    }
+	public LinuxSharedFrameView(ShimContext context) {
+		self.adoptNode(ShimViewNode(context));
+		self._picture = btrcGtkSharedFrameCreate((unsigned int)self.node().id);
+		if (self._picture == null) { throw "Cannot create shared frame view"; }
+	}
 
-    public SharedFrameEndpoint listen(int producerPid) {
-        self.node().requireOpen();
-        self.disconnect();
-        self._receiver = btrcDmaBufListen(producerPid);
-        if (self._receiver == null) { throw "Cannot open DMA-BUF receiver"; }
-        return SharedFrameEndpoint("dmabuf", Strings.copy((char*)btrcDmaBufAddress(self._receiver)));
-    }
+	public SharedFrameEndpoint listen(int producerPid) {
+		self.node().requireOpen();
+		self.disconnect();
+		self._receiver = btrcDmaBufListen(producerPid);
+		if (self._receiver == null) { throw "Cannot open DMA-BUF receiver"; }
+		return SharedFrameEndpoint("dmabuf", Strings.copy((char*)btrcDmaBufAddress(self._receiver)));
+	}
 
-    public void disconnect() {
-        self.node().requireOpen();
-        self.releaseReceiver();
-        btrcGtkSharedFrameClear(self._picture);
-        self.node().invalidate();
-    }
+	public void disconnect() {
+		self.node().requireOpen();
+		self.releaseReceiver();
+		btrcGtkSharedFrameClear(self._picture);
+		self.node().invalidate();
+	}
 
-    public bool presentPending() {
-        self.node().requireOpen();
-        if (self._receiver == null || !btrcGtkPictureReceive(self._picture, self._receiver)) { return false; }
-        self.node().invalidate();
-        return true;
-    }
+	public bool presentPending() {
+		self.node().requireOpen();
+		if (self._receiver == null || !btrcGtkPictureReceive(self._picture, self._receiver)) { return false; }
+		self.node().invalidate();
+		return true;
+	}
 
-    public int frameWidth() { self.node().requireOpen(); return btrcGtkPictureFrameWidth(self._picture); }
-    public int frameHeight() { self.node().requireOpen(); return btrcGtkPictureFrameHeight(self._picture); }
-    public double fittingWidth() { return (double)self.frameWidth(); }
-    public double fittingHeight() { return (double)self.frameHeight(); }
+	public int frameWidth() { self.node().requireOpen(); return btrcGtkPictureFrameWidth(self._picture); }
 
-    public void paint(ShimPlacer painter, double x, double y) {
-        painter.place(self._picture, x, y, self.node().width, self.node().height);
-    }
+	public int frameHeight() { self.node().requireOpen(); return btrcGtkPictureFrameHeight(self._picture); }
 
-    private void releaseReceiver() {
-        if (self._receiver != null) { btrcDmaBufDisconnect(self._receiver); self._receiver = null; }
-    }
+	public double fittingWidth() { return (double)self.frameWidth(); }
 
-    private void releaseNative() {
-        self.releaseReceiver();
-        if (self._picture != null) { btrcShimControlDestroy(self._picture); self._picture = null; }
-    }
+	public double fittingHeight() { return (double)self.frameHeight(); }
 
-    public CallbackCancellation close() { var state = self.node().close(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); } return state; }
-    public CallbackCancellation pollClose() { var state = self.node().pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); } return state; }
-    public void __del__() { self.releaseNative(); }
+	public void paint(ShimPlacer painter, double x, double y) { painter.place(self._picture, x, y, self.node().width, self.node().height); }
+
+	private void releaseReceiver() {
+		if (self._receiver != null) { btrcDmaBufDisconnect(self._receiver); self._receiver = null; }
+	}
+
+	private void releaseNative() {
+		self.releaseReceiver();
+		if (self._picture != null) { btrcShimControlDestroy(self._picture); self._picture = null; }
+	}
+
+	public CallbackCancellation close() { var state = self.node().close(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); } return state; }
+
+	public CallbackCancellation pollClose() { var state = self.node().pollClose(); if (state == CALLBACK_CANCELLATION_COMPLETE) { self.releaseNative(); } return state; }
+
+	public void __del__() { self.releaseNative(); }
 }

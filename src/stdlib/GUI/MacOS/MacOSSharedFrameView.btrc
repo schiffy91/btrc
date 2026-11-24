@@ -27,8 +27,11 @@ class MacOSSharedFrameView implements ISharedFrameView, IMacOSView {
 	}
 
 	public void disconnect() { self.host().disconnect(); }
+
 	public bool presentPending() { return self.host().presentPending(); }
+
 	public int frameWidth() { return self.host().frameWidth(); }
+
 	public int frameHeight() { return self.host().frameHeight(); }
 
 	public MacOSViewState stateNode() { return self._view.stateNode(); }
