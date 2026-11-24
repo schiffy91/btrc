@@ -8,13 +8,14 @@ import Library.Timer;
 
 /* AlsaRatePeer.c holds both opposite snd-aloop endpoints at 48 kHz. The
  * public stream requests 44.1 kHz, emits 500 Hz and measures the host's
- * 1 kHz signal against the callback's own sample count. */
+ * 1 kHz signal against the callback's own sample count. A 1763-frame
+ * callback spans a fractional number of 48 kHz frames. */
 struct RateLog { unsigned long long blocks; unsigned long long lastFrame; int phase; int sinceRise; int lastSign; int intervals; long long total; bool bad; };
 
 @realtime void rateProcess(void* context, struct AudioBlockView block, RealtimeAudioInputSamples input, RealtimeAudioOutputSamples output) {
 	struct RateLog* log = (struct RateLog*)context;
 	int frames = block.frameCount;
-	if (frames != 1764 || block.inputChannelCount != 2 || block.outputChannelCount != 2 || (log->blocks > 0ULL && block.outputDeviceFrame != log->lastFrame + 1764ULL)) { log->bad = true; }
+	if (frames != 1763 || block.inputChannelCount != 2 || block.outputChannelCount != 2 || (log->blocks > 0ULL && block.outputDeviceFrame != log->lastFrame + 1763ULL)) { log->bad = true; }
 	log->blocks++; log->lastFrame = block.outputDeviceFrame;
 	for (int frame = 0; frame < frames; frame++) {
 		float value = 0.0f;
@@ -36,7 +37,7 @@ int main() {
 	var provider = opened.provider(); var inventory = provider.inventory().inventory();
 	string id = "plughw:CARD=Loopback,DEV=0";
 	var channels = AudioChannelSelection.leading(2);
-	var spec = DuplexAudioOpenRequest.duplex(inventory.generation(), id, channels, id, channels, AudioStreamRequest(44100, 1764));
+	var spec = DuplexAudioOpenRequest.duplex(inventory.generation(), id, channels, id, channels, AudioStreamRequest(44100, 1763));
 	struct RateLog log = {};
 	var setup = provider.openDuplex(spec, RealtimeAudioProgram(rateProcess, &log));
 	if (!setup.succeeded()) { Console.error(setup.message()); }
