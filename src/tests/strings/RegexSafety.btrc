@@ -83,6 +83,9 @@ int main() {
 	assert(Regex.fullMatch(boundary, "xxxx"));
 	assert(Regex.first("\\w+\\s+\\d+", "id 42").equals("id 42"));
 	assert(Regex.replace("\\x41.", "aaA!", "X").equals("aaX"));
+	assert(Regex.first("\\bword\\b", "-word!").equals("word"));
+	assert(Regex.find("\\Bxy", "_xy") == 1);
+	assert(Regex.matches("\\<cat\\>", "a-cat!"));
 	assert(Regex.first("((a){2})", "aaaa").equals("aa"));
 
 	/* The repeated capture changes the Windows start offset when two

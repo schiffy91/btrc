@@ -61,3 +61,5 @@ The flat matcher also reports raw subgroups when every capture encloses the comp
 For eligible flat expressions the hosted interface supports BRE and ERE, including `REG_ICASE`, `REG_NEWLINE` and `REG_NOSUB`. The compiled object retains these flags when it needs the legacy retry for a resource limit. In no-submatch mode the caller’s match array remains untouched.
 
 Escaped consuming atoms can enter the same flat matcher, including Windows shorthand classes and escaped BRE groups. Hex escapes retain their exact byte in case-insensitive mode. Negated shorthand classes exclude a newline in newline-sensitive mode.
+
+Flat sequences and alternatives also support subject and word assertions. In newline-sensitive mode, internal line boundaries can satisfy a subject anchor even when the caller suppresses beginning-of-subject or end-of-subject matches.

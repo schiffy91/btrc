@@ -563,15 +563,15 @@ static inline void btrc_win_regfree(regex_t *re)
 	re->__opaque = NULL;
 }
 
-/* This dispatch step enables only consuming bytes, concatenation, plain
-   alternatives and a single repetition on a byte. Groups that each fully
-   enclose the expression have already been counted and stripped. */
+/* Flat alternatives can contain byte atoms, subject and word assertions,
+   and a single repetition on a byte. Any enclosing captures share the
+   whole span and are reported separately by the dispatcher. */
 static inline int btrc_win_rx_flat_eligible(const btrc_win_rx_parser *parser)
 {
 	const btrc_win_rx_node *nodes = parser->program->nodes;
 	for (int i = 1; i <= parser->nodes; ++i) {
 		const btrc_win_rx_node *node = &nodes[i];
-		if (node->op == btrc_win_rx_byte || node->op == btrc_win_rx_group) continue;
+		if (node->op == btrc_win_rx_byte || node->op == btrc_win_rx_group || node->op == btrc_win_rx_assert) continue;
 		if (node->op == btrc_win_rx_repeat && nodes[node->child].op == btrc_win_rx_byte) continue;
 		if (node->op == btrc_win_rx_choice && node->child) continue;
 		return 0;
