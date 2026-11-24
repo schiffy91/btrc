@@ -1,0 +1,58 @@
+import Library.Array;
+import Library.Vector;
+
+import ./OpenTypeData.btrc;
+
+/* CFF 1 accented endchar identifies its two components by StandardEncoding
+ * character code, independently of the font's Encoding. Appendix B of the
+ * CFF specification maps those codes to standard string IDs. The charset
+ * in turn maps those string IDs to glyphs. */
+class CFFCharset {
+	private Array<int> glyphs;
+	private Vector<int> highCodes = [0, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 0, 111, 112, 113, 114, 0, 115, 116, 117, 118, 119, 120, 121, 122, 0, 123, 0, 124, 125, 126, 127, 128, 129, 130, 131, 0, 132, 133, 0, 134, 135, 136, 137, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 138, 0, 139, 0, 0, 0, 0, 140, 141, 142, 143, 0, 0, 0, 0, 0, 144, 0, 0, 0, 145, 0, 0, 146, 147, 148, 149, 0, 0, 0, 0];
+
+	public CFFCharset(OpenTypeData data, OpenTypeSpan table, int charset, int count) {
+		self.glyphs = new Array<int>(150);
+		if (charset == 0) {
+			if (count > 229) { throw "CFF ISOAdobe charset is too short"; }
+			for (int sid = 1; sid < count && sid < 150; sid++) { self.glyphs.set(sid, sid); }
+			return;
+		}
+		if (charset == 1 || charset == 2) {
+			/* The only string IDs in Expert and Expert Subset that also
+			 * occur in StandardEncoding (CFF specification, appendix C). */
+			Vector<int> sids = [1, 13, 14, 15, 99, 27, 28, 109, 110];
+			Vector<int> ids = charset == 1 ? [1, 12, 13, 14, 15, 26, 27, 46, 47] : [1, 8, 9, 10, 11, 22, 23, 41, 42];
+			if (count > (charset == 1 ? 166 : 87)) { throw "CFF Expert charset is too short"; }
+			for (int i = 0; i < sids.size(); i++) {
+				if (ids.get(i) < count) { self.glyphs.set(sids.get(i), ids.get(i)); }
+			}
+			return;
+		}
+		if (charset < 0 || charset >= table.length) { throw "CFF charset offset lies outside the table"; }
+		int p = table.offset + charset;
+		int end = table.end();
+		int format = data.u8(p++);
+		if (format > 2) { throw "Unknown CFF charset format"; }
+		int glyph = 1;
+		while (glyph < count) {
+			if (end - p < 2 + format) { throw "CFF charset is truncated"; }
+			int sid = data.u16(p);
+			p += 2;
+			int extra = format == 0 ? 0 : (format == 1 ? data.u8(p) : data.u16(p));
+			p += format;
+			if (extra >= count - glyph || extra > 65535 - sid) { throw "Invalid CFF charset range"; }
+			for (int j = 0; j <= extra && sid + j < 150; j++) { self.glyphs.set(sid + j, glyph + j); }
+			glyph += extra + 1;
+		}
+	}
+
+	public int standardGlyph(long long value) {
+		if (value < 0LL || value > 255LL * 65536LL || (value & 65535LL) != 0LL) { throw "Invalid CFF component code"; }
+		int code = (int)(value / 65536LL);
+		int sid = code >= 32 && code <= 126 ? code - 31 : (code >= 160 ? self.highCodes.get(code - 160) : 0);
+		int glyph = self.glyphs.get(sid);
+		if (sid == 0 || glyph == 0) { throw "CFF component is absent from the font"; }
+		return glyph;
+	}
+}

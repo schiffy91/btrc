@@ -30,11 +30,13 @@ class CoverageRasterizer {
 	private int bandFirst = 0;
 	private Array<long long> cells;
 	private Bytes bitmap;
+	private bool fixedCrossings;
 	private int penX = 0;
 	private int penY = 0;
 
-	public CoverageRasterizer(int width, int rows) {
+	public CoverageRasterizer(int width, int rows, bool fixedCrossings = false) {
 		if (width < 1 || rows < 1 || width > 32768 || rows > 32768 || (long long)width * (long long)rows > 67108864LL) { throw "Glyph bitmap exceeds the supported size"; }
+		self.fixedCrossings = fixedCrossings;
 		self.width = width;
 		self.rows = rows;
 		self.stride = width + 2;
@@ -150,6 +152,13 @@ class CoverageRasterizer {
 	 * fraction belongs to the previous subpixel when it is exactly integral. */
 	private int crossing(int base, int start, int delta, int travel, int span) {
 		long long numerator = (long long)(start - base) * (long long)span + (long long)travel * (long long)delta;
+		if (self.fixedCrossings) {
+			// A 0.32 reciprocal rounds long PostScript edges to the same
+			// subpixel grid as the device renderer. The active cell bounds
+			// numerator to [0, 256 * span], so the product fits in 40 bits.
+			long long reciprocal = 4294967295LL / (long long)span;
+			return base + (int)((numerator * reciprocal) / 4294967296LL);
+		}
 		return base + (int)(numerator == 0LL ? 0LL : (numerator - 1LL) / (long long)span);
 	}
 

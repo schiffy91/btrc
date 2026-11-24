@@ -1,0 +1,325 @@
+import Library.Array;
+import Library.Vector;
+
+import ./CFFCharset.btrc;
+import ./CFFTables.btrc;
+import ./GlyphOutline.btrc;
+import ./OpenTypeData.btrc;
+import ./PostScriptPath.btrc;
+
+/* One run of a Type 2 charstring: a stack machine whose operators move a
+ * pen by relative amounts and draw lines and cubic curves. Numbers are
+ * 16.16 fixed point in font units; each point is taken in whole units and
+ * scaled to 1/64 pixel.
+ *
+ * Hint operators (stems, hint masks, counter masks) are counted, because
+ * the number of stems fixes the length of a mask's data, and otherwise
+ * skipped: outlines are not hinted. The operand stack holds 48 numbers,
+ * subroutines nest ten deep, and a run executes a bounded number of
+ * operators, so a charstring whose subroutines call each other is refused
+ * rather than followed. The optional four-operand form of endchar records
+ * the two components and displacement for the containing font. */
+class CFFCharString {
+	private OpenTypeData data;
+	private CFFIndex globalSubrs;
+	private CFFIndex localSubrs;
+	private PostScriptPath path;
+	private Array<long long> stack;
+	private int count = 0;
+	private int stems = 0;
+	private bool widthKnown = false;
+	private bool hasHints = false;
+	private bool hasFlex = false;
+	private int budget = 500000;
+	public long long base = -1LL;
+	public long long accent = -1LL;
+	public long long accentX = 0LL;
+	public long long accentY = 0LL;
+
+	/* `scale` is the 16.16 factor from font units to 26.6 pixels. */
+	public CFFCharString(OpenTypeData data, CFFIndex globalSubrs, CFFIndex localSubrs, GlyphOutline outline, long long scale, bool render) {
+		self.data = data;
+		self.globalSubrs = globalSubrs;
+		self.localSubrs = localSubrs;
+		self.path = PostScriptPath(outline, scale, render);
+		self.stack = new Array<long long>(48);
+
+	}
+
+	public bool canRasterize() { return !self.hasHints && !self.hasFlex && self.path.integral; }
+
+	public void run(OpenTypeSpan code) {
+		if (!self.execute(code, 0)) { throw "CFF glyph has no endchar"; }
+		self.path.close();
+	}
+
+	private void push(long long value) {
+		if (self.count >= self.stack.size()) { throw "CFF charstring stack overflow"; }
+		if (value > 2147483647LL || value < -2147483648LL) { throw "CFF charstring number is out of range"; }
+		self.stack.set(self.count, value);
+		self.count++;
+	}
+
+	private long long pop() {
+		if (self.count < 1) { throw "CFF charstring stack underflow"; }
+		self.count--;
+		return self.stack.get(self.count);
+	}
+
+	private long long at(int index) {
+		if (index < 0 || index >= self.count) { throw "CFF charstring stack underflow"; }
+		return self.stack.get(index);
+	}
+
+	/* The index of the first operand after an optional leading width. */
+	private int afterWidth(bool present) {
+		bool leading = present && !self.widthKnown;
+		self.widthKnown = true;
+		return leading ? 1 : 0;
+	}
+
+	private void stemHints() {
+		self.hasHints = true;
+		int first = self.afterWidth((self.count & 1) != 0);
+		if (((self.count - first) & 1) != 0) { throw "CFF stem is missing an operand"; }
+		self.stems += (self.count - first) / 2;
+		if (self.stems > 96) { throw "CFF stem hint limit exceeded"; }
+		self.count = 0;
+	}
+
+	private void alternatingLines(bool horizontal) {
+		for (int i = 0; i < self.count; i++) {
+			if (horizontal) { self.path.lineBy(self.at(i), 0LL); }
+			else { self.path.lineBy(0LL, self.at(i)); }
+			horizontal = !horizontal;
+		}
+	}
+
+	private void alternatingCurves(bool horizontal) {
+		int i = 0;
+		while (self.count - i >= 4) {
+			bool last = self.count - i == 5;
+			if (horizontal) { self.path.curveBy(self.at(i), 0LL, self.at(i + 1), self.at(i + 2), last ? self.at(i + 4) : 0LL, self.at(i + 3)); }
+			else { self.path.curveBy(0LL, self.at(i), self.at(i + 1), self.at(i + 2), self.at(i + 3), last ? self.at(i + 4) : 0LL); }
+			horizontal = !horizontal;
+			i += last ? 5 : 4;
+		}
+	}
+
+	private void flex(int kind) {
+		self.hasFlex = true;
+		if (kind == 35 && self.count == 13) {
+			self.path.curveBy(self.at(0), self.at(1), self.at(2), self.at(3), self.at(4), self.at(5));
+			self.path.curveBy(self.at(6), self.at(7), self.at(8), self.at(9), self.at(10), self.at(11));
+		} else if (kind == 34 && self.count == 7) {
+			self.path.curveBy(self.at(0), 0LL, self.at(1), self.at(2), self.at(3), 0LL);
+			self.path.curveBy(self.at(4), 0LL, self.at(5), -self.at(2), self.at(6), 0LL);
+		} else if (kind == 36 && self.count == 9) {
+			self.path.curveBy(self.at(0), self.at(1), self.at(2), self.at(3), self.at(4), 0LL);
+			self.path.curveBy(self.at(5), 0LL, self.at(6), self.at(7), self.at(8), -(self.at(1) + self.at(3) + self.at(7)));
+		} else if (kind == 37 && self.count == 11) {
+			long long dx = self.at(0) + self.at(2) + self.at(4) + self.at(6) + self.at(8);
+			long long dy = self.at(1) + self.at(3) + self.at(5) + self.at(7) + self.at(9);
+			bool wide = (dx < 0LL ? -dx : dx) > (dy < 0LL ? -dy : dy);
+			self.path.curveBy(self.at(0), self.at(1), self.at(2), self.at(3), self.at(4), self.at(5));
+			self.path.curveBy(self.at(6), self.at(7), self.at(8), self.at(9), wide ? self.at(10) : -dx, wide ? -dy : self.at(10));
+		} else { throw "Invalid CFF flex operands"; }
+	}
+
+	private bool call(CFFIndex subrs, int depth) {
+		if (depth >= 10) { throw "CFF subroutines nest too deeply"; }
+		int total = subrs.count();
+		long long index = OpenTypeFixed.floorDiv(self.pop(), 65536LL) + (total < 1240 ? 107LL : (total < 33900 ? 1131LL : 32768LL));
+		if (index < 0LL || index >= (long long)total) { throw "CFF subroutine does not exist"; }
+		return self.execute(subrs.object((int)index), depth + 1);
+	}
+
+	/* True once endchar has run, which ends every enclosing subroutine too. */
+	private bool execute(OpenTypeSpan code, int depth) {
+		int p = code.offset;
+		int end = code.end();
+		while (p < end) {
+			if (--self.budget < 0) { throw "CFF charstring runs too long"; }
+			int b = self.data.u8(p);
+			p++;
+			if (b >= 32 || b == 28) {
+				if (b == 28) {
+					if (end - p < 2) { throw "CFF charstring is truncated"; }
+					self.push(65536LL * (long long)self.data.s16(p));
+					p += 2;
+				} else if (b <= 246) {
+					self.push(65536LL * (long long)(b - 139));
+				} else if (b <= 254) {
+					if (p >= end) { throw "CFF charstring is truncated"; }
+					int low = self.data.u8(p);
+					p++;
+					self.push(65536LL * (long long)(b <= 250 ? (b - 247) * 256 + low + 108 : -(b - 251) * 256 - low - 108));
+				} else {
+					if (end - p < 4) { throw "CFF charstring is truncated"; }
+					self.push(self.data.s32(p));
+					p += 4;
+				}
+				continue;
+			}
+			if (b == 1 || b == 3 || b == 18 || b == 23) {
+				self.stemHints();
+			} else if (b == 19 || b == 20) {
+				self.stemHints();
+				int mask = (self.stems + 7) / 8;
+				if (end - p < mask) { throw "CFF charstring is truncated"; }
+				p += mask;
+			} else if (b == 21) {
+				int first = self.afterWidth(self.count > 2);
+				if (self.count - first != 2) { throw "Invalid rmoveto operands"; }
+				self.path.moveBy(self.at(first), self.at(first + 1));
+				self.count = 0;
+			} else if (b == 22 || b == 4) {
+				int first = self.afterWidth(self.count > 1);
+				if (self.count - first != 1) { throw "Invalid CFF moveto operands"; }
+				if (b == 22) { self.path.moveBy(self.at(first), 0LL); }
+				else { self.path.moveBy(0LL, self.at(first)); }
+				self.count = 0;
+			} else if (b == 5) {
+				if (self.count < 2 || self.count % 2 != 0) { throw "Invalid CFF drawing operands"; }
+				for (int i = 0; i + 1 < self.count; i += 2) { self.path.lineBy(self.at(i), self.at(i + 1)); }
+				self.count = 0;
+			} else if (b == 6 || b == 7) {
+				if (self.count < 1) { throw "Invalid CFF drawing operands"; }
+				self.alternatingLines(b == 6);
+				self.count = 0;
+			} else if (b == 8) {
+				if (self.count < 6 || self.count % 6 != 0) { throw "Invalid CFF drawing operands"; }
+				for (int i = 0; i + 5 < self.count; i += 6) { self.path.curveBy(self.at(i), self.at(i + 1), self.at(i + 2), self.at(i + 3), self.at(i + 4), self.at(i + 5)); }
+				self.count = 0;
+			} else if (b == 24) {
+				if (self.count < 8 || (self.count - 2) % 6 != 0) { throw "Invalid CFF drawing operands"; }
+				int i = 0;
+				while (self.count - i >= 8) {
+					self.path.curveBy(self.at(i), self.at(i + 1), self.at(i + 2), self.at(i + 3), self.at(i + 4), self.at(i + 5));
+					i += 6;
+				}
+				if (self.count - i >= 2) { self.path.lineBy(self.at(i), self.at(i + 1)); }
+				self.count = 0;
+			} else if (b == 25) {
+				if (self.count < 8 || self.count % 2 != 0) { throw "Invalid CFF drawing operands"; }
+				int i = 0;
+				while (self.count - i >= 8) {
+					self.path.lineBy(self.at(i), self.at(i + 1));
+					i += 2;
+				}
+				if (self.count - i >= 6) { self.path.curveBy(self.at(i), self.at(i + 1), self.at(i + 2), self.at(i + 3), self.at(i + 4), self.at(i + 5)); }
+				self.count = 0;
+			} else if (b == 26 || b == 27) {
+				if (self.count < 4 || self.count % 4 > 1) { throw "Invalid CFF drawing operands"; }
+				int i = 0;
+				long long lead = 0LL;
+				if ((self.count & 1) != 0) {
+					lead = self.at(0);
+					i = 1;
+				}
+				while (self.count - i >= 4) {
+					if (b == 27) { self.path.curveBy(self.at(i), lead, self.at(i + 1), self.at(i + 2), self.at(i + 3), 0LL); }
+					else { self.path.curveBy(lead, self.at(i), self.at(i + 1), self.at(i + 2), 0LL, self.at(i + 3)); }
+					lead = 0LL;
+					i += 4;
+				}
+				self.count = 0;
+			} else if (b == 30 || b == 31) {
+				if (self.count < 4 || self.count % 4 > 1) { throw "Invalid CFF drawing operands"; }
+				self.alternatingCurves(b == 31);
+				self.count = 0;
+			} else if (b == 10 || b == 29) {
+				if (self.call(b == 10 ? self.localSubrs : self.globalSubrs, depth)) { return true; }
+			} else if (b == 11) {
+				if (depth == 0) { throw "Unexpected CFF return"; }
+				return false;
+			} else if (b == 14) {
+				int first = self.afterWidth((self.count & 1) != 0);
+				if (self.count - first == 4) {
+					self.accentX = self.at(first);
+					self.accentY = self.at(first + 1);
+					self.base = self.at(first + 2);
+					self.accent = self.at(first + 3);
+					if (self.base < 0LL || self.accent < 0LL) { throw "Invalid CFF component code"; }
+				} else if (self.count != first) { throw "Invalid CFF endchar operands"; }
+				self.count = 0;
+				return true;
+			} else if (b == 12) {
+				if (p >= end) { throw "CFF charstring is truncated"; }
+				int kind = self.data.u8(p);
+				p++;
+				if (kind >= 34 && kind <= 37) {
+					self.flex(kind);
+					self.count = 0;
+				} else if (kind != 0 || self.count != 0) { throw "Unsupported CFF escaped operator"; }
+			} else { throw "Unknown CFF drawing operator"; }
+		}
+		throw "Truncated CFF charstring";
+	}
+}
+
+/* A name-keyed CFF1 face has one font dictionary and one private set of
+ * subroutines. Other dictionary arrangements stay with the existing reader. */
+class CFFGlyphs {
+	private OpenTypeData data;
+	private CFFIndex charStrings;
+	private CFFIndex globalSubrs;
+	private CFFIndex localSubrs;
+	private CFFCharset charset;
+	private bool standardFill = true;
+
+	public CFFGlyphs(OpenTypeData data, OpenTypeSpan table) {
+		self.data = data;
+		if (table.length < 4 || data.u8(table.offset) != 1 || data.u8(table.offset + 1) != 0) { throw "Unsupported CFF table version"; }
+		int headerSize = data.u8(table.offset + 2);
+		int offsetSize = data.u8(table.offset + 3);
+		if (headerSize < 4 || headerSize > table.length || offsetSize < 1 || offsetSize > 4) { throw "Invalid CFF header"; }
+		var names = CFFIndex(data, table.offset + headerSize, table.end());
+		var tops = CFFIndex(data, names.end(), table.end());
+		if (names.count() != 1 || tops.count() != 1 || names.object(0).length == 0) { throw "Invalid OpenType CFF font set"; }
+		var strings = CFFIndex(data, tops.end(), table.end());
+		self.globalSubrs = CFFIndex(data, strings.end(), table.end());
+		var top = CFFDict(data, tops.object(0));
+		if (top.count(286) >= 0 || (top.count(262) >= 0 && top.whole(262, 0) != 2)) { throw "Unsupported CFF font dictionary"; }
+		if (top.count(263) >= 0) {
+			if (top.count(263) != 6 || top.number(263, 0) <= 0.0 || top.number(263, 0) != top.number(263, 3) || top.number(263, 1) != 0.0 || top.number(263, 2) != 0.0 || top.number(263, 4) != 0.0 || top.number(263, 5) != 0.0) { throw "Unsupported CFF font matrix"; }
+		}
+		if ((top.count(263) >= 0 && top.number(263, 0) != 0.001) || top.count(261) >= 0 || top.count(276) >= 0) { self.standardFill = false; }
+		if (top.count(17) != 1) { throw "Missing CFF charstrings"; }
+		int chars = top.whole(17, 0);
+		if (chars >= table.length) { throw "CFF charstrings lie outside the table"; }
+		self.charStrings = CFFIndex(data, table.offset + chars, table.end());
+		self.charset = CFFCharset(data, table, top.count(15) < 0 ? 0 : top.whole(15, 0), self.charStrings.count());
+		self.localSubrs = CFFIndex(data, -1, 0);
+		if (top.count(18) == 2) {
+			int size = top.whole(18, 0);
+			int offset = top.whole(18, 1);
+			if (offset > table.length || size > table.length - offset) { throw "CFF private dictionary lies outside the table"; }
+			var own = CFFDict(data, OpenTypeSpan(table.offset + offset, size));
+			if (own.count(270) >= 0 || own.count(273) >= 0 || own.count(274) >= 0) { self.standardFill = false; }
+			if (own.count(19) == 1) {
+				int subrs = own.whole(19, 0);
+				if (subrs >= table.length - offset) { throw "CFF subroutines lie outside the table"; }
+				self.localSubrs = CFFIndex(data, table.offset + offset + subrs, table.end());
+			}
+		} else if (top.count(18) >= 0) { throw "Invalid CFF private dictionary"; }
+	}
+
+	public int glyphCount() { return self.charStrings.count(); }
+
+	public bool load(int glyph, long long scale, GlyphOutline outline, bool render) { return self.draw(glyph, scale, outline, 0, render); }
+
+	private bool draw(int glyph, long long scale, GlyphOutline outline, int depth, bool render) {
+		if (depth >= 4) { throw "CFF components nest too deeply"; }
+		var run = CFFCharString(self.data, self.globalSubrs, self.localSubrs, outline, scale, render);
+		run.run(self.charStrings.object(glyph));
+		if (run.base >= 0LL) {
+			if (render) { return false; }
+			self.draw(self.charset.standardGlyph(run.base), scale, outline, depth + 1, false);
+			int start = outline.pointCount();
+			self.draw(self.charset.standardGlyph(run.accent), scale, outline, depth + 1, false);
+			outline.translate(start, OpenTypeFixed.mul(PostScriptPath.units(run.accentX), scale), OpenTypeFixed.mul(PostScriptPath.units(run.accentY), scale));
+		}
+		return !render || outline.isEmpty() || (self.standardFill && run.canRasterize());
+	}
+}

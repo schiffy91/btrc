@@ -251,19 +251,19 @@
         "src/tests/python/test_native_macro_constants.py"
       ],
       "nodes": [
-        "*::test_freetype_macro_constants_build_and_run*",
+        "*::test_poll_macro_constants_build_and_run*",
         "*::test_string_and_integer_macro_constants_build_and_run*",
         "*::test_macro_constant_diagnostics_match_across_compilers*",
         "*::test_webgpu_binding_names_the_sdk_depth_slice_macro*",
         "*::test_foreign_binding_constants_fold_beside_a_visible_macro*",
         "*::test_native_constant_address_is_refused_identically*"
       ],
-      "reason": "^the (FreeType proof builds against the Linux SDK|macro proof builds against the Linux C toolchain|WebGPU proof builds against the Linux SDK)$",
+      "reason": "^the (poll proof builds against the Linux SDK|macro proof builds against the Linux C toolchain|WebGPU proof builds against the Linux SDK)$",
       "category": "platform",
       "covered_by": [
         "linux-devcontainer"
       ],
-      "note": "The macro-constant proofs build against the Linux dev shell's C toolchain, freetype2 (pkg-config) and WebGPU headers; the devcontainer's unit shard runs both frontends (CI run 36935218617 for FreeType)."
+      "note": "The macro-constant proofs build against the Linux dev shell's C toolchain, poll.h and WebGPU headers; the devcontainer's unit shard runs both frontends."
     },
     {
       "id": "linux-native-reader-uncovered",
