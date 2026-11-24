@@ -35,6 +35,7 @@ Audio = { path = "Audio" }
 BackgroundJobs = { path = "BackgroundJobs" }
 Bluetooth = { path = "Bluetooth" }
 COM = { path = "COM" }
+Compression = { path = "Compression" }
 Crypto = { path = "Crypto" }
 DBus = { path = "DBus" }
 Daemon = { path = "Daemon" }

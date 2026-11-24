@@ -1,82 +1,12 @@
-import Library.Array;
 import Library.Bytes;
 import Library.Vector;
 
-// One canonical prefix code of a DEFLATE block.
-class PNGHuffman {
-	private Array<int> counts;
-	private Array<int> symbols;
-	// The next nine input bits select (length << 9) | symbol, or 0 for a longer code.
-	public Array<int> fast;
+import ./DeflateHuffman.btrc;
 
-	// lengths[start .. start + count) holds each symbol's code length; 0 leaves it unused.
-	public PNGHuffman(Bytes lengths, int start, int count, bool forLengths) {
-		self.counts = new Array<int>(16);
-		self.symbols = new Array<int>(count);
-		self.fast = new Array<int>(512);
-		for (int i = 0; i < count; i++) {
-			var length = lengths.get(start + i);
-			self.counts.set(length, self.counts.get(length) + 1);
-		}
-		self.counts.set(0, 0);
-		var next = new Array<int>(16);
-		int unused = 1;
-		int longest = 0;
-		int total = 0;
-		for (int length = 1; length < 16; length++) {
-			next.set(length, total);
-			total += self.counts.get(length);
-			unused = unused * 2 - self.counts.get(length);
-			if (unused < 0) { throw "Oversubscribed PNG Huffman code"; }
-			if (self.counts.get(length) > 0) { longest = length; }
-		}
-		// Like zlib, accept an incomplete code only when it is one single-bit
-		// code or none at all, and never for the code-length alphabet.
-		if (unused > 0 && (forLengths || longest > 1)) { throw "Incomplete PNG Huffman code"; }
-		for (int i = 0; i < count; i++) {
-			var length = lengths.get(start + i);
-			if (length == 0) { continue; }
-			self.symbols.set(next.get(length), i);
-			next.set(length, next.get(length) + 1);
-		}
-		int code = 0;
-		int index = 0;
-		for (int length = 1; length <= 9; length++) {
-			for (int k = 0; k < self.counts.get(length); k++) {
-				// Codes are packed starting from their most significant bit.
-				int reversed = 0;
-				for (int bit = 0; bit < length; bit++) { reversed |= ((code >> bit) & 1) << (length - 1 - bit); }
-				var entry = (length << 9) | self.symbols.get(index);
-				for (int slot = reversed; slot < 512; slot += 1 << length) { self.fast.set(slot, entry); }
-				code++;
-				index++;
-			}
-			code <<= 1;
-		}
-	}
-
-	// Decodes the code at the low end of `window`: (length << 9) | symbol, or 0 for none.
-	public int slow(unsigned int window) {
-		int code = 0;
-		int first = 0;
-		int index = 0;
-		for (int length = 1; length < 16; length++) {
-			code |= (int)((window >> (length - 1)) & 1u);
-			var count = self.counts.get(length);
-			if (code - count < first) { return (length << 9) | self.symbols.get(index + code - first); }
-			index += count;
-			first = (first + count) << 1;
-			code <<= 1;
-		}
-		return 0;
-	}
-}
-
-// A zlib stream read on demand, one scanline at a time. The ranges name the
-// payloads of consecutive IDAT chunks inside `input`. Output is never
-// buffered beyond the 32 KiB DEFLATE window, so memory does not depend on
-// what the stream claims to hold.
-class PNGInflate {
+// RFC 1950 zlib with an RFC 1951 DEFLATE payload. The half-open input
+// ranges form one continuous stream. Reads keep only its 32 KiB history,
+// including when an input range or output buffer ends in a match.
+class ZlibReader {
 	private Bytes input;
 	private Vector<int> ranges;
 	private int range = 0;
@@ -96,17 +26,17 @@ class PNGInflate {
 	private int copyDistance = 0;
 	private unsigned int low = 1u;
 	private unsigned int high = 0u;
-	private PNGHuffman lengths;
-	private PNGHuffman distances;
-	private PNGHuffman fixedLengths;
-	private PNGHuffman fixedDistances;
+	private DeflateHuffman lengths;
+	private DeflateHuffman distances;
+	private DeflateHuffman fixedLengths;
+	private DeflateHuffman fixedDistances;
 	private Vector<int> lengthBase;
 	private Vector<int> lengthExtra;
 	private Vector<int> distanceBase;
 	private Vector<int> distanceExtra;
 	private Vector<int> order;
 
-	public PNGInflate(Bytes input, Vector<int> ranges) {
+	public ZlibReader(Bytes input, Vector<int> ranges) {
 		self.input = input;
 		self.ranges = ranges;
 		self.window = Bytes.zeros(32768);
@@ -118,23 +48,26 @@ class PNGInflate {
 		var fixed = Bytes.zeros(320);
 		for (int i = 0; i < 288; i++) { fixed.set(i, i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8); }
 		for (int i = 288; i < 320; i++) { fixed.set(i, 5); }
-		self.fixedLengths = PNGHuffman(fixed, 0, 288, false);
-		self.fixedDistances = PNGHuffman(fixed, 288, 32, false);
+		self.fixedLengths = DeflateHuffman(fixed, 0, 288, false);
+		self.fixedDistances = DeflateHuffman(fixed, 288, 32, false);
 		self.lengths = self.fixedLengths;
 		self.distances = self.fixedDistances;
 		var method = self.take(8);
 		var flags = self.take(8);
-		if ((method & 15) != 8 || (method >> 4) > 7 || ((method << 8) | flags) % 31 != 0 || (flags & 32) != 0) { throw "Invalid PNG zlib header"; }
+		if ((method & 15) != 8 || (method >> 4) > 7 || ((method << 8) | flags) % 31 != 0 || (flags & 32) != 0) { throw "Invalid zlib header"; }
 		self.reach = 1 << ((method >> 4) + 8);
 	}
 
 	private void fill() {
+		if (self.limit > self.input.length()) { throw "Invalid zlib input range"; }
 		unsigned char* data = (unsigned char*)self.input.data;
 		while (self.bits <= 24) {
 			if (self.pos == self.limit) {
-				if (self.range >= self.ranges.length) { return; }
+				if (self.range >= self.ranges.size()) { return; }
+				if (self.ranges.size() - self.range < 2) { throw "Incomplete zlib input range"; }
 				self.pos = self.ranges.get(self.range);
 				self.limit = self.ranges.get(self.range + 1);
+				if (self.pos < 0 || self.limit < self.pos || self.limit > self.input.length()) { throw "Invalid zlib input range"; }
 				self.range += 2;
 				continue;
 			}
@@ -148,7 +81,7 @@ class PNGInflate {
 	private int take(int count) {
 		if (self.bits < count) {
 			self.fill();
-			if (self.bits < count) { throw "Truncated PNG image data"; }
+			if (self.bits < count) { throw "Truncated zlib stream"; }
 		}
 		var value = (int)(self.hold & ((1u << count) - 1u));
 		self.hold >>= count;
@@ -156,15 +89,15 @@ class PNGInflate {
 		return value;
 	}
 
-	private int symbol(PNGHuffman code) {
+	private int symbol(DeflateHuffman code) {
 		if (self.bits < 15) { self.fill(); }
 		var entry = code.fast.data[self.hold & 511u];
 		if (entry == 0) {
 			entry = code.slow(self.hold);
-			if (entry == 0) { throw "Invalid PNG Huffman code"; }
+			if (entry == 0) { throw "Invalid DEFLATE Huffman code"; }
 		}
 		var length = entry >> 9;
-		if (length > self.bits) { throw "Truncated PNG image data"; }
+		if (length > self.bits) { throw "Truncated zlib stream"; }
 		self.hold >>= length;
 		self.bits -= length;
 		return entry & 511;
@@ -174,10 +107,10 @@ class PNGInflate {
 		var literals = self.take(5) + 257;
 		var distances = self.take(5) + 1;
 		var count = self.take(4) + 4;
-		if (literals > 286 || distances > 30) { throw "Invalid PNG Huffman table sizes"; }
+		if (literals > 286 || distances > 30) { throw "Invalid DEFLATE Huffman table sizes"; }
 		var sizes = Bytes.zeros(19);
 		for (int i = 0; i < count; i++) { sizes.set(self.order.get(i), self.take(3)); }
-		var code = PNGHuffman(sizes, 0, 19, true);
+		var code = DeflateHuffman(sizes, 0, 19, true);
 		var total = literals + distances;
 		var all = Bytes.zeros(total);
 		int i = 0;
@@ -191,18 +124,18 @@ class PNGInflate {
 			int repeated = 0;
 			int run = 0;
 			if (value == 16) {
-				if (i == 0) { throw "Invalid PNG code length repeat"; }
+				if (i == 0) { throw "Invalid DEFLATE code length repeat"; }
 				repeated = all.get(i - 1);
 				run = 3 + self.take(2);
 			} else if (value == 17) { run = 3 + self.take(3); }
 			else { run = 11 + self.take(7); }
-			if (run > total - i) { throw "Invalid PNG code length repeat"; }
+			if (run > total - i) { throw "Invalid DEFLATE code length repeat"; }
 			for (int k = 0; k < run; k++) { all.set(i + k, repeated); }
 			i += run;
 		}
-		if (all.get(256) == 0) { throw "PNG Huffman code has no end of block"; }
-		self.lengths = PNGHuffman(all, 0, literals, false);
-		self.distances = PNGHuffman(all, literals, distances, false);
+		if (all.get(256) == 0) { throw "DEFLATE Huffman code has no end of block"; }
+		self.lengths = DeflateHuffman(all, 0, literals, false);
+		self.distances = DeflateHuffman(all, literals, distances, false);
 	}
 
 	private void block() {
@@ -213,7 +146,7 @@ class PNGInflate {
 			self.hold >>= padding;
 			self.bits -= padding;
 			self.stored = self.take(16);
-			if ((self.stored ^ self.take(16)) != 65535) { throw "Invalid PNG stored block"; }
+			if ((self.stored ^ self.take(16)) != 65535) { throw "Invalid DEFLATE stored block"; }
 			self.mode = 1;
 		} else if (kind == 1) {
 			self.lengths = self.fixedLengths;
@@ -222,23 +155,24 @@ class PNGInflate {
 		} else if (kind == 2) {
 			self.dynamic();
 			self.mode = 2;
-		} else { throw "Invalid PNG deflate block"; }
+		} else { throw "Invalid DEFLATE block"; }
 	}
 
 	private void match(int symbol) {
-		if (symbol > 285) { throw "Invalid PNG length code"; }
+		if (symbol > 285) { throw "Invalid DEFLATE length code"; }
 		var length = self.lengthBase.get(symbol - 257) + self.take(self.lengthExtra.get(symbol - 257));
 		var code = self.symbol(self.distances);
-		if (code > 29) { throw "Invalid PNG distance code"; }
+		if (code > 29) { throw "Invalid DEFLATE distance code"; }
 		var distance = self.distanceBase.get(code) + self.take(self.distanceExtra.get(code));
 		// The stream header bounds how far back a reference may reach.
-		if (distance > self.reach || (long long)distance > self.produced) { throw "Invalid PNG back-reference"; }
+		if (distance > self.reach || (long long)distance > self.produced) { throw "Invalid DEFLATE back-reference"; }
 		self.copyLength = length;
 		self.copyDistance = distance;
 	}
 
 	// Writes exactly `count` decompressed bytes to `target`, or throws.
 	public void read(unsigned char* target, int count) {
+		if (count < 0 || (count > 0 && target == null)) { throw "Invalid zlib output span"; }
 		unsigned char* window = (unsigned char*)self.window.data;
 		int done = 0;
 		while (done < count) {
@@ -280,7 +214,7 @@ class PNGInflate {
 				self.produced++;
 				done++;
 			} else {
-				if (self.last) { throw "PNG image data is too short"; }
+				if (self.last) { throw "zlib stream is too short"; }
 				self.block();
 			}
 		}
@@ -297,14 +231,21 @@ class PNGInflate {
 		}
 	}
 
-	// Called once the raster is complete. A stream that ends here must carry
-	// the Adler-32 of what was read. One that goes on to more image data is
-	// left unread, as libpng leaves it: nothing past the raster is decoded.
-	public void finish() {
+	// With exact input and output sizes, reject excess uncompressed data
+	// and trailing input. A caller reading a prefix (such as a PNG raster)
+	// can stop at its allocation limit while still checking a trailer when
+	// the stream ends exactly at that boundary.
+	public void finish(bool exact = true) {
 		while (true) {
-			if (self.copyLength > 0 || (self.mode == 1 && self.stored > 0)) { return; }
+			if (self.copyLength > 0 || (self.mode == 1 && self.stored > 0)) {
+				if (exact) { throw "Excess decompressed zlib data"; }
+				return;
+			}
 			if (self.mode == 2) {
-				if (self.symbol(self.lengths) != 256) { return; }
+				if (self.symbol(self.lengths) != 256) {
+					if (exact) { throw "Excess decompressed zlib data"; }
+					return;
+				}
 				self.mode = 0;
 				continue;
 			}
@@ -317,6 +258,10 @@ class PNGInflate {
 		self.bits -= padding;
 		unsigned int check = 0u;
 		for (int i = 0; i < 4; i++) { check = (check << 8) | (unsigned int)self.take(8); }
-		if (check != ((self.high << 16) | self.low)) { throw "PNG image data fails its Adler-32 check"; }
+		if (check != ((self.high << 16) | self.low)) { throw "zlib stream fails its Adler-32 check"; }
+		if (exact) {
+			self.fill();
+			if (self.bits != 0) { throw "Trailing zlib input"; }
+		}
 	}
 }
