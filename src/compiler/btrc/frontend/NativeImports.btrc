@@ -4626,9 +4626,9 @@ class FeNativeDeclarationImporter {
 		if (classpath.isEmpty()) { self.fail("Java bindings require BTRC_JAVA_CLASSPATH"); }
 		string runtime = "";
 		for candidate in bindings {
-			if (runtime.isEmpty() && candidate.packageName == "btrc_stdlib_java" && candidate.language == "c" && PathTools.basename(candidate.header) == "JNI.h") { runtime = candidate.header; }
+			if (runtime.isEmpty() && (candidate.packageName == "btrc_stdlib_java" || candidate.packageName == "btrc_java_host") && candidate.language == "c" && PathTools.basename(candidate.header) == "JNI.h") { runtime = candidate.header; }
 		}
-		if (runtime.isEmpty()) { self.fail("Java bindings require import Library.Java.JavaVirtualMachine"); }
+		if (runtime.isEmpty()) { self.fail("Java bindings require import Library.Java.JavaVirtualMachine on Android or JavaHost.JavaVirtualMachine on desktop"); }
 		if (self.headerReader == null) { self.fail("SDK header scanning is unavailable in this compiler host build"); }
 		Vector<string> arguments = ["--target=" + target, "--classpath=" + classpath];
 		/* The binding's symbols, then each natives method its registrations name, once each. */

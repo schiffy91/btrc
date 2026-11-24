@@ -744,6 +744,10 @@ class SelfhostBundleBuilder:
             ) from None
         stdlib_sources = self._source_files(stdlib)
         runtime_sources = self._source_files(runtime, subject="C runtime", required=("btrc_rt.h", "manifest.toml"))
+        optional = source_root / "src/optional"
+        optional_sources = (
+            self._source_files(optional, subject="optional package", required=()) if optional.exists() else []
+        )
         bundle_name = f"btrcc-{target}"
         output_dir.mkdir(parents=True, exist_ok=True)
         self._storage.require_real_directory(output_dir, "bundle output directory")
@@ -779,7 +783,7 @@ class SelfhostBundleBuilder:
                 0o644,
                 epoch,
             )
-            for source in (*stdlib_sources, *runtime_sources):
+            for source in (*stdlib_sources, *runtime_sources, *optional_sources):
                 self._copier.copy(
                     source,
                     staged / "share" / "btrc" / source.relative_to(source_root / "src"),

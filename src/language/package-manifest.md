@@ -2650,9 +2650,11 @@ symbols = ["dev.btrc.fixture.JniHost",
 ```
 
 Any other symbol fails with "symbols must name Java classes, or members by JNI
-descriptor". The program must import `Library.Java.JavaVirtualMachine`, whose
-JNI.h binding every generated adapter calls through ("Java bindings require
-import Library.Java.JavaVirtualMachine"). Both compilers run the Java class
+descriptor". On Android, import `Library.Java.JavaVirtualMachine` to use the
+application's ART VM. Desktop programs import `JavaHost.JavaVirtualMachine`
+from the [optional JDK-backed package](../optional/JavaHost/README.md).
+The selected package supplies the JNI.h binding for each generated adapter.
+Both compilers run the Java class
 reader named by `BTRC_JAVA_CLASS_READER` once per binding, with
 `--target=<the build target's triple>` and the classpath in
 `BTRC_JAVA_CLASSPATH` (each is required: "Java bindings require

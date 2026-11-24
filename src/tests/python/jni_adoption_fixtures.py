@@ -50,6 +50,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from src.tests.python.jni_host_fixtures import desktop_dependency
 from tools.native_plan import NativePlanBuilder
 
 REPO = Path(__file__).resolve().parents[3]
@@ -585,6 +586,16 @@ CLASS_OPTIONS = '[native.bindings.classes.JniHost]\nweak = true\n[native.binding
 # Mode 0 is the round trip. Modes 1-3 are what an adopted VM refuses, each
 # before any Java call: shutting it down, a second VM, and VM options. Modes 4
 # and 5 are what a natives registration terminates on.
+HOST_REFUSALS = """	if (mode == 2) {
+		Vector<string> none = [];
+		JavaVirtualMachine.createHost(none);
+	}
+	if (mode == 3) {
+		Vector<string> options = ["-Xcheck:jni"];
+		JavaVirtualMachine.createHost(options);
+	}
+"""
+
 PROGRAM = """import Library.Callback;
 import Library.Java.JavaVirtualMachine;
 import Library.Vector;
@@ -944,14 +955,7 @@ int main(int argc, char** argv) {
 	int mode = atoi(argv[1]);
 	assert(JavaVirtualMachine.running() && JavaVirtualMachine.adopted());
 	if (mode == 1) { JavaVirtualMachine.shutdown(); }
-	if (mode == 2) {
-		Vector<string> none = [];
-		JavaVirtualMachine.createHost(none);
-	}
-	if (mode == 3) {
-		Vector<string> options = ["-Xcheck:jni"];
-		JavaVirtualMachine.createHost(options);
-	}
+HOST_REFUSALS
 	if (mode == 4) { callOffThread(); }
 	if (mode == 5) {
 		Thread<int> failing = spawn(() => workOnThread(-1));
@@ -1086,11 +1090,12 @@ NATIVES = (
 )
 
 
-def manifest(symbols=None, natives=NATIVES, *, sources=True):
+def manifest(root, symbols=None, natives=NATIVES, *, sources=True, android=False):
     listed = ", ".join(f'"{symbol}"' for symbol in (SYMBOLS if symbols is None else symbols))
     return (
         'manifest-version = 1\n[package]\nname = "javaAdopted"\n'
-        f'[[native.bindings]]\nmodule = "Fixture"\nlanguage = "java"\nsymbols = [{listed}]\n{natives}'
+        + ("" if android else desktop_dependency(root))
+        + f'[[native.bindings]]\nmodule = "Fixture"\nlanguage = "java"\nsymbols = [{listed}]\n{natives}'
         + ('[[native.sources]]\npath = "Harness.c"\nlanguage = "c"\nstandard = "c11"\n' if sources else "")
     )
 
@@ -1124,18 +1129,21 @@ def compile_java(root):
     return classes
 
 
-def write_project(root):
+def write_project(root, *, android=False):
     """Write the project under `root` and compile its Java classes; returns (Main.btrc, classes).
 
     The Java binding reads classes/app; classes/entry holds only JniEntry.
     """
     classes = compile_java(root)
     (root / "src").mkdir(exist_ok=True)
-    (root / "btrc.toml").write_text(manifest(), encoding="utf-8")
+    (root / "btrc.toml").write_text(manifest(root, android=android), encoding="utf-8")
     (root / "Harness.c").write_text(HARNESS.replace("JNI_HEADER", str(JNI_HEADER)), encoding="utf-8")
     (root / "src" / "Fixture.btrc").write_text("// The Java binding's module.\n", encoding="utf-8")
     source = root / "src" / "Main.btrc"
-    source.write_text(PROGRAM, encoding="utf-8")
+    program = PROGRAM.replace("HOST_REFUSALS", "" if android else HOST_REFUSALS)
+    if not android:
+        program = program.replace("import Library.Java.JavaVirtualMachine;", "import JavaHost.JavaVirtualMachine;")
+    source.write_text(program, encoding="utf-8")
     return source, classes
 
 

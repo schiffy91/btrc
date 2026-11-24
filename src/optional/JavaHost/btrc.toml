@@ -1,0 +1,26 @@
+manifest-version = 1
+
+[package]
+name = "btrc_java_host"
+exports = ["JavaVirtualMachine"]
+
+[[native.pkg-config]]
+name = "btrc-jni"
+modules = ["JavaVirtualMachine"]
+os = ["linux", "macos", "windows"]
+
+[[native.sources]]
+path = "JavaHost.c"
+language = "c"
+standard = "c11"
+modules = ["JavaVirtualMachine"]
+os = ["linux", "macos", "windows"]
+
+[[native.bindings]]
+module = "JavaVirtualMachine"
+header = "JNI.h"
+language = "c"
+standard = "c11"
+symbols = ["btrcJavaAddOption", "btrcJavaCreateHost", "btrcJavaRunning", "btrcJavaAdopted", "btrcJavaLiveClaims", "btrcJavaLiveWeaks", "btrcJavaAttachedThreads", "btrcJavaLiveNatives", "btrcJavaDestroy"]
+read-only-borrows = ["btrcJavaAddOption.option"]
+os = ["linux", "macos", "windows"]

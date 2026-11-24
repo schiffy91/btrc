@@ -4,15 +4,16 @@ The process's Java VM and the runtime that compiler-generated Java bindings
 call (interop step 4, [native-interop-ownership.md](../../../docs/design/native-interop-ownership.md)
 section 2.3).
 
-- `JavaVirtualMachine` starts a host VM (`createHost`), reports whether the
-  running VM was adopted (`adopted`), live global references (`liveClaims`)
-  and weak global references (`liveWeaks`), attached threads and Java natives
-  registrations not yet freed (`liveNatives`), and shuts a created VM down
-  (`shutdown`).
-- `JNI.h` and `JavaRuntime.c` own the one VM, the per-thread `JNIEnv` (lazy
-  `AttachCurrentThreadAsDaemon`, detached when the thread exits), user claim
-  counting, the class and member ID cache, UTF-16 string transcoding and Java
-  exception messages. Generated adapters call them by name.
+- On Android, `JavaVirtualMachine` reports whether ART is running and adopted,
+  the number of live global and weak references, attached threads and active
+  native registrations. The application supplies the VM to `JNI_OnLoad`.
+- Desktop programs that create a VM or call Java use the optional
+  [JavaHost package](../../optional/JavaHost/README.md). Its migration keeps
+  existing desktop lifecycle and reference-counting calls intact.
+- `JNI.h` exposes the C interface for ART adoption and compiler-generated JNI
+  adapters. Both providers share the reference counts, per-thread environment,
+  class cache, UTF-16 string conversions and exception translation in
+  `JavaRuntime.h`.
 - For Java natives (interop step 7, `natives` in a Java binding), the
   generated RegisterNatives thunks install the `JNIEnv` Java called them with
   for the duration of each call (`btrcJavaEnter`/`btrcJavaLeave`), copy
@@ -47,6 +48,5 @@ the runtime attached sees the application's classes; `FindClass` there would
 search the system class loader. A class that loader does not know falls back
 to `FindClass`.
 
-On macOS and Linux the `btrc-jni` pkg-config package supplies JDK 17's headers
-and HotSpot (the flake's dev shell provides it). On Android the NDK sysroot
-supplies `jni.h` and the application supplies the VM.
+The Android NDK sysroot supplies `jni.h`. The default desktop standard library
+has no JDK requirement.
