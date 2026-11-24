@@ -27,7 +27,6 @@ failure names the module, the target and the dependency.
 | musl's regex, glob and fnmatch (bundled source) | `Pattern` | windows | bundled `src/runtime/windows/musl` | A first-party matcher; Windows supplies no POSIX regex. |
 | musl's regex, glob and fnmatch (bundled source) | `Regex` | windows | bundled `src/runtime/windows/musl` | A first-party matcher; Windows supplies no POSIX regex. |
 | the WebView2 SDK (header and loader DLL) | `GUI/Shim/ShimWeb` | windows | headers `WebView2.h`; loads `WebView2Loader.dll`; pkg-config `webview2-windows-aarch64`; pkg-config `webview2-windows-x86_64` | First-party declarations of the COM interfaces used and a first-party lookup of the system's WebView2 runtime, in place of the SDK's header and WebView2Loader.dll. |
-| wayland-protocols' viewporter binding (bundled generated source) | `GUI/Shim/Shim` | linux | bundled `src/stdlib/GUI/Linux/Wayland` | First-party protocol tables written with the first-party Wayland client. |
 
 ## Owner decisions
 
