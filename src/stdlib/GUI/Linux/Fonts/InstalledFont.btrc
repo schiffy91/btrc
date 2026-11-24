@@ -1,0 +1,70 @@
+import Library.Bytes;
+import Library.Vector;
+
+import ../../OpenType/FamilyNames.btrc;
+import ../../OpenType/OpenTypeCharacterMap.btrc;
+import ../../OpenType/OpenTypeData.btrc;
+import ../../OpenType/SFNTDirectory.btrc;
+import ../../OpenType/WOFF2Font.btrc;
+import ../../OpenType/WOFFFont.btrc;
+
+/* A catalog entry holds the small cmap rather than the full file. A
+ * collection can contain several independently named faces at one path. */
+class InstalledFont {
+	public string path;
+	public int faceIndex;
+	public Vector<string> families;
+	public int weight;
+	public int width;
+	public bool italic;
+	private OpenTypeCharacterMap map;
+
+	public InstalledFont(string path, int index, OpenTypeData data, int offset) {
+		self.path = path;
+		self.faceIndex = index;
+		var dir = SFNTDirectory(data, offset, true);
+		self.families = OpenTypeFamilyNames(data, dir.required(0x6e616d65LL, 6)).values;
+		if (self.families.size() == 0) { throw "Font has no Unicode family name"; }
+		var os2 = dir.required(0x4f532f32LL, 64);
+		self.weight = data.u16(os2.offset + 4);
+		self.width = data.u16(os2.offset + 6);
+		self.italic = (data.u16(os2.offset + 62) & 513) != 0;
+		var maxp = dir.required(0x6d617870LL, 6);
+		var cmap = dir.required(0x636d6170LL, 4);
+		var bytes = OpenTypeData(data.slice(cmap.offset, cmap.length));
+		self.map = OpenTypeCharacterMap(bytes, OpenTypeSpan(0, cmap.length), data.u16(maxp.offset + 4));
+	}
+
+	public bool covers(Vector<int> scalars) {
+		for scalar in scalars {
+			if (self.map.glyphIndex(scalar) == 0) { return false; }
+		}
+		return true;
+	}
+
+	class Vector<InstalledFont> read(string path, Bytes file) {
+		unsigned int flavor = file.readU32BE(0);
+		Bytes sfnt = file;
+		if (flavor == 0x774f4632U || flavor == 0x774f4646U) {
+			if (file.readU32BE(16) > 67108864U) { throw "Installed font exceeds scan limit"; }
+			sfnt = flavor == 0x774f4632U ? WOFF2Font().unpack(file) : WOFFFont().unpack(file);
+		}
+		var data = OpenTypeData(sfnt);
+		Vector<InstalledFont> faces = [];
+		if (data.u32(0) != 0x74746366LL) {
+			faces.push(new InstalledFont(path, 0, data, 0));
+			return faces;
+		}
+		long long version = data.u32(4);
+		long long count = data.u32(8);
+		if ((version != 65536LL && version != 131072LL) || count < 1LL || count > 256LL) { throw "Unsupported font collection"; }
+		data.need(12LL, count * 4LL);
+		for (int i = 0; i < (int)count; i++) {
+			long long offset = data.u32(12 + i * 4);
+			data.need(offset, 12LL);
+			try { faces.push(new InstalledFont(path, i, data, (int)offset)); }
+			catch (string error) { continue; }
+		}
+		return faces;
+	}
+}

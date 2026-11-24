@@ -1,0 +1,98 @@
+import Library.Bytes;
+import Library.FileSystem;
+import Library.FileSystem.FileSystemHandles;
+import Library.Map;
+import Library.Strings;
+import Library.Vector;
+
+import ./InstalledFont.btrc;
+
+enum InstalledFontFiles { INSTALLED_ALL_FILES, INSTALLED_DESKTOP_FILES, INSTALLED_WEB_FILES };
+
+/* Linux font files in the XDG data roots and the historical ~/.fonts
+ * directory. Callers supply family preference order; this catalog selects
+ * a face whose cmap covers the entire requested character group. */
+class InstalledFontCatalog {
+	public Vector<InstalledFont> faces = [];
+	private Map<string, bool> visited = {};
+	private InstalledFontFiles files;
+
+	public InstalledFontCatalog(Vector<string> roots, InstalledFontFiles files = INSTALLED_ALL_FILES) {
+		self.files = files;
+		for root in roots { self.scan(root, 0); }
+	}
+
+	class Vector<string> dataRoots(string home, string dataHome, string dataDirs) {
+		Vector<string> roots = [];
+		if (dataHome != null && dataHome.startsWith("/")) { roots.push(PathTools.join(dataHome, "fonts")); }
+		else if (home != null && home.startsWith("/")) { roots.push(PathTools.join(home, ".local/share/fonts")); }
+		if (home != null && home.startsWith("/")) { roots.push(PathTools.join(home, ".fonts")); }
+		string dirs = dataDirs == null || dataDirs.isEmpty() ? "/usr/local/share:/usr/share" : dataDirs;
+		var directories = Strings.split(dirs, ":");
+		for dir in directories { if (dir.startsWith("/")) { roots.push(PathTools.join(dir, "fonts")); } }
+		return roots;
+	}
+
+	class InstalledFontCatalog system() { return new InstalledFontCatalog(InstalledFontCatalog.dataRoots(getenv("HOME"), getenv("XDG_DATA_HOME"), getenv("XDG_DATA_DIRS"))); }
+
+	private void scan(string path, int depth) {
+		if (depth > 32) { return; }
+		string real = FileSystem.realPath(path);
+		if (real.isEmpty() || self.visited.contains(real)) { return; }
+		var status = FileSystem.stat(real);
+		if (status.isDir()) {
+			self.visited.set(real, true);
+			var names = FileSystem.listDir(real);
+			names.sortBy(Strings.lessThan);
+			for name in names { self.scan(PathTools.join(real, name), depth + 1); }
+			return;
+		}
+		string lower = path.toLower();
+		bool web = lower.endsWith(".woff") || lower.endsWith(".woff2");
+		bool desktop = lower.endsWith(".ttf") || lower.endsWith(".otf") || lower.endsWith(".ttc") || lower.endsWith(".otc");
+		if (!status.isFile() || (!web && !desktop) || (web && self.files == INSTALLED_DESKTOP_FILES) || (desktop && self.files == INSTALLED_WEB_FILES)) { return; }
+		self.visited.set(real, true);
+		var opened = RegularFileSnapshot.open(real, 67108864LL);
+		if (!opened.ok()) { return; }
+		var file = opened.value();
+		var read = file.readExactAt(0LL, (int)file.size());
+		file.close();
+		if (!read.ok()) { return; }
+		try {
+			var fonts = InstalledFont.read(real, read.value());
+			for font in fonts { self.faces.push(font); }
+		} catch (string error) { return; }
+	}
+
+	/* CSS Fonts face matching, restricted to normal width and an upright or
+	 * italic request. Width precedes slant, which precedes weight. A weight
+	 * between 400 and 500 first searches upwards as far as 500. */
+	private int weightRank(int current, int requested) {
+		if (current == requested) { return 0; }
+		if (requested >= 400 && requested <= 500) {
+			if (current >= requested && current <= 500) { return current - requested; }
+			return current < requested ? 1000 + requested - current : 2000 + current - requested;
+		}
+		if (requested < 400) { return current < requested ? requested - current : 1000 + current - requested; }
+		return current > requested ? current - requested : 1000 + requested - current;
+	}
+
+	public InstalledFont? match(Vector<string> families, int weight, bool italic, Vector<int> scalars) {
+		if (weight < 1 || weight > 1000) { return null; }
+		for requested in families {
+			string needle = requested.toLower();
+			InstalledFont? best = null;
+			int bestScore = 2147483647;
+			for face in self.faces {
+				bool named = false;
+				for alias in face.families { if (alias.toLower().equals(needle)) { named = true; break; } }
+				if (!named || face.width < 1 || face.width > 9 || face.weight < 1 || face.weight > 1000) { continue; }
+				int width = face.width <= 5 ? 5 - face.width : face.width;
+				int score = width * 10000 + (face.italic == italic ? 0 : 4000) + self.weightRank(face.weight, weight);
+				if (score < bestScore && face.covers(scalars)) { best = face; bestScore = score; }
+			}
+			if (best != null) { return best; }
+		}
+		return null;
+	}
+}
