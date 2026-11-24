@@ -30,7 +30,7 @@ typedef struct {
 typedef struct {
 	btrc_win_rx_node *nodes;
 	btrc_win_rx_inst *code;
-	int code_count, code_capacity, flags, references;
+	int code_count, code_capacity, flags, references, split_newline_dot;
 	int tag_count, guard_count, capture_count, report_interior;
 	int *fixed_spans;
 	int *guard_tags;
@@ -123,11 +123,30 @@ static inline int btrc_win_rx_atom(btrc_win_rx_parser *parser, int first, int de
 	unsigned int c = *parser->p++;
 	if (c == '[') {
 		int negate = *parser->p == '^';
-		enum btrc_win_list_error err = btrc_win_parse_list(&parser->p, &node->bytes, 0, fold, &node->copy_stride);
+		enum btrc_win_list_error err = btrc_win_parse_list(&parser->p, &node->bytes, 0, fold, parser->program->flags & REG_NEWLINE, &node->copy_stride);
 		static const int errors[] = {0, REG_EBRACK, REG_ERANGE, REG_ECTYPE, REG_ECOLLATE};
 		parser->error = errors[err];
 		if (negate && (parser->program->flags & REG_NEWLINE))
 			node->bytes.bits['\n' / 8] &= (unsigned char)~(1u << ('\n' % 8));
+		return n;
+	}
+	/* The positional matcher preserves the two consuming positions on either
+	   side of a line feed. Counted copies can share those positions with
+	   other atoms, even when the subject has no line feeds. */
+	if (c == '.' && parser->program->split_newline_dot && (parser->program->flags & REG_NEWLINE)) {
+		int left = btrc_win_rx_new(parser, btrc_win_rx_byte);
+		int right = btrc_win_rx_new(parser, btrc_win_rx_byte);
+		int arm = btrc_win_rx_new(parser, btrc_win_rx_choice);
+		if (!arm) return 0;
+		btrc_win_rx_node *nodes = parser->program->nodes;
+		nodes[n].op = btrc_win_rx_choice;
+		nodes[n].child = left;
+		nodes[n].arg = arm;
+		nodes[arm].child = right;
+		nodes[left].copy_stride = nodes[right].copy_stride = 1;
+		for (int i = 0; i <= 255; ++i) {
+			if (i != '\n') btrc_win_set_add(&nodes[i < '\n' ? left : right].bytes, (unsigned int)i);
+		}
 		return n;
 	}
 	if (c == '.') {

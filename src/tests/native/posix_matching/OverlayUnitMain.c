@@ -65,6 +65,18 @@ int main(void)
 	if (regcomp(&compiled, "\\D", REG_EXTENDED | REG_NEWLINE) || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
 	    regexec(&compiled, "\n", 1, span, 0) != REG_NOMATCH || regexec(&compiled, "x", 1, span, 0)) return 1;
 	regfree(&compiled);
+	if (regcomp(&compiled, "((^a)|(b$))+", REG_EXTENDED | REG_NEWLINE) || ((uintptr_t)compiled.__opaque & 3u) != 3 ||
+	    regexec(&compiled, "x\na\nb\n", 1, span, REG_NOTBOL | REG_NOTEOL) || span[0].rm_so != 2 || span[0].rm_eo != 3) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "((..){1,3})+", REG_EXTENDED | REG_NEWLINE | REG_NOSUB) || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
+	capture[1] = (regmatch_t){-41, -37};
+	if (regexec(&compiled, "ab\ncd", 3, capture, REG_NOTEOL) || capture[1].rm_so != -41 || capture[1].rm_eo != -37 ||
+	    regexec(&compiled, "a\nb", 0, NULL, 0) != REG_NOMATCH) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "(^|(((\n[^ab]){2,}){2}|((([ab]){1,3}|(b|\\b)))))?", REG_EXTENDED | REG_NEWLINE) ||
+	    ((uintptr_t)compiled.__opaque & 3u) != 3 || regexec(&compiled, "abc", 1, span, REG_NOTBOL) ||
+	    span[0].rm_so != 0 || span[0].rm_eo != 2) return 1;
+	regfree(&compiled);
 	if (regcomp(&compiled, "^ab$", REG_EXTENDED | REG_ICASE | REG_NEWLINE) || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
 	    regexec(&compiled, "zz\nAb\n", 1, span, REG_NOTBOL | REG_NOTEOL) || span[0].rm_so != 3 || span[0].rm_eo != 5) return 1;
 	regfree(&compiled);

@@ -297,10 +297,9 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 	return left;
 }
 
-/* These are all boundary conditions possible in non-newline ERE mode.
-   An interior boundary enters a word, leaves one, or stays in the same
-   character class. Subject endpoints always satisfy the word boundary.
-   The empty subject is the only location that is both start and end. */
+/* Subject endpoints always satisfy the word boundary. An interior
+   line boundary can instead lie between two non-word bytes, including
+   between consecutive line feeds where both line assertions hold. */
 static inline void btrc_win_pos_build_contexts(btrc_win_pos_builder *b, int tree)
 {
 	enum {
@@ -310,12 +309,15 @@ static inline void btrc_win_pos_build_contexts(btrc_win_pos_builder *b, int tree
 	};
 	const int boundaries[] = {
 		same, word, word | enter, word | leave,
-		word | start, word | start | enter, word | end, word | end | leave, word | start | end
+		word | start, word | start | enter, word | end, word | end | leave, word | start | end,
+		same | start, same | end, same | start | end
 	};
 	btrc_win_pos_program *p = b->program;
 	unsigned char slots[btrc_win_pos_masks] = {0};
 	int rows = 0;
-	for (size_t i = 0; i < sizeof boundaries / sizeof boundaries[0]; ++i) {
+	size_t count = sizeof boundaries / sizeof boundaries[0];
+	if (!(p->header.flags & REG_NEWLINE)) count -= 3;
+	for (size_t i = 0; i < count; ++i) {
 		int mask = boundaries[i] & p->predicates;
 		if (mask && !slots[mask]) slots[mask] = (unsigned char)++rows;
 	}
@@ -341,7 +343,7 @@ static inline void btrc_win_pos_build_contexts(btrc_win_pos_builder *b, int tree
 	b->assertion_mask = 0;
 }
 
-static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, size_t *groups)
+static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, size_t *groups, int flags)
 {
 	if (strlen(pattern) > 255) return NULL;
 	int escapes = 0;
@@ -350,7 +352,8 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 		++escapes;
 	}
 	btrc_win_rx_program parsed = {0};
-	parsed.flags = REG_EXTENDED;
+	parsed.flags = flags;
+	parsed.split_newline_dot = 1;
 	btrc_win_rx_parser parser = {&parsed, (const unsigned char *)pattern, 0, 0, 0, 0};
 	int root = btrc_win_rx_expression(&parser, 0);
 	btrc_win_pos_program *p = NULL;
@@ -382,6 +385,7 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 		}
 		if (p) {
 			p->predicates = kinds;
+			p->header.flags = flags;
 			btrc_win_pos_builder builder = { .parser = &parser, .program = p, .conditional = kinds != 0 };
 			int offset = 0;
 			int tree = btrc_win_pos_sequence(&builder, root, &offset, 0);
@@ -433,7 +437,7 @@ static inline const btrc_win_pos_bits *btrc_win_pos_context(const btrc_win_pos_p
 	int mask = 0;
 	for (int kind = btrc_win_rx_bol; kind <= btrc_win_rx_nonboundary; ++kind) {
 		int bit = 1 << kind;
-		if ((p->predicates & bit) && btrc_win_rx_boundary_ok(kind, s, i, REG_EXTENDED, flags)) mask |= bit;
+		if ((p->predicates & bit) && btrc_win_rx_boundary_ok(kind, s, i, p->header.flags, flags)) mask |= bit;
 	}
 	int slot = p->contexts->slot[mask];
 	return slot ? p->contexts->row + (slot - 1) * (p->edges + 1) : NULL;

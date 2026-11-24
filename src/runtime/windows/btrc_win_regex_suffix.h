@@ -27,7 +27,7 @@ static inline btrc_win_regex_suffix *btrc_win_regex_compile_suffix(const char *p
 	    !btrc_win_regex_parse_atom((const unsigned char *)close + 2, p + strlen(pattern), &suffix) ||
 	    suffix.minimum < 1 || suffix.maximum < suffix.minimum) return NULL;
 	btrc_win_regex_suffix *result = (btrc_win_regex_suffix *)malloc(sizeof *result);
-	if (result) *result = (btrc_win_regex_suffix){{btrc_win_group_suffix}, {atom.bytes, suffix, 0}};
+	if (result) *result = (btrc_win_regex_suffix){{.kind = btrc_win_group_suffix}, {atom.bytes, suffix, 0}};
 	return result;
 }
 

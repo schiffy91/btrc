@@ -73,7 +73,7 @@ enum btrc_win_list_error {
 };
 
 static inline enum btrc_win_list_error btrc_win_parse_list(
-	const unsigned char **after, btrc_win_byte_set *set, int shell, int fold, int *copy_stride)
+	const unsigned char **after, btrc_win_byte_set *set, int shell, int fold, int exclude_newline, int *copy_stride)
 {
 	const unsigned char *p = *after;
 	int negate = *p == '^' || (shell && *p == '!');
@@ -123,6 +123,7 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 			/* Negating the explicit ranges creates one extra gap per
 			   disjoint excluded run. Named exclusions filter every gap. */
 			terms = 1;
+			if (exclude_newline) btrc_win_set_add(set, '\n');
 			int previous_byte = 0;
 			for (unsigned int byte = 1; byte <= 255; ++byte) {
 				int excluded = btrc_win_set_has(set, byte);

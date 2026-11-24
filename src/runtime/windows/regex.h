@@ -88,7 +88,7 @@ static size_t btrc_win_legacy_regerror(int, const regex_t *restrict, char *restr
 enum { btrc_win_pos_competing_starts = -2 };
 
 enum btrc_win_group_matcher { btrc_win_group_positions, btrc_win_group_suffix };
-typedef struct { enum btrc_win_group_matcher kind; } btrc_win_group_header;
+typedef struct { enum btrc_win_group_matcher kind; int flags; } btrc_win_group_header;
 
 #include "btrc_win_regex_positions.h"
 
@@ -127,15 +127,16 @@ static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *re
 			}
 		}
 	}
-	if (flags == REG_EXTENDED && strchr(pattern, '(')) {
+	if ((flags & ~(REG_NEWLINE | REG_NOSUB)) == REG_EXTENDED && strchr(pattern, '(')) {
 		size_t groups = 1;
-		btrc_win_regex_suffix *suffix = *pattern == '(' ? btrc_win_regex_compile_suffix(pattern) : NULL;
+		btrc_win_regex_suffix *suffix = !(flags & REG_NEWLINE) && *pattern == '(' ? btrc_win_regex_compile_suffix(pattern) : NULL;
 		btrc_win_group_header *group = suffix ? &suffix->header : NULL;
 		if (!group) {
-			btrc_win_pos_program *positions = btrc_win_pos_compile(pattern, &groups);
+			btrc_win_pos_program *positions = btrc_win_pos_compile(pattern, &groups, flags);
 			if (positions) group = &positions->header;
 		}
 		if (group) {
+			group->flags = flags;
 			memset(re, 0, sizeof *re);
 			re->re_nsub = groups;
 			re->__opaque = (void *)((uintptr_t)group | (uintptr_t)3);
@@ -162,6 +163,7 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 	uintptr_t pointer = (uintptr_t)re->__opaque;
 	if ((pointer & (uintptr_t)3) == 3) {
 		const btrc_win_group_header *group = (const btrc_win_group_header *)(pointer - 3);
+		if (group->flags & REG_NOSUB) count = 0;
 		if (group->kind == btrc_win_group_suffix)
 			return btrc_win_regex_match_suffix(&((const btrc_win_regex_suffix *)group)->span, subject, count, matches);
 		const btrc_win_pos_program *p = (const btrc_win_pos_program *)group;
@@ -169,7 +171,7 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 			int status = btrc_win_pos_match(p, subject, count, matches, flags);
 			if (status != btrc_win_pos_competing_starts) return status;
 		}
-		return btrc_win_regex_retry((const char *)(p->edge + p->edges), subject, count, matches, flags, REG_EXTENDED);
+		return btrc_win_regex_retry((const char *)(p->edge + p->edges), subject, count, matches, flags, group->flags);
 	}
 	if ((pointer & (uintptr_t)3) == 2) {
 		const btrc_win_regex_flat *flat = (const btrc_win_regex_flat *)(pointer - 2);

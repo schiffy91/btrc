@@ -213,7 +213,7 @@ static inline int btrc_win_glob(const char *restrict pattern, int flags,
 			else if (*s == '[') {
 				const unsigned char *after = (const unsigned char *)s + 1;
 				btrc_win_byte_set set = {{0}};
-				if (btrc_win_parse_list(&after, &set, 1, 0, NULL) == btrc_win_list_ok) {
+				if (btrc_win_parse_list(&after, &set, 1, 0, 0, NULL) == btrc_win_list_ok) {
 					magic = 1;
 					s = (char *)after - 1;
 				}

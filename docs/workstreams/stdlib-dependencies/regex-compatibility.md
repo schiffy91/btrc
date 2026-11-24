@@ -75,3 +75,5 @@ The position matcher can combine all six subject and word assertions in a groupe
 Raw BRE callers can use backreferences to completed, nonempty fixed-width groups and variable-width captures with an unambiguous preceding separator. For example, `\([a-z]\+\):\1` matches `Ab:Ab` with `REG_ICASE`. The captured bytes are case-sensitive when read by the backreference. A potentially empty referenced group keeps its legacy behavior.
 
 A fixed number of copies of a positive-width literal or bracket group also has fixed capture offsets. For `(id([0-9])){2}` on `id7id8`, the whole match covers both copies and the two subgroups contain `id8` and `8`.
+
+Grouped extended expressions honor raw multiline and no-submatch flags. With `REG_NEWLINE`, line anchors also match adjacent to interior line feeds. Dot and negated brackets exclude line feeds, including inside counted groups. With `REG_NOSUB`, callers can pass a match array and its contents remain untouched.
