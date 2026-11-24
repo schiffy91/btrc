@@ -91,7 +91,6 @@ enum btrc_win_group_matcher { btrc_win_group_positions, btrc_win_group_suffix };
 typedef struct { enum btrc_win_group_matcher kind; } btrc_win_group_header;
 
 #include "btrc_win_regex_positions.h"
-#include "btrc_win_regex_suffix.h"
 
 typedef struct {
 	regex_t compiled;
@@ -163,7 +162,7 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 	if ((pointer & (uintptr_t)3) == 3) {
 		const btrc_win_group_header *group = (const btrc_win_group_header *)(pointer - 3);
 		if (group->kind == btrc_win_group_suffix)
-			return btrc_win_regex_match_suffix((const btrc_win_regex_suffix *)group, subject, count, matches);
+			return btrc_win_regex_match_suffix(&((const btrc_win_regex_suffix *)group)->span, subject, count, matches);
 		const btrc_win_pos_program *p = (const btrc_win_pos_program *)group;
 		if (count <= 1) {
 			int status = btrc_win_pos_match(p, subject, count, matches);

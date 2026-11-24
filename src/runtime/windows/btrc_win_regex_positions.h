@@ -5,6 +5,7 @@
 #pragma once
 #include "btrc_win_regex_compile.h"
 #include "btrc_win_regex_block.h"
+#include "btrc_win_regex_suffix.h"
 
 enum { btrc_win_pos_limit = 127, btrc_win_pos_nodes = 512 };
 typedef struct { uint64_t low, high; } btrc_win_pos_bits;
@@ -36,6 +37,7 @@ typedef struct {
 typedef struct {
 	btrc_win_group_header header;
 	btrc_win_rx_blocks ranked_blocks;
+	btrc_win_suffix_span optional_suffix;
 	btrc_win_pos_bits initial;
 	int edges, nullable;
 	btrc_win_pos_edge edge[];
@@ -262,6 +264,7 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 				p->initial = span.first;
 				p->nullable = span.nullable;
 				btrc_win_rx_detect_blocks(&p->ranked_blocks, parsed.nodes, root);
+				btrc_win_rx_detect_optional_suffix(&p->optional_suffix, parsed.nodes, root);
 				btrc_win_pos_follow(p, span.last, btrc_win_pos_bit(btrc_win_pos_limit));
 				size_t bytes = sizeof *p + (size_t)p->edges * sizeof *p->edge + strlen(pattern) + 1;
 				btrc_win_pos_program *compact = (btrc_win_pos_program *)realloc(p, bytes);
@@ -287,6 +290,13 @@ static inline btrc_win_pos_bits btrc_win_pos_step(const btrc_win_pos_program *p,
 
 enum { btrc_win_pos_origin_limit = 4 };
 typedef struct { regoff_t start; btrc_win_pos_bits live; } btrc_win_pos_origin;
+
+static inline int btrc_win_pos_ranked(const btrc_win_pos_program *p, const char *subject, regmatch_t *matches)
+{
+	if (p->optional_suffix.optional_prefix_limit)
+		return btrc_win_regex_match_suffix(&p->optional_suffix, subject, 1, matches);
+	return btrc_win_rx_block_match(&p->ranked_blocks, subject, matches);
+}
 
 static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *subject,
                                      size_t count, regmatch_t *matches)
@@ -314,7 +324,7 @@ static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *
 				if (!count) return 0;
 				/* Distinct accepting origins need the old subgroup ranking.
 				   If every acceptance has one origin, its longest end is exact. */
-				if (end >= 0 && start != origin.start) return btrc_win_rx_block_match(&p->ranked_blocks, subject, matches);
+				if (end >= 0 && start != origin.start) return btrc_win_pos_ranked(p, subject, matches);
 				start = origin.start;
 				end = i + 1;
 			}
@@ -323,7 +333,7 @@ static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *
 				/* Pure existence queries do not distinguish origins. */
 				if (!count && remaining) row[0].live = btrc_win_pos_union_bits(row[0].live, next);
 				else {
-					if (remaining == btrc_win_pos_origin_limit) return btrc_win_rx_block_match(&p->ranked_blocks, subject, matches);
+					if (remaining == btrc_win_pos_origin_limit) return btrc_win_pos_ranked(p, subject, matches);
 					row[remaining++] = (btrc_win_pos_origin){origin.start, next};
 				}
 			}

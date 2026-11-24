@@ -70,6 +70,8 @@ int main() {
 	assert(Regex.first("(([^ab]|(..){1,3}))+", "abbba").equals("bbba"));
 	assert(Regex.first("((..){1,3})+", "abc").equals("ab"));
 	assert(Regex.first("((..){1,3})+", "abcde").equals("bcde"));
+	assert(Regex.first("(((b)?){2})?([abc]){2,4}", "abbba").equals("bbba"));
+	assert(Regex.replace("(((b)?){2})?([abc]){2,4}", "abbba", "X").equals("aX"));
 	assert(Regex.first("((a){2})", "aaaa").equals("aa"));
 
 	/* The repeated capture changes the Windows start offset when two

@@ -86,6 +86,11 @@ int main(void)
 	    btrc_win_pos_match(positions, "abbba", 1, span) || span[0].rm_so != 1 || span[0].rm_eo != 5) return 1;
 	if (btrc_win_rx_block_match(&positions->ranked_blocks, "abb!a", span) != btrc_win_pos_competing_starts) return 1;
 	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "(((b)?){2})?([abc]){2,4}") || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
+	positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
+	if (positions->optional_suffix.optional_prefix_limit != 2 || btrc_win_pos_match(positions, "abbba", 1, span) ||
+	    span[0].rm_so != 1 || span[0].rm_eo != 5) return 1;
+	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;
 	int globbed = glob("no-such-directory-*/x", 0, NULL, &found);
