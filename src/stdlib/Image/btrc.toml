@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_image"
-exports = ["JPEG", "PNG", "DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "Image", "Pixels", "PortableEncodedImageDecoder", "Apple.AppleEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
+exports = ["JPEG", "PNG", "DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "FloatImage", "Image", "ImageCodec", "Pixels", "PortableEncodedImageDecoder", "RawMosaic", "Apple.AppleEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
 
 # ImageIO and CoreGraphics are on every Apple system.
 [[package.providers]]
@@ -14,6 +14,17 @@ os = ["macos", "ios"]
 [[package.providers]]
 module = "SystemImageDecoder"
 implementation = "Portable.SystemImageDecoderProvider"
+os = ["android", "linux", "windows"]
+
+# Scene-referred linear float decode, HDR gain maps, and hardware export.
+[[package.providers]]
+module = "ImageCodec"
+implementation = "Apple.ImageCodecProvider"
+os = ["macos", "ios"]
+
+[[package.providers]]
+module = "ImageCodec"
+implementation = "Portable.ImageCodecProvider"
 os = ["android", "linux", "windows"]
 
 [[native.bindings]]
@@ -110,17 +121,60 @@ ownership = "reference-counted"
 retain = "CGColorSpaceRetain"
 release = "CGColorSpaceRelease"
 
+[[native.bindings]]
+module = "Apple.ImageCodecProvider"
+header = "Apple/AppleImageIOCodec.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"BtrcApplePhoto", "BtrcAppleBuffer",
+	"btrcApplePhotoDecodeLinear", "btrcApplePhotoDecodeRGBA8", "btrcApplePhotoRelease",
+	"btrcApplePhotoWidth", "btrcApplePhotoHeight", "btrcApplePhotoOriginalWidth", "btrcApplePhotoOriginalHeight",
+	"btrcApplePhotoOrientation", "btrcApplePhotoIsWideGamut",
+	"btrcApplePhotoCopyFloats", "btrcApplePhotoCopyRGBA8",
+	"btrcApplePhotoHasGainMap", "btrcApplePhotoGainMapWidth", "btrcApplePhotoGainMapHeight",
+	"btrcApplePhotoGainMapHeadroom", "btrcApplePhotoCopyGainMap",
+	"btrcAppleEncodeLinear", "btrcAppleBufferRelease", "btrcAppleBufferLength", "btrcAppleBufferCopy"
+]
+owned-results = ["btrcApplePhotoDecodeLinear", "btrcApplePhotoDecodeRGBA8", "btrcAppleEncodeLinear"]
+borrowed-parameters = [
+	"btrcApplePhotoWidth.photo", "btrcApplePhotoHeight.photo",
+	"btrcApplePhotoOriginalWidth.photo", "btrcApplePhotoOriginalHeight.photo",
+	"btrcApplePhotoOrientation.photo", "btrcApplePhotoIsWideGamut.photo",
+	"btrcApplePhotoCopyFloats.photo", "btrcApplePhotoCopyRGBA8.photo",
+	"btrcApplePhotoHasGainMap.photo", "btrcApplePhotoGainMapWidth.photo", "btrcApplePhotoGainMapHeight.photo",
+	"btrcApplePhotoGainMapHeadroom.photo", "btrcApplePhotoCopyGainMap.photo",
+	"btrcAppleBufferLength.buffer", "btrcAppleBufferCopy.buffer"
+]
+read-only-borrows = ["btrcApplePhotoDecodeLinear.data", "btrcApplePhotoDecodeRGBA8.data", "btrcAppleEncodeLinear.rgba"]
+os = ["macos", "ios"]
+
+[native.bindings.resources.BtrcApplePhoto]
+ownership = "unique"
+release = "btrcApplePhotoRelease"
+
+[native.bindings.resources.BtrcAppleBuffer]
+ownership = "unique"
+release = "btrcAppleBufferRelease"
+
+[[native.sources]]
+path = "Apple/AppleImageIOCodec.c"
+language = "c"
+standard = "c11"
+modules = ["Apple.ImageCodecProvider"]
+os = ["macos", "ios"]
+
 [[native.frameworks]]
 name = "CoreFoundation"
-modules = ["Apple.AppleEncodedImageDecoder"]
+modules = ["Apple.AppleEncodedImageDecoder", "Apple.ImageCodecProvider"]
 os = ["macos", "ios"]
 
 [[native.frameworks]]
 name = "CoreGraphics"
-modules = ["Apple.AppleEncodedImageDecoder"]
+modules = ["Apple.AppleEncodedImageDecoder", "Apple.ImageCodecProvider"]
 os = ["macos", "ios"]
 
 [[native.frameworks]]
 name = "ImageIO"
-modules = ["Apple.AppleEncodedImageDecoder"]
+modules = ["Apple.AppleEncodedImageDecoder", "Apple.ImageCodecProvider"]
 os = ["macos", "ios"]

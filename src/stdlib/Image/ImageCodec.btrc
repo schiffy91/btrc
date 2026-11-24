@@ -1,0 +1,58 @@
+/* High-level linear float image decoding, HDR gain map extraction, and hardware export. */
+
+import Library.Bytes;
+import Library.Image.FloatImage;
+import Library.Image.Pixels;
+
+enum ImageExportFormat {
+	IMAGE_EXPORT_JPEG = 0,
+	IMAGE_EXPORT_HEIC = 1,
+	IMAGE_EXPORT_PNG = 2,
+	IMAGE_EXPORT_TIFF16 = 3
+};
+
+class HDRGainMap {
+	public int width;
+	public int height;
+	public double headroom;
+	public Bytes pixels;
+
+	public HDRGainMap(int width, int height, double headroom, Bytes pixels) {
+		self.width = width;
+		self.height = height;
+		self.headroom = headroom;
+		self.pixels = pixels;
+	}
+}
+
+class DecodedPhoto {
+	public FloatImage image;
+	public int originalWidth;
+	public int originalHeight;
+	public int orientation;
+	public bool isWideGamut;
+	public HDRGainMap? gainMap;
+
+	public DecodedPhoto(FloatImage image, int originalWidth, int originalHeight, int orientation, bool isWideGamut, HDRGainMap? gainMap = null) {
+		self.image = image;
+		self.originalWidth = originalWidth;
+		self.originalHeight = originalHeight;
+		self.orientation = orientation;
+		self.isWideGamut = isWideGamut;
+		self.gainMap = gainMap;
+	}
+}
+
+class ImageCodec {
+	class bool supportsHEIC() { return ImageCodecProvider.supportsHEIC(); }
+
+	/* Decode JPEG, HEIC, PNG, TIFF, or OS-supported RAW into scene-referred linear RGBA32F.
+	 * Pass maxEdge > 0 for hardware-accelerated thumbnail downscale. */
+	class DecodedPhoto decodeLinear(Bytes encoded, int maxEdge = 0, bool linearRec2020 = false) { return ImageCodecProvider.decodeLinear(encoded, maxEdge, linearRec2020); }
+
+	/* Decode into 8-bit straight sRGB RGBA (with optional hardware thumbnail downscale). */
+	class Image decodeRGBA8(Bytes encoded, int maxEdge = 0) { return ImageCodecProvider.decodeRGBA8(encoded, maxEdge); }
+
+	/* Encode a linear RGBA32F FloatImage to JPEG, HEIC, PNG, or 16-bit linear TIFF. */
+	class Bytes encode(FloatImage image, ImageExportFormat format, int quality = 90) { return ImageCodecProvider.encode(image, format, quality); }
+}

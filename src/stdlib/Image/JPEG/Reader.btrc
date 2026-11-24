@@ -4,6 +4,23 @@ import ./Scan.btrc;
 import ./Lossless.btrc;
 import ./ArithmeticScan.btrc;
 
+class JPEGLosslessPlane {
+	public int width;
+	public int height;
+	public int components;
+	public int precision;
+	/* Interleaved 16-bit samples: samples[(y * width + x) * components + c]. */
+	public Array<unsigned short> samples;
+
+	public JPEGLosslessPlane(int width, int height, int components, int precision, Array<unsigned short> samples) {
+		self.width = width;
+		self.height = height;
+		self.components = components;
+		self.precision = precision;
+		self.samples = samples;
+	}
+}
+
 class JPEGReader {
 	private Bytes bytes;
 	private JPEGBits input;
@@ -23,6 +40,7 @@ class JPEGReader {
 	private bool jfif = false;
 	private bool progressive = false;
 	private bool lossless = false;
+	private bool allowWideLossless = false;
 	private int samplePrecision = 8;
 	private int maxPixels;
 
@@ -40,13 +58,20 @@ class JPEGReader {
 		if (self.width != 0 || end - p < 6) { throw "Expected one JPEG frame"; }
 		self.lossless = marker == 0xc3;
 		self.samplePrecision = self.bytes.get(p);
-		if (self.samplePrecision > 8 || self.samplePrecision < (self.lossless ? 2 : 8)) { throw "Unsupported JPEG sample precision"; }
+		int maxPrec = (self.allowWideLossless && self.lossless) ? 16 : 8;
+		if (self.samplePrecision > maxPrec || self.samplePrecision < (self.lossless ? 2 : 8)) { throw "Unsupported JPEG sample precision"; }
 		self.arithmetic = marker == 0xc9 || marker == 0xca;
 		self.progressive = marker == 0xc2 || marker == 0xca;
 		self.height = self.bytes.readU16BE(p + 1);
 		self.width = self.bytes.readU16BE(p + 3);
 		var count = self.bytes.get(p + 5);
-		if ((count != 1 && count != 3 && count != 4) || end - p != 6 + count * 3) { throw "Unsupported JPEG component layout"; }
+		bool validCount = false;
+		if (self.allowWideLossless && self.lossless) {
+			validCount = count >= 1 && count <= 4;
+		} else {
+			validCount = count == 1 || count == 3 || count == 4;
+		}
+		if (!validCount || end - p != 6 + count * 3) { throw "Unsupported JPEG component layout"; }
 		if (!Image.validDimensions(self.width, self.height) || self.width > self.maxPixels / self.height) { throw "JPEG exceeds pixel limit"; }
 		p += 6;
 		int blocks = 0;
@@ -64,13 +89,14 @@ class JPEGReader {
 		self.rows = (self.height + self.maxV * unit - 1) / (self.maxV * unit);
 		// Guard padded coefficient storage separately from the visible raster.
 		if (blocks > 10 || (long long)self.columns * self.rows * blocks * unit * unit > (self.lossless ? 1073741820LL : 134217728LL)) { throw "JPEG coefficient storage exceeds limit"; }
+		bool wide = self.lossless && self.samplePrecision > 8;
 		for (int i = p; i < end; i += 3) {
 			var id = self.bytes.get(i);
 			for other in self.planes { if (id == other.id) { throw "Duplicate JPEG component"; } }
 			var sampling = self.bytes.get(i + 1);
 			var h = sampling >> 4;
 			var v = sampling & 15;
-			self.planes.push(JPEGComponent(id, h, v, self.bytes.get(i + 2), self.columns * h, self.rows * v, self.lossless));
+			self.planes.push(JPEGComponent(id, h, v, self.bytes.get(i + 2), self.columns * h, self.rows * v, self.lossless, wide));
 		}
 	}
 
@@ -210,11 +236,30 @@ class JPEGReader {
 		return image;
 	}
 
-	public Image decode() {
+	private JPEGLosslessPlane losslessPlane() {
+		if (self.planes.isEmpty() || !self.lossless) { throw "Expected lossless JPEG frame"; }
+		int count = self.planes.length;
+		for plane in self.planes {
+			if (plane.precision.get(0) < 0) { throw "Missing lossless JPEG component scan"; }
+		}
+		Array<unsigned short> out = Array(self.width * self.height * count);
+		for (int y = 0; y < self.height; y++) {
+			for (int x = 0; x < self.width; x++) {
+				int base = (y * self.width + x) * count;
+				for (int c = 0; c < count; c++) {
+					var plane = self.planes.get(c);
+					out.set(base + c, (unsigned short)plane.sample(x, y));
+				}
+			}
+		}
+		return JPEGLosslessPlane(self.width, self.height, count, self.samplePrecision, out);
+	}
+
+	private void parseStream() {
 		if (self.input.marker() != 0xd8) { throw "Invalid JPEG signature"; }
 		while (self.input.pos < self.bytes.length) {
 			var marker = self.input.marker();
-			if (marker == 0xd9) { return self.raster(); }
+			if (marker == 0xd9) { return; }
 			var pos = self.input.pos;
 			if (self.bytes.length - pos < 2) { throw "Truncated JPEG segment"; }
 			var size = self.bytes.readU16BE(pos);
@@ -233,5 +278,16 @@ class JPEGReader {
 			else if (marker != 0xfe && (marker < 0xe0 || marker > 0xef)) { throw "Unsupported JPEG coding process"; }
 		}
 		throw "Missing JPEG end marker";
+	}
+
+	public Image decode() {
+		self.parseStream();
+		return self.raster();
+	}
+
+	public JPEGLosslessPlane decodeLossless16() {
+		self.allowWideLossless = true;
+		self.parseStream();
+		return self.losslessPlane();
 	}
 }

@@ -64,3 +64,111 @@ class JPEGLossless {
 		}
 	}
 }
+
+/* ITU-T T.81 Annex H lossless JPEG encoder (2..16 bit, 1..4 interleaved components,
+ * predictor 1) for building deterministic lossless-JPEG / DNG raw tiles. */
+class JPEGLosslessWriter {
+	class int categoryOf(int diff) {
+		if (diff == 0) { return 0; }
+		if (diff == -32768 || diff == 32768) { return 16; }
+		int mag = diff < 0 ? -diff : diff;
+		int cat = 0;
+		while (mag > 0) {
+			mag >>= 1;
+			cat++;
+		}
+		return cat;
+	}
+
+	class Bytes encode16(int width, int height, int components, int precision, Array<unsigned short> samples) {
+		if (width <= 0 || height <= 0 || components < 1 || components > 4 || precision < 2 || precision > 16) {
+			throw "Invalid lossless JPEG encode parameters";
+		}
+		if ((long long)width * (long long)height * (long long)components > (long long)samples.length) {
+			throw "Lossless JPEG sample buffer is too small";
+		}
+		// Canonical Huffman table covering all 17 categories (0..16):
+		// 1-bit: 0 (0)
+		// 2-bit: 1 (10)
+		// 3-bit: 2 (110)
+		// 4-bit: 3 (1110)
+		// 5-bit: 4, 5 (11110, 11111... wait: use flat 5-bit for 1..16 -> 16 symbols = 2^4 -> 1+4=5 bits!)
+		// Clean prefix-free canonical code for 17 symbols (0..16):
+		//   lengths: 1 symbol of len 1 (cat 0 -> code 0),
+		//            16 symbols of len 5 (cats 1..16 -> codes 10000..11111)!
+		// Verify Kraft sum: 1/2 + 16/32 = 1.0 exact!
+		Bytes counts = Bytes();
+		for (int i = 0; i < 16; i++) {
+			if (i == 0) { counts.append(1); }
+			else if (i == 4) { counts.append(15); }
+			else if (i == 5) { counts.append(1); }
+			else { counts.append(0); }
+		}
+		Bytes symbols = Bytes();
+		for (int i = 0; i < 17; i++) { symbols.append(i); }
+		JPEGHuffman huff = JPEGHuffman(counts, symbols);
+		JPEGOutput out = JPEGOutput();
+		out.bytes.appendU16BE(0xffd8);
+
+		// SOF3 (Lossless Huffman)
+		Bytes sof = Bytes();
+		sof.append(precision);
+		sof.appendU16BE(height);
+		sof.appendU16BE(width);
+		sof.append(components);
+		for (int c = 0; c < components; c++) {
+			sof.append(c + 1);
+			sof.append(0x11); // 1x1 sampling
+			sof.append(0);
+		}
+		out.segment(0xc3, sof);
+
+		// DHT (DC table 0)
+		Bytes dht = Bytes();
+		dht.append(0);
+		dht.appendBytes(counts);
+		dht.appendBytes(symbols);
+		out.segment(0xc4, dht);
+
+		// SOS (predictor 1, point transform 0)
+		Bytes sos = Bytes();
+		sos.append(components);
+		for (int c = 0; c < components; c++) {
+			sos.append(c + 1);
+			sos.append(0); // DC table 0
+		}
+		sos.append(1); // Ss = selection 1 (left, top on col 0)
+		sos.append(0); // Se = 0
+		sos.append(0); // Al = 0
+		out.segment(0xda, sos);
+		int modulus = 1 << precision;
+		int halfMod = 1 << (precision - 1);
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				for (int c = 0; c < components; c++) {
+					int actual = (int)samples.get((y * width + x) * components + c) & (modulus - 1);
+					int pred = halfMod;
+					if (y == 0) {
+						if (x > 0) { pred = (int)samples.get((y * width + (x - 1)) * components + c) & (modulus - 1); }
+					} else if (x == 0) {
+						pred = (int)samples.get(((y - 1) * width + x) * components + c) & (modulus - 1);
+					} else {
+						pred = (int)samples.get((y * width + (x - 1)) * components + c) & (modulus - 1);
+					}
+					int diff = (actual - pred) & (modulus - 1);
+					if (diff > halfMod) { diff -= modulus; }
+					if (diff == halfMod && precision < 16) { diff -= modulus; }
+					int cat = JPEGLosslessWriter.categoryOf(diff);
+					huff.write(out, cat);
+					if (cat > 0 && cat < 16) {
+						int extra = diff < 0 ? diff + (1 << cat) - 1 : diff;
+						out.bits(extra, cat);
+					}
+				}
+			}
+		}
+		out.finish();
+		out.bytes.appendU16BE(0xffd9);
+		return out.bytes;
+	}
+}

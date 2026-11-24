@@ -693,6 +693,32 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.FileSystem.FileWatcher"
+group = "stdlib/FileSystem"
+title = "Native recursive directory watcher"
+regression = ["src/tests/python/test_filesystem_mmap_watcher.py::test_file_watcher_events"]
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Portable/FileWatcherProvider fallback compiles cleanly on Windows; native ReadDirectoryChangesW provider can replace it without API changes" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "Portable/FileWatcherProvider fallback compiles cleanly on Windows; native ReadDirectoryChangesW provider can replace it without API changes" }
+ios-device = { parity = "adapted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Portable/FileWatcherProvider fallback on iOS app sandbox" }
+ios-simulator = { parity = "adapted", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "Portable/FileWatcherProvider fallback on iOS simulator" }
+android-arm64 = { parity = "adapted", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Portable/FileWatcherProvider fallback on Android app storage" }
+android-x86_64 = { parity = "adapted", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "Portable/FileWatcherProvider fallback on Android app storage" }
+
+[[rows]]
+kind = "operation"
+id = "Library.FileSystem.MappedFile"
+group = "stdlib/FileSystem"
+title = "Read-only memory-mapped binary file reader"
+regression = ["src/tests/python/test_filesystem_mmap_watcher.py::test_mapped_file_reads"]
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "bounded fopen/fread fallback on Windows implementing the identical read-only binary contract" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "bounded fopen/fread fallback on Windows implementing the identical read-only binary contract" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "POSIX mmap(PROT_READ, MAP_PRIVATE) builds on iOS libc" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "POSIX mmap(PROT_READ, MAP_PRIVATE) builds on iOS libc" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "POSIX mmap(PROT_READ, MAP_PRIVATE) builds on bionic" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P3", status = "implemented-unverified", reason = "POSIX mmap(PROT_READ, MAP_PRIVATE) builds on bionic" }
+
+[[rows]]
+kind = "operation"
 id = "Library.FileSystem.IUserspaceFileSystem"
 group = "stdlib/FileSystem"
 title = "What a filesystem served by a program implements"
@@ -1210,6 +1236,45 @@ ios-device = { parity = "equivalent", implementation = "implemented", owner = "P
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc raster + PPM/BMP; file I/O via libc fopen (paths limited to app sandbox)" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc raster + PPM/BMP; file I/O via bionic fopen (paths limited to app storage)" }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure btrc raster + PPM/BMP; file I/O via bionic fopen (paths limited to app storage)" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Image.FloatImage"
+group = "stdlib/Image"
+title = "Scene-referred linear RGBA32F pixel buffer and comparison oracle"
+regression = ["src/tests/python/test_image_codec_and_raw.py::test_float_image_and_lossless_cfa"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC linear float raster and sRGB/linear conversion" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC linear float raster and sRGB/linear conversion" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC linear float raster and sRGB/linear conversion" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC linear float raster and sRGB/linear conversion" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC linear float raster and sRGB/linear conversion" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC linear float raster and sRGB/linear conversion" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Image.ImageCodec"
+group = "stdlib/Image"
+title = "Linear float photo decode, HDR gain maps, and hardware export"
+regression = ["src/tests/python/test_image_codec_and_raw.py::test_image_codec_roundtrips"]
+windows-x64 = { parity = "adapted", implementation = "implemented", owner = "W2", status = "implemented-unverified", reason = "Portable/ImageCodecProvider over first-party PNG, JPEG, and uncompressed 16-bit TIFF codecs" }
+windows-arm64 = { parity = "adapted", implementation = "implemented", owner = "W2", status = "implemented-unverified", reason = "Portable/ImageCodecProvider over first-party PNG, JPEG, and uncompressed 16-bit TIFF codecs" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "Apple/ImageCodecProvider over Apple ImageIO and CoreGraphics" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "Apple/ImageCodecProvider over Apple ImageIO and CoreGraphics" }
+android-arm64 = { parity = "adapted", implementation = "implemented", owner = "A2", status = "implemented-unverified", reason = "Portable/ImageCodecProvider over first-party PNG, JPEG, and uncompressed 16-bit TIFF codecs" }
+android-x86_64 = { parity = "adapted", implementation = "implemented", owner = "A2", status = "implemented-unverified", reason = "Portable/ImageCodecProvider over first-party PNG, JPEG, and uncompressed 16-bit TIFF codecs" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Image.RawMosaic"
+group = "stdlib/Image"
+title = "Raw sensor CFA mosaic and colorimetry metadata"
+regression = ["src/tests/python/test_image_codec_and_raw.py::test_float_image_and_lossless_cfa"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC raw sensor CFA mosaic container" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC raw sensor CFA mosaic container" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC raw sensor CFA mosaic container" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC raw sensor CFA mosaic container" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC raw sensor CFA mosaic container" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P4", status = "implemented-unverified", reason = "pure BTRC raw sensor CFA mosaic container" }
 
 [[rows]]
 kind = "operation"

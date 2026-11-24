@@ -1,3 +1,4 @@
+import Library.Array;
 import Library.Bytes;
 import Library.Vector;
 
@@ -6,6 +7,12 @@ import ./JPEG/Writer.btrc;
 
 class JPEG {
 	class Image decode(Bytes bytes, int maxPixels = 64000000) { return JPEGReader(bytes, maxPixels).decode(); }
+
+	// Unpack 2..16-bit lossless Huffman JPEG (SOF3) used by DNG/TIFF-RAW tiles.
+	class JPEGLosslessPlane decodeLossless16(Bytes bytes, int maxPixels = 100000000) { return JPEGReader(bytes, maxPixels).decodeLossless16(); }
+
+	// Encode 2..16-bit lossless Huffman JPEG (SOF3) with predictor 1.
+	class Bytes encodeLossless16(int width, int height, int components, int precision, Array<unsigned short> samples) { return JPEGLosslessWriter.encode16(width, height, components, precision, samples); }
 
 	// JPEG stores opaque RGB. The alpha channel is discarded.
 	class Bytes encode(Image image, int quality = 82) { return JPEGWriter(quality).encode(image); }

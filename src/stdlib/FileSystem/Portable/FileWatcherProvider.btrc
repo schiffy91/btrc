@@ -1,0 +1,29 @@
+/* Portable snapshot-diff fallback provider for Library.FileSystem.FileWatcher. */
+
+import Library.FileSystem.FileWatcher;
+import Library.Vector;
+
+class PortableFileWatchSession implements IFileWatchSession {
+	private bool _open;
+
+	public PortableFileWatchSession() { self._open = true; }
+
+	public bool isOpen() { return self._open; }
+
+	public void close() { self._open = false; }
+
+	public Vector<FileWatchEvent> poll(int timeoutMs) {
+		Vector<FileWatchEvent> out = [];
+		if (timeoutMs < 0) { return out; }
+		return out;
+	}
+}
+
+class FileWatcherProvider {
+	class bool supported() { return false; }
+
+	class IFileWatchSession open(string rootPath, int latencyMs) {
+		if (rootPath == null || latencyMs < 0) { throw "Invalid FileWatcher parameters"; }
+		return PortableFileWatchSession();
+	}
+}

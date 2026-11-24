@@ -57,9 +57,9 @@ release = "p0-inventory-2026-11-24-gpu"
 platforms = ["windows", "ios", "android"]
 slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
 frontends = []
-ids = 390
-slots = 2340
-sha256 = "a4766d7b7ee65f813bc0ec283a14f0b18888438b8b8868b602bf1b5f5df4893c"
+ids = 395
+slots = 2370
+sha256 = "cff5a8582ddaa63a785f45aa75c17b5454f37b75069d6fe5d60895443ee82ae9"
 source = { ledger = "docs/design/platform-inventory.toml" }
 
 [[denominators]]

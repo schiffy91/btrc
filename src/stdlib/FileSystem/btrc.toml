@@ -2,7 +2,97 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_filesystem"
-exports = ["ApplicationDirectories", "FileSystem", "FileSystemHandles", "FileTree", "IUserspaceFileSystem", "Userspace", "UserspaceForwarding", "UserspaceMemory", "UserspaceRequest"]
+exports = ["ApplicationDirectories", "FileSystem", "FileSystemHandles", "FileTree", "FileWatcher", "IUserspaceFileSystem", "MappedFile", "Userspace", "UserspaceForwarding", "UserspaceMemory", "UserspaceRequest"]
+
+[[native.bindings]]
+module = "MappedFile"
+header = "MappedFileNative.h"
+language = "c"
+standard = "c11"
+symbols = ["BtrcMappedRegion", "btrcMappedFileOpen", "btrcMappedFileClose", "btrcMappedFileSize", "btrcMappedFileCopy", "btrcMappedFileFindPair", "btrcMappedFileMatches"]
+owned-results = ["btrcMappedFileOpen"]
+borrowed-parameters = ["btrcMappedFileSize.region", "btrcMappedFileCopy.region", "btrcMappedFileFindPair.region", "btrcMappedFileMatches.region"]
+read-only-borrows = ["btrcMappedFileOpen.path", "btrcMappedFileMatches.text"]
+
+[native.bindings.resources.BtrcMappedRegion]
+ownership = "unique"
+release = "btrcMappedFileClose"
+
+[[native.sources]]
+path = "MappedFileNative.c"
+language = "c"
+standard = "c11"
+modules = ["MappedFile"]
+
+# Native recursive directory watcher.
+[[package.providers]]
+module = "FileWatcher"
+implementation = "MacOS.FileWatcherProvider"
+os = ["macos"]
+
+[[package.providers]]
+module = "FileWatcher"
+implementation = "Linux.FileWatcherProvider"
+os = ["linux"]
+
+[[package.providers]]
+module = "FileWatcher"
+implementation = "Portable.FileWatcherProvider"
+os = ["android", "ios", "windows"]
+
+[[native.bindings]]
+module = "MacOS.FileWatcherProvider"
+header = "MacOS/MacOSFileWatcher.h"
+language = "c"
+standard = "c11"
+symbols = ["BtrcMacOSFileWatcher", "btrcMacOSWatcherOpen", "btrcMacOSWatcherClose", "btrcMacOSWatcherWaitCount", "btrcMacOSWatcherPop"]
+owned-results = ["btrcMacOSWatcherOpen"]
+borrowed-parameters = ["btrcMacOSWatcherWaitCount.watcher", "btrcMacOSWatcherPop.watcher"]
+read-only-borrows = ["btrcMacOSWatcherOpen.rootPath"]
+os = ["macos"]
+
+[native.bindings.resources.BtrcMacOSFileWatcher]
+ownership = "unique"
+release = "btrcMacOSWatcherClose"
+
+[[native.sources]]
+path = "MacOS/MacOSFileWatcher.c"
+language = "c"
+standard = "c11"
+modules = ["MacOS.FileWatcherProvider"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "CoreFoundation"
+modules = ["MacOS.FileWatcherProvider"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "CoreServices"
+modules = ["MacOS.FileWatcherProvider"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "Linux.FileWatcherProvider"
+header = "Linux/LinuxFileWatcher.h"
+language = "c"
+standard = "c11"
+symbols = ["BtrcLinuxFileWatcher", "btrcLinuxWatcherOpen", "btrcLinuxWatcherClose", "btrcLinuxWatcherWaitCount", "btrcLinuxWatcherPop"]
+owned-results = ["btrcLinuxWatcherOpen"]
+borrowed-parameters = ["btrcLinuxWatcherWaitCount.watcher", "btrcLinuxWatcherPop.watcher"]
+read-only-borrows = ["btrcLinuxWatcherOpen.rootPath"]
+os = ["linux"]
+
+[native.bindings.resources.BtrcLinuxFileWatcher]
+ownership = "unique"
+release = "btrcLinuxWatcherClose"
+
+[[native.sources]]
+path = "Linux/LinuxFileWatcher.c"
+language = "c"
+standard = "c11"
+modules = ["Linux.FileWatcherProvider"]
+os = ["linux"]
 
 # FileSystemHandles' native seam. POSIX rows keep their bodies inline in
 # FileSystemHandles.btrc, so their provider only completes the selection;

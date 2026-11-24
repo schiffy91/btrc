@@ -850,8 +850,16 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("EncodedImageDispatch", (
         BuiltinMemberSpec("decode", "EncodedImageDecodeOutcome", "method", (("Bytes", "encoded"), ("EncodedImageDecodeLimits", "limits"), ("IEncodedImageFormatDecoder", "codec"),), "decode"),
     )),
+    ("ImageCodec", (
+        BuiltinMemberSpec("supportsHEIC", "bool", "method", (), "supportsHEIC"),
+        BuiltinMemberSpec("decodeLinear", "DecodedPhoto", "method", (("Bytes", "encoded"), ("int", "maxEdge"), ("bool", "linearRec2020"),), "decodeLinear"),
+        BuiltinMemberSpec("decodeRGBA8", "Image", "method", (("Bytes", "encoded"), ("int", "maxEdge"),), "decodeRGBA8"),
+        BuiltinMemberSpec("encode", "Bytes", "method", (("FloatImage", "image"), ("ImageExportFormat", "format"), ("int", "quality"),), "encode"),
+    )),
     ("JPEG", (
         BuiltinMemberSpec("decode", "Image", "method", (("Bytes", "bytes"), ("int", "maxPixels"),), "decode"),
+        BuiltinMemberSpec("decodeLossless16", "JPEGLosslessPlane", "method", (("Bytes", "bytes"), ("int", "maxPixels"),), "decodeLossless16"),
+        BuiltinMemberSpec("encodeLossless16", "Bytes", "method", (("int", "width"), ("int", "height"), ("int", "components"), ("int", "precision"), ("Array<unsigned short>", "samples"),), "encodeLossless16"),
         BuiltinMemberSpec("encode", "Bytes", "method", (("Image", "image"), ("int", "quality"),), "encode"),
     )),
     ("JPEGHeader", (
