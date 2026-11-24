@@ -1,15 +1,1 @@
-{
-  "manifest-hash": "66c9b0c1bab84078c9714294c4e44058c8a91fd372c82a2dddbe852d5d84d8af",
-  "packages": [
-    {
-      "dependencies": {},
-      "manifest-hash": "7e67d086dbcd186e6095ce7ab39dfddda356de371058548f58faa2e357ca56e9",
-      "name": "dbus_x11_launch",
-      "source": {
-        "path": "."
-      }
-    }
-  ],
-  "root": "dbus_x11_launch",
-  "schema": 3
-}
+{"manifest-hash":"66c9b0c1bab84078c9714294c4e44058c8a91fd372c82a2dddbe852d5d84d8af","packages":[{"dependencies":{},"manifest-hash":"7e67d086dbcd186e6095ce7ab39dfddda356de371058548f58faa2e357ca56e9","name":"dbus_x11_launch","source":{"path":"."}}],"root":"dbus_x11_launch","schema":3}
