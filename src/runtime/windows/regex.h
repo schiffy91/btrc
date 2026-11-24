@@ -205,7 +205,7 @@ static inline void btrc_win_dispatch_regfree(regex_t *re)
 	uintptr_t pointer = (uintptr_t)re->__opaque;
 	if ((pointer & (uintptr_t)3) == 3) {
 		btrc_win_group_header *group = (btrc_win_group_header *)(pointer - 3);
-		if (group->kind == btrc_win_group_positions) free(((btrc_win_pos_program *)group)->when_true);
+		if (group->kind == btrc_win_group_positions) free(((btrc_win_pos_program *)group)->contexts);
 		free(group);
 		re->__opaque = NULL;
 	} else if ((pointer & (uintptr_t)3) == 2) {

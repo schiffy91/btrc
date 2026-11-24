@@ -40,10 +40,11 @@ typedef struct {
 	btrc_win_suffix_span optional_suffix;
 	btrc_win_boundary_blocks boundary_blocks;
 	btrc_win_pos_bits initial;
-	/* When one source assertion is present, these are its initial positions
-	   and outgoing transitions at a byte boundary where it holds. */
-	btrc_win_pos_bits *when_true;
-	int edges, nullable, assertion;
+	/* Each assertion truth combination has one row of initial positions
+	   followed by the target set of each outgoing edge. False uses the
+	   ordinary fields below. */
+	btrc_win_pos_bits *contexts;
+	int edges, nullable, assertion_count, assertions[2];
 	btrc_win_pos_edge edge[];
 } btrc_win_pos_program;
 
@@ -58,7 +59,7 @@ typedef struct {
 	btrc_win_rx_parser *parser;
 	btrc_win_pos_program *program;
 	btrc_win_pos_node nodes[btrc_win_pos_nodes];
-	int used, extra, failed, conditional, assertion_true;
+	int used, extra, failed, conditional, assertion_mask;
 	int positions[btrc_win_pos_limit], position_count;
 } btrc_win_pos_builder;
 
@@ -84,8 +85,6 @@ static inline int btrc_win_pos_new(btrc_win_pos_builder *b, enum btrc_win_pos_op
 		made.requires_byte = op == btrc_win_pos_cat ? a->requires_byte || z->requires_byte :
 		                     op == btrc_win_pos_union ? a->requires_byte && z->requires_byte :
 		                     op == btrc_win_pos_plus && a->requires_byte;
-		if (!b->conditional && made.has_boundary && ((op == btrc_win_pos_union && !a->requires_byte && !z->requires_byte) ||
-		    ((op == btrc_win_pos_optional || op == btrc_win_pos_star) && !a->requires_byte))) b->failed = 1;
 	}
 	b->nodes[++b->used] = made;
 	return b->used;
@@ -171,8 +170,7 @@ static inline int btrc_win_pos_sequence(btrc_win_pos_builder *b, int id, int *of
 			part = btrc_win_pos_new(b, btrc_win_pos_byte, id, n->arg + *offset);
 			break;
 		case btrc_win_rx_assert:
-			if (!b->conditional && n->arg != btrc_win_rx_bol && n->arg != btrc_win_rx_eol) b->failed = 1;
-			else part = btrc_win_pos_new(b, btrc_win_pos_boundary, n->arg, 0);
+			part = btrc_win_pos_new(b, btrc_win_pos_boundary, n->arg, 0);
 			break;
 		case btrc_win_rx_group:
 			part = btrc_win_pos_sequence(b, n->child, offset, depth);
@@ -193,24 +191,38 @@ static inline int btrc_win_pos_sequence(btrc_win_pos_builder *b, int id, int *of
 	return seq;
 }
 
-/* A start anchor after a mandatory byte and an end anchor before one
-   can never succeed in the C-locale, non-newline input mode. Retain
-   every consuming position on either side so historical aliases still
-   reach the same suffixes. Other boundary placements use the fallback. */
-static inline int btrc_win_pos_dead_boundaries(const btrc_win_pos_builder *b, int id, int before, int after)
-{
-	const btrc_win_pos_node *n = &b->nodes[id];
-	if (!n->has_boundary) return 1;
-	if (n->op == btrc_win_pos_boundary) return n->left == btrc_win_rx_bol ? before : after;
-	int cat = n->op == btrc_win_pos_cat;
-	return btrc_win_pos_dead_boundaries(b, n->left, before, after || (cat && b->nodes[n->right].requires_byte)) &&
-	       btrc_win_pos_dead_boundaries(b, n->right, before || (cat && b->nodes[n->left].requires_byte), after);
-}
-
 /* First is a set of consuming positions. Last indexes individual byte
    edges because two occurrences at one position may accept different
    bytes and lead to different suffixes. */
-typedef struct { btrc_win_pos_bits first, last; int nullable; } btrc_win_pos_span;
+/* Outgoing transitions keep the first occurrence of each consecutive
+   run of equal destination positions, before evaluating assertions.
+   Store the run endpoints and the enabled positions after the first run.
+   Labels are offset by one so zero denotes an empty structural list. */
+typedef struct {
+	int first, last, enabled;
+	btrc_win_pos_bits rest;
+} btrc_win_pos_runs;
+
+static inline btrc_win_pos_bits btrc_win_pos_run_bits(btrc_win_pos_runs a)
+{
+	return a.enabled ? btrc_win_pos_union_bits(a.rest, btrc_win_pos_bit(a.first - 1)) : a.rest;
+}
+
+static inline btrc_win_pos_runs btrc_win_pos_join_runs(btrc_win_pos_runs a, btrc_win_pos_runs b)
+{
+	if (!a.first) return b;
+	if (!b.first) return a;
+	btrc_win_pos_bits extra = a.last == b.first ? b.rest : btrc_win_pos_run_bits(b);
+	a.rest = btrc_win_pos_union_bits(a.rest, extra);
+	a.last = b.last;
+	return a;
+}
+
+typedef struct {
+	btrc_win_pos_bits first, last;
+	int nullable;
+	btrc_win_pos_runs runs;
+} btrc_win_pos_span;
 
 static inline void btrc_win_pos_follow(btrc_win_pos_program *p, btrc_win_pos_bits edges, btrc_win_pos_bits next)
 {
@@ -220,10 +232,13 @@ static inline void btrc_win_pos_follow(btrc_win_pos_program *p, btrc_win_pos_bit
 
 static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, int id)
 {
-	btrc_win_pos_span empty = {{0, 0}, {0, 0}, 1};
+	btrc_win_pos_span empty = { .nullable = 1 };
 	if (!id || b->failed) return empty;
 	const btrc_win_pos_node *n = &b->nodes[id];
-	if (n->op == btrc_win_pos_boundary) return (btrc_win_pos_span){{0, 0}, {0, 0}, b->assertion_true};
+	if (n->op == btrc_win_pos_boundary) {
+		int bit = n->left == b->program->assertions[0] ? 1 : 2;
+		return (btrc_win_pos_span){ .nullable = (b->assertion_mask & bit) != 0 };
+	}
 	if (n->op == btrc_win_pos_byte) {
 		btrc_win_pos_program *p = b->program;
 		/* Compact sparse source labels without changing position identity.
@@ -243,45 +258,76 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 			if (slot == btrc_win_pos_limit) { b->failed = 1; return empty; }
 			p->edge[p->edges++] = (btrc_win_pos_edge){label, {0, 0}, *bytes};
 		}
-		return (btrc_win_pos_span){position, btrc_win_pos_bit(slot), 0};
+		return (btrc_win_pos_span){position, btrc_win_pos_bit(slot), 0, {label + 1, label + 1, 1, {0, 0}}};
 	}
 	btrc_win_pos_span left = btrc_win_pos_span_for(b, n->left);
 	if (n->op == btrc_win_pos_cat || n->op == btrc_win_pos_union) {
 		btrc_win_pos_span right = btrc_win_pos_span_for(b, n->right);
-		/* Legacy transitions retain the first of adjacent equal destination
-		   positions. An asserted path and an ordinary path to that position
-		   can differ even when their byte sets coincide. */
-		if (b->assertion_true && n->has_boundary && (n->op == btrc_win_pos_union || left.nullable) &&
-		    ((left.first.low & right.first.low) || (left.first.high & right.first.high))) b->failed = 1;
 		if (n->op == btrc_win_pos_union) {
 			/* For an empty match the first structurally nullable arm supplies
 			   the assertion; a later arm cannot override its failed boundary. */
 			int nullable = left.nullable || right.nullable;
 			if (b->conditional) nullable = b->nodes[n->left].requires_byte ? right.nullable : left.nullable;
 			return (btrc_win_pos_span){btrc_win_pos_union_bits(left.first, right.first),
-			                           btrc_win_pos_union_bits(left.last, right.last), nullable};
+			                           btrc_win_pos_union_bits(left.last, right.last), nullable, btrc_win_pos_join_runs(left.runs, right.runs)};
 		}
-		btrc_win_pos_follow(b->program, left.last, right.first);
+		btrc_win_pos_follow(b->program, left.last, b->conditional ? btrc_win_pos_run_bits(right.runs) : right.first);
+		btrc_win_pos_runs runs = left.runs;
+		if (!b->nodes[n->left].requires_byte) {
+			if (!left.nullable) {
+				right.runs.enabled = 0;
+				right.runs.rest = (btrc_win_pos_bits){0, 0};
+			}
+			runs = btrc_win_pos_join_runs(right.runs, runs);
+		}
 		return (btrc_win_pos_span){left.nullable ? btrc_win_pos_union_bits(left.first, right.first) : left.first,
-		                           right.nullable ? btrc_win_pos_union_bits(right.last, left.last) : right.last, left.nullable && right.nullable};
+		                           right.nullable ? btrc_win_pos_union_bits(right.last, left.last) : right.last, left.nullable && right.nullable, runs};
 	}
 	if (n->op == btrc_win_pos_star || n->op == btrc_win_pos_plus)
-		btrc_win_pos_follow(b->program, left.last, left.first);
+		btrc_win_pos_follow(b->program, left.last, b->conditional ? btrc_win_pos_run_bits(left.runs) : left.first);
 	if (n->op != btrc_win_pos_plus && (!b->conditional || b->nodes[n->left].requires_byte)) left.nullable = 1;
 	return left;
+}
+
+/* A source predicate has the same value in every counted copy at this
+   byte boundary. Compile each possible nonzero assignment once. */
+static inline void btrc_win_pos_build_contexts(btrc_win_pos_builder *b, int tree)
+{
+	btrc_win_pos_program *p = b->program;
+	int rows = (1 << p->assertion_count) - 1;
+	btrc_win_pos_bits accept = btrc_win_pos_bit(btrc_win_pos_limit);
+	for (int mask = 1; mask <= rows && !b->failed; ++mask) {
+		b->assertion_mask = mask;
+		btrc_win_pos_span span = btrc_win_pos_span_for(b, tree);
+		if (b->failed) return;
+		btrc_win_pos_follow(p, span.last, accept);
+		if (!p->contexts) {
+			p->contexts = (btrc_win_pos_bits *)malloc((size_t)rows * (p->edges + 1) * sizeof *p->contexts);
+			if (!p->contexts) { b->failed = 1; return; }
+		}
+		btrc_win_pos_bits *row = p->contexts + (mask - 1) * (p->edges + 1);
+		row[0] = span.nullable ? btrc_win_pos_union_bits(span.first, accept) : span.first;
+		for (int i = 0; i < p->edges; ++i) row[i + 1] = p->edge[i].target;
+		p->edges = 0;
+		b->position_count = 0;
+	}
+	b->assertion_mask = 0;
 }
 
 static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, size_t *groups)
 {
 	if (strlen(pattern) > 255) return NULL;
-	const char *escape = strchr(pattern, '\\');
-	if (escape && (!escape[1] || !strchr("bB<>", escape[1]) || strchr(escape + 1, '\\'))) return NULL;
+	int escapes = 0;
+	for (const char *slash = strchr(pattern, '\\'); slash; slash = strchr(slash + 2, '\\')) {
+		if (!slash[1] || !strchr("bB<>", slash[1])) return NULL;
+		++escapes;
+	}
 	btrc_win_rx_program parsed = {0};
 	parsed.flags = REG_EXTENDED;
 	btrc_win_rx_parser parser = {&parsed, (const unsigned char *)pattern, 0, 0, 0, 0};
 	int root = btrc_win_rx_expression(&parser, 0);
 	btrc_win_pos_program *p = NULL;
-	if (!parser.error && root && parser.groups && escape) {
+	if (!parser.error && root && parser.groups && escapes) {
 		btrc_win_boundary_blocks boundary = {0};
 		if (btrc_win_rx_detect_boundary_blocks(&boundary, parsed.nodes, root)) {
 			p = (btrc_win_pos_program *)calloc(1, sizeof *p + strlen(pattern) + 1);
@@ -294,40 +340,34 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 		}
 	}
 	if (!p && !parser.error && root && parser.groups) {
-		int index = 0, assertions = 0, assertion = 0;
+		int index = 0, word_assertions = 0, kinds = 0;
 		for (int i = 1; i <= parser.nodes; ++i) {
-			if (parsed.nodes[i].op == btrc_win_rx_byte) parsed.nodes[i].arg = index++;
-			if (parsed.nodes[i].op == btrc_win_rx_assert) {
-				assertion = parsed.nodes[i].arg;
-				++assertions;
+			const btrc_win_rx_node *node = &parsed.nodes[i];
+			if (node->op == btrc_win_rx_byte) parsed.nodes[i].arg = index++;
+			if (node->op == btrc_win_rx_assert) {
+				kinds |= 1 << node->arg;
+				if (node->arg >= btrc_win_rx_bow) ++word_assertions;
 			}
 		}
-		if ((index || assertions == 1) && index <= btrc_win_pos_limit && (!escape || assertions == 1)) p = (btrc_win_pos_program *)calloc(1, sizeof *p + btrc_win_pos_limit * sizeof *p->edge + strlen(pattern) + 1);
+		int assertions[2] = {0}, count = 0;
+		for (int kind = btrc_win_rx_bol; kind <= btrc_win_rx_nonboundary; ++kind) {
+			if (!(kinds & (1 << kind))) continue;
+			if (count < 2) assertions[count] = kind;
+			++count;
+		}
+		if ((index || count) && index <= btrc_win_pos_limit && count <= 2 && escapes == word_assertions) {
+			size_t bytes = sizeof *p + btrc_win_pos_limit * sizeof *p->edge + strlen(pattern) + 1;
+			p = (btrc_win_pos_program *)calloc(1, bytes);
+		}
 		if (p) {
-			btrc_win_pos_builder builder = { .parser = &parser, .program = p, .conditional = assertions == 1 };
+			p->assertion_count = count;
+			memcpy(p->assertions, assertions, sizeof assertions);
+			btrc_win_pos_builder builder = { .parser = &parser, .program = p, .conditional = count != 0 };
 			int offset = 0;
 			int tree = btrc_win_pos_sequence(&builder, root, &offset, 0);
-			if (!builder.conditional && !builder.failed && !btrc_win_pos_dead_boundaries(&builder, tree, 0, 0)) builder.failed = 1;
-			if (builder.conditional && !builder.failed) {
-				/* Copies of the same assertion at one input boundary always agree.
-				   Build both transition tables with identical consuming edge IDs. */
-				p->assertion = assertion;
-				builder.assertion_true = 1;
-				btrc_win_pos_span truth = btrc_win_pos_span_for(&builder, tree);
-				btrc_win_pos_bits accept = btrc_win_pos_bit(btrc_win_pos_limit);
-				btrc_win_pos_follow(p, truth.last, accept);
-				p->when_true = (btrc_win_pos_bits *)malloc((size_t)(p->edges + 1) * sizeof *p->when_true);
-				if (!p->when_true) builder.failed = 1;
-				else {
-					p->when_true[0] = truth.nullable ? btrc_win_pos_union_bits(truth.first, accept) : truth.first;
-					for (int i = 0; i < p->edges; ++i) p->when_true[i + 1] = p->edge[i].target;
-				}
-				p->edges = 0;
-				builder.position_count = 0;
-				builder.assertion_true = 0;
-			}
+			if (builder.conditional) btrc_win_pos_build_contexts(&builder, tree);
 			btrc_win_pos_span span = btrc_win_pos_span_for(&builder, tree);
-			if (builder.failed) { free(p->when_true); free(p); p = NULL; }
+			if (builder.failed) { free(p->contexts); free(p); p = NULL; }
 			else {
 				p->header.kind = btrc_win_group_positions;
 				p->initial = span.first;
@@ -372,11 +412,15 @@ static inline int btrc_win_pos_ranked(const btrc_win_pos_program *p, const char 
 static inline const btrc_win_pos_bits *btrc_win_pos_context(const btrc_win_pos_program *p,
                                                             const unsigned char *s, regoff_t i, int flags)
 {
-	return p->when_true && btrc_win_rx_boundary_ok(p->assertion, s, i, REG_EXTENDED, flags) ? p->when_true : NULL;
+	if (!p->contexts) return NULL;
+	int mask = 0;
+	for (int bit = 0; bit < p->assertion_count; ++bit)
+		if (btrc_win_rx_boundary_ok(p->assertions[bit], s, i, REG_EXTENDED, flags)) mask |= 1 << bit;
+	return mask ? p->contexts + (mask - 1) * (p->edges + 1) : NULL;
 }
 
 static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *subject,
-                                           size_t count, regmatch_t *matches, int flags)
+                                     size_t count, regmatch_t *matches, int flags)
 {
 	if (p->boundary_blocks.width)
 		return btrc_win_rx_match_boundary_blocks(&p->boundary_blocks, subject, count, matches);
