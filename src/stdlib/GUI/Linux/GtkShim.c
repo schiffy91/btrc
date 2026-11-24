@@ -243,7 +243,13 @@ static bool btrcGtkWaylandGlobalsFor(struct wl_display* display) {
  * included. There the surface is a child window that is never shown, which
  * the GPU device is made for, and the provider's frames reach the screen as
  * pictures GTK draws under the controls (btrcShimWindowShowPicture). */
-static bool btrcGtkCreateSurface(BtrcShimWindow* window) {
+bool btrcGtkEnsureSurface(BtrcShimWindow* window) {
+#ifdef GDK_WINDOWING_WAYLAND
+    if (window->child != NULL) { return true; }
+#endif
+#ifdef GDK_WINDOWING_X11
+    if (window->xChild != 0) { return true; }
+#endif
 	GdkSurface* surface = gtk_native_get_surface(GTK_NATIVE(window->window));
 	GdkDisplay* display = gdk_surface_get_display(surface);
 #ifdef GDK_WINDOWING_WAYLAND
@@ -260,6 +266,7 @@ static bool btrcGtkCreateSurface(BtrcShimWindow* window) {
 		struct wl_region* none = wl_compositor_create_region(btrcGtkWayland.compositor);
 		wl_surface_set_input_region(window->child, none);
 		wl_region_destroy(none);
+		btrcGtkPlaceSurface(window);
 		return true;
 	}
 #endif
@@ -632,7 +639,7 @@ BtrcShimWindow* btrcShimWindowCreate(const char* title, int width, int height) {
 	gtk_widget_realize(window->window);
 	btrcShimWindowSetSize(window, width, height);
 	gtk_im_context_set_client_widget(window->input, window->content);
-	if (!btrcGtkCreateSurface(window)) {
+	if (!btrcShimWindowSupportsSoftware(window) && !btrcGtkEnsureSurface(window)) {
 		g_object_unref(window->input);
 		gtk_window_destroy(GTK_WINDOW(window->window));
 		free(window);
@@ -765,6 +772,15 @@ unsigned long btrcGtkWindowX11Window(BtrcShimWindow* window) {
 #else
 	(void)window;
 	return 0;
+#endif
+}
+
+bool btrcShimWindowSupportsSoftware(BtrcShimWindow* window) {
+#ifdef GDK_WINDOWING_WAYLAND
+	return GDK_IS_WAYLAND_DISPLAY(gtk_widget_get_display(window->window));
+#else
+	(void)window;
+	return false;
 #endif
 }
 

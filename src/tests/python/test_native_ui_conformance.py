@@ -10,6 +10,7 @@ through the display server, and those sessions are private ones that take it.
 
 import fcntl
 import os
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -64,7 +65,7 @@ class ConformancePrograms:
                 )
         return Path(result.read_text())
 
-    def run(self, request, frontend, sanitized, argument):
+    def run(self, request, frontend, sanitized, argument, **extra_environment):
         if sys.platform != "linux":
             pytest.skip(LINUX_ONLY)
         require_linux_reader()
@@ -82,6 +83,7 @@ class ConformancePrograms:
                 BTRC_CONFORMANCE_WEB=str(SUITE / "web"),
                 # WebKit's own sandbox needs user namespaces a CI container does not give it.
                 WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS="1",
+                **extra_environment,
             ),
         )
 
@@ -129,6 +131,43 @@ def test_linux_conformance_case(programs, request, name, frontend, sanitized):
     assert result.returncode == 0, report
     assert "ERROR: AddressSanitizer" not in result.stderr and "runtime error:" not in result.stderr, report
     assert result.stdout.splitlines()[-2:] == [f"CASE {name} PASS", "CONFORMANCE ran=1 failed=0"], report
+
+
+@pytest.mark.linux_gui
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_wayland_window_and_subtree_capture_without_gpu(programs, request, frontend, tmp_path):
+    if SESSION != "wayland":
+        pytest.skip("software capture before GPU selection is a Wayland provider capability")
+    require_linux_reader()
+    if error := linux_display_error():
+        pytest.skip(error)
+    guard = tmp_path / "no-gpu.so"
+    # Abort on actual public WebGPU instance allocation, even if a driver could
+    # have satisfied the request. GTK itself can present using its Cairo renderer.
+    subprocess.run(
+        [
+            "cc",
+            "-shared",
+            "-fPIC",
+            "-std=c11",
+            "-Werror",
+            *shlex.split(subprocess.check_output(["pkg-config", "--cflags", "wgpu-native"], text=True)),
+            "-x",
+            "c",
+            "-",
+            "-o",
+            guard,
+        ],
+        input="#include <webgpu.h>\n#include <stdlib.h>\n"
+        "WGPUInstance wgpuCreateInstance(WGPUInstanceDescriptor const *desc) { (void)desc; abort(); }\n",
+        text=True,
+        check=True,
+    )
+    preload = os.pathsep.join(filter(None, (str(guard), os.environ.get("LD_PRELOAD"))))
+    for case in ("window.state", "capture.subtree"):
+        result = programs.run(request, frontend, False, case, LD_PRELOAD=preload, GSK_RENDERER="cairo")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.stdout.splitlines()[-2:] == [f"CASE {case} PASS", "CONFORMANCE ran=1 failed=0"]
 
 
 @pytest.mark.linux_gui

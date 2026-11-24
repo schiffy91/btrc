@@ -38,6 +38,7 @@ void btrcGtkControlPushText(struct BtrcShimControl* control, unsigned int type, 
  * lies below the window and is where frames are presented. The X11 one is
  * never shown: there a frame is drawn off screen and handed over as a
  * picture, which GTK draws under the window's controls. */
+bool btrcGtkEnsureSurface(BtrcShimWindow* window);
 void* btrcGtkWindowWaylandDisplay(BtrcShimWindow* window);
 void* btrcGtkWindowWaylandSurface(BtrcShimWindow* window);
 void* btrcGtkWindowX11Display(BtrcShimWindow* window);
