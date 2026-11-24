@@ -27,6 +27,27 @@ int main() {
 		"X-Injection: ; touch " + injectionMarker
 	];
 	HTTPClient client = HTTPClient().timeout(3);
+#if defined(__APPLE__)
+	/* Apple targets use native URLSession/Network.framework and never run curl,
+	 * even when a curl executable sits first on PATH. */
+	HTTPClientResponse get = client.get("https://unused.invalid", headers);
+	assert(get.status == 0);
+	assert(!get.error.isEmpty());
+	assert(!FileSystem.exists(argumentLog));
+	assert(!FileSystem.exists(injectionMarker));
+
+	HTTPClientResponse getWithBody = client.request("GET", "https://unused.invalid", headers, "body");
+	assert(getWithBody.status == 0);
+	assert(!FileSystem.exists(argumentLog));
+
+	HTTPClientResponse unsupported = client.get("file:///etc/passwd", headers);
+	assert(unsupported.status == 0);
+	assert(unsupported.error.contains("unsupported URL scheme"));
+	assert(!FileSystem.exists(argumentLog));
+
+	Vector<string> remaining = FileSystem.listDir(fixture);
+	assert(remaining.len == 1);
+#else
 	HTTPClientResponse get = client.get("https://unused.invalid", headers);
 	assert(get.status == 201);
 	assert(get.body.equals("local-response"));
@@ -54,6 +75,7 @@ int main() {
 	/* Requests use pipes/anonymous input storage, never named capture files. */
 	Vector<string> remaining = FileSystem.listDir(fixture);
 	assert(remaining.len == 2);
+#endif
 
 	setenv("PATH", oldPath, 1);
 	setenv("TMPDIR", oldTemp, 1);

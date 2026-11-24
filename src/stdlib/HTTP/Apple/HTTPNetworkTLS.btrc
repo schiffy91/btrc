@@ -1,0 +1,188 @@
+/* macOS Network.framework + Security.framework TLS and tunnel transport.
+ *
+ * Composes Apple's native TLS 1.2/1.3 and trust evaluation with HTTPExchange
+ * and first-party proxy framing (HTTP CONNECT, TLS-to-proxy, SOCKS4/4a/5/5h),
+ * sharing one monotonic deadline and zero external processes. */
+import Library.Bytes;
+import Library.HTTP.HTTPExchange;
+import Library.HTTP.HTTPUrl;
+import Library.HTTP.Unix.HTTPPlainTransport;
+import Library.Strings;
+import Library.Timer;
+import Library.Vector;
+
+#include "NetworkTLSTransport.h"
+
+extern int btrcAppleSocksAddress(string host, int local, int onlyIPv4, long long deadline, char* output);
+extern int btrcAppleTLSOpen(string connectHost, int connectPort, string outerTlsHost, string innerTlsHost, string bundlePath, string certDirPath, int tunnelKind, char* step1, int step1Length, char* step2, int step2Length, char* step3, int step3Length, long long remainingMs, void** streamOut);
+extern int btrcAppleTLSSend(void* stream, char* data, int length, long long remainingMs);
+extern int btrcAppleTLSReceive(void* stream, char* buffer, int maximum, long long remainingMs);
+extern void btrcAppleTLSClose(void* stream);
+
+class AppleNetworkStream implements IHTTPByteStream {
+	private void* handle;
+
+	public AppleNetworkStream(void* handle) { self.handle = handle; }
+
+	public int receive(Bytes into, int maximum, long long deadline) {
+		if (self.handle == NULL || maximum <= 0) { return -2; }
+		char buffer[16384];
+		int room = maximum < 16384 ? maximum : 16384;
+		long long remaining = MonotonicClock.remaining(deadline);
+		if (remaining <= 0LL) { return -1; }
+		int count = btrcAppleTLSReceive(self.handle, buffer, room, remaining);
+		if (count > 0) { into.appendRaw(buffer, count); }
+		return count;
+	}
+
+	public bool send(Bytes data, long long deadline) {
+		if (self.handle == NULL || data == null) { return false; }
+		if (data.len <= 0) { return true; }
+		long long remaining = MonotonicClock.remaining(deadline);
+		if (remaining <= 0LL) { return false; }
+		return btrcAppleTLSSend(self.handle, data.data, data.len, remaining) == 0;
+	}
+
+	public void close() {
+		if (self.handle != NULL) {
+			btrcAppleTLSClose(self.handle);
+			self.handle = NULL;
+		}
+	}
+
+	public void __del__() { self.close(); }
+}
+
+class HTTPNetworkTLS {
+	class Vector<string> withoutProxyAuthorization(Vector<string> headers) {
+		Vector<string> filtered = [];
+		for header in headers {
+			if (!HTTPExchange.fieldName(header).equals("proxy-authorization")) { filtered.push(header); }
+		}
+		return filtered;
+	}
+
+	class Bytes connectRequest(HTTPClientAddress origin, HTTPClientAddress proxy, Vector<string> headers) {
+		string target = origin.host + ":" + Strings.fromInt(origin.port);
+		var head = StringBuilder();
+		head.append("CONNECT " + target + " HTTP/1.1\r\n");
+		head.append("Host: " + target + "\r\n");
+		head.append("User-Agent: btrc\r\n");
+		bool callerAuth = false;
+		for header in headers {
+			if (HTTPExchange.fieldName(header).equals("proxy-authorization")) {
+				head.append(header + "\r\n");
+				callerAuth = true;
+			}
+		}
+		if (!callerAuth && !proxy.userInfo.isEmpty()) {
+			head.append("Proxy-Authorization: Basic " + HTTPExchange.base64(HTTPExchange.credentials(proxy.userInfo)) + "\r\n");
+		}
+		head.append("\r\n");
+		return Bytes.fromString(head.toString());
+	}
+
+	class HTTPExchangeResult request(string method, HTTPClientAddress address, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes, HTTPClientAddress? proxy = null, string socks = "", string bundle = "", string certDir = "") {
+		long long deadline = MonotonicClock.deadlineAfter((long long)timeoutSecs * 1000LL);
+		HTTPClientAddress connectTarget = proxy != null ? proxy : address;
+		string outerTlsHost = proxy != null && proxy.secure && socks.isEmpty() ? proxy.resolvable() : "";
+		string innerTlsHost = address.secure ? address.resolvable() : "";
+		HTTPClientAddress requestAddress = address;
+		Vector<string> requestHeaders = headers;
+		int tunnelKind = 0;
+		Bytes step1 = Bytes();
+		Bytes step2 = Bytes();
+		Bytes step3 = Bytes();
+
+		if (proxy != null) {
+			if (!socks.isEmpty()) {
+				if (proxy.userInfo.toLower().contains("%00")) { return HTTPExchangeResult.failed("SOCKS connection failed"); }
+				int colon = proxy.userInfo.find(":", 0);
+				string rawUser = colon < 0 ? proxy.userInfo : proxy.userInfo.substring(0, colon);
+				string user = HTTPUrl.decode(rawUser.replace("+", "%2B"));
+				requestHeaders = HTTPNetworkTLS.withoutProxyAuthorization(headers);
+				if (socks.startsWith("socks4")) {
+					tunnelKind = 2;
+					bool remote = socks.equals("socks4a");
+					step1.append(4);
+					step1.append(1);
+					step1.appendU16BE(address.port);
+					if (remote) {
+						step1.appendU32BE(1U);
+					} else {
+						char ip[16];
+						if (btrcAppleSocksAddress(address.resolvable(), 1, 1, deadline, ip) != 4) {
+							return HTTPExchangeResult.failed(MonotonicClock.remaining(deadline) <= 0LL ? "request timed out" : "SOCKS connection failed");
+						}
+						step1.appendRaw(ip, 4);
+					}
+					step1.appendBytes(Bytes.fromString(user));
+					step1.append(0);
+					if (remote) {
+						step1.appendBytes(Bytes.fromString(address.resolvable()));
+						step1.append(0);
+					}
+				} else {
+					tunnelKind = 3;
+					bool supplied = !proxy.userInfo.isEmpty();
+					string rawPassword = colon < 0 ? "" : proxy.userInfo.substring(colon + 1, proxy.userInfo.len() - colon - 1);
+					string password = HTTPUrl.decode(rawPassword.replace("+", "%2B"));
+					if (supplied && (user.len() > 255 || password.len() > 255)) { return HTTPExchangeResult.failed("SOCKS connection failed"); }
+					step1.append(5);
+					step1.append(supplied ? 2 : 1);
+					step1.append(0);
+					if (supplied) {
+						step1.append(2);
+						step2.append(1);
+						step2.append(user.len());
+						step2.appendBytes(Bytes.fromString(user));
+						step2.append(password.len());
+						step2.appendBytes(Bytes.fromString(password));
+					}
+					string originHost = address.resolvable();
+					char ip[16];
+					int size = btrcAppleSocksAddress(originHost, socks.equals("socks5h") ? 0 : 1, 0, deadline, ip);
+					if (size < 0 || (size == 0 && originHost.len() > 255)) {
+						return HTTPExchangeResult.failed(MonotonicClock.remaining(deadline) <= 0LL ? "request timed out" : "SOCKS connection failed");
+					}
+					step3.append(5);
+					step3.append(1);
+					step3.append(0);
+					if (size == 0) {
+						step3.append(3);
+						step3.append(originHost.len());
+						step3.appendBytes(Bytes.fromString(originHost));
+					} else {
+						step3.append(size == 4 ? 1 : 4);
+						step3.appendRaw(ip, size);
+					}
+					step3.appendU16BE(address.port);
+				}
+			} else if (address.secure) {
+				tunnelKind = 1;
+				step1 = HTTPNetworkTLS.connectRequest(address, proxy, headers);
+				requestHeaders = HTTPNetworkTLS.withoutProxyAuthorization(headers);
+			} else {
+				/* Plain http:// forwarded over an https:// proxy. */
+				requestAddress = HTTPPlainTransport.forwardAddress(address);
+				requestHeaders = HTTPPlainTransport.forwardHeaders(headers, proxy);
+			}
+		}
+
+		long long remaining = MonotonicClock.remaining(deadline);
+		if (remaining <= 0LL) { return HTTPExchangeResult.failed("request timed out"); }
+
+		void* handle = NULL;
+		int status = btrcAppleTLSOpen(connectTarget.resolvable(), connectTarget.port, outerTlsHost, innerTlsHost, bundle, certDir, tunnelKind, step1.data, step1.len, step2.data, step2.len, step3.data, step3.len, remaining, &handle);
+		if (status == -5) { return HTTPExchangeResult.failed("could not load CA bundle"); }
+		if (status == -1) { return HTTPExchangeResult.failed("request timed out"); }
+		if (status == -3) { return HTTPExchangeResult.failed("out of memory"); }
+		if (status == -6) { return HTTPExchangeResult.failed(!socks.isEmpty() ? "SOCKS connection failed" : "proxy connection failed"); }
+		if (status != 0 || handle == NULL) { return HTTPExchangeResult.failed("HTTPS request failed"); }
+
+		var stream = AppleNetworkStream(handle);
+		HTTPExchangeResult result = HTTPExchange.run(stream, method, requestAddress, requestHeaders, body, maxResponseBytes, deadline);
+		stream.close();
+		return result;
+	}
+}

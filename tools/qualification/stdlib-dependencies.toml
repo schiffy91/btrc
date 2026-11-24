@@ -286,8 +286,8 @@ Keep the current working transport while qualification and review are pending.
 [[pending]]
 dependency = "curl"
 module = "HTTP/HTTPCurlTransport"
-os = ["android", "linux", "macos"]
-resolution = "Android, Linux and macOS use first-party code for plain HTTP and HTTP forward proxies. Linux also supports SOCKS4/4a/5/5h for plain HTTP. An installed curl handles explicit Proxy-Authorization fields on Linux SOCKS routes and optional SOCKS5 GSSAPI. iOS uses NSURLSession. macOS uses NSURLSession for direct HTTPS and ordinary HTTP CONNECT proxies, with installed curl preserving its configured trust store and unsupported proxy or request options. Android and Linux retain curl for HTTPS and remaining proxy paths. Windows uses WinHTTP."
+os = ["android", "linux"]
+resolution = "Android, Linux, and macOS use first-party code for plain HTTP and HTTP forward proxies. Linux and macOS also support SOCKS4/4a/5/5h for plain HTTP; an installed curl still handles explicit Proxy-Authorization fields on Linux SOCKS routes and optional SOCKS5 GSSAPI. iOS uses NSURLSession. macOS uses NSURLSession and Network.framework/Security.framework for HTTPS, custom trust stores (CURL_CA_BUNDLE, SSL_CERT_FILE, SSL_CERT_DIR), GET/HEAD request bodies, and HTTP/HTTPS/SOCKS proxies with no curl dependency. Android and Linux retain curl for HTTPS and remaining proxy paths. Windows uses WinHTTP."
 
 [[pending]]
 dependency = "GTK 4"

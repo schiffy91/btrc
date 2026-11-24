@@ -161,17 +161,20 @@ def main():
                     env.update(https_proxy="http://127.0.0.1:1", no_proxy="localhost,127.0.0.1")
                     stdout = subprocess.check_output(cmd, env={**os.environ, **env}, timeout=90)
                     if args.trust_file:
-                        # An installed curl owns its otherwise unknowable CA search path.
-                        # A fixture executable identifies that route without contacting the origin.
+                        # A curl executable on PATH must never be invoked even when
+                        # CURL_CA_BUNDLE or SSL_CERT_FILE is set: Apple targets use
+                        # Security.framework trust anchors directly.
                         curl = out / "curl"
-                        curl.write_text("#!/bin/sh\nprintf 'missing\\n__BTRC_HTTP_STATUS__:404'\n")
+                        marker = out / "curl-invoked"
+                        curl.write_text(f"#!/bin/sh\necho invoked > '{marker}'\nexit 99\n")
                         curl.chmod(0o700)
-                        legacy = subprocess.check_output(
-                            [str(exe), "https://legacy-curl.invalid", "--proxy-only"],
+                        direct = subprocess.check_output(
+                            cmd,
                             env={**os.environ, **env, "PATH": str(out)},
-                            timeout=15,
+                            timeout=90,
                         )
-                        assert legacy.splitlines() == [b"PASS Apple HTTPS proxy"]
+                        assert direct.splitlines() == [b"PASS Apple HTTPS"], direct
+                        assert not marker.exists(), "macOS HTTPS unexpectedly invoked curl on PATH"
                     with http.server.ThreadingHTTPServer(("127.0.0.1", 0), ConnectProxy) as proxy:
                         proxy.origin_port = server.server_port
                         proxy.tunneled = threading.Event()

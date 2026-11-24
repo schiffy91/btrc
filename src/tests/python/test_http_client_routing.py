@@ -88,8 +88,9 @@ def test_public_http_proxy_bypass_and_resolver_deadline(compiler, request, tmp_p
         check=True,
         timeout=120,
     )
+    cc = os.environ.get("BTRC_NATIVE_PROVIDER_CC") or ("clang" if sys.platform == "darwin" else "cc")
     program = tmp_path / "route"
-    artifact.build(program)
+    artifact.build(program, cc=cc)
     assert DependencyAudit().binary_problems(program, PackageTarget.parse(None).label) == []
     empty_path = tmp_path / "empty-path"
     empty_path.mkdir()
@@ -120,8 +121,7 @@ def test_public_http_proxy_bypass_and_resolver_deadline(compiler, request, tmp_p
                     f"200|/direct|{authority}||"
                 )
             assert run(program, TEST_URL=f"http://{endpoint}/direct", HTTP_PROXY=proxy) == f"200|/direct|{endpoint}||"
-            if sys.platform == "linux":
-                check_socks(program, run, peer, tmp_path)
+            check_socks(program, run, peer, tmp_path)
         finally:
             peer.shutdown()
             serving.join()
@@ -129,9 +129,9 @@ def test_public_http_proxy_bypass_and_resolver_deadline(compiler, request, tmp_p
     slow_source = tmp_path / "slow.c"
     slow_object = tmp_path / "slow.o"
     slow_source.write_text(SLOW_RESOLVER)
-    subprocess.run(["cc", "-std=c11", "-c", str(slow_source), "-o", str(slow_object)], check=True, timeout=60)
+    subprocess.run([cc, "-std=c11", "-c", str(slow_source), "-o", str(slow_object)], check=True, timeout=60)
     slow_client = tmp_path / "slow"
-    artifact.build(slow_client, link_flags=[str(slow_object)])
+    artifact.build(slow_client, cc=cc, link_flags=[str(slow_object)])
     assert run(slow_client, TEST_URL="http://slow.invalid/") == "0||request timed out"
 
 
@@ -172,21 +172,44 @@ def check_socks(program, run, origin, directory):
                 run(program, TEST_URL=target, http_proxy=f"socks4a://{endpoint}", PATH=str(directory))
                 == "200|/socks|proxy-only.invalid:54321|||"
             )
-            for scheme in ("socks4a", "socks5h"):
+            if sys.platform == "darwin":
+                # macOS has no curl fallback: even with curl on PATH, SOCKS5h
+                # and caller Proxy-Authorization stay on the first-party client.
                 assert (
-                    run(
-                        program,
-                        TEST_URL=target,
-                        TEST_HEADER=header,
-                        http_proxy=f"{scheme}://{endpoint}",
-                        PATH=str(directory),
+                    run(program, TEST_URL=target, http_proxy=f"socks5h://u%3As:p%2Bw@{endpoint}", PATH=str(directory))
+                    == "200|/socks|proxy-only.invalid:54321|||"
+                )
+                for scheme in ("socks4a", "socks5h"):
+                    assert (
+                        run(
+                            program,
+                            TEST_URL=target,
+                            TEST_HEADER=header,
+                            http_proxy=f"{scheme}://u%3As:p%2Bw@{endpoint}",
+                            PATH=str(directory),
+                        )
+                        == "200|/socks|proxy-only.invalid:54321|||"
                     )
+                assert (
+                    run(program, TEST_URL=target, http_proxy=f"socks5h://{endpoint}", PATH=str(directory))
+                    == "0||SOCKS connection failed"
+                )
+            else:
+                for scheme in ("socks4a", "socks5h"):
+                    assert (
+                        run(
+                            program,
+                            TEST_URL=target,
+                            TEST_HEADER=header,
+                            http_proxy=f"{scheme}://{endpoint}",
+                            PATH=str(directory),
+                        )
+                        == "0||curl failed (exit 42)"
+                    )
+                assert (
+                    run(program, TEST_URL=target, http_proxy=f"socks5h://{endpoint}", PATH=str(directory))
                     == "0||curl failed (exit 42)"
                 )
-            assert (
-                run(program, TEST_URL=target, http_proxy=f"socks5h://{endpoint}", PATH=str(directory))
-                == "0||curl failed (exit 42)"
-            )
         finally:
             proxy.shutdown()
             serving.join()

@@ -2080,7 +2080,7 @@ kind = "operation"
 id = "runtime.__btrc_arc_abandon_queue_drain"
 group = "runtime/cycles"
 title = "__btrc_arc_abandon_queue_drain (cycles.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
@@ -2507,7 +2507,7 @@ kind = "operation"
 id = "runtime.__btrc_arc_topology_begin"
 group = "runtime/cycles"
 title = "__btrc_arc_topology_begin (cycles.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
@@ -2520,7 +2520,7 @@ kind = "operation"
 id = "runtime.__btrc_arc_topology_cleanup"
 group = "runtime/cycles"
 title = "__btrc_arc_topology_cleanup (cycles.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
@@ -2533,7 +2533,7 @@ kind = "operation"
 id = "runtime.__btrc_arc_topology_complete"
 group = "runtime/cycles"
 title = "__btrc_arc_topology_complete (cycles.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
@@ -2559,7 +2559,7 @@ kind = "operation"
 id = "runtime.__btrc_arc_topology_leave"
 group = "runtime/cycles"
 title = "__btrc_arc_topology_leave (cycles.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified" }
@@ -2789,7 +2789,7 @@ kind = "operation"
 id = "runtime.__btrc_close_descriptors_except"
 group = "runtime/process"
 title = "__btrc_close_descriptors_except (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "getrlimit absent (sys/resource.h shim empty); Windows uses PROC_THREAD_ATTRIBUTE_HANDLE_LIST" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "getrlimit absent (sys/resource.h shim empty); Windows uses PROC_THREAD_ATTRIBUTE_HANDLE_LIST" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "only used in a forked child before exec; iOS forbids fork/exec" }
@@ -2802,7 +2802,7 @@ kind = "operation"
 id = "runtime.__btrc_close_descriptors_except_many"
 group = "runtime/process"
 title = "__btrc_close_descriptors_except_many (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_process_descriptor_remap.py::test_multi_descriptor_close_preserves_only_sorted_explicit_set"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_process_descriptor_remap.py::test_multi_descriptor_close_preserves_only_sorted_explicit_set"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "getrlimit absent (sys/resource.h shim empty); Windows uses PROC_THREAD_ATTRIBUTE_HANDLE_LIST" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "getrlimit absent (sys/resource.h shim empty); Windows uses PROC_THREAD_ATTRIBUTE_HANDLE_LIST" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "only used in a forked child before exec; iOS forbids fork/exec" }
@@ -2815,7 +2815,7 @@ kind = "operation"
 id = "runtime.__btrc_close_descriptors_from"
 group = "runtime/process"
 title = "__btrc_close_descriptors_from (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_process_descriptor_remap.py::test_multi_descriptor_close_preserves_only_sorted_explicit_set"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_process_descriptor_remap.py::test_multi_descriptor_close_preserves_only_sorted_explicit_set"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "getrlimit absent (sys/resource.h shim empty); Windows uses PROC_THREAD_ATTRIBUTE_HANDLE_LIST" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "getrlimit absent (sys/resource.h shim empty); Windows uses PROC_THREAD_ATTRIBUTE_HANDLE_LIST" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "only used in a forked child before exec; iOS forbids fork/exec" }
@@ -2855,7 +2855,7 @@ kind = "operation"
 id = "runtime.__btrc_controlling_terminal_descriptor"
 group = "runtime/process"
 title = "__btrc_controlling_terminal_descriptor (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_terminal_handoff_survives_sigttou_from_a_background_group", "src/tests/python/test_stdlib_process_security.py::test_foreground_children_take_the_terminal_from_precomputed_inputs"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_stdlib_process_security.py::test_terminal_handoff_survives_sigttou_from_a_background_group", "src/tests/python/test_stdlib_process_security.py::test_foreground_children_take_the_terminal_from_precomputed_inputs"]
 windows-x64 = { parity = "missing", implementation = "missing", owner = "W1", status = "source-only", reason = "tcgetpgrp/tcsetpgrp/SIGTTOU absent in MinGW; console has no foreground pgrp (needs console job model)" }
 windows-arm64 = { parity = "missing", implementation = "missing", owner = "W1", status = "source-only", reason = "tcgetpgrp/tcsetpgrp/SIGTTOU absent in MinGW; console has no foreground pgrp (needs console job model)" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS apps have no controlling terminal or job control; child processes forbidden" }
@@ -2921,7 +2921,7 @@ kind = "operation"
 id = "runtime.__btrc_descriptor_close_bound"
 group = "runtime/process"
 title = "__btrc_descriptor_close_bound (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_process_descriptor_bound_is_computed_before_fork"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_stdlib_process_security.py::test_process_descriptor_bound_is_computed_before_fork"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "getrlimit absent (sys/resource.h shim empty); Windows uses PROC_THREAD_ATTRIBUTE_HANDLE_LIST" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "getrlimit absent (sys/resource.h shim empty); Windows uses PROC_THREAD_ATTRIBUTE_HANDLE_LIST" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "only used in a forked child before exec; iOS forbids fork/exec" }
@@ -3075,7 +3075,7 @@ kind = "operation"
 id = "runtime.__btrc_enter_working_directory_descriptor"
 group = "runtime/process"
 title = "__btrc_enter_working_directory_descriptor (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_child_descriptor_capabilities_are_leased_and_fail_closed"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_stdlib_process_security.py::test_child_descriptor_capabilities_are_leased_and_fail_closed"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "non-Linux branch fails closed (0 / ENOTSUP) exactly as on macOS; compiles with MinGW errno.h" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "non-Linux branch fails closed (0 / ENOTSUP) exactly as on macOS; compiles with MinGW errno.h" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "__linux__ undefined: fails closed with 0 / ENOTSUP exactly as on macOS" }
@@ -3088,7 +3088,7 @@ kind = "operation"
 id = "runtime.__btrc_exec_executable_descriptor"
 group = "runtime/process"
 title = "__btrc_exec_executable_descriptor (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_descriptor_execution_uses_the_shared_child_engine"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_stdlib_process_security.py::test_descriptor_execution_uses_the_shared_child_engine"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "non-Linux branch fails closed with ENOTSUP as on macOS; compiles under MinGW" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "non-Linux branch fails closed with ENOTSUP as on macOS; compiles under MinGW" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS forbids exec of child programs; helper only runs in a forked child" }
@@ -3101,7 +3101,7 @@ kind = "operation"
 id = "runtime.__btrc_exec_signal_guard_begin"
 group = "runtime/process"
 title = "__btrc_exec_signal_guard_begin (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "sigaction/sigprocmask/NSIG absent in MinGW; CreateProcessW has no fork window to guard" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "sigaction/sigprocmask/NSIG absent in MinGW; CreateProcessW has no fork window to guard" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "guards a fork/exec window; iOS forbids fork/exec of child processes" }
@@ -3114,7 +3114,7 @@ kind = "operation"
 id = "runtime.__btrc_exec_signal_guard_child_end"
 group = "runtime/process"
 title = "__btrc_exec_signal_guard_child_end (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "sigaction/sigprocmask/NSIG absent in MinGW; CreateProcessW has no fork window to guard" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "sigaction/sigprocmask/NSIG absent in MinGW; CreateProcessW has no fork window to guard" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "guards a fork/exec window; iOS forbids fork/exec of child processes" }
@@ -3127,7 +3127,7 @@ kind = "operation"
 id = "runtime.__btrc_exec_signal_guard_parent_end"
 group = "runtime/process"
 title = "__btrc_exec_signal_guard_parent_end (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "sigaction/sigprocmask/NSIG absent in MinGW; CreateProcessW has no fork window to guard" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "sigaction/sigprocmask/NSIG absent in MinGW; CreateProcessW has no fork window to guard" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "guards a fork/exec window; iOS forbids fork/exec of child processes" }
@@ -3578,7 +3578,7 @@ kind = "operation"
 id = "runtime.__btrc_move_descriptor_outside_stdio"
 group = "runtime/process"
 title = "__btrc_move_descriptor_outside_stdio (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS forbids fork/exec/posix_spawn of child processes (posix_spawn unavailable in iOS SDK)" }
@@ -3856,7 +3856,7 @@ kind = "operation"
 id = "runtime.__btrc_posix_spawn_cloexec"
 group = "runtime/process"
 title = "__btrc_posix_spawn_cloexec (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_process_uses_platform_fast_paths_without_weakening_fallback"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_stdlib_process_security.py::test_process_uses_platform_fast_paths_without_weakening_fallback"]
 windows-x64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "not retained on Windows: ChildProcess launches through windows_os.c's CreateProcessW seam (runtime.__btrc_windows_launch) instead of the fork path MinGW lacks" }
 windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W1", status = "source-only", reason = "not retained on Windows: ChildProcess launches through windows_os.c's CreateProcessW seam (runtime.__btrc_windows_launch) instead of the fork path MinGW lacks" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "posix_spawn is marked unavailable in the iOS SDK; spawning child processes is forbidden" }
@@ -3869,7 +3869,7 @@ kind = "operation"
 id = "runtime.__btrc_process_descriptors_supported"
 group = "runtime/process"
 title = "__btrc_process_descriptors_supported (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_child_descriptor_capabilities_are_leased_and_fail_closed"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_stdlib_process_security.py::test_child_descriptor_capabilities_are_leased_and_fail_closed"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "non-Linux branch fails closed (0 / ENOTSUP) exactly as on macOS; compiles with MinGW errno.h" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "non-Linux branch fails closed (0 / ENOTSUP) exactly as on macOS; compiles with MinGW errno.h" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "__linux__ undefined: fails closed with 0 / ENOTSUP exactly as on macOS" }
@@ -4455,7 +4455,7 @@ kind = "operation"
 id = "runtime.__btrc_terminal_adopt_foreground"
 group = "runtime/process"
 title = "__btrc_terminal_adopt_foreground (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_terminal_handoff_survives_sigttou_from_a_background_group", "src/tests/python/test_stdlib_process_security.py::test_foreground_children_take_the_terminal_from_precomputed_inputs"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_stdlib_process_security.py::test_terminal_handoff_survives_sigttou_from_a_background_group", "src/tests/python/test_stdlib_process_security.py::test_foreground_children_take_the_terminal_from_precomputed_inputs"]
 windows-x64 = { parity = "missing", implementation = "missing", owner = "W1", status = "source-only", reason = "tcgetpgrp/tcsetpgrp/SIGTTOU absent in MinGW; console has no foreground pgrp (needs console job model)" }
 windows-arm64 = { parity = "missing", implementation = "missing", owner = "W1", status = "source-only", reason = "tcgetpgrp/tcsetpgrp/SIGTTOU absent in MinGW; console has no foreground pgrp (needs console job model)" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS apps have no controlling terminal or job control; child processes forbidden" }
@@ -4468,7 +4468,7 @@ kind = "operation"
 id = "runtime.__btrc_terminal_foreground_group"
 group = "runtime/process"
 title = "__btrc_terminal_foreground_group (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_terminal_handoff_survives_sigttou_from_a_background_group", "src/tests/python/test_stdlib_process_security.py::test_foreground_children_take_the_terminal_from_precomputed_inputs"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_stdlib_process_security.py::test_terminal_handoff_survives_sigttou_from_a_background_group", "src/tests/python/test_stdlib_process_security.py::test_foreground_children_take_the_terminal_from_precomputed_inputs"]
 windows-x64 = { parity = "missing", implementation = "missing", owner = "W1", status = "source-only", reason = "tcgetpgrp/tcsetpgrp/SIGTTOU absent in MinGW; console has no foreground pgrp (needs console job model)" }
 windows-arm64 = { parity = "missing", implementation = "missing", owner = "W1", status = "source-only", reason = "tcgetpgrp/tcsetpgrp/SIGTTOU absent in MinGW; console has no foreground pgrp (needs console job model)" }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS apps have no controlling terminal or job control; child processes forbidden" }
@@ -4793,7 +4793,7 @@ kind = "operation"
 id = "runtime.__btrc_validate_executable_descriptor"
 group = "runtime/process"
 title = "__btrc_validate_executable_descriptor (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_descriptor_execution_uses_the_shared_child_engine"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_stdlib_process_security.py::test_descriptor_execution_uses_the_shared_child_engine"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "non-Linux branch fails closed (0 / ENOTSUP) exactly as on macOS; compiles with MinGW errno.h" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "non-Linux branch fails closed (0 / ENOTSUP) exactly as on macOS; compiles with MinGW errno.h" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "__linux__ undefined: fails closed with 0 / ENOTSUP exactly as on macOS" }
@@ -4806,7 +4806,7 @@ kind = "operation"
 id = "runtime.__btrc_validate_working_directory_descriptor"
 group = "runtime/process"
 title = "__btrc_validate_working_directory_descriptor (process.c)"
-regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/HttpFramingSafety.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/HttpFramingSafety.btrc]", "src/tests/python/test_stdlib_process_security.py::test_child_descriptor_capabilities_are_leased_and_fail_closed"]
+regression = ["src/tests/runner.py::test_btrc_file[python-stdlib/Process.btrc]", "src/tests/runner.py::test_btrc_file[btrc-stdlib/Process.btrc]", "src/tests/python/test_stdlib_process_security.py::test_child_descriptor_capabilities_are_leased_and_fail_closed"]
 windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "non-Linux branch fails closed (0 / ENOTSUP) exactly as on macOS; compiles with MinGW errno.h" }
 windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "non-Linux branch fails closed (0 / ENOTSUP) exactly as on macOS; compiles with MinGW errno.h" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "I1", status = "implemented-unverified", reason = "__linux__ undefined: fails closed with 0 / ENOTSUP exactly as on macOS" }

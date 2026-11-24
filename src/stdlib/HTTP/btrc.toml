@@ -28,7 +28,7 @@ os = ["windows"]
 path = "Unix/ClientResolver.c"
 language = "c"
 standard = "c11"
-modules = ["Unix.HTTPPlainTransport", "Unix.HTTPSocks"]
+modules = ["Unix.HTTPPlainTransport", "Unix.HTTPSocks", "Apple.HTTPNetworkTLS"]
 os = ["android", "ios", "linux", "macos"]
 
 [[native.sources]]
@@ -79,17 +79,17 @@ os = ["windows"]
 path = "Apple/URLSessionTransport.m"
 language = "objective-c"
 standard = "c11"
-modules = ["Apple.HTTPURLSession"]
+modules = ["Apple.HTTPURLSession", "Apple.HTTPNetworkTLS"]
 os = ["macos", "ios"]
 
 [[native.include-directories]]
 path = "Apple"
-modules = ["Apple.HTTPURLSession"]
+modules = ["Apple.HTTPURLSession", "Apple.HTTPNetworkTLS"]
 os = ["macos", "ios"]
 
 [[native.frameworks]]
 name = "Foundation"
-modules = ["Apple.HTTPURLSession"]
+modules = ["Apple.HTTPURLSession", "Apple.HTTPNetworkTLS"]
 os = ["macos", "ios"]
 
 [[native.frameworks]]
@@ -101,10 +101,22 @@ os = ["macos"]
 path = "Apple/URLSessionTrust.m"
 language = "objective-c"
 standard = "c11"
-modules = ["Apple.HTTPURLSession"]
+modules = ["Apple.HTTPURLSession", "Apple.HTTPNetworkTLS"]
 os = ["macos", "ios"]
 
 [[native.frameworks]]
 name = "Security"
-modules = ["Apple.HTTPURLSession"]
+modules = ["Apple.HTTPURLSession", "Apple.HTTPNetworkTLS"]
 os = ["macos", "ios"]
+
+[[native.sources]]
+path = "Apple/NetworkTLSTransport.m"
+language = "objective-c"
+standard = "c11"
+modules = ["Apple.HTTPNetworkTLS"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "Network"
+modules = ["Apple.HTTPNetworkTLS"]
+os = ["macos"]
