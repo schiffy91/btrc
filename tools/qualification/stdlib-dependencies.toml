@@ -1,7 +1,7 @@
 # What the standard library may require, read by tools/qualification/dependencies.py.
 #
 # The rule: first-party code, and what the target's operating system supplies.
-# wgpu-native is the only third-party exception. A package a distribution or
+# wgpu-native is the only general third-party exception. A package a distribution or
 # Nix can install is not an operating-system API.
 #
 # `supplied.<os>` lists what each system provides: link-record names
@@ -131,6 +131,14 @@ pkg-config = ["wgpu-native", "wgpu-native-windows-x86_64", "wgpu-native-windows-
 libraries = ["wgpu_native"]
 headers = ["webgpu.h", "wgpu.h"]
 binaries = ["libwgpu_native.so", "libwgpu_native.dylib", "*/libwgpu_native.dylib", "wgpu_native.dll"]
+
+# A Linux GPU driver needs actual wl_display and wl_surface objects on the
+# same connection. Ordinary Wayland windows must work without this load.
+[[feature-loads]]
+dependency = "libwayland-client"
+os = "linux"
+source = "GUI/Linux/Wayland/GPUWire.c"
+name = "libwayland-client.so.0"
 
 # Readable names for the raw records a dependency shows up as.
 [[dependencies]]
