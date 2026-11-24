@@ -80,6 +80,12 @@ int main(void)
 	if (overlay_helper_compile(&compiled, "((a|$)(.){0}(b)){2}") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
 	if (regexec(&compiled, "aab", 1, span, REG_NOTEOL) || span[0].rm_so != 0 || span[0].rm_eo != 3) return 1;
 	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "(([^ab]|(..){1,3}))+")) return 1;
+	positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
+	if (((uintptr_t)compiled.__opaque & 3u) != 3 || positions->ranked_blocks.width != 2 ||
+	    btrc_win_pos_match(positions, "abbba", 1, span) || span[0].rm_so != 1 || span[0].rm_eo != 5) return 1;
+	if (btrc_win_rx_block_match(&positions->ranked_blocks, "abb!a", span) != btrc_win_pos_competing_starts) return 1;
+	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;
 	int globbed = glob("no-such-directory-*/x", 0, NULL, &found);

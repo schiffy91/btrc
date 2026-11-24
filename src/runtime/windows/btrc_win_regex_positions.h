@@ -4,6 +4,7 @@
    which changes the byte language of the historical Windows provider. */
 #pragma once
 #include "btrc_win_regex_compile.h"
+#include "btrc_win_regex_block.h"
 
 enum { btrc_win_pos_limit = 127, btrc_win_pos_nodes = 512 };
 typedef struct { uint64_t low, high; } btrc_win_pos_bits;
@@ -34,6 +35,7 @@ typedef struct {
 
 typedef struct {
 	btrc_win_group_header header;
+	btrc_win_rx_blocks ranked_blocks;
 	btrc_win_pos_bits initial;
 	int edges, nullable;
 	btrc_win_pos_edge edge[];
@@ -259,6 +261,7 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 				p->header.kind = btrc_win_group_positions;
 				p->initial = span.first;
 				p->nullable = span.nullable;
+				btrc_win_rx_detect_blocks(&p->ranked_blocks, parsed.nodes, root);
 				btrc_win_pos_follow(p, span.last, btrc_win_pos_bit(btrc_win_pos_limit));
 				size_t bytes = sizeof *p + (size_t)p->edges * sizeof *p->edge + strlen(pattern) + 1;
 				btrc_win_pos_program *compact = (btrc_win_pos_program *)realloc(p, bytes);
@@ -282,7 +285,7 @@ static inline btrc_win_pos_bits btrc_win_pos_step(const btrc_win_pos_program *p,
 	return next;
 }
 
-enum { btrc_win_pos_competing_starts = -2, btrc_win_pos_origin_limit = 4 };
+enum { btrc_win_pos_origin_limit = 4 };
 typedef struct { regoff_t start; btrc_win_pos_bits live; } btrc_win_pos_origin;
 
 static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *subject,
@@ -311,7 +314,7 @@ static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *
 				if (!count) return 0;
 				/* Distinct accepting origins need the old subgroup ranking.
 				   If every acceptance has one origin, its longest end is exact. */
-				if (end >= 0 && start != origin.start) return btrc_win_pos_competing_starts;
+				if (end >= 0 && start != origin.start) return btrc_win_rx_block_match(&p->ranked_blocks, subject, matches);
 				start = origin.start;
 				end = i + 1;
 			}
@@ -320,7 +323,7 @@ static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *
 				/* Pure existence queries do not distinguish origins. */
 				if (!count && remaining) row[0].live = btrc_win_pos_union_bits(row[0].live, next);
 				else {
-					if (remaining == btrc_win_pos_origin_limit) return btrc_win_pos_competing_starts;
+					if (remaining == btrc_win_pos_origin_limit) return btrc_win_rx_block_match(&p->ranked_blocks, subject, matches);
 					row[remaining++] = (btrc_win_pos_origin){origin.start, next};
 				}
 			}

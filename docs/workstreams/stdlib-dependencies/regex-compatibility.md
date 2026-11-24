@@ -49,3 +49,5 @@ In the position matcher, copying a positive bracket consumes one internal slot p
 
 
 The position matcher can also prove an internal subject anchor unreachable when a byte must precede a start assertion or follow an end assertion. It preserves the consuming positions on both sides of the failed path. Competing nullable alternatives containing assertions and all remaining reachable assertions use the previous provider.
+
+A repeated group made of fixed-width blocks can also replace an earlier match. For example, `((..){1,3})+` matches `ab` in `abc` and `bcde` in `abcde`. Once two blocks fit in a run, two capture histories become available. The trailing partial block shifts the start while keeping the longest complete-block length. The first-party matcher recognizes equal-byte-set blocks with this structure. A leading single-byte alternative can be excluded for a subject that contains none of its bytes.

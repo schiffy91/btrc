@@ -85,6 +85,8 @@ static size_t btrc_win_legacy_regerror(int, const regex_t *restrict, char *restr
 #include "btrc_win_regex_literal.h"
 #include "btrc_win_regex_compile.h"
 #include "btrc_win_regex_exec.h"
+enum { btrc_win_pos_competing_starts = -2 };
+
 enum btrc_win_group_matcher { btrc_win_group_positions, btrc_win_group_suffix };
 typedef struct { enum btrc_win_group_matcher kind; } btrc_win_group_header;
 
