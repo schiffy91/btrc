@@ -1,3 +1,4 @@
+import Library.GUI.Shim.Features;
 import Library.Callback;
 import Library.Console;
 import Library.Math;
@@ -33,8 +34,6 @@ import Library.GUI.Shim.ShimGrid;
 import Library.GUI.Shim.ShimScrollView;
 import Library.GUI.Shim.ShimLabel;
 import Library.GUI.Shim.ShimButton;
-import Library.GUI.Shim.ShimTextField;
-import Library.GUI.Shim.ShimSelect;
 import Library.GUI.Shim.ShimSlider;
 import Library.GUI.Shim.ShimImageView;
 import Library.GUI.Shim.ShimIndicators;
@@ -309,7 +308,7 @@ class ShimApplication implements IShimApplication, IShimDialogPump {
 
 	public IButton createButton(string title) { self.requireCreation(); var view = ShimButton(self._context, title); self.rememberView(view); return view; }
 
-	public ITextField createTextField(string text, string placeholder) { self.requireCreation(); var view = ShimTextField(self._context, text, placeholder); self.rememberView(view); return view; }
+	public ITextField createTextField(string text, string placeholder) { self.requireCreation(); var view = ShimFeatures.createTextField(self._context, text, placeholder); self.rememberView(view); return view; }
 
 	public IContainer createContainer() { self.requireCreation(); var view = ShimContainer(self._context); self.rememberView(view); return view; }
 
@@ -331,7 +330,7 @@ class ShimApplication implements IShimApplication, IShimDialogPump {
 
 	public ISlider createSlider(double minimum, double maximum, int intervals) { self.requireCreation(); var view = ShimSlider(self._context, minimum, maximum, intervals); self.rememberView(view); return view; }
 
-	public ISelect createSelect() { self.requireCreation(); var view = ShimSelect(self._context); self.rememberView(view); return view; }
+	public ISelect createSelect() { self.requireCreation(); var view = ShimFeatures.createSelect(self._context); self.rememberView(view); return view; }
 
 	public IScrollView createScrollView() { self.requireCreation(); var view = ShimScrollView(self._context); self.rememberView(view); return view; }
 

@@ -1,0 +1,32 @@
+import Library.Callback;
+import Library.Console;
+import Library.GUI;
+import Library.GUI.IButton;
+import Library.Image;
+
+class CloseOnClick implements IButtonAction {
+	public void invoke() {
+		Console.log("Clicked Quit");
+		GUI.requestQuit();
+	}
+}
+
+int main() {
+	GUI.initialize();
+	var actions = CallbackScope();
+	try {
+		var window = GUI.createWindow("BTRC on Wayland", 240.0, 140.0);
+		var panel = GUI.createPanel(RGBA(37, 179, 125));
+		var label = GUI.createLabel("Native Wayland");
+		var quit = GUI.createButton("Quit");
+		window.attachRoot(panel);
+		panel.attach(label);
+		panel.attach(quit);
+		label.arrange(16.0, 12.0, 160.0, 30.0);
+		quit.arrange(16.0, 58.0, 96.0, 36.0);
+		quit.onAction(CloseOnClick(), actions);
+		window.show();
+		GUI.run();
+	} finally { actions.cancel(); GUI.close(); }
+	return 0;
+}

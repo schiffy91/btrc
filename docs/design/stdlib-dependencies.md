@@ -4,7 +4,8 @@
      tools/qualification/stdlib-dependencies.toml, not this file. -->
 
 The rule: a stdlib module requires first-party code and what its target's operating
-system supplies. wgpu-native is the only third-party exception. `python -m
+system supplies. wgpu-native is the only general third-party exception. Feature-specific
+runtime loads are restricted to their recorded source and target. `python -m
 tools.qualification.dependencies check` enforces it on every manifest link record,
 every system header a native source or module includes, every literal run-time load
 and process launch, and every file that carries someone else's copyright notice. A
@@ -24,6 +25,13 @@ failure names the module, the target and the dependency.
 | libwayland-client | `GUI/Shim/Shim` | linux | headers `wayland-client.h`; pkg-config `wayland-client` | The Wayland wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects. |
 | musl's regex (bundled source) | `Regex` | windows | bundled `src/runtime/windows/musl` | A first-party matcher; Windows supplies no POSIX regex. |
 | the WebView2 SDK (header and loader DLL) | `GUI/Shim/ShimWeb` | windows | headers `WebView2.h`; loads `WebView2Loader.dll`; pkg-config `webview2-windows-aarch64`; pkg-config `webview2-windows-x86_64` | First-party declarations of the COM interfaces used and a first-party lookup of the system's WebView2 runtime, in place of the SDK's header and WebView2Loader.dll. |
+
+## Standards data used by first-party implementations
+
+- Unicode Character Database 17.0.0. The line-break and grapheme tables contain character properties. First-party code implements both algorithms. The audit checks the tables and their license by SHA-256. [Upstream data](https://github.com/unicode-org/unicodetools/tree/725fb6055cd42915c74bcf77b91aa8fb8ef18669/unicodetools/data/ucd/17.0.0)
+  - `src/stdlib/GUI/Text/GraphemeData.h`
+  - `src/stdlib/GUI/Text/LineBreakData.h`
+  - `src/stdlib/GUI/Text/UNICODE-LICENSE.txt`
 
 ## Owner decisions
 
@@ -60,10 +68,17 @@ Keep the current working transport while qualification and review are pending.
 | Dependency | Module | Targets | How it is required |
 | --- | --- | --- | --- |
 | wgpu-native | `GPU/WebGPU` | android, ios, linux, macos, windows | headers `webgpu.h`; libraries `wgpu_native`; pkg-config `wgpu-native-windows-aarch64`; pkg-config `wgpu-native-windows-x86_64`; pkg-config `wgpu-native` |
+| wgpu-native | `GUI/Linux/Wayland/Surface.c` | linux | headers `webgpu.h` |
 | wgpu-native | `GUI/MacOS/WebGPUSurface` | macos | headers `webgpu.h`; pkg-config `wgpu-native` |
 | wgpu-native | `GUI/Shim/ShimSurface` | android, ios, linux, windows | headers `webgpu.h`; headers `wgpu.h`; pkg-config `wgpu-native-windows-aarch64`; pkg-config `wgpu-native-windows-x86_64`; pkg-config `wgpu-native` |
 | wgpu-native | `runtime/gpu/btrc_gpu.c` | android, ios, linux, macos, windows | headers `webgpu.h` |
 | wgpu-native | `runtime/gpu/btrc_gpu_async.c` | android, ios, linux, macos, windows | headers `webgpu.h` |
+
+## Feature-specific runtime loads
+
+| Dependency | Module | Targets | How it is required |
+| --- | --- | --- | --- |
+| libwayland-client | `GUI/Linux/Wayland/GPUWire.c` | linux | loads `libwayland-client.so.0` |
 
 ## What each operating system supplies, as the stdlib uses it
 

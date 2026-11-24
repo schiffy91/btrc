@@ -186,6 +186,19 @@ static bool tap(uint32_t keysym, uint32_t modifiers) {
     return roundtrip();
 }
 
+/* A held key, unlike a tap, lets the client act on the compositor's repeat
+ * interval. Used by the native Wayland keyboard qualification. */
+bool realInputWaylandHoldReturn(void) {
+    int key = keyFor(NAMED_KEY | 0xff0d);
+    if (!key) { return false; }
+    zwp_virtual_keyboard_v1_key(wl.keyboard, now(), (uint32_t)key, WL_KEYBOARD_KEY_STATE_PRESSED);
+    if (!roundtrip()) { return false; }
+    struct timespec hold = {.tv_sec = 2};
+    nanosleep(&hold, NULL);
+    zwp_virtual_keyboard_v1_key(wl.keyboard, now(), (uint32_t)key, WL_KEYBOARD_KEY_STATE_RELEASED);
+    return roundtrip();
+}
+
 static bool waylandMove(double x, double y) {
     zwlr_virtual_pointer_v1_motion_absolute(wl.pointer, now(), (uint32_t)(x < 0 ? 0 : x), (uint32_t)(y < 0 ? 0 : y), (uint32_t)wl.width, (uint32_t)wl.height);
     zwlr_virtual_pointer_v1_frame(wl.pointer);
@@ -301,7 +314,6 @@ const RealInput *realInputWayland(void) {
     if (!wl.seat || !wl.output || !wl.pointers || !wl.keyboards || !wl.toplevels || wl.width <= 0) { return NULL; }
     wl.pointer = zwlr_virtual_pointer_manager_v1_create_virtual_pointer(wl.pointers, wl.seat);
     wl.keyboard = zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(wl.keyboards, wl.seat);
-    /* Reserve evdev position 1 for Escape before assigning slots to the test layout. */
-    if (!keyFor(NAMED_KEY | 0xff1b)) { return NULL; }
+    if (!keyFor('a')) { return NULL; }
     return &waylandInput;
 }

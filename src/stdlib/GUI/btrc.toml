@@ -25,6 +25,11 @@ implementation = "Shim.WebViewProvider"
 os = ["linux", "windows", "android", "ios"]
 
 [[package.providers]]
+module = "Shim.Features"
+implementation = "Shim.ToolkitFeatures"
+os = ["linux", "windows", "android", "ios"]
+
+[[package.providers]]
 module = "Shim.ShimDirectoryPicker"
 implementation = "Linux.PortalDirectoryPickerProvider"
 os = ["linux"]

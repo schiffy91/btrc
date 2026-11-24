@@ -1,0 +1,53 @@
+import Library.GUI.ILabel;
+import Library.GUI.Linux.Fonts.SystemTextABI;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.ShimContext;
+import Library.GUI.Shim.ShimLabel;
+import Library.Testing;
+
+extern int waylandLabelPixels();
+
+int main() {
+	SystemTextABI.install();
+	if (!btrcShimInit()) { return 1; }
+	var context = ShimContext(16);
+	ILabel label = ShimLabel(context, "AV");
+	double word = label.fittingWidth();
+	double line = label.fittingHeight();
+	Expect.isTrue(word > 0.0 && line > 0.0);
+	label.setText("AV AV\r\nAV");
+	Expect.strEq(label.text(), "AV AV\r\nAV");
+	Expect.isTrue(label.fittingWidth() > word && label.fittingHeight() == 2.0 * line);
+	label.setWrapping(true);
+	label.arrange(0.0, 0.0, word + 1.0, 120.0);
+	Expect.isTrue(label.fittingHeight() == 3.0 * line);
+	label.setCentered(true);
+	label.setSecondary(true);
+	label.setText("A\n\n");
+	Expect.isTrue(label.fittingHeight() == 3.0 * line);
+	label.setText("");
+	Expect.isTrue(label.fittingWidth() == 0.0 && label.fittingHeight() == line);
+	label.setText("        ");
+	double tabStop = label.fittingWidth();
+	label.setText("A");
+	double letter = label.fittingWidth();
+	label.setText("A\tA");
+	Expect.isTrue(label.fittingWidth() == tabStop + letter);
+	label.arrange(0.0, 0.0, letter + 1.0, 120.0);
+	Expect.isTrue(label.fittingHeight() == 2.0 * line);
+	label.setText("A \tA");
+	label.arrange(0.0, 0.0, 1.0, 120.0);
+	Expect.isTrue(label.fittingHeight() == 2.0 * line);
+	label.setText("AV AV");
+	double words = label.fittingWidth();
+	label.setText("AV AV\t");
+	label.arrange(0.0, 0.0, words, 120.0);
+	Expect.isTrue(label.fittingHeight() == line && label.fittingWidth() > words);
+	label.setText("AVAV");
+	label.setWrapping(false);
+	label.setFont(20.0, true);
+	Expect.isTrue(label.fittingWidth() > word && label.fittingHeight() > line);
+	label.close();
+	Expect.isFalse(label.isOpen());
+	return waylandLabelPixels();
+}
