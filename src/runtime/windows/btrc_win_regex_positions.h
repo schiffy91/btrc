@@ -39,11 +39,11 @@ typedef struct {
 	btrc_win_pos_edge edge[];
 } btrc_win_pos_program;
 
-enum btrc_win_pos_op { btrc_win_pos_empty, btrc_win_pos_byte, btrc_win_pos_cat,
+enum btrc_win_pos_op { btrc_win_pos_empty, btrc_win_pos_byte, btrc_win_pos_boundary, btrc_win_pos_cat,
                        btrc_win_pos_union, btrc_win_pos_optional, btrc_win_pos_star, btrc_win_pos_plus };
 typedef struct {
 	enum btrc_win_pos_op op;
-	int left, right, width;
+	int left, right, width, requires_byte, has_boundary;
 } btrc_win_pos_node;
 
 typedef struct {
@@ -64,16 +64,30 @@ static inline int btrc_win_pos_new(btrc_win_pos_builder *b, enum btrc_win_pos_op
 		b->failed = 1;
 		return 0;
 	}
-	int width = op == btrc_win_pos_byte ? b->parser->program->nodes[left].copy_stride : b->nodes[left].width + b->nodes[right].width;
-	int id = ++b->used;
-	b->nodes[id] = (btrc_win_pos_node){op, left, right, width};
-	return id;
+	btrc_win_pos_node made = { .op = op, .left = left, .right = right };
+	if (op == btrc_win_pos_byte) {
+		made.width = b->parser->program->nodes[left].copy_stride;
+		made.requires_byte = 1;
+	} else if (op == btrc_win_pos_boundary) made.has_boundary = 1;
+	else {
+		const btrc_win_pos_node *a = &b->nodes[left], *z = &b->nodes[right];
+		made.width = a->width + z->width;
+		made.has_boundary = a->has_boundary || z->has_boundary;
+		made.requires_byte = op == btrc_win_pos_cat ? a->requires_byte || z->requires_byte :
+		                     op == btrc_win_pos_union ? a->requires_byte && z->requires_byte :
+		                     op == btrc_win_pos_plus && a->requires_byte;
+		if (made.has_boundary && ((op == btrc_win_pos_union && !a->requires_byte && !z->requires_byte) ||
+		    ((op == btrc_win_pos_optional || op == btrc_win_pos_star) && !a->requires_byte))) b->failed = 1;
+	}
+	b->nodes[++b->used] = made;
+	return b->used;
 }
 
 static inline int btrc_win_pos_copy(btrc_win_pos_builder *b, int id, int offset)
 {
 	if (!id || !offset || b->failed) return id;
 	btrc_win_pos_node n = b->nodes[id];
+	if (n.op == btrc_win_pos_boundary) return id;
 	if (n.op == btrc_win_pos_byte) return btrc_win_pos_new(b, n.op, n.left, n.right + offset);
 	int left = btrc_win_pos_copy(b, n.left, offset);
 	int right = btrc_win_pos_copy(b, n.right, offset);
@@ -131,6 +145,10 @@ static inline int btrc_win_pos_sequence(btrc_win_pos_builder *b, int id, int *of
 		case btrc_win_rx_byte:
 			part = btrc_win_pos_new(b, btrc_win_pos_byte, id, n->arg + *offset);
 			break;
+		case btrc_win_rx_assert:
+			if (n->arg != btrc_win_rx_bol && n->arg != btrc_win_rx_eol) b->failed = 1;
+			else part = btrc_win_pos_new(b, btrc_win_pos_boundary, n->arg, 0);
+			break;
 		case btrc_win_rx_group:
 			part = btrc_win_pos_sequence(b, n->child, offset, depth);
 			break;
@@ -150,6 +168,20 @@ static inline int btrc_win_pos_sequence(btrc_win_pos_builder *b, int id, int *of
 	return seq;
 }
 
+/* A start anchor after a mandatory byte and an end anchor before one
+   can never succeed in the C-locale, non-newline input mode. Retain
+   every consuming position on either side so historical aliases still
+   reach the same suffixes. Other boundary placements use the fallback. */
+static inline int btrc_win_pos_dead_boundaries(const btrc_win_pos_builder *b, int id, int before, int after)
+{
+	const btrc_win_pos_node *n = &b->nodes[id];
+	if (!n->has_boundary) return 1;
+	if (n->op == btrc_win_pos_boundary) return n->left == btrc_win_rx_bol ? before : after;
+	int cat = n->op == btrc_win_pos_cat;
+	return btrc_win_pos_dead_boundaries(b, n->left, before, after || (cat && b->nodes[n->right].requires_byte)) &&
+	       btrc_win_pos_dead_boundaries(b, n->right, before || (cat && b->nodes[n->left].requires_byte), after);
+}
+
 /* First is a set of consuming positions. Last indexes individual byte
    edges because two occurrences at one position may accept different
    bytes and lead to different suffixes. */
@@ -166,6 +198,7 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 	btrc_win_pos_span empty = {{0, 0}, {0, 0}, 1};
 	if (!id || b->failed) return empty;
 	const btrc_win_pos_node *n = &b->nodes[id];
+	if (n->op == btrc_win_pos_boundary) return (btrc_win_pos_span){{0, 0}, {0, 0}, 0};
 	if (n->op == btrc_win_pos_byte) {
 		btrc_win_pos_program *p = b->program;
 		/* Compact sparse source labels without changing position identity.
@@ -219,6 +252,7 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 			btrc_win_pos_builder builder = { .parser = &parser, .program = p };
 			int offset = 0;
 			int tree = btrc_win_pos_sequence(&builder, root, &offset, 0);
+			if (!builder.failed && !btrc_win_pos_dead_boundaries(&builder, tree, 0, 0)) builder.failed = 1;
 			btrc_win_pos_span span = btrc_win_pos_span_for(&builder, tree);
 			if (builder.failed) { free(p); p = NULL; }
 			else {

@@ -38,7 +38,7 @@ The independently qualified bracket fix covers punctuation ranges that the Windo
 
 An unasserted grouped ERE whose whole expression is nullable always supplies a match at byte zero, even when a nonzero outer count encloses a nullable alternative. Within this class the first-party position matcher handles literals, dots, bracket expressions, groups, alternatives and bounded or unbounded repetition. Each repeated byte carries its consuming position. A suffix inside another repetition can share a position with an earlier copy, which lets either occurrence consume a byte and select its own following positions. This reproduces both public examples above.
 
-This implementation handles up to 127 consuming positions and 511 intermediate nodes. Escapes, subject assertions, stacked quantifiers, requests for subgroup offsets and larger trees retain the legacy provider. It computes the longest reachable prefix with one read-only compiled table and two 64-bit words for each active-position set. The optional empty prefix also lets a caller asking only whether anything matched receive its answer immediately.
+This implementation handles up to 127 consuming positions and 511 intermediate nodes. Escapes, reachable subject assertions, stacked quantifiers, requests for subgroup offsets and larger trees retain the legacy provider. It computes the longest reachable prefix with one read-only compiled table and two 64-bit words for each active-position set. The optional empty prefix also lets a caller asking only whether anything matched receive its answer immediately.
 
 For a repeated captured byte followed by a bounded positive suffix, the winning subgroup can change the whole span. On `1x12345`, `([[:digit:]])+.{2,4}` matches bytes [2,7) and its last digit capture occupies [4,5). Removing the capture from the same expression yields [0,5). With the capture, two paths ending at byte 6 compete for the same start and the better subgroup replaces the earlier whole match. The first-party matcher preserves this result for `(A)+B{m,n}` with byte atoms A and B, an expression of at most 255 bytes, and 1 ≤ m ≤ n ≤ 255. It retains the origin of each possible split in the bounded suffix window and returns the winning whole span and subgroup.
 
@@ -46,3 +46,6 @@ For eligible nonnullable grouped expressions, a request for match existence can 
 
 
 In the position matcher, copying a positive bracket consumes one internal slot per listed term. A negated bracket uses the gaps between the explicit excluded ranges, with named exclusions applied to each gap. A zero repetition discards its subtree while retaining the original numbering of subsequent source atoms. These rules preserve the Windows answer when a later counted interval shares positions with earlier terms.
+
+
+The position matcher can also prove an internal subject anchor unreachable when a byte must precede a start assertion or follow an end assertion. It preserves the consuming positions on both sides of the failed path. Competing nullable alternatives containing assertions and all remaining reachable assertions use the previous provider.
