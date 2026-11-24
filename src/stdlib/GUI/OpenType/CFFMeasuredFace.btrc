@@ -9,7 +9,7 @@ import ./OpenTypeHorizontalMetrics.btrc;
 import ./OpenTypeLineMetrics.btrc;
 import ./SFNTDirectory.btrc;
 
-/* SFNT supplies the advance. Integral, stem-free Type 2 paths can be
+/* SFNT supplies the advance. Integral, Type 2 paths without horizontal stems or mask changes can be
  * rendered in device space. Other visible glyphs use the retained face. */
 class CFFMeasuredFace implements IFontFace {
 	public Bytes source;

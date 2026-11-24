@@ -28,7 +28,7 @@ class CFFCharString {
 	private int count = 0;
 	private int stems = 0;
 	private bool widthKnown = false;
-	private bool hasHints = false;
+	private bool needsHintMap = false;
 	private bool hasFlex = false;
 	private int budget = 500000;
 	public long long base = -1LL;
@@ -46,7 +46,7 @@ class CFFCharString {
 
 	}
 
-	public bool canRasterize() { return !self.hasHints && !self.hasFlex && self.path.integral; }
+	public bool canRasterize() { return !self.needsHintMap && !self.hasFlex && self.path.integral; }
 
 	public void run(OpenTypeSpan code) {
 		if (!self.execute(code, 0)) { throw "CFF glyph has no endchar"; }
@@ -78,8 +78,10 @@ class CFFCharString {
 		return leading ? 1 : 0;
 	}
 
-	private void stemHints() {
-		self.hasHints = true;
+	private void stemHints(bool needsMap) {
+		// The grayscale device positions vertical stems fractionally.
+		// Horizontal stems and mask changes require a Y-axis hint map.
+		if (needsMap) { self.needsHintMap = true; }
 		int first = self.afterWidth((self.count & 1) != 0);
 		if (((self.count - first) & 1) != 0) { throw "CFF stem is missing an operand"; }
 		self.stems += (self.count - first) / 2;
@@ -162,9 +164,9 @@ class CFFCharString {
 				continue;
 			}
 			if (b == 1 || b == 3 || b == 18 || b == 23) {
-				self.stemHints();
+				self.stemHints(b == 1 || b == 18);
 			} else if (b == 19 || b == 20) {
-				self.stemHints();
+				self.stemHints(true);
 				int mask = (self.stems + 7) / 8;
 				if (end - p < mask) { throw "CFF charstring is truncated"; }
 				p += mask;

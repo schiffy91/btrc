@@ -38,6 +38,10 @@ int main(int argc, char** argv) {
 			if (curve.coverage(i / 6, i % 6) != expected.get(i)) { return 8; }
 		}
 	}
+	if (argv[2][0] == 'v') {
+		var vertical = font.glyph(66, true);
+		if (vertical == null || vertical.advanceFixed() != 448LL || vertical.bitmapLeft() != 0 || vertical.bitmapTop() != 1 || vertical.width() != 1 || vertical.rows() != 1 || vertical.pitch() != 1 || vertical.coverage(0, 0) != 138) { return 12; }
+	}
 	if (argv[2][0] == 'h') {
 		var hinted = font.glyph(66, true);
 		if (hinted == null || hinted.advanceFixed() != 448LL || hinted.bitmapLeft() != 0 || hinted.bitmapTop() != 1 || hinted.width() != 1 || hinted.rows() != 1 || hinted.pitch() != 1 || hinted.pixelMode() != FONT_PIXEL_GRAY || hinted.numGrays() != 256 || hinted.coverage(0, 0) != 248) { return 9; }
