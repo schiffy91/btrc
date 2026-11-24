@@ -165,6 +165,10 @@ JNIEXPORT void JNICALL Java_dev_btrc_shim_Shim_push(JNIEnv* env, jclass class, j
 	event.data1 = data1;
 	event.data2 = data2;
 	event.down = down;
+	if (type == BTRC_SHIM_EVENT_KEY_DOWN || type == BTRC_SHIM_EVENT_KEY_UP) {
+		if (data1 > 0) { event.physicalSet = BTRC_SHIM_PHYSICAL_EVDEV; event.physicalCode = (unsigned int)data1; }
+		event.repeat = down && data2 > 0;
+	}
 	event.value = value;
 	const char* characters = text == NULL ? NULL : (*env)->GetStringUTFChars(env, text, NULL);
 	btrcAndroidPush(&event, characters);

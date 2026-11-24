@@ -448,7 +448,7 @@ static unsigned int btrcGtkScancodeOf(guint lower) {
 	return 0;
 }
 
-static void btrcGtkKey(BtrcShimWindow* window, guint keyval, GdkModifierType state, int down) {
+static void btrcGtkKey(BtrcShimWindow* window, guint keyval, guint keycode, GdkModifierType state, int down) {
 	BtrcShimEvent event = {0};
 	guint lower = gdk_keyval_to_lower(keyval);
 	btrcGtkModifiers = btrcGtkModifiersOf(state);
@@ -456,6 +456,7 @@ static void btrcGtkKey(BtrcShimWindow* window, guint keyval, GdkModifierType sta
 	event.window = window->id;
 	event.key = btrcGtkKeyOf(lower);
 	event.scancode = btrcGtkScancodeOf(lower);
+	if (keycode != 0) { event.physicalSet = BTRC_SHIM_PHYSICAL_XKB; event.physicalCode = keycode; }
 	event.modifiers = btrcGtkModifiers;
 	event.down = down;
 	btrcGtkPush(&event, NULL);
@@ -467,16 +468,14 @@ static void btrcGtkKey(BtrcShimWindow* window, guint keyval, GdkModifierType sta
  * click that focuses a field is already here before that click is handled. */
 static gboolean btrcGtkOnKeyPressed(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
 	BtrcShimWindow* window = data;
-	(void)keycode;
-	btrcGtkKey(window, keyval, state, 1);
+	btrcGtkKey(window, keyval, keycode, state, 1);
 	gtk_im_context_filter_keypress(window->input, gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller)));
 	return TRUE;
 }
 
 static void btrcGtkOnKeyReleased(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
 	BtrcShimWindow* window = data;
-	(void)keycode;
-	btrcGtkKey(window, keyval, state, 0);
+	btrcGtkKey(window, keyval, keycode, state, 0);
 	gtk_im_context_filter_keypress(window->input, gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller)));
 }
 

@@ -13,14 +13,22 @@ class KeyboardReceiver implements IWindowKeyHandler {
 	public int calls = 0;
 	public bool consume = true;
 	public AppKeyCode last = APP_KEY_UNKNOWN;
-	public bool key(AppKeyboardEvent event) { self.calls++; self.last = event.key; return self.consume; }
+	public AppScanCode? physical = null;
+	public AppKeyAction action = APP_KEY_PRESSED;
+	public bool key(AppKeyboardEvent event) {
+		self.calls++;
+		self.last = event.key;
+		self.physical = event.scanCode;
+		self.action = event.action;
+		return self.consume;
+	}
 }
 
-void sendKey(MacOSWindow window, unsigned short code, string characters) {
+void sendKey(MacOSWindow window, unsigned short code, string characters, unsigned long kind = NSEventTypeKeyDown, unsigned long flags = 0UL) {
 	var location = window.nativeWindow().frame().origin;
 	location.x = 0.0; location.y = 0.0;
 	var text = AppKitText.nativeValue(characters);
-	var event = NSEvent.keyEventWithType(NSEventTypeKeyDown, location, 0UL, 0.0, window.nativeWindow().windowNumber(), null, text, text, false, code);
+	var event = NSEvent.keyEventWithType(kind, location, flags, 0.0, window.nativeWindow().windowNumber(), null, text, text, false, code);
 	if (event == null) { throw "Cannot create a synthetic key event"; }
 	NSApplication.sharedApplication().sendEvent(event);
 }
@@ -41,9 +49,21 @@ int main() {
 	receiver.consume = false;
 	sendKey(native, kVK_ANSI_D, "d");
 	assert(receiver.calls == 2 && receiver.last == APP_KEY_D);
+	var physical = receiver.physical;
+	assert(physical != null && physical.set == APP_SCAN_MAC_VIRTUAL && physical.code == (int)kVK_ANSI_D);
+	// The B key sits at virtual keycode 11, even when the layout types another character.
+	sendKey(native, 11, "x");
+	physical = receiver.physical;
+	assert(receiver.calls == 3 && receiver.last == APP_KEY_UNKNOWN && physical != null && physical.code == 11);
+	sendKey(native, 11, "x", NSEventTypeKeyUp);
+	assert(receiver.calls == 4 && receiver.action == APP_KEY_RELEASED);
+	sendKey(native, kVK_RightControl, "", NSEventTypeFlagsChanged, (unsigned long)NX_DEVICERCTLKEYMASK | (unsigned long)NSEventModifierFlagControl);
+	assert(receiver.calls == 5 && receiver.action == APP_KEY_PRESSED);
+	sendKey(native, kVK_RightControl, "", NSEventTypeFlagsChanged);
+	assert(receiver.calls == 6 && receiver.action == APP_KEY_RELEASED);
 	assert(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 	sendKey(native, kVK_ANSI_A, "a");
-	assert(receiver.calls == 2);
+	assert(receiver.calls == 6);
 	var next = CallbackScope();
 	window.onKey(receiver, next);
 	assert(window.close() == CALLBACK_CANCELLATION_COMPLETE);

@@ -530,6 +530,7 @@ static void btrcUIKitPushPointer(BtrcUIKitWindow* window, unsigned int type, CGP
 		pushed.type = down ? BTRC_SHIM_EVENT_KEY_DOWN : BTRC_SHIM_EVENT_KEY_UP;
 		pushed.window = owner->identifier;
 		pushed.scancode = btrcUIKitScancode(key.keyCode);
+		if (key.keyCode != 0) { pushed.physicalSet = BTRC_SHIM_PHYSICAL_USB_KEYBOARD; pushed.physicalCode = (unsigned int)key.keyCode; }
 		pushed.key = btrcUIKitKey(key.keyCode);
 		pushed.modifiers = modifiers;
 		pushed.down = down ? 1 : 0;

@@ -63,6 +63,7 @@ symbols = [
 	"BTRC_SHIM_KEY_C", "BTRC_SHIM_KEY_V", "BTRC_SHIM_SCANCODE_A", "BTRC_SHIM_SCANCODE_C", "BTRC_SHIM_SCANCODE_D", "BTRC_SHIM_SCANCODE_Q",
 	"BTRC_SHIM_SCANCODE_S", "BTRC_SHIM_SCANCODE_V", "BTRC_SHIM_SCANCODE_W", "BTRC_SHIM_SCANCODE_X", "BTRC_SHIM_SCANCODE_Z",
 	"BTRC_SHIM_SCANCODE_LEFTBRACKET", "BTRC_SHIM_SCANCODE_RIGHTBRACKET", "BTRC_SHIM_SCANCODE_BACKSPACE", "BTRC_SHIM_SCANCODE_LEFT",
+	"BTRC_SHIM_PHYSICAL_XKB", "BTRC_SHIM_PHYSICAL_AT_SET1", "BTRC_SHIM_PHYSICAL_USB_KEYBOARD", "BTRC_SHIM_PHYSICAL_EVDEV",
 	"BTRC_SHIM_SCANCODE_END", "BTRC_SHIM_MOD_SHIFT", "BTRC_SHIM_MOD_CTRL", "BTRC_SHIM_MOD_ALT", "BTRC_SHIM_MOD_GUI", "BTRC_SHIM_CURSOR_DEFAULT",
 	"BTRC_SHIM_CURSOR_TEXT"
 ]
@@ -922,6 +923,8 @@ symbols = [
 	"-[NSWindow isKeyWindow]",
 	"NSEventTypeKeyDown", "NSEventTypeFlagsChanged", "NSEventModifierFlagOption",
 	"NSEventModifierFlagShift", "NSEventModifierFlagControl", "NSEventModifierFlagCommand", "kVK_Space", "kVK_Option", "kVK_RightOption",
+	"kVK_Control", "kVK_RightControl", "kVK_Command", "kVK_RightCommand", "kVK_CapsLock", "kVK_Function",
+	"NX_DEVICELCTLKEYMASK", "NX_DEVICERCTLKEYMASK", "NX_DEVICELCMDKEYMASK", "NX_DEVICERCMDKEYMASK", "NSEventModifierFlagCapsLock", "NSEventModifierFlagFunction",
 	"NX_DEVICELALTKEYMASK", "NX_DEVICERALTKEYMASK", "NX_DEVICELSHIFTKEYMASK", "NX_DEVICERSHIFTKEYMASK",
 	"kVK_Escape", "kVK_Return", "kVK_LeftArrow", "kVK_RightArrow", "kVK_UpArrow", "kVK_DownArrow", "kVK_Tab", "kVK_Delete", "kVK_ForwardDelete", "kVK_Home", "kVK_End", "kVK_PageUp", "kVK_PageDown",
 	"kVK_ANSI_A", "kVK_ANSI_D", "kVK_ANSI_S", "kVK_ANSI_W", "kVK_ANSI_C", "kVK_ANSI_V", "kVK_ANSI_X", "kVK_ANSI_Z", "kVK_ANSI_Q", "kVK_ANSI_LeftBracket", "kVK_ANSI_RightBracket", "kVK_Shift", "kVK_RightShift",

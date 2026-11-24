@@ -357,7 +357,7 @@ public final class Shim {
             pushControl(cancelled, SLIDER_CANCELLED, 0, 0.0, null);
             showSlider(cancelled);
         }
-        push(down ? KEY_DOWN : KEY_UP, window.id, 0, 0, 0, 0, 0, 0, 0, scancode(event.getKeyCode()), key(event.getKeyCode()), modifiers(event.getMetaState()), 0, 0, down ? 1 : 0, 0.0, null);
+        push(down ? KEY_DOWN : KEY_UP, window.id, 0, 0, 0, 0, 0, 0, 0, scancode(event.getKeyCode()), key(event.getKeyCode()), modifiers(event.getMetaState()), event.getScanCode(), event.getRepeatCount(), down ? 1 : 0, 0.0, null);
         int typed = event.getUnicodeChar();
         if (down && typed >= 0x20 && typed != 0x7f && (event.getMetaState() & KeyEvent.META_CTRL_ON) == 0) {
             push(TEXT_INPUT, window.id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, new String(Character.toChars(typed)));
