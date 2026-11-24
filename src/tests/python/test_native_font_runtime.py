@@ -442,6 +442,11 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
             result = run(extension, f"delta{size}", environment, delta)
             assert result.returncode == 0, result.stdout + result.stderr
             assert "PASS: size-specific point deltas" in result.stdout
+    environment = (tests / "fixtures/hinted-environment.ttf").read_bytes()
+    for extension, runtime in (("raw", env), ("ttf", blocked or env)):
+        result = run(extension, "environment", runtime, environment)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "PASS: TrueType interpreter environment" in result.stdout
     general = (tests / "fixtures/hinted-general.woff2").read_bytes()
     result = run("woff2", 6, env, general)
     assert result.returncode == 0, result.stdout + result.stderr

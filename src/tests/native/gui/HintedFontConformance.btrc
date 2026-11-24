@@ -87,10 +87,26 @@ int deltaPoints(const char* path, int size) {
 	return 0;
 }
 
+/* B checks individual GETINFO selectors and a combined request. Only a
+ * matching environment shifts its fitted anchor by one device pixel. */
+int interpreterEnvironment(const char* path) {
+	var font = FreeType.load(Strings.copy((char*)path), 13);
+	if (remove(path) != 0) { return 12; }
+	var glyph = font.glyph(66, true);
+	var mask = Bytes.fromHex("98826c56412b15020000fffffffffffffff88409fffffffffffda3230000fffffffeac2a00000000ffffb531000000000000bd390000000000000000");
+	if (glyph == null || mask == null || glyph.advanceFixed() != 832LL || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != 6 || glyph.width() != 10 || glyph.rows() != 6 || glyph.pitch() != 10) { return 13; }
+	for (int i = 0; i < mask.length(); i++) {
+		if (glyph.coverage(i / 10, i % 10) != mask.get(i)) { return 14; }
+	}
+	print("PASS: TrueType interpreter environment");
+	return 0;
+}
+
 /* The final glyph uses FLIPON, a native fallback instruction. It is reached
  * after loading the supported triangle variants and unlinking the font. */
 int main(int argc, char** argv) {
 	if (argc != 3) { return 2; }
+	if (strcmp(argv[2], "environment") == 0) { return interpreterEnvironment(argv[1]); }
 	if (strcmp(argv[2], "delta13") == 0 || strcmp(argv[2], "delta14") == 0) { return deltaPoints(argv[1], argv[2][6] == '3' ? 13 : 14); }
 	if (strcmp(argv[2], "vector9") == 0 || strcmp(argv[2], "vector10") == 0) { return inhibitedVectorInk(argv[1], argv[2][6] == '9' ? 9 : 10); }
 	if (strcmp(argv[2], "measure") == 0 || strcmp(argv[2], "render") == 0) { return legacyBMP(argv[1], argv[2][0] == 'r'); }
