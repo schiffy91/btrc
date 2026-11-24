@@ -14,6 +14,7 @@ typedef struct {
 } btrc_win_pos_edge;
 
 typedef struct {
+	btrc_win_group_header header;
 	uint64_t initial;
 	int edges;
 	btrc_win_pos_edge edge[btrc_win_pos_limit];
@@ -189,6 +190,7 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 			btrc_win_pos_span span = btrc_win_pos_span_for(&builder, tree);
 			if (builder.failed || !span.nullable) { free(p); p = NULL; }
 			else {
+				p->header.kind = btrc_win_group_positions;
 				p->initial = span.first;
 				btrc_win_pos_follow(p, span.last, BTRC_WIN_POS_ACCEPT);
 				strcpy(p->pattern, pattern);

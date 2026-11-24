@@ -85,7 +85,11 @@ static size_t btrc_win_legacy_regerror(int, const regex_t *restrict, char *restr
 #include "btrc_win_regex_literal.h"
 #include "btrc_win_regex_compile.h"
 #include "btrc_win_regex_exec.h"
+enum btrc_win_group_matcher { btrc_win_group_positions, btrc_win_group_suffix };
+typedef struct { enum btrc_win_group_matcher kind; } btrc_win_group_header;
+
 #include "btrc_win_regex_positions.h"
+#include "btrc_win_regex_suffix.h"
 
 typedef struct {
 	regex_t compiled;
@@ -105,12 +109,17 @@ static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *re
 		return 0;
 	}
 	if (flags == REG_EXTENDED && *pattern == '(') {
-		size_t groups = 0;
-		btrc_win_pos_program *positions = btrc_win_pos_compile(pattern, &groups);
-		if (positions) {
+		size_t groups = 1;
+		btrc_win_regex_suffix *suffix = btrc_win_regex_compile_suffix(pattern);
+		btrc_win_group_header *group = suffix ? &suffix->header : NULL;
+		if (!group) {
+			btrc_win_pos_program *positions = btrc_win_pos_compile(pattern, &groups);
+			if (positions) group = &positions->header;
+		}
+		if (group) {
 			memset(re, 0, sizeof *re);
 			re->re_nsub = groups;
-			re->__opaque = (void *)((uintptr_t)positions | (uintptr_t)3);
+			re->__opaque = (void *)((uintptr_t)group | (uintptr_t)3);
 			return 0;
 		}
 	}
@@ -150,7 +159,10 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 {
 	uintptr_t pointer = (uintptr_t)re->__opaque;
 	if ((pointer & (uintptr_t)3) == 3) {
-		const btrc_win_pos_program *p = (const btrc_win_pos_program *)(pointer - 3);
+		const btrc_win_group_header *group = (const btrc_win_group_header *)(pointer - 3);
+		if (group->kind == btrc_win_group_suffix)
+			return btrc_win_regex_match_suffix((const btrc_win_regex_suffix *)group, subject, count, matches);
+		const btrc_win_pos_program *p = (const btrc_win_pos_program *)group;
 		if (count <= 1) return btrc_win_pos_match(p, subject, count, matches);
 		return btrc_win_regex_retry(p->pattern, subject, count, matches, flags);
 	}

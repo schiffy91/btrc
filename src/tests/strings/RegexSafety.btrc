@@ -58,6 +58,12 @@ int main() {
 	assert(Regex.first("(((a){1,3}){2}ab)?", "aab").equals("aab"));
 	assert(Regex.replace("((a{2})?b)?", "ab", "X").equals("X"));
 	assert(Regex.first("((b{1,3}){2,3}|.x){0,2}", "ab").equals("ab"));
+
+	/* The repeated capture changes the Windows start offset when two
+	 * accepting histories compete at a later end. */
+	assert(Regex.first("([[:digit:]])+.{2,4}", "1x12345").equals("12345"));
+	assert(Regex.first("[[:digit:]]+.{2,4}", "1x12345").equals("1x123"));
+	assert(Regex.replace("([[:digit:]])+.{2,4}", "1x12345", "X").equals("1xX"));
 #endif
 
 	print("PASS: test_regex_safety");

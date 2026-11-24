@@ -51,6 +51,11 @@ int main(void)
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "((a{255})?b)?") != 0 || ((uintptr_t)compiled.__opaque & 3u)) return 1;
 	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "([[:digit:]])+.{2,4}") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
+	if (regexec(&compiled, "1x12345", 3, groups, REG_NOTBOL) || groups[0].rm_so != 2 || groups[0].rm_eo != 7 ||
+	    groups[1].rm_so != 4 || groups[1].rm_eo != 5 || groups[2].rm_so != -1 || groups[2].rm_eo != -1) return 1;
+	if (regexec(&compiled, "abc", 0, NULL, 0) != REG_NOMATCH) return 1;
+	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;
 	int globbed = glob("no-such-directory-*/x", 0, NULL, &found);
