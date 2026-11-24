@@ -287,7 +287,14 @@ def _pcf_strike():
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
-def test_linux_pcf_factory_matches_freetype(tmp_path, request, frontend, sanitized):
+@pytest.mark.parametrize(
+    ("consumer", "suffix", "expected"),
+    [
+        ("PCFFontConformance", "pcf", "PASS: PCF metrics, default glyph and packed pixels"),
+        ("ColorBitmapFontConformance", "ttf", "PASS: color bitmap native metrics and coverage"),
+    ],
+)
+def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sanitized, consumer, suffix, expected):
     from src.tests.python.linux_provider_fixtures import (
         build_provider_program,
         provider_environment,
@@ -301,11 +308,12 @@ def test_linux_pcf_factory_matches_freetype(tmp_path, request, frontend, sanitiz
     ):
         pytest.skip("requires the optional FreeType SDK for the reference provider")
 
-    source = tmp_path / "PCFFontConformance.btrc"
-    source.write_text((REPO / "src/tests/native/gui/PCFFontConformance.btrc").read_text())
+    fixtures = REPO / "src/tests/native/gui"
+    source = tmp_path / f"{consumer}.btrc"
+    source.write_text((fixtures / source.name).read_text())
     executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
-    portable = tmp_path / "fixture.pcf"
-    portable.write_bytes(_pcf_strike())
+    portable = tmp_path / f"fixture.{suffix}"
+    portable.write_bytes(_pcf_strike() if suffix == "pcf" else (fixtures / "fixtures/color-bitmap.ttf").read_bytes())
     reference = tmp_path / "fixture.raw"
     reference.write_bytes(portable.read_bytes())
     env = provider_environment(sanitized)
@@ -314,7 +322,7 @@ def test_linux_pcf_factory_matches_freetype(tmp_path, request, frontend, sanitiz
     for path in (reference, portable, compressed):
         run = subprocess.run([executable, path], capture_output=True, text=True, timeout=60, env=env)
         assert run.returncode == 0, run.stdout + run.stderr
-        assert "PASS: PCF metrics, default glyph and packed pixels" in run.stdout
+        assert expected in run.stdout
 
     if not sanitized:
         # The native fallback shares this binary. Make its initialization fail

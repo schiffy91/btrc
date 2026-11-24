@@ -522,7 +522,7 @@ import Library.GUI.FreeType;
 surface.setFont(FreeType.load("/path/to/font.ttf", 18));
 ```
 
-`.pcf` and gzip-compressed `.pcf.gz` files at their stored pixel size use BTRC's PCF reader. It preserves the fixed strike's native bearings, widths, bitmap row padding, bit order and default glyph. Other font formats continue through the native FreeType provider.
+`.pcf` and gzip-compressed `.pcf.gz` files at their stored pixel size use BTRC's PCF reader. It preserves the fixed strike's native bearings, widths, bitmap row padding, bit order and default glyph. Bitmap-only TrueType files with a horizontal CBDT/CBLC color strike also use a first-party reader at the strike size. It decodes the embedded PNG into the existing grayscale coverage API. Fonts with outline tables, mixed strike formats, or unsupported sizes continue through the native FreeType provider.
 
 `FreeType.load(path, pixelSize)` throws on a missing path, an unloadable face
 or a nonpositive size instead of silently selecting the bitmap fallback. Face

@@ -2,13 +2,16 @@ import Library.GUI.Font;
 import Library.GUI.FreeType.FreeTypeFace;
 
 import ./Bitmap/PCFFace.btrc;
+import ./OpenType/ColorBitmapFace.btrc;
 
-/* PCF bitmap strikes use a first-party reader. Other fonts use the SDK.
+/* PCF and embedded PNG bitmap strikes have first-party readers. Other fonts use the SDK.
  * Raster and Font can be imported independently of this factory. */
 class FreeType {
 	class Font load(string path, int pixelSize) {
 		var bitmap = PCFFace.tryOpen(path, pixelSize);
 		if (bitmap != null) { return new Font(bitmap); }
+		var color = ColorBitmapFace.tryOpen(path, pixelSize);
+		if (color != null) { return new Font(color); }
 		return new Font(new FreeTypeFace(path, pixelSize));
 	}
 }
