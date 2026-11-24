@@ -843,6 +843,14 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("exifOrientation", "int", "method", (("Bytes", "bytes"), ("int", "start"), ("int", "end"),), "exifOrientation"),
         BuiltinMemberSpec("inspect", "JPEGHeader", "method", (("Bytes", "bytes"),), "inspect"),
     )),
+    ("PNG", (
+        BuiltinMemberSpec("decode", "Image", "method", (("Bytes", "bytes"), ("int", "maxPixels"),), "decode"),
+        BuiltinMemberSpec("decodeForDisplay", "Image", "method", (("Bytes", "bytes"), ("int", "maxPixels"),), "decodeForDisplay"),
+        BuiltinMemberSpec("encode", "Bytes", "method", (("Image", "image"),), "encode"),
+    )),
+    ("PNGHeader", (
+        BuiltinMemberSpec("inspect", "PNGHeader", "method", (("Bytes", "bytes"),), "inspect"),
+    )),
     ("ImageBinary", (
         BuiltinMemberSpec("has", "bool", "method", (("Bytes", "bytes"), ("long long", "offset"), ("long long", "count"),), "has"),
         BuiltinMemberSpec("u16", "int", "method", (("Bytes", "bytes"), ("int", "offset"),), "u16"),
