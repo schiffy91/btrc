@@ -15,13 +15,26 @@ class AESBlock {
 		return result;
 	}
 
+	class unsigned int square(unsigned int value) {
+		/* Squaring x^i gives x^(2i). The four high basis squares reduce
+		 * to the constants below modulo x^8 + x^4 + x^3 + x + 1. */
+		unsigned int low = (value & 1U) | ((value & 2U) << 1) | ((value & 4U) << 2) | ((value & 8U) << 3);
+		low ^= 0x1bU & (0U - ((value >> 4) & 1U));
+		low ^= 0x6cU & (0U - ((value >> 5) & 1U));
+		low ^= 0xabU & (0U - ((value >> 6) & 1U));
+		return low ^ (0x9aU & (0U - ((value >> 7) & 1U)));
+	}
+
 	class unsigned char substitute(unsigned int value) {
-		/* In GF(256), x^254 is the inverse for every nonzero x and maps zero to zero. */
-		unsigned int inverse = value;
-		for (int bit = 0; bit < 6; bit++) {
-			inverse = AESBlock.product(AESBlock.product(inverse, inverse), value);
-		}
-		inverse = AESBlock.product(inverse, inverse);
+		/* x^254 is the inverse in GF(256) and leaves zero mapped to zero.
+		 * This fixed exponent chain needs seven squares and four products. */
+		unsigned int power2 = AESBlock.square(value);
+		unsigned int power3 = AESBlock.product(power2, value);
+		unsigned int power12 = AESBlock.square(AESBlock.square(power3));
+		unsigned int power15 = AESBlock.product(power12, power3);
+		unsigned int power60 = AESBlock.square(AESBlock.square(power15));
+		unsigned int power240 = AESBlock.square(AESBlock.square(power60));
+		unsigned int inverse = AESBlock.product(AESBlock.product(power240, power12), power2);
 		unsigned int repeated = inverse | (inverse << 8);
 		return (unsigned char)((inverse ^ (repeated >> 7) ^ (repeated >> 6) ^ (repeated >> 5) ^ (repeated >> 4) ^ 0x63U) & 255U);
 	}
