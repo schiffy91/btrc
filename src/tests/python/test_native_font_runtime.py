@@ -1,5 +1,6 @@
 """Actual optional FreeType setup, distinct from owned glyph-domain tests."""
 
+import gzip
 import os
 import re
 import shutil
@@ -308,7 +309,9 @@ def test_linux_pcf_factory_matches_freetype(tmp_path, request, frontend, sanitiz
     reference = tmp_path / "fixture.raw"
     reference.write_bytes(portable.read_bytes())
     env = provider_environment(sanitized)
-    for path in (reference, portable):
+    compressed = tmp_path / "fixture.pcf.gz"
+    compressed.write_bytes(gzip.compress(portable.read_bytes(), mtime=0))
+    for path in (reference, portable, compressed):
         run = subprocess.run([executable, path], capture_output=True, text=True, timeout=60, env=env)
         assert run.returncode == 0, run.stdout + run.stderr
         assert "PASS: PCF metrics, default glyph and packed pixels" in run.stdout
@@ -321,7 +324,8 @@ def test_linux_pcf_factory_matches_freetype(tmp_path, request, frontend, sanitiz
         shared = tmp_path / "unavailable.so"
         subprocess.run(["cc", "-shared", "-fPIC", str(blocker), "-o", str(shared)], check=True, timeout=TOOL_TIMEOUT)
         blocked = {**env, "LD_PRELOAD": str(shared)}
-        good = subprocess.run([executable, portable], capture_output=True, text=True, timeout=60, env=blocked)
-        assert good.returncode == 0, good.stdout + good.stderr
+        for path in (portable, compressed):
+            good = subprocess.run([executable, path], capture_output=True, text=True, timeout=60, env=blocked)
+            assert good.returncode == 0, good.stdout + good.stderr
         fallback = subprocess.run([executable, reference], capture_output=True, text=True, timeout=60, env=blocked)
         assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr

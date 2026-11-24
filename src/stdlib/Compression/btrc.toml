@@ -2,4 +2,4 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_compression"
-exports = ["ZlibReader"]
+exports = ["Gzip", "ZlibReader"]

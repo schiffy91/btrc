@@ -1,0 +1,55 @@
+import Library.Bytes;
+import Library.Digest.CRC32;
+import Library.Vector;
+
+import ./DeflateStream.btrc;
+
+/* RFC 1952 members, including optional header fields and concatenated
+ * streams. Each member's CRC-32 and modulo-2^32 size are checked before
+ * returning the complete, caller-bounded output. */
+class Gzip {
+	class Bytes decode(Bytes input, int maximum) {
+		if (input == null || input.length() == 0 || maximum < 0) { throw "Invalid gzip input"; }
+		Vector<int> range = [0, input.length()];
+		var stream = DeflateStream(input, range);
+		var crc = CRC32();
+		var result = Bytes();
+		var block = Bytes.zeros(32768);
+		while (stream.more()) {
+			int header = stream.inputOffset();
+			if (stream.byte() != 31 || stream.byte() != 139 || stream.byte() != 8) { throw "Invalid gzip member header"; }
+			int flags = stream.byte();
+			if ((flags & 224) != 0) { throw "Reserved gzip flags"; }
+			for (int j = 0; j < 6; j++) { stream.byte(); }
+			if ((flags & 4) != 0) {
+				int length = stream.byte();
+				length |= stream.byte() << 8;
+				for (int j = 0; j < length; j++) { stream.byte(); }
+			}
+			for (int flag = 8; flag <= 16; flag *= 2) {
+				if ((flags & flag) != 0) { while (stream.byte() != 0) {} }
+			}
+			if ((flags & 2) != 0) {
+				unsigned int expected = crc.crc(input, header, stream.inputOffset()) & 65535u;
+				int value = stream.byte();
+				value |= stream.byte() << 8;
+				if ((unsigned int)value != expected) { throw "Invalid gzip header checksum"; }
+			}
+			stream.reset(32768);
+			int start = result.length();
+			while (true) {
+				int room = maximum - result.length();
+				int wanted = room < block.length() ? room + 1 : block.length();
+				int got = stream.readSome((unsigned char*)block.data, wanted);
+				if (got > room) { throw "gzip exceeds its output limit"; }
+				if (got > 0) { result.appendBytes(got == block.length() ? block : block.slice(0, got)); }
+				if (got < wanted) { break; }
+			}
+			stream.finish(true);
+			if (stream.readU32LE() != crc.crc(result, start, result.length())) { throw "Invalid gzip data checksum"; }
+			if (stream.readU32LE() != (unsigned int)(result.length() - start)) { throw "Invalid gzip member size"; }
+		}
+		return result;
+	}
+
+}

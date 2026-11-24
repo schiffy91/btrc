@@ -426,6 +426,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("liveSinks", "long long", "method", (), "liveSinks"),
         BuiltinMemberSpec("uninitialize", "void", "method", (), "uninitialize"),
     )),
+    ("Gzip", (
+        BuiltinMemberSpec("decode", "Bytes", "method", (("Bytes", "input"), ("int", "maximum"),), "decode"),
+    )),
     ("Console", (
         BuiltinMemberSpec("log", "void", "method", (("string", "msg"),), "log"),
         BuiltinMemberSpec("error", "void", "method", (("string", "msg"),), "error"),

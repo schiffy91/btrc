@@ -1,28 +1,6 @@
-import Library.Array;
 import Library.Bytes;
 
-// The CRC-32 every PNG chunk carries (ISO 3309) and zlib's Adler-32.
 class PNGChecksum {
-	private Array<int> table;
-
-	public PNGChecksum() {
-		self.table = new Array<int>(256);
-		for (int n = 0; n < 256; n++) {
-			unsigned int value = (unsigned int)n;
-			for (int k = 0; k < 8; k++) { value = (value & 1u) != 0u ? 0xedb88320u ^ (value >> 1) : value >> 1; }
-			self.table.set(n, (int)value);
-		}
-	}
-
-	// Covers bytes [start, end), which the caller has bounded.
-	public unsigned int crc(Bytes bytes, int start, int end) {
-		unsigned char* data = (unsigned char*)bytes.data;
-		int* table = self.table.data;
-		unsigned int value = 0xffffffffu;
-		for (int i = start; i < end; i++) { value = (unsigned int)table[(value ^ (unsigned int)data[i]) & 255u] ^ (value >> 8); }
-		return value ^ 0xffffffffu;
-	}
-
 	class unsigned int adler(Bytes bytes) {
 		unsigned char* data = (unsigned char*)bytes.data;
 		unsigned int low = 1u;

@@ -1,0 +1,270 @@
+import Library.Bytes;
+import Library.Vector;
+
+import ./DeflateHuffman.btrc;
+
+// RFC 1951 DEFLATE block stream. The half-open input
+// ranges form one continuous stream. Reads keep only its 32 KiB history,
+// including when an input range or output buffer ends in a match.
+class DeflateStream {
+	private Bytes input;
+	private Vector<int> ranges;
+	private int range = 0;
+	private int pos = 0;
+	private int limit = 0;
+	private unsigned int hold = 0u;
+	private int bits = 0;
+	private Bytes window;
+	private int cursor = 0;
+	private long long produced = 0LL;
+	private int reach;
+	// 0 between blocks, 1 inside a stored block, 2 inside a compressed one.
+	private int mode = 0;
+	private bool last = false;
+	private int stored = 0;
+	private int copyLength = 0;
+	private int copyDistance = 0;
+	private DeflateHuffman lengths;
+	private DeflateHuffman distances;
+	private DeflateHuffman fixedLengths;
+	private DeflateHuffman fixedDistances;
+	private Vector<int> lengthBase;
+	private Vector<int> lengthExtra;
+	private Vector<int> distanceBase;
+	private Vector<int> distanceExtra;
+	private Vector<int> order;
+
+	public DeflateStream(Bytes input, Vector<int> ranges) {
+		self.input = input;
+		self.ranges = ranges;
+		self.window = Bytes.zeros(32768);
+		self.lengthBase = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];
+		self.lengthExtra = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+		self.distanceBase = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];
+		self.distanceExtra = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+		self.order = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
+		var fixed = Bytes.zeros(320);
+		for (int i = 0; i < 288; i++) { fixed.set(i, i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8); }
+		for (int i = 288; i < 320; i++) { fixed.set(i, 5); }
+		self.fixedLengths = DeflateHuffman(fixed, 0, 288, false);
+		self.fixedDistances = DeflateHuffman(fixed, 288, 32, false);
+		self.lengths = self.fixedLengths;
+		self.distances = self.fixedDistances;
+		self.reach = 32768;
+	}
+
+	public void reset(int reach) {
+		self.reach = reach;
+		self.produced = 0LL;
+		self.cursor = 0;
+		self.mode = 0;
+		self.last = false;
+		self.stored = 0;
+		self.copyLength = 0;
+		self.copyDistance = 0;
+	}
+
+	public int byte() { return self.take(8); }
+
+	public bool more() { self.fill(); return self.bits >= 8; }
+
+	/* Only for a single contiguous input, at a byte boundary. */
+	public int inputOffset() { return self.pos - self.bits / 8; }
+
+	private void fill() {
+		if (self.limit > self.input.length()) { throw "Invalid DEFLATE input range"; }
+		unsigned char* data = (unsigned char*)self.input.data;
+		while (self.bits <= 24) {
+			if (self.pos == self.limit) {
+				if (self.range >= self.ranges.size()) { return; }
+				if (self.ranges.size() - self.range < 2) { throw "Incomplete DEFLATE input range"; }
+				self.pos = self.ranges.get(self.range);
+				self.limit = self.ranges.get(self.range + 1);
+				if (self.pos < 0 || self.limit < self.pos || self.limit > self.input.length()) { throw "Invalid DEFLATE input range"; }
+				self.range += 2;
+				continue;
+			}
+			self.hold |= (unsigned int)data[self.pos] << self.bits;
+			self.pos++;
+			self.bits += 8;
+		}
+	}
+
+	// Up to 16 bits, least significant first.
+	private int take(int count) {
+		if (self.bits < count) {
+			self.fill();
+			if (self.bits < count) { throw "Truncated DEFLATE stream"; }
+		}
+		var value = (int)(self.hold & ((1u << count) - 1u));
+		self.hold >>= count;
+		self.bits -= count;
+		return value;
+	}
+
+	private int symbol(DeflateHuffman code) {
+		if (self.bits < 15) { self.fill(); }
+		var entry = code.fast.data[self.hold & 511u];
+		if (entry == 0) {
+			entry = code.slow(self.hold);
+			if (entry == 0) { throw "Invalid DEFLATE Huffman code"; }
+		}
+		var length = entry >> 9;
+		if (length > self.bits) { throw "Truncated DEFLATE stream"; }
+		self.hold >>= length;
+		self.bits -= length;
+		return entry & 511;
+	}
+
+	private void dynamic() {
+		var literals = self.take(5) + 257;
+		var distances = self.take(5) + 1;
+		var count = self.take(4) + 4;
+		if (literals > 286 || distances > 30) { throw "Invalid DEFLATE Huffman table sizes"; }
+		var sizes = Bytes.zeros(19);
+		for (int i = 0; i < count; i++) { sizes.set(self.order.get(i), self.take(3)); }
+		var code = DeflateHuffman(sizes, 0, 19, true);
+		var total = literals + distances;
+		var all = Bytes.zeros(total);
+		int i = 0;
+		while (i < total) {
+			var value = self.symbol(code);
+			if (value < 16) {
+				all.set(i, value);
+				i++;
+				continue;
+			}
+			int repeated = 0;
+			int run = 0;
+			if (value == 16) {
+				if (i == 0) { throw "Invalid DEFLATE code length repeat"; }
+				repeated = all.get(i - 1);
+				run = 3 + self.take(2);
+			} else if (value == 17) { run = 3 + self.take(3); }
+			else { run = 11 + self.take(7); }
+			if (run > total - i) { throw "Invalid DEFLATE code length repeat"; }
+			for (int k = 0; k < run; k++) { all.set(i + k, repeated); }
+			i += run;
+		}
+		if (all.get(256) == 0) { throw "DEFLATE Huffman code has no end of block"; }
+		self.lengths = DeflateHuffman(all, 0, literals, false);
+		self.distances = DeflateHuffman(all, literals, distances, false);
+	}
+
+	private void block() {
+		self.last = self.take(1) == 1;
+		var kind = self.take(2);
+		if (kind == 0) {
+			var padding = self.bits & 7;
+			self.hold >>= padding;
+			self.bits -= padding;
+			self.stored = self.take(16);
+			if ((self.stored ^ self.take(16)) != 65535) { throw "Invalid DEFLATE stored block"; }
+			self.mode = 1;
+		} else if (kind == 1) {
+			self.lengths = self.fixedLengths;
+			self.distances = self.fixedDistances;
+			self.mode = 2;
+		} else if (kind == 2) {
+			self.dynamic();
+			self.mode = 2;
+		} else { throw "Invalid DEFLATE block"; }
+	}
+
+	private void match(int symbol) {
+		if (symbol > 285) { throw "Invalid DEFLATE length code"; }
+		var length = self.lengthBase.get(symbol - 257) + self.take(self.lengthExtra.get(symbol - 257));
+		var code = self.symbol(self.distances);
+		if (code > 29) { throw "Invalid DEFLATE distance code"; }
+		var distance = self.distanceBase.get(code) + self.take(self.distanceExtra.get(code));
+		// The stream header bounds how far back a reference may reach.
+		if (distance > self.reach || (long long)distance > self.produced) { throw "Invalid DEFLATE back-reference"; }
+		self.copyLength = length;
+		self.copyDistance = distance;
+	}
+
+	// Writes up to count bytes, returning fewer only on reaching the final block.
+	public int readSome(unsigned char* target, int count) {
+		if (count < 0 || (count > 0 && target == null)) { throw "Invalid DEFLATE output span"; }
+		unsigned char* window = (unsigned char*)self.window.data;
+		int done = 0;
+		while (done < count) {
+			if (self.copyLength > 0) {
+				var n = self.copyLength < count - done ? self.copyLength : count - done;
+				var from = (self.cursor - self.copyDistance) & 32767;
+				var to = self.cursor;
+				for (int i = 0; i < n; i++) {
+					unsigned char value = window[from];
+					window[to] = value;
+					target[done + i] = value;
+					from = (from + 1) & 32767;
+					to = (to + 1) & 32767;
+				}
+				self.cursor = to;
+				self.copyLength -= n;
+				self.produced += n;
+				done += n;
+			} else if (self.mode == 2) {
+				var symbol = self.symbol(self.lengths);
+				if (symbol < 256) {
+					window[self.cursor] = (unsigned char)symbol;
+					target[done] = (unsigned char)symbol;
+					self.cursor = (self.cursor + 1) & 32767;
+					self.produced++;
+					done++;
+				} else if (symbol == 256) { self.mode = 0; }
+				else { self.match(symbol); }
+			} else if (self.mode == 1) {
+				if (self.stored == 0) {
+					self.mode = 0;
+					continue;
+				}
+				unsigned char value = (unsigned char)self.take(8);
+				window[self.cursor] = value;
+				target[done] = value;
+				self.cursor = (self.cursor + 1) & 32767;
+				self.stored--;
+				self.produced++;
+				done++;
+			} else {
+				if (self.last) { break; }
+				self.block();
+			}
+		}
+		return done;
+	}
+
+	// With exact input and output sizes, reject excess uncompressed data
+	// and trailing input. A caller reading a prefix (such as a PNG raster)
+	// can stop at its allocation limit while still checking a trailer when
+	// the stream ends exactly at that boundary.
+	public bool finish(bool exact) {
+		while (true) {
+			if (self.copyLength > 0 || (self.mode == 1 && self.stored > 0)) {
+				if (exact) { throw "Excess DEFLATE output"; }
+				return false;
+			}
+			if (self.mode == 2) {
+				if (self.symbol(self.lengths) != 256) {
+					if (exact) { throw "Excess DEFLATE output"; }
+					return false;
+				}
+				self.mode = 0;
+				continue;
+			}
+			self.mode = 0;
+			if (self.last) { break; }
+			self.block();
+		}
+		var padding = self.bits & 7;
+		self.hold >>= padding;
+		self.bits -= padding;
+		return true;
+	}
+
+	public unsigned int readU32LE() {
+		unsigned int value = 0u;
+		for (int i = 0; i < 4; i++) { value |= (unsigned int)self.byte() << (i * 8); }
+		return value;
+	}
+}
