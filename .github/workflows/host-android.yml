@@ -38,6 +38,8 @@ on:
       - src/tests/python/test_native_jni_android.py
       - src/stdlib/GUI/**
       - src/stdlib/GPU/**
+      - src/stdlib/HTTP/**
+      - src/tests/native/http/**
       - src/tests/native/gui/conformance/**
       - src/tests/python/test_native_ui_conformance_android.py
       - nix/wgpu-native-prebuilt.nix
@@ -60,6 +62,8 @@ on:
       - src/tests/python/test_native_jni_android.py
       - src/stdlib/GUI/**
       - src/stdlib/GPU/**
+      - src/stdlib/HTTP/**
+      - src/tests/native/http/**
       - src/tests/native/gui/conformance/**
       - src/tests/python/test_native_ui_conformance_android.py
       - nix/wgpu-native-prebuilt.nix

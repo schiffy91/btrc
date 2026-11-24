@@ -1,4 +1,5 @@
-/* HTTPClient end-to-end through a deterministic local curl stand-in. */
+/* HTTPClient end-to-end through a deterministic local curl stand-in where a
+ * target still selects curl, and zero-curl refusal on standalone Android. */
 import Library.FileSystem;
 import Library.HTTP.HTTPClient;
 import Library.Platform;
@@ -14,7 +15,11 @@ int main() {
 	assert(!fixture.isEmpty());
 	string curlPath = PathTools.join(fixture, "curl");
 	string argumentLog = PathTools.join(fixture, "argv.log");
+#if defined(__ANDROID__)
+	string script = "#!/system/bin/sh\n" + ": > \"$BTRC_CURL_LOG\"\n" + "exit 99\n";
+#else
 	string script = "#!/bin/sh\n" + "body=''\n" + ": > \"$BTRC_CURL_LOG\"\n" + "for item in \"$@\"; do printf '%s\\n' \"$item\" >> \"$BTRC_CURL_LOG\"; done\n" + "while [ \"$#\" -gt 0 ]; do\n" + "  case \"$1\" in\n" + "    --data-binary) [ \"$2\" = '@-' ] || exit 70; body=$(cat); shift 2 ;;\n" + "    --proto|--proto-redir|--max-time|--max-filesize|--request|--write-out|--header) shift 2 ;;\n" + "    --) shift; break ;;\n" + "    *) shift ;;\n" + "  esac\n" + "done\n" + "if [ -n \"$body\" ]; then printf '%s' \"$body\"; " + "else printf 'local-response'; fi\n" + "printf '\\n__BTRC_HTTP_STATUS__:201'\n";
+#endif
 	assert(FileSystem.writeText(curlPath, script));
 	assert(chmod(curlPath, 0700) == 0);
 	assert(setenv("PATH", fixture + ":" + oldPath, 1) == 0);
@@ -45,6 +50,27 @@ int main() {
 	assert(unsupported.error.contains("unsupported URL scheme"));
 	assert(!FileSystem.exists(argumentLog));
 
+	Vector<string> remaining = FileSystem.listDir(fixture);
+	assert(remaining.len == 1);
+#elif defined(__ANDROID__)
+	HTTPClientResponse get = client.get("https://unused.invalid", headers);
+	assert(get.status == 0);
+	assert(get.body.isEmpty());
+	assert(get.error.equals("HTTPS on Android requires an Android application VM"));
+	assert(!FileSystem.exists(argumentLog));
+	assert(!FileSystem.exists(injectionMarker));
+
+	HTTPClientResponse post = client.post("https://unused.invalid", headers, "request-body");
+	assert(post.status == 0);
+	assert(post.body.isEmpty());
+	assert(post.error.equals("HTTPS on Android requires an Android application VM"));
+	assert(!FileSystem.exists(argumentLog));
+
+	HTTPClientResponse unsupported = client.get("file:///etc/passwd", headers);
+	assert(unsupported.status == 0);
+	assert(unsupported.error.contains("unsupported URL scheme"));
+
+	/* Standalone Android never invokes curl and leaves no capture files behind. */
 	Vector<string> remaining = FileSystem.listDir(fixture);
 	assert(remaining.len == 1);
 #else

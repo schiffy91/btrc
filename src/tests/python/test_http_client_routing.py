@@ -12,7 +12,9 @@ import pytest
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.native.http.socks_peer import SocksPeer
 from src.tests.native_build import NativeCorpusBuild
-from tools.qualification.dependencies import DependencyAudit
+from src.tests.native_targets import stub_sysroot
+from tools.native_plan import NativePlanError, TargetToolchain
+from tools.qualification.dependencies import STDLIB, DependencyAudit
 
 PROBE = """import Library.HTTP.HTTPClient;
 import Library.Platform;
@@ -213,3 +215,83 @@ def check_socks(program, run, origin, directory):
         finally:
             proxy.shutdown()
             serving.join()
+
+
+def test_android_http_client_policy_and_reachability():
+    """Android HTTPClient never reaches HTTPCurlTransport and has zero curl dependency findings."""
+    audit = DependencyAudit()
+    curl_module = (STDLIB / "HTTP" / "HTTPCurlTransport.btrc").resolve()
+    for android_target in ("android-aarch64", "android-x86_64"):
+        assert curl_module not in audit._reachable(android_target)
+    android_curl = [
+        item for item in audit.third_party() if item.operating_system == "android" and item.dependency == "curl"
+    ]
+    assert android_curl == []
+
+
+JNI_STUB = """typedef int jint;
+typedef jint jsize;
+typedef unsigned short jchar;
+typedef void *jobject;
+typedef jobject jclass;
+typedef jobject jstring;
+typedef struct _jmethodID *jmethodID;
+typedef struct _jfieldID *jfieldID;
+typedef struct JNIEnv_ JNIEnv;
+typedef struct JavaVM_ JavaVM;
+typedef struct { char *name; char *signature; void *fnPtr; } JNINativeMethod;
+"""
+
+
+@pytest.mark.parametrize("android_target", ["android-aarch64", "android-x86_64"])
+def test_android_http_client_never_references_curl(compiler, request, tmp_path, monkeypatch, android_target):
+    """Cross-compile HTTPClient for Android and prove curl/HTTPCurlTransport are absent in C and ELF."""
+    target = PackageTarget.parse(android_target)
+    have_ndk = True
+    try:
+        sysroot = TargetToolchain(target.row).sysroot()
+    except NativePlanError:
+        have_ndk = False
+        sysroot = tmp_path / f"sysroot-{android_target}"
+        stub_sysroot(sysroot, android_target)
+        (sysroot / "usr" / "include" / "jni.h").write_text(JNI_STUB, encoding="utf-8")
+    monkeypatch.setenv("BTRC_NATIVE_TARGET", target.row.triple)
+    monkeypatch.setenv("BTRC_NATIVE_SYSROOT", str(sysroot))
+    source = tmp_path / "AndroidRouteProbe.btrc"
+    source.write_text(PROBE)
+    frontend = (
+        [sys.executable, "-m", "src.compiler.python.main"]
+        if compiler == "python"
+        else [str(request.getfixturevalue("immutable_btrcc"))]
+    )
+    artifact = NativeCorpusBuild(tmp_path / f"{android_target}.c", tmp_path / f"{android_target}.json", tuple(frontend))
+    subprocess.run(
+        [
+            *frontend,
+            str(source),
+            "--target",
+            android_target,
+            "--strict-imports",
+            "-o",
+            str(artifact.primary),
+            "--emit-link-plan",
+            str(artifact.plan),
+        ],
+        check=True,
+        timeout=120,
+    )
+    generated = artifact.primary.read_text(encoding="utf-8")
+    for forbidden in ("HTTPCurlTransport", "__BTRC_HTTP_STATUS__:", "--proto-redir", "ChildProcessExecutable"):
+        assert forbidden not in generated, f"{android_target} emitted C still references {forbidden!r}"
+    assert "btrcJSSEConnect" in generated
+    assert "HTTPS on Android requires an Android application VM" in generated
+    plan_text = artifact.plan.read_text(encoding="utf-8")
+    for required_unit in ("JSSESocket.c", "JSSETrust.c", "JSSEEngine.c", "JSSEName.c"):
+        assert required_unit in plan_text, f"{android_target} link plan missing {required_unit}"
+    if have_ndk:
+        executable = tmp_path / f"probe-{android_target}"
+        artifact.build(executable)
+        assert DependencyAudit().binary_problems(executable, android_target) == []
+        raw = executable.read_bytes()
+        for forbidden in (b"HTTPCurlTransport", b"__BTRC_HTTP_STATUS__:", b"--proto-redir"):
+            assert forbidden not in raw, f"{android_target} ELF still contains {forbidden!r}"

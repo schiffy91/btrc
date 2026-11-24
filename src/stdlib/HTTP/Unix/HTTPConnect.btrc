@@ -1,0 +1,58 @@
+/* Establish an HTTP/1.1 tunnel before the client authenticates the origin.
+ * Only proxy credentials belong on this hop. The TLS handshake and the
+ * subsequent origin request use this same stream and absolute deadline. */
+import Library.Bytes;
+import Library.HTTP.HTTPExchange;
+import Library.HTTP.HTTPFraming;
+import Library.Strings;
+import Library.Vector;
+
+class HTTPConnect {
+	class Vector<string> originHeaders(Vector<string> headers) {
+		Vector<string> fields = [];
+		for header in headers {
+			if (!HTTPExchange.fieldName(header).equals("proxy-authorization")) { fields.push(header); }
+		}
+		return fields;
+	}
+
+	class string establish(IHTTPByteStream stream, HTTPClientAddress origin, HTTPClientAddress? proxy, Vector<string> headers, long long deadline) {
+		string authority = origin.host + ":" + Strings.fromInt(origin.port);
+		var fields = StringBuilder();
+		fields.append("CONNECT " + authority + " HTTP/1.1\r\nHost: " + authority + "\r\n");
+		if (proxy != null && !proxy.userInfo.isEmpty() && !HTTPExchange.names(headers, "proxy-authorization")) {
+			fields.append("Proxy-Authorization: Basic " + HTTPExchange.base64(HTTPExchange.credentials(proxy.userInfo)) + "\r\n");
+		}
+		for header in headers {
+			if (HTTPExchange.fieldName(header).equals("proxy-authorization")) { fields.append(header + "\r\n"); }
+		}
+		fields.append("\r\n");
+		if (!stream.send(Bytes.fromString(fields.toString()), deadline)) { return "could not send proxy request"; }
+
+		Bytes response = Bytes();
+		int room = 65536;
+		int interim = 0;
+		while (true) {
+			int end = HTTPFraming.headerEnd(response);
+			if (end == -2) { return "invalid proxy response"; }
+			if (end >= 0) {
+				int status = HTTPExchange.statusOf(response.slice(0, end).toStringLossy());
+				if (status < 100 || status == 101) { return "invalid proxy response"; }
+				if (status < 200) {
+					interim++;
+					if (interim > 16) { return "invalid proxy response"; }
+					response = response.slice(end + 4, response.len);
+					continue;
+				}
+				if (status >= 300) { return "proxy CONNECT returned " + Strings.fromInt(status); }
+				/* An origin TLS server cannot send its handshake before our ClientHello. */
+				return end + 4 == response.len ? "" : "invalid proxy response";
+			}
+			if (room <= 0) { return "proxy headers are too large"; }
+			int count = stream.receive(response, room, deadline);
+			if (count <= 0) { return count == -1 ? "request timed out" : "connection to proxy failed"; }
+			room -= count;
+		}
+		return "invalid proxy response";
+	}
+}
