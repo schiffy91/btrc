@@ -46,7 +46,7 @@ os = ["linux"]
 path = "Linux/GtkPortalParent.c"
 language = "c"
 standard = "c11"
-modules = ["Linux.PortalDirectoryPickerProvider"]
+modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.pkg-config]]
