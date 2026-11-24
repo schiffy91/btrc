@@ -66,8 +66,9 @@ class Strings {
 		Vector<string> result = [];
 		if (s == null || delim == null) { return result; }
 		int dlen = Strings.checkedLength(delim);
-		if (dlen == 0) { return result; }
+		if (dlen <= 0) { return result; }
 		int slen = Strings.checkedLength(s);
+		if (slen < 0) { abort(); }
 		string first = delim.substring(0, 1);
 		int offset = 0;
 		while (true) {
@@ -87,8 +88,9 @@ class Strings {
 				index++;
 			}
 			int seglen = found >= 0 ? found - offset : slen - offset;
+			if (seglen < 0) { abort(); }
 			char* item = (char*)__btrc_safe_realloc(NULL, (size_t)seglen + (size_t)1);
-			memcpy(item, (char*)s + offset, (size_t)seglen);
+			if (seglen > 0) { memcpy(item, (char*)s + offset, (size_t)seglen); }
 			item[seglen] = '\0';
 			result.push(__btrc_string_adopt(item));
 			if (found < 0) { break; }
@@ -351,7 +353,7 @@ class StringBuilder {
 	public void append(string text) {
 		if (text == null) { return; }
 		int count = Strings.checkedLength(text);
-		if (count == 0) { return; }
+		if (count <= 0) { return; }
 		self.reserveAdditional(count);
 		memcpy(self.data + self.len, text, (size_t)count);
 		self.len += count;
