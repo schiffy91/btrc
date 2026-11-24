@@ -19,7 +19,7 @@ enum btrc_win_rx_boundary {
 };
 typedef struct {
 	enum btrc_win_rx_op op;
-	int arg, child, next, min, max, tag, optional_tag, guard_tag, nullable, consumes, has_repeat, shares_exit;
+	int arg, child, next, min, max, copy_stride, tag, optional_tag, guard_tag, nullable, consumes, has_repeat, shares_exit;
 	btrc_win_byte_set bytes;
 } btrc_win_rx_node;
 typedef struct {
@@ -95,6 +95,7 @@ static inline int btrc_win_rx_atom(btrc_win_rx_parser *parser, int first, int de
 	int n = btrc_win_rx_new(parser, btrc_win_rx_byte);
 	if (!n) return 0;
 	btrc_win_rx_node *node = &parser->program->nodes[n];
+	node->copy_stride = 1;
 	int group = btrc_win_rx_token(parser, '(');
 	if (group) {
 		if (depth >= 256) { parser->error = REG_ESPACE; return 0; }
@@ -120,7 +121,7 @@ static inline int btrc_win_rx_atom(btrc_win_rx_parser *parser, int first, int de
 	unsigned int c = *parser->p++;
 	if (c == '[') {
 		int negate = *parser->p == '^';
-		enum btrc_win_list_error err = btrc_win_parse_list(&parser->p, &node->bytes, 0, fold);
+		enum btrc_win_list_error err = btrc_win_parse_list(&parser->p, &node->bytes, 0, fold, &node->copy_stride);
 		static const int errors[] = {0, REG_EBRACK, REG_ERANGE, REG_ECTYPE, REG_ECOLLATE};
 		parser->error = errors[err];
 		if (negate && (parser->program->flags & REG_NEWLINE))

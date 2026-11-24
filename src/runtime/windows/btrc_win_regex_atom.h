@@ -29,7 +29,7 @@ static inline int btrc_win_regex_parse_atom(const unsigned char *p, const unsign
 	if (p == end) return 0;
 	if (*p == '[') {
 		const unsigned char *first = ++p;
-		if (btrc_win_parse_list(&p, &atom->bytes, 0, 0) != btrc_win_list_ok) return 0;
+		if (btrc_win_parse_list(&p, &atom->bytes, 0, 0, NULL) != btrc_win_list_ok) return 0;
 		/* An excessive number of named classes in a negated bracket has
 		   an existing resource diagnostic. Preserve it in the fallback. */
 		if (*first == '^') {

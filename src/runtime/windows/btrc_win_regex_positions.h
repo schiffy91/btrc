@@ -44,7 +44,7 @@ static inline int btrc_win_pos_new(btrc_win_pos_builder *b, enum btrc_win_pos_op
 		b->failed = 1;
 		return 0;
 	}
-	int width = op == btrc_win_pos_byte ? 1 : b->nodes[left].width + b->nodes[right].width;
+	int width = op == btrc_win_pos_byte ? b->parser->program->nodes[left].copy_stride : b->nodes[left].width + b->nodes[right].width;
 	int id = ++b->used;
 	b->nodes[id] = (btrc_win_pos_node){op, left, right, width};
 	return id;
@@ -64,7 +64,8 @@ static inline int btrc_win_pos_sequence(btrc_win_pos_builder *b, int id, int *of
 
 static inline int btrc_win_pos_repeat(btrc_win_pos_builder *b, const btrc_win_rx_node *n, int *offset, int depth)
 {
-	if (n->max == 0 || b->parser->program->nodes[n->child].op == btrc_win_rx_repeat) {
+	if (n->max == 0) return 0;
+	if (b->parser->program->nodes[n->child].op == btrc_win_rx_repeat) {
 		b->failed = 1;
 		return 0;
 	}
@@ -168,32 +169,9 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 	return left;
 }
 
-/* A single literal, range or named class occupies one consuming leaf
-   when copied. Other bracket layouts can use a different copy stride. */
-static inline int btrc_win_pos_supported(const char *p)
-{
-	for (; *p; ++p) {
-		if (*p == '$' || *p == '^' || *p == '\\') return 0;
-		if (*p != '[') continue;
-		if (p[1] == '[' && p[2] == ':') {
-			const char *end = strstr(p + 3, ":]]");
-			if (!end) return 0;
-			for (const char *c = p + 3; c < end; ++c)
-				if (*c < 'a' || *c > 'z') return 0;
-			p = end + 2;
-		} else {
-			if (!p[1] || p[1] == '^' || p[1] == '[' || p[1] == ']') return 0;
-			if (p[2] == ']') p += 2;
-			else if (p[2] == '-' && p[3] && p[3] != '[' && p[3] != ']' && p[4] == ']') p += 4;
-			else return 0;
-		}
-	}
-	return 1;
-}
-
 static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, size_t *groups)
 {
-	if (*pattern != '(' || strlen(pattern) > 255 || !btrc_win_pos_supported(pattern)) return NULL;
+	if (*pattern != '(' || strlen(pattern) > 255 || strchr(pattern, '\\')) return NULL;
 	btrc_win_rx_program parsed = {0};
 	parsed.flags = REG_EXTENDED;
 	btrc_win_rx_parser parser = {&parsed, (const unsigned char *)pattern, 0, 0, 0, 0};

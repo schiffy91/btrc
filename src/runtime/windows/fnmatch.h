@@ -39,7 +39,7 @@ static inline int btrc_win_fnmatch(const char *pattern, const char *text, int fl
 			if (*p == '?') match = !pathname || *s != '/';
 			else if (*p == '[') {
 				btrc_win_byte_set set = {{0}};
-				enum btrc_win_list_error error = btrc_win_parse_list(&next, &set, 1, fold);
+				enum btrc_win_list_error error = btrc_win_parse_list(&next, &set, 1, fold, NULL);
 				match = error == btrc_win_list_ok ? ((!pathname || *s != '/') && btrc_win_set_has(&set, *s)) : *s == '[';
 			} else {
 				unsigned char c = *p;

@@ -73,11 +73,13 @@ enum btrc_win_list_error {
 };
 
 static inline enum btrc_win_list_error btrc_win_parse_list(
-	const unsigned char **after, btrc_win_byte_set *set, int shell, int fold)
+	const unsigned char **after, btrc_win_byte_set *set, int shell, int fold, int *copy_stride)
 {
 	const unsigned char *p = *after;
 	int negate = *p == '^' || (shell && *p == '!');
 	if (negate) ++p;
+	int terms = 0;
+	btrc_win_byte_set named = {0};
 	int previous = -1;
 	int range = 0;
 	do {
@@ -88,6 +90,7 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 			range = 1;
 		}
 		/* A regex range ends in one literal byte, including '['. */
+		if (copy_stride && !range) ++terms;
 		if ((!range || shell) && p[0] == '[' && (p[1] == ':' || p[1] == '.' || p[1] == '=')) {
 			unsigned char type = p[1];
 			const unsigned char *name = p + 2;
@@ -95,7 +98,7 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 			while (*end && !(end[0] == type && end[1] == ']')) ++end;
 			if (!*end) return btrc_win_list_unclosed;
 			if (type == ':') {
-				if (!btrc_win_set_class(set, name, (size_t)(end - name)) && !shell) return btrc_win_list_class;
+				if (!btrc_win_set_class(copy_stride && negate ? &named : set, name, (size_t)(end - name)) && !shell) return btrc_win_list_class;
 			} else if (!shell) return btrc_win_list_collate;
 			previous = -1;
 			p = end + 2;
@@ -115,6 +118,21 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 		    (p[1] != '-' || !p[2] || p[2] == ']')) return btrc_win_list_range;
 		range = 0;
 	} while (*p != ']');
+	if (copy_stride) {
+		if (negate) {
+			/* Negating the explicit ranges creates one extra gap per
+			   disjoint excluded run. Named exclusions filter every gap. */
+			terms = 1;
+			int previous_byte = 0;
+			for (unsigned int byte = 1; byte <= 255; ++byte) {
+				int excluded = btrc_win_set_has(set, byte);
+				if (excluded && !previous_byte) ++terms;
+				previous_byte = excluded;
+			}
+			for (size_t i = 0; i < sizeof set->bits; ++i) set->bits[i] |= named.bits[i];
+		}
+		*copy_stride = terms;
+	}
 	btrc_win_set_finish(set, fold, negate);
 	*after = p + 1;
 	return btrc_win_list_ok;
