@@ -1,0 +1,351 @@
+/* Ed25519 signatures (RFC 8032), with the checks libsodium makes.
+ *
+ * A secret key is 64 bytes: the 32-byte seed, then the public key. Signing
+ * is deterministic. Verification refuses a signature whose scalar is not
+ * below the group order, a signature point or public key of small order,
+ * and a public key that is not the canonical encoding of a point.
+ *
+ * Signing multiplies the base point by secret scalars: the ladder in
+ * `Edwards25519.multiply` adds and doubles for every bit and chooses with
+ * masked swaps, so it does the same work for every scalar. */
+
+import Library.Crypto.Primitives.ConstantTime;
+import Library.Crypto.Primitives.Field25519;
+import Library.Crypto.Primitives.SHA512;
+
+/* Points of the twisted Edwards curve -x^2 + y^2 = 1 + d x^2 y^2 in extended
+ * coordinates: four field elements X, Y, Z, T of 16 limbs each, with
+ * x = X/Z, y = Y/Z and T = XY/Z. */
+class Edwards25519 {
+	class void constantD(long long* out) {
+		static const long long d[16] = {0x78a3LL, 0x1359LL, 0x4dcaLL, 0x75ebLL, 0xd8abLL, 0x4141LL, 0x0a4dLL, 0x0070LL, 0xe898LL, 0x7779LL, 0x4079LL, 0x8cc7LL, 0xfe73LL, 0x2b6fLL, 0x6ceeLL, 0x5203LL};
+		for (int index = 0; index < 16; index++) { out[index] = d[index]; }
+	}
+
+	class void constantTwoD(long long* out) {
+		static const long long twoD[16] = {0xf159LL, 0x26b2LL, 0x9b94LL, 0xebd6LL, 0xb156LL, 0x8283LL, 0x149aLL, 0x00e0LL, 0xd130LL, 0xeef3LL, 0x80f2LL, 0x198eLL, 0xfce7LL, 0x56dfLL, 0xd9dcLL, 0x2406LL};
+		for (int index = 0; index < 16; index++) { out[index] = twoD[index]; }
+	}
+
+	/* A square root of -1. */
+	class void constantRootOfMinusOne(long long* out) {
+		static const long long root[16] = {0xa0b0LL, 0x4a0eLL, 0x1b27LL, 0xc4eeLL, 0xe478LL, 0xad2fLL, 0x1806LL, 0x2f43LL, 0xd7a7LL, 0x3dfbLL, 0x0099LL, 0x2b4dLL, 0xdf0bLL, 0x4fc1LL, 0x2480LL, 0x2b83LL};
+		for (int index = 0; index < 16; index++) { out[index] = root[index]; }
+	}
+
+	/* The base point, whose y is 4/5. */
+	class void base(long long* p) {
+		static const long long x[16] = {0xd51aLL, 0x8f25LL, 0x2d60LL, 0xc956LL, 0xa7b2LL, 0x9525LL, 0xc760LL, 0x692cLL, 0xdc5cLL, 0xfdd6LL, 0xe231LL, 0xc0a4LL, 0x53feLL, 0xcd6eLL, 0x36d3LL, 0x2169LL};
+		static const long long y[16] = {0x6658LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL, 0x6666LL};
+		for (int index = 0; index < 16; index++) {
+			p[index] = x[index];
+			p[16 + index] = y[index];
+		}
+		Field25519.setSmall(p + 32, 1LL);
+		Field25519.multiply(p + 48, p, p + 16);
+	}
+
+	/* `p = p + q`. The formulas are complete: they hold for every pair of
+	 * points, the same point twice included. */
+	class void add(long long* p, long long* q) {
+		long long a[16];
+		long long b[16];
+		long long c[16];
+		long long d[16];
+		long long t[16];
+		long long e[16];
+		long long f[16];
+		long long g[16];
+		long long h[16];
+		long long twoD[16];
+		Edwards25519.constantTwoD(twoD);
+		Field25519.subtract(a, p + 16, p);
+		Field25519.subtract(t, q + 16, q);
+		Field25519.multiply(a, a, t);
+		Field25519.add(b, p, p + 16);
+		Field25519.add(t, q, q + 16);
+		Field25519.multiply(b, b, t);
+		Field25519.multiply(c, p + 48, q + 48);
+		Field25519.multiply(c, c, twoD);
+		Field25519.multiply(d, p + 32, q + 32);
+		Field25519.add(d, d, d);
+		Field25519.subtract(e, b, a);
+		Field25519.subtract(f, d, c);
+		Field25519.add(g, d, c);
+		Field25519.add(h, b, a);
+		Field25519.multiply(p, e, f);
+		Field25519.multiply(p + 16, h, g);
+		Field25519.multiply(p + 32, g, f);
+		Field25519.multiply(p + 48, e, h);
+	}
+
+	class void swap(long long* p, long long* q, int bit) {
+		for (int element = 0; element < 4; element++) { Field25519.swap(p + 16 * element, q + 16 * element, bit); }
+	}
+
+	/* The 32-byte encoding: y, with the sign of x in the top bit. */
+	class void pack(unsigned char* out, long long* p) {
+		long long x[16];
+		long long y[16];
+		long long inverse[16];
+		Field25519.invert(inverse, p + 32);
+		Field25519.multiply(x, p, inverse);
+		Field25519.multiply(y, p + 16, inverse);
+		Field25519.pack(out, y);
+		out[31] ^= (unsigned char)(Field25519.parity(x) << 7);
+	}
+
+	/* `p = scalar * q` for a 32-byte scalar; `q` is left changed. */
+	class void multiply(long long* p, long long* q, unsigned char* scalar) {
+		Field25519.setSmall(p, 0LL);
+		Field25519.setSmall(p + 16, 1LL);
+		Field25519.setSmall(p + 32, 1LL);
+		Field25519.setSmall(p + 48, 0LL);
+		for (int bit = 255; bit >= 0; bit--) {
+			int chosen = ((int)scalar[bit >> 3] >> (bit & 7)) & 1;
+			Edwards25519.swap(p, q, chosen);
+			Edwards25519.add(q, p);
+			Edwards25519.add(p, p);
+			Edwards25519.swap(p, q, chosen);
+		}
+	}
+
+	/* `p = scalar * B` for the base point B. */
+	class void multiplyBase(long long* p, unsigned char* scalar) {
+		long long q[64];
+		Edwards25519.base(q);
+		Edwards25519.multiply(p, q, scalar);
+		ConstantTime.wipeLimbs(q, 64);
+	}
+
+	/* Decode a point and negate it, as verification needs -A. False when
+	 * the bytes name no point of the curve. Verification data is public, so
+	 * this may branch on it. */
+	class bool unpackNegated(long long* p, unsigned char* bytes) {
+		long long t[16];
+		long long check[16];
+		long long numerator[16];
+		long long denominator[16];
+		long long denominator2[16];
+		long long denominator4[16];
+		long long denominator6[16];
+		long long constant[16];
+		Field25519.setSmall(p + 32, 1LL);
+		Field25519.unpack(p + 16, bytes);
+		Field25519.square(numerator, p + 16);
+		Edwards25519.constantD(constant);
+		Field25519.multiply(denominator, numerator, constant);
+		Field25519.subtract(numerator, numerator, p + 32);
+		Field25519.add(denominator, p + 32, denominator);
+
+		/* x = (num / den)^((p + 3) / 8), up to a factor of sqrt(-1). */
+		Field25519.square(denominator2, denominator);
+		Field25519.square(denominator4, denominator2);
+		Field25519.multiply(denominator6, denominator4, denominator2);
+		Field25519.multiply(t, denominator6, numerator);
+		Field25519.multiply(t, t, denominator);
+		Field25519.power2523(t, t);
+		Field25519.multiply(t, t, numerator);
+		Field25519.multiply(t, t, denominator);
+		Field25519.multiply(t, t, denominator);
+		Field25519.multiply(p, t, denominator);
+		Field25519.square(check, p);
+		Field25519.multiply(check, check, denominator);
+		if (!Field25519.equal(check, numerator)) {
+			Edwards25519.constantRootOfMinusOne(constant);
+			Field25519.multiply(p, p, constant);
+		}
+		Field25519.square(check, p);
+		Field25519.multiply(check, check, denominator);
+		if (!Field25519.equal(check, numerator)) { return false; }
+
+		if (Field25519.parity(p) == ((int)bytes[31] >> 7)) {
+			Field25519.setSmall(t, 0LL);
+			Field25519.subtract(p, t, p);
+		}
+		Field25519.multiply(p + 48, p, p + 16);
+		return true;
+	}
+
+	/* Whether the bytes encode one of the eight points of small order, in
+	 * any of the encodings a decoder accepts for them. A signature made
+	 * with such a point or key says nothing about who signed. */
+	class bool hasSmallOrder(unsigned char* bytes) {
+		static const unsigned char known[224] = {
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53, 0xfc, 0x05,
+			0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac, 0x03, 0x7a,
+			0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
+			0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f,
+			0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f
+		};
+		bool found = false;
+		for (int entry = 0; entry < 7; entry++) {
+			unsigned int difference = ((unsigned int)bytes[31] & 0x7fU) ^ (unsigned int)known[entry * 32 + 31];
+			for (int index = 0; index < 31; index++) { difference |= (unsigned int)bytes[index] ^ (unsigned int)known[entry * 32 + index]; }
+			if (difference == 0U) { found = true; }
+		}
+		return found;
+	}
+
+	/* Whether the y coordinate in an encoding is below the field prime, so
+	 * the point has no second spelling. */
+	class bool isCanonical(unsigned char* bytes) {
+		if (((int)bytes[31] & 0x7f) != 0x7f) { return true; }
+		for (int index = 30; index > 0; index--) {
+			if ((int)bytes[index] != 0xff) { return true; }
+		}
+		return (int)bytes[0] < 0xed;
+	}
+}
+
+/* Integers modulo the order of the base point,
+ * L = 2^252 + 27742317777372353535851937790883648493. */
+class Scalar25519 {
+	class long long order(int index) {
+		static const long long l[32] = {0xedLL, 0xd3LL, 0xf5LL, 0x5cLL, 0x1aLL, 0x63LL, 0x12LL, 0x58LL, 0xd6LL, 0x9cLL, 0xf7LL, 0xa2LL, 0xdeLL, 0xf9LL, 0xdeLL, 0x14LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0x10LL};
+		return l[index];
+	}
+
+	/* Reduce the 64 limbs of `x` (one byte each, possibly out of range)
+	 * modulo L into 32 bytes. `x` is consumed. */
+	class void reduceLimbs(unsigned char* out, long long* x) {
+		long long l[32];
+		for (int index = 0; index < 32; index++) { l[index] = Scalar25519.order(index); }
+		for (int i = 63; i >= 32; i--) {
+			long long carry = 0LL;
+			int j = i - 32;
+			while (j < i - 12) {
+				x[j] += carry - 16LL * x[i] * l[j - (i - 32)];
+				carry = (x[j] + 128LL) >> 8;
+				x[j] -= carry * 256LL;
+				j++;
+			}
+			x[j] += carry;
+			x[i] = 0LL;
+		}
+		long long carry = 0LL;
+		for (int j = 0; j < 32; j++) {
+			x[j] += carry - (x[31] >> 4) * l[j];
+			carry = x[j] >> 8;
+			x[j] &= 255LL;
+		}
+		for (int j = 0; j < 32; j++) { x[j] -= carry * l[j]; }
+		for (int i = 0; i < 32; i++) {
+			x[i + 1] += x[i] >> 8;
+			out[i] = (unsigned char)(x[i] & 255LL);
+		}
+	}
+
+	/* Reduce a 64-byte number modulo L into its first 32 bytes. */
+	class void reduce(unsigned char* bytes) {
+		long long x[64];
+		for (int index = 0; index < 64; index++) { x[index] = (long long)bytes[index]; }
+		Scalar25519.reduceLimbs(bytes, x);
+		for (int index = 32; index < 64; index++) { bytes[index] = (unsigned char)0; }
+		ConstantTime.wipeLimbs(x, 64);
+	}
+
+	/* `out = (a * b + c) mod L`, each 32 bytes. */
+	class void multiplyAdd(unsigned char* out, unsigned char* a, unsigned char* b, unsigned char* c) {
+		long long x[64];
+		for (int index = 0; index < 32; index++) { x[index] = (long long)c[index]; }
+		for (int index = 32; index < 64; index++) { x[index] = 0LL; }
+		for (int i = 0; i < 32; i++) {
+			for (int j = 0; j < 32; j++) { x[i + j] += (long long)a[i] * (long long)b[j]; }
+		}
+		Scalar25519.reduceLimbs(out, x);
+		ConstantTime.wipeLimbs(x, 64);
+	}
+
+	/* Whether 32 bytes are a number below L. */
+	class bool isCanonical(unsigned char* bytes) {
+		unsigned int below = 0U;
+		unsigned int equalSoFar = 1U;
+		for (int index = 31; index >= 0; index--) {
+			unsigned int value = (unsigned int)bytes[index];
+			unsigned int limit = (unsigned int)Scalar25519.order(index);
+			below |= ((value - limit) >> 8) & equalSoFar;
+			equalSoFar &= ((value ^ limit) - 1U) >> 8;
+		}
+		return (below & 1U) != 0U;
+	}
+}
+
+class Ed25519 {
+	/* The key pair of a 32-byte seed. */
+	class void keysFromSeed(unsigned char* publicKey, unsigned char* secretKey, unsigned char* seed) {
+		unsigned char expanded[64];
+		long long point[64];
+		SHA512.digest(expanded, seed, 32);
+		Ed25519.clamp(expanded);
+		Edwards25519.multiplyBase(point, expanded);
+		Edwards25519.pack(publicKey, point);
+		for (int index = 0; index < 32; index++) {
+			secretKey[index] = seed[index];
+			secretKey[32 + index] = publicKey[index];
+		}
+		ConstantTime.wipe(expanded, 64);
+		ConstantTime.wipeLimbs(point, 64);
+	}
+
+	class void clamp(unsigned char* scalar) {
+		scalar[0] &= (unsigned char)248;
+		scalar[31] = (unsigned char)(((int)scalar[31] & 127) | 64);
+	}
+
+	/* The 64-byte signature of `message` under a 64-byte secret key. */
+	class void sign(unsigned char* signature, unsigned char* message, int length, unsigned char* secretKey) {
+		unsigned char expanded[64];
+		unsigned char nonce[64];
+		unsigned char challenge[64];
+		unsigned char encoded[32];
+		long long point[64];
+		SHA512.digest(expanded, secretKey, 32);
+		SHA512 nonceHash = SHA512();
+		nonceHash.update(expanded + 32, 32);
+		nonceHash.update(message, length);
+		nonceHash.finish(nonce);
+		Scalar25519.reduce(nonce);
+		Edwards25519.multiplyBase(point, nonce);
+		Edwards25519.pack(encoded, point);
+		SHA512 challengeHash = SHA512();
+		challengeHash.update(encoded, 32);
+		challengeHash.update(secretKey + 32, 32);
+		challengeHash.update(message, length);
+		challengeHash.finish(challenge);
+		Scalar25519.reduce(challenge);
+		Ed25519.clamp(expanded);
+		for (int index = 0; index < 32; index++) { signature[index] = encoded[index]; }
+		Scalar25519.multiplyAdd(signature + 32, challenge, expanded, nonce);
+		ConstantTime.wipe(expanded, 64);
+		ConstantTime.wipe(nonce, 64);
+		ConstantTime.wipeLimbs(point, 64);
+	}
+
+	/* Whether `signature` is `publicKey`'s signature of `message`. */
+	class bool verify(unsigned char* signature, unsigned char* message, int length, unsigned char* publicKey) {
+		unsigned char challenge[64];
+		unsigned char expected[32];
+		long long p[64];
+		long long q[64];
+		if (!Scalar25519.isCanonical(signature + 32) || Edwards25519.hasSmallOrder(signature)) { return false; }
+		if (!Edwards25519.isCanonical(publicKey) || Edwards25519.hasSmallOrder(publicKey)) { return false; }
+		if (!Edwards25519.unpackNegated(q, publicKey)) { return false; }
+
+		SHA512 challengeHash = SHA512();
+		challengeHash.update(signature, 32);
+		challengeHash.update(publicKey, 32);
+		challengeHash.update(message, length);
+		challengeHash.finish(challenge);
+		Scalar25519.reduce(challenge);
+
+		/* R' = S*B - h*A must be the R the signer sent. */
+		Edwards25519.multiply(p, q, challenge);
+		Edwards25519.multiplyBase(q, signature + 32);
+		Edwards25519.add(p, q);
+		Edwards25519.pack(expected, p);
+		return ConstantTime.equal(expected, signature, 32);
+	}
+}

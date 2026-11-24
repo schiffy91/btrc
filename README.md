@@ -623,7 +623,7 @@ The current groups are:
 | `USB` | Descriptors, emulated devices, HID as a USB interface, USB/IP export and a user-space host; on Linux, kernel-enumerated devices, USB/IP attachment, and this machine as a USB device (gadget) |
 | `HID` | The contract a human interface device implements, apart from the bus that carries it |
 | `Bluetooth` | Addresses, the HID protocol and service record; on Linux, L2CAP channels, the adapter (pairing, discoverability, service records) and a HID device served over the HID profile |
-| `Crypto` | Base64; Ed25519 identities in OpenSSH's formats, a trusted-key file and an encrypted, mutually authenticated channel over a TCP stream (libsodium, Linux and macOS) |
+| `Crypto` | Base64; Ed25519 identities in OpenSSH's formats, a trusted-key file and an encrypted, mutually authenticated channel over a TCP stream (first-party btrc: Ed25519, X25519, BLAKE2b, XChaCha20-Poly1305) |
 | `Steam` | A profile's non-Steam shortcuts: read, change and write `shortcuts.vdf` with every other byte kept, the number and picture names Steam uses |
 
 The everyday surfaces are intentionally practical:

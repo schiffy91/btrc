@@ -71,13 +71,11 @@
             # pkg-config: the C++ owner proof (pugixml) and the owned-output
             # proof (sqlite3). Both suites skip off macOS before probing them.
             pugixml sqlite.dev
-            libsodium.dev   # libsodium.pc: the macOS provider of Library.Crypto
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
             fontconfig.dev libpng.dev libjpeg_turbo.dev alsa-lib.dev   # Linux font, image and audio providers
             (curlHttpTransport pkgs).dev   # libcurl.pc: the Linux HTTP transport (OpenSSL 3, c-ares)
-            libsodium.dev   # libsodium.pc: the Linux provider of Library.Crypto
             openssh   # ssh-keygen: writes the key files the Library.Crypto driver reads back
             xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
             # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
@@ -155,10 +153,6 @@
         # Java bindings read class files through their own reader, never
         # through the header reader (docs/design/native-interop-ownership.md 2.3).
         BTRC_JAVA_CLASS_READER = "${self.packages.${pkgs.stdenv.hostPlatform.system}.btrc-java-class-reader}/bin/btrc-java-class-reader";
-        # libsodium's source at the version the shell's own library is built
-        # from: tools/target_hosts/libsodium.py builds a cross target's static
-        # library from it, so every slice of Library.Crypto links one version.
-        BTRC_LIBSODIUM_SOURCE = "${pkgs.libsodium.src}";
         BTRC_NATIVE_SYSROOT = if isDarwin then "${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk" else "${linuxSysroot}";
         BTRC_NATIVE_TARGET = if isDarwin then "${if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "x86_64"}-apple-macosx${lib.versions.pad 3 pkgs.stdenv.hostPlatform.darwinMinVersion}"
           else "${if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64" else "x86_64"}-unknown-linux-gnu";

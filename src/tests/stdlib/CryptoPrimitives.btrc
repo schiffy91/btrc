@@ -1,0 +1,450 @@
+/* Library.Crypto's first-party primitives against known answers: SHA-512
+ * (FIPS 180-4), BLAKE2b (RFC 7693), X25519 (RFC 7748), Ed25519 (RFC 8032),
+ * ChaCha20 and Poly1305 (RFC 8439), HChaCha20 (draft-irtf-cfrg-xchacha), and
+ * secretstream frames and states captured from libsodium 1.0.22. It also
+ * checks what must be refused: small-order points, non-canonical encodings
+ * and scalars, and altered, repeated or reordered frames. Pure btrc, so every
+ * target runs it. */
+
+import Library.Bytes;
+import Library.Crypto.Primitives.BLAKE2b;
+import Library.Crypto.Primitives.ChaCha20;
+import Library.Crypto.Primitives.Ed25519;
+import Library.Crypto.Primitives.Poly1305;
+import Library.Crypto.Primitives.SHA512;
+import Library.Crypto.Primitives.SecretStream;
+import Library.Crypto.Primitives.X25519;
+import Library.Vector;
+
+class CryptoVectors {
+	private int failures = 0;
+
+	public CryptoVectors() {}
+
+	class Bytes hex(string text) {
+		Bytes? value = Bytes.fromHex(text);
+		if (value == null) { throw "a vector is not hexadecimal"; }
+		return value;
+	}
+
+	class bool scalarIsCanonical(string scalar) {
+		Bytes bytes = CryptoVectors.hex(scalar);
+		return Scalar25519.isCanonical((unsigned char*)bytes.data);
+	}
+
+	class bool hasSmallOrder(string point) {
+		Bytes bytes = CryptoVectors.hex(point);
+		return Edwards25519.hasSmallOrder((unsigned char*)bytes.data);
+	}
+
+	class bool pointIsCanonical(string point) {
+		Bytes bytes = CryptoVectors.hex(point);
+		return Edwards25519.isCanonical((unsigned char*)bytes.data);
+	}
+
+	/* `count` bytes of the repeating pattern 0, 1, ... 250. */
+	class Bytes pattern(int count) {
+		Bytes out = Bytes();
+		for (int index = 0; index < count; index++) { out.append(index % 251); }
+		return out;
+	}
+
+	public void expect(bool held, string what) {
+		if (!held) {
+			self.failures++;
+			print(f"FAIL: {what}");
+		}
+	}
+
+	public void expectBytes(unsigned char* actual, int length, string expected, string what) {
+		Bytes wanted = CryptoVectors.hex(expected);
+		bool same = wanted.length() == length;
+		for (int index = 0; same && index < length; index++) { same = (int)actual[index] == wanted.get(index); }
+		self.expect(same, what);
+	}
+
+	public bool finish(string group) {
+		bool passed = self.failures == 0;
+		if (passed) { print(f"PASS: {group}"); }
+		self.failures = 0;
+		return passed;
+	}
+
+	public void sha512Of(Bytes message, string expected, string what) {
+		unsigned char digest[64];
+		SHA512.digest(digest, (unsigned char*)message.data, message.length());
+		self.expectBytes(digest, 64, expected, what);
+		/* The same message in uneven pieces crosses every buffer boundary. */
+		SHA512 pieces = SHA512();
+		int offset = 0;
+		int step = 1;
+		while (offset < message.length()) {
+			int count = message.length() - offset < step ? message.length() - offset : step;
+			pieces.update((unsigned char*)message.data + offset, count);
+			offset += count;
+			step = step * 3 + 1;
+		}
+		pieces.finish(digest);
+		self.expectBytes(digest, 64, expected, what + ", in pieces");
+	}
+
+	public bool sha512() {
+		string twoBlocks = "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu";
+		self.sha512Of(Bytes(), "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e", "SHA-512 of nothing");
+		self.sha512Of(Bytes.fromString("abc"), "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f", "SHA-512 of abc");
+		self.sha512Of(Bytes.fromString(twoBlocks), "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909", "SHA-512 of two blocks");
+		self.sha512Of(CryptoVectors.pattern(127), "eab89674feaa34e27aebeeff3c0a4d70070bb872d5e9f186cf1dbbdee517b6e35724d629ff025a5b07185e911ada7e3c8acf830aa0e4f71777bd2d44f504f7f0", "SHA-512 of 127 bytes");
+		self.sha512Of(CryptoVectors.pattern(128), "1dffd5e3adb71d45d2245939665521ae001a317a03720a45732ba1900ca3b8351fc5c9b4ca513eba6f80bc7b1d1fdad4abd13491cb824d61b08d8c0e1561b3f7", "SHA-512 of 128 bytes");
+		self.sha512Of(CryptoVectors.pattern(129), "1d9da57fbbdab09afb3506ab2d223d06109d65c1c8ad197f50138f714bc4c3f2fe5787922639c680acad1c651f955990425954ce2cba0c5cc83f2667d878eb0f", "SHA-512 of 129 bytes");
+		self.sha512Of(CryptoVectors.pattern(257), "9fc68cce815c180c9188fad684397a7e9b423b3dadc3a6d3db74538eaec0c63393df5c79983dd62d137bdde627d9b80afa5fa26a976ed9cdca348c2257d9102b", "SHA-512 of 257 bytes");
+
+		/* FIPS 180-4's long message: one million times "a". */
+		unsigned char digest[64];
+		Bytes thousand = Bytes();
+		for (int index = 0; index < 1000; index++) { thousand.append(97); }
+		SHA512 million = SHA512();
+		for (int round = 0; round < 1000; round++) { million.update((unsigned char*)thousand.data, 1000); }
+		million.finish(digest);
+		self.expectBytes(digest, 64, "e718483d0ce769644e2e42c7bc15b4638e1f98b13b2044285632a803afa973ebde0ff244877ea60a4cb0432ce577c31beb009c5c2c49aa2e4eadb217ad8cc09b", "SHA-512 of a million a");
+		bool refused = false;
+		try { million.update((unsigned char*)thousand.data, 1); } catch (string error) { refused = true; }
+		self.expect(refused, "SHA-512 refuses input after its digest");
+		return self.finish("SHA-512");
+	}
+
+	public void blake2bOf(Bytes message, int size, string expected, string what) {
+		unsigned char digest[64];
+		BLAKE2b.digest(digest, size, (unsigned char*)message.data, message.length());
+		self.expectBytes(digest, size, expected, what);
+		BLAKE2b pieces = BLAKE2b(size);
+		int offset = 0;
+		int step = 1;
+		while (offset < message.length()) {
+			int count = message.length() - offset < step ? message.length() - offset : step;
+			pieces.update((unsigned char*)message.data + offset, count);
+			offset += count;
+			step = step * 3 + 1;
+		}
+		pieces.finish(digest);
+		self.expectBytes(digest, size, expected, what + ", in pieces");
+	}
+
+	public bool blake2b() {
+		self.blake2bOf(Bytes(), 64, "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce", "BLAKE2b-512 of nothing");
+		self.blake2bOf(Bytes.fromString("abc"), 64, "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923", "BLAKE2b-512 of abc");
+		self.blake2bOf(Bytes.fromString("abc"), 32, "bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319", "BLAKE2b-256 of abc");
+		self.blake2bOf(Bytes.fromString("abc"), 20, "384264f676f39536840523f284921cdc68b6846b", "BLAKE2b-160 of abc");
+		self.blake2bOf(Bytes(), 32, "0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8", "BLAKE2b-256 of nothing");
+		self.blake2bOf(CryptoVectors.pattern(127), 64, "b6292669ccd38d5f01caae96ba272c76a879a45743afa0725d83b9ebb26665b731f1848c52f11972b6644f554c064fa90780dbbbf3a89d4fc31f67df3e5857ef", "BLAKE2b-512 of 127 bytes");
+		self.blake2bOf(CryptoVectors.pattern(128), 64, "2319e3789c47e2daa5fe807f61bec2a1a6537fa03f19ff32e87eecbfd64b7e0e8ccff439ac333b040f19b0c4ddd11a61e24ac1fe0f10a039806c5dcc0da3d115", "BLAKE2b-512 of 128 bytes");
+		self.blake2bOf(CryptoVectors.pattern(129), 64, "f59711d44a031d5f97a9413c065d1e614c417ede998590325f49bad2fd444d3e4418be19aec4e11449ac1a57207898bc57d76a1bcf3566292c20c683a5c4648f", "BLAKE2b-512 of 129 bytes");
+		self.blake2bOf(CryptoVectors.pattern(256), 64, "93463ac058b6163eb43be3f5bb32b28541498f4e3366f1effe253ad44e1e076e41c3616046027c82a7124f8f4746668ad10b12e8e25a95ac8f3151df01cd5a93", "BLAKE2b-512 of 256 bytes");
+		self.blake2bOf(CryptoVectors.pattern(257), 64, "9ca40e2ddee9436dbbd08efc65dbaf4870059f5eb3d76efd20241ae5bf13c60f250b882ea5c564838257a3fc95c496819ace2c6490b55b268535208dfc31822c", "BLAKE2b-512 of 257 bytes");
+		bool refused = false;
+		try { BLAKE2b(65); } catch (string error) { refused = true; }
+		self.expect(refused, "BLAKE2b refuses a 65-byte digest");
+		return self.finish("BLAKE2b");
+	}
+
+	public void x25519Of(string scalar, string point, string expected, string what) {
+		unsigned char out[32];
+		Bytes secret = CryptoVectors.hex(scalar);
+		Bytes peer = CryptoVectors.hex(point);
+		bool usable = X25519.multiply(out, (unsigned char*)secret.data, (unsigned char*)peer.data);
+		self.expect(usable, what + " is usable");
+		self.expectBytes(out, 32, expected, what);
+	}
+
+	public bool x25519() {
+		/* RFC 7748 section 5.2, then one step of its iterated test. */
+		self.x25519Of("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4", "e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c", "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552", "X25519 vector 1");
+		self.x25519Of("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d", "e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493", "95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957", "X25519 vector 2");
+		string nine = "0900000000000000000000000000000000000000000000000000000000000000";
+		self.x25519Of(nine, nine, "422c8e7a6227d7bca1350b3e2bb7279f7897b87bb6854b783c60e80311ae3079", "X25519 iterated once");
+
+		/* RFC 7748 section 6.1: both sides reach the same secret. */
+		Bytes alice = CryptoVectors.hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+		Bytes bob = CryptoVectors.hex("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb");
+		unsigned char alicePublic[32];
+		unsigned char bobPublic[32];
+		unsigned char shared[32];
+		X25519.publicKey(alicePublic, (unsigned char*)alice.data);
+		X25519.publicKey(bobPublic, (unsigned char*)bob.data);
+		self.expectBytes(alicePublic, 32, "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a", "X25519 Alice's public key");
+		self.expectBytes(bobPublic, 32, "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f", "X25519 Bob's public key");
+		self.expect(X25519.multiply(shared, (unsigned char*)alice.data, bobPublic), "X25519 Alice's secret is usable");
+		self.expectBytes(shared, 32, "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742", "X25519 Alice's secret");
+		self.expect(X25519.multiply(shared, (unsigned char*)bob.data, alicePublic), "X25519 Bob's secret is usable");
+		self.expectBytes(shared, 32, "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742", "X25519 Bob's secret");
+
+		/* The points of small order, in every spelling: no usable secret. */
+		Vector<string> small = [
+			"0000000000000000000000000000000000000000000000000000000000000000",
+			"0100000000000000000000000000000000000000000000000000000000000000",
+			"e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800",
+			"5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157",
+			"ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+			"edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+			"eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"
+		];
+		for point in small {
+			Bytes encoded = CryptoVectors.hex(point);
+			self.expect(!X25519.multiply(shared, (unsigned char*)alice.data, (unsigned char*)encoded.data), "X25519 refuses small-order point " + point);
+			encoded.set(31, encoded.get(31) | 0x80);
+			self.expect(!X25519.multiply(shared, (unsigned char*)alice.data, (unsigned char*)encoded.data), "X25519 refuses small-order point with the top bit, " + point);
+		}
+		return self.finish("X25519");
+	}
+
+	public bool verifies(string publicKey, string message, string signature) {
+		Bytes key = CryptoVectors.hex(publicKey);
+		Bytes text = CryptoVectors.hex(message);
+		Bytes proof = CryptoVectors.hex(signature);
+		return Ed25519.verify((unsigned char*)proof.data, (unsigned char*)text.data, text.length(), (unsigned char*)key.data);
+	}
+
+	public void ed25519Of(string seed, string publicKey, string message, string signature, string what) {
+		unsigned char derived[32];
+		unsigned char secret[64];
+		unsigned char made[64];
+		Bytes text = CryptoVectors.hex(message);
+		Bytes seedBytes = CryptoVectors.hex(seed);
+		Ed25519.keysFromSeed(derived, secret, (unsigned char*)seedBytes.data);
+		self.expectBytes(derived, 32, publicKey, what + " public key");
+		self.expectBytes(secret, 64, seed + publicKey, what + " secret key");
+		Ed25519.sign(made, (unsigned char*)text.data, text.length(), secret);
+		self.expectBytes(made, 64, signature, what + " signature");
+		self.expect(self.verifies(publicKey, message, signature), what + " verifies");
+	}
+
+	public bool ed25519() {
+		/* RFC 8032 section 7.1: tests 1, 2, 3 and SHA(abc). */
+		string key2 = "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c";
+		string signature2 = "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00";
+		self.ed25519Of("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "", "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b", "Ed25519 test 1");
+		self.ed25519Of("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb", key2, "72", signature2, "Ed25519 test 2");
+		self.ed25519Of("c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7", "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025", "af82", "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a", "Ed25519 test 3");
+		self.ed25519Of("833fe62409237b9d62ec77587520911e9a759cec1d19755b7da901b96dca3d42", "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf", "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f", "dc2a4459e7369633a52b1bf277839a00201009a3efbf3ecb69bea2186c26b58909351fc9ac90b3ecfdfbc7c66431e0303dca179c138ac17ad9bef1177331a704", "Ed25519 test SHA(abc)");
+
+		/* Another message, another key, one changed bit in each half. */
+		self.expect(!self.verifies(key2, "73", signature2), "Ed25519 refuses another message");
+		self.expect(!self.verifies("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "72", signature2), "Ed25519 refuses another key");
+		self.expect(!self.verifies(key2, "72", "93a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"), "Ed25519 refuses a changed point");
+		self.expect(!self.verifies(key2, "72", "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da095ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"), "Ed25519 refuses a changed scalar");
+
+		/* The same signature with the group order added to its scalar
+		 * satisfies the equation; only the canonical one is accepted. */
+		self.expect(!self.verifies(key2, "72", "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69daf52db7415978abc61b2c2eb6aeebfca0387b2eaeb4302aeeb00d291612bb0c10"), "Ed25519 refuses a scalar that is not reduced");
+		string order = "edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010";
+		string belowOrder = "ecd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010";
+		self.expect(!CryptoVectors.scalarIsCanonical(order), "the group order is not a canonical scalar");
+		self.expect(CryptoVectors.scalarIsCanonical(belowOrder), "the group order less one is a canonical scalar");
+		self.expect(!CryptoVectors.scalarIsCanonical("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), "all ones is not a canonical scalar");
+
+		/* Points of small order, as the key and as the signature's point,
+		 * with either sign bit. Under such a key the signature below (the
+		 * identity and a zero scalar) satisfies the equation for every
+		 * message, which is why they are refused outright. */
+		Vector<string> small = [
+			"0000000000000000000000000000000000000000000000000000000000000000",
+			"0100000000000000000000000000000000000000000000000000000000000000",
+			"26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+			"c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+			"ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+			"edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+			"eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"
+		];
+		string zeroScalar = "0000000000000000000000000000000000000000000000000000000000000000";
+		string identity = "0100000000000000000000000000000000000000000000000000000000000000";
+		string scalar2 = signature2.substring(64, 64);
+		for point in small {
+			string negated = point.substring(0, 62) + (point.endsWith("7f") ? "ff" : point.endsWith("05") ? "85" : point.endsWith("7a") ? "fa" : "80");
+			self.expect(CryptoVectors.hasSmallOrder(point) && CryptoVectors.hasSmallOrder(negated), "small order is recognized, " + point);
+			self.expect(!self.verifies(point, "72", identity + zeroScalar) && !self.verifies(negated, "72", identity + zeroScalar), "Ed25519 refuses a small-order key, " + point);
+			self.expect(!self.verifies(point, "72", signature2) && !self.verifies(negated, "72", signature2), "Ed25519 refuses a small-order key under a real signature, " + point);
+			self.expect(!self.verifies(key2, "72", point + scalar2) && !self.verifies(key2, "72", negated + scalar2), "Ed25519 refuses a small-order point, " + point);
+		}
+		self.expect(!CryptoVectors.hasSmallOrder(key2), "an ordinary key has no small order");
+
+		/* Three signatures that satisfy the verification equation, so only
+		 * the small-order checks refuse them: the base point with scalar 1
+		 * under the identity as the key; the identity as the point, which
+		 * the holder of test 2's secret can make; and one under the key of
+		 * order 2. */
+		string basePoint = "5866666666666666666666666666666666666666666666666666666666666666";
+		self.expect(!self.verifies(identity, "72", basePoint + identity), "Ed25519 refuses a signature that only the identity key makes valid");
+		self.expect(!self.verifies(key2, "72", identity + "675d054595fa17cb6a44e3ada6ca385e55667e41a63fdab0ac22d10000354002"), "Ed25519 refuses the identity as a signature's point");
+		self.expect(!self.verifies("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", "72", "c9a3f86aae465f0e56513864510f3997561fa2c9e85ea21dc2292309f3cd60220200000000000000000000000000000000000000000000000000000000000000"), "Ed25519 refuses a signature that only the key of order 2 makes valid");
+
+		/* A key whose y is the field prime or more is a second spelling of
+		 * another key: refused. */
+		self.expect(CryptoVectors.pointIsCanonical(key2), "an ordinary key is canonical");
+		self.expect(CryptoVectors.pointIsCanonical("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"), "the field prime less one is canonical");
+		Vector<string> spellings = ["ed", "ee", "ef", "f0", "f5", "fe", "ff"];
+		for first in spellings {
+			string encoding = first + "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+			self.expect(!CryptoVectors.pointIsCanonical(encoding + "7f") && !CryptoVectors.pointIsCanonical(encoding + "ff"), "a y of the field prime or more is not canonical, " + first);
+			self.expect(!self.verifies(encoding + "7f", "72", signature2) && !self.verifies(encoding + "ff", "72", signature2), "Ed25519 refuses a non-canonical key, " + first);
+		}
+		/* Bytes that name no point of the curve. */
+		self.expect(!self.verifies("0200000000000000000000000000000000000000000000000000000000000000", "72", signature2), "Ed25519 refuses a key that is not on the curve");
+		return self.finish("Ed25519");
+	}
+
+	public bool chaCha20AndPoly1305() {
+		Bytes key = CryptoVectors.pattern(32);
+		unsigned char block[64];
+		/* RFC 8439 section 2.3.2: one block of keystream. */
+		Bytes blockNonce = CryptoVectors.hex("000000090000004a00000000");
+		ChaCha20.keystream(block, 64, (unsigned char*)blockNonce.data, 1U, (unsigned char*)key.data);
+		self.expectBytes(block, 64, "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4ed2826446079faa0914c2d705d98b02a2b5129cd1de164eb9cbd083e8a2503c4e", "ChaCha20 block");
+
+		/* Section 2.4.2: 114 bytes, so two blocks and a partial one. */
+		Bytes plain = Bytes.fromString("Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.");
+		Bytes nonce = CryptoVectors.hex("000000000000004a00000000");
+		unsigned char cipher[114];
+		ChaCha20.xorKeystream(cipher, (unsigned char*)plain.data, 114, (unsigned char*)nonce.data, 1U, (unsigned char*)key.data);
+		self.expectBytes(cipher, 114, "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0bf91b65c5524733ab8f593dabcd62b3571639d624e65152ab8f530c359f0861d807ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab77937365af90bbf74a35be6b40b8eedf2785e42874d", "ChaCha20 encryption");
+		ChaCha20.xorKeystream(cipher, cipher, 114, (unsigned char*)nonce.data, 1U, (unsigned char*)key.data);
+		self.expectBytes(cipher, 114, plain.toHex(), "ChaCha20 decryption in place");
+
+		/* draft-irtf-cfrg-xchacha section 2.2.1. */
+		unsigned char derived[32];
+		Bytes subkeyNonce = CryptoVectors.hex("000000090000004a0000000031415927");
+		ChaCha20.subkey(derived, (unsigned char*)subkeyNonce.data, (unsigned char*)key.data);
+		self.expectBytes(derived, 32, "82413b4227b27bfed30e42508a877d73a0f9e4d58a74a853c12ec41326d3ecdc", "HChaCha20");
+
+		/* RFC 8439 section 2.5.2, whole and in two pieces. */
+		Bytes macKey = CryptoVectors.hex("85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b");
+		Bytes text = Bytes.fromString("Cryptographic Forum Research Group");
+		unsigned char tag[16];
+		Poly1305.tag(tag, (unsigned char*)macKey.data, (unsigned char*)text.data, text.length());
+		self.expectBytes(tag, 16, "a8061dc1305136c6c22b8baf0c0127a9", "Poly1305");
+		Poly1305 pieces = Poly1305((unsigned char*)macKey.data);
+		pieces.update((unsigned char*)text.data, 7);
+		pieces.update((unsigned char*)text.data + 7, text.length() - 7);
+		pieces.finish(tag);
+		self.expectBytes(tag, 16, "a8061dc1305136c6c22b8baf0c0127a9", "Poly1305 in pieces");
+		Poly1305.tag(tag, (unsigned char*)macKey.data, (unsigned char*)text.data, 0);
+		self.expectBytes(tag, 16, "0103808afb0db2fd4abff6af4149f51b", "Poly1305 of nothing");
+
+		/* All-ones key and message drive every carry and the last reduction. */
+		Bytes ones = Bytes();
+		for (int index = 0; index < 48; index++) { ones.append(255); }
+		Poly1305.tag(tag, (unsigned char*)ones.data, (unsigned char*)ones.data, 48);
+		self.expectBytes(tag, 16, "5efc6a6b51fcec4c787c5075997c95e4", "Poly1305 of 48 ones");
+		Poly1305.tag(tag, (unsigned char*)ones.data, (unsigned char*)ones.data, 17);
+		self.expectBytes(tag, 16, "7cfe7ff768f81f2763f8bf565df85f86", "Poly1305 of 17 ones");
+		return self.finish("ChaCha20 and Poly1305");
+	}
+
+	/* Seal `message` and check the sealed bytes; returns them. */
+	public Bytes seals(unsigned char* state, Bytes message, int tag, string expected, string what) {
+		Bytes sealed = Bytes.zeros(message.length() + 17);
+		int length = SecretStream.seal(state, (unsigned char*)sealed.data, (unsigned char*)message.data, message.length(), tag);
+		self.expect(length == message.length() + 17, what + " length");
+		self.expectBytes((unsigned char*)sealed.data, sealed.length(), expected, what);
+		return sealed;
+	}
+
+	/* Open `sealed` and check the message and the sender's tag. */
+	public void opens(unsigned char* state, Bytes sealed, Bytes message, int tag, string what) {
+		Bytes opened = Bytes.zeros(sealed.length());
+		unsigned char sent[1];
+		sent[0] = (unsigned char)255;
+		int length = SecretStream.open(state, (unsigned char*)opened.data, sent, (unsigned char*)sealed.data, sealed.length());
+		self.expect(length == message.length() && (int)sent[0] == tag, what + " opens");
+		self.expect(length == message.length() && opened.slice(0, message.length()).equals(message), what + " opens to the message");
+	}
+
+	public bool refuses(unsigned char* state, Bytes sealed) {
+		unsigned char before[52];
+		unsigned char sent[1];
+		Bytes opened = Bytes.zeros(sealed.length() + 1);
+		for (int index = 0; index < 52; index++) { before[index] = state[index]; }
+		bool refused = SecretStream.open(state, (unsigned char*)opened.data, sent, (unsigned char*)sealed.data, sealed.length()) == -1;
+		for (int index = 0; index < 52; index++) { refused = refused && before[index] == state[index]; }
+		return refused;
+	}
+
+	/* Frames and states captured from libsodium 1.0.22's
+	 * crypto_secretstream_xchacha20poly1305 for key 00..1f and header 40..57. */
+	public bool secretStream() {
+		Bytes key = CryptoVectors.pattern(32);
+		Bytes header = Bytes();
+		for (int index = 0; index < 24; index++) { header.append(0x40 + index); }
+		unsigned char sending[52];
+		unsigned char receiving[52];
+		SecretStream.begin(sending, (unsigned char*)header.data, (unsigned char*)key.data);
+		SecretStream.begin(receiving, (unsigned char*)header.data, (unsigned char*)key.data);
+		self.expect(SecretStream.seal(sending, null, null, 2147483647 - 16, SECRET_STREAM_MESSAGE) == -1, "sealed length must fit in an int");
+		self.expectBytes(sending, 52, "001b38f1bc654a0470f0172049103eccb67d8bb16b11d2a468db66a2dd53d47d0100000050515253545556570000000000000000", "secretstream initial state");
+
+		Bytes message1 = Bytes();
+		Bytes message2 = Bytes.fromString("first-party");
+		Bytes message3 = CryptoVectors.pattern(64);
+		Bytes message4 = Bytes.fromString("rekey after this");
+		Bytes message5 = Bytes();
+		for (int index = 0; index < 100; index++) { message5.append(index * 7 % 256); }
+		Bytes message6 = Bytes.fromString("the counter wraps");
+		Bytes message7 = Bytes.fromString("last");
+
+		Bytes frame1 = self.seals(sending, message1, SECRET_STREAM_MESSAGE, "0dff2db0dcccf8b9cea79016f3d4ae8e52", "secretstream frame 1");
+		Bytes frame2 = self.seals(sending, message2, SECRET_STREAM_MESSAGE, "296d379956219b8fb33877456333ce376c1ac51c4e870a8ab6e5f7cc", "secretstream frame 2");
+		Bytes frame3 = self.seals(sending, message3, SECRET_STREAM_MESSAGE, "1ea93c39fd9b133f010efb40da3d2a9a7014d275b907cfd18a1b7b54953f04cfe58ef934824a658a624fcb44f1cadf43d38d9db77dc9ba99767f7aa5870be3bd6fc0d977c9465656a207ed19623e489508", "secretstream frame 3");
+		Bytes frame4 = self.seals(sending, message4, SECRET_STREAM_REKEY, "58d89f0e4326d1f8b89104f1f2dfde6d15c30bfb84b04336483158186456d7b5f7", "secretstream frame 4");
+		self.expectBytes(sending, 52, "e8691d264828845cddd66b0ddd50d2182bbe43cb969cddd44e92e1b03925994701000000ed5abd3e1d7835e70000000000000000", "secretstream state after a rekey");
+		Bytes frame5 = self.seals(sending, message5, SECRET_STREAM_PUSH, "26c266d3a41bf86ba602fb26fee5952448b3b1b12e8175a38680924e33af30f538c3de03e8daca19780c3e8fef50b2c4bbcddf505c44c2e0c3250c217da2907a82b3defadba653720e9695c2fe4211a3ee8b2f0aa820d8ce9e50f2ad1c04c5e6825412bca8699440b4e58da3b3462e9bb5a19948dc", "secretstream frame 5");
+		/* The next message is the last before the 32-bit counter wraps. */
+		for (int index = 0; index < 4; index++) { sending[32 + index] = (unsigned char)255; }
+		Bytes frame6 = self.seals(sending, message6, SECRET_STREAM_MESSAGE, "75057c8dc59930e384780d75362821eaeb0f666d22f48f6b1a830d518421378d347d", "secretstream frame 6");
+		self.expectBytes(sending, 52, "cc5abf6678227e664cfb9579fce6384701ba7dd9b3f6aa564d8bd52aefae9a0201000000a70865412ee55da60000000000000000", "secretstream state after the counter wraps");
+		Bytes frame7 = self.seals(sending, message7, SECRET_STREAM_FINAL, "5686118b8d11aff3d0e7257783e83558b3f8702b8a", "secretstream frame 7");
+		self.expectBytes(sending, 52, "83c3a16b961a326acf34ca5efbd7058a004fc7d7dbce3b2ce3aa5aea2fb1062101000000c3680574d1d245f70000000000000000", "secretstream final state");
+
+		/* The receiver: out of order, altered, cut short or repeated is
+		 * refused and leaves its state alone; in order, each frame opens. */
+		self.expect(self.refuses(receiving, frame2), "secretstream refuses a frame ahead of its turn");
+		Bytes altered = frame1.slice(0, frame1.length());
+		altered.set(0, altered.get(0) ^ 1);
+		self.expect(self.refuses(receiving, altered), "secretstream refuses a changed tag byte");
+		self.opens(receiving, frame1, message1, SECRET_STREAM_MESSAGE, "secretstream frame 1");
+		self.expect(self.refuses(receiving, frame1), "secretstream refuses a repeated frame");
+		for (int index = 0; index < frame2.length(); index++) {
+			altered = frame2.slice(0, frame2.length());
+			altered.set(index, altered.get(index) ^ 0x80);
+			self.expect(self.refuses(receiving, altered), f"secretstream refuses a frame changed at byte {index}");
+		}
+		self.expect(self.refuses(receiving, frame2.slice(0, frame2.length() - 1)), "secretstream refuses a frame cut short");
+		self.expect(self.refuses(receiving, frame2.slice(0, 16)) && self.refuses(receiving, Bytes()), "secretstream refuses less than an empty frame");
+		self.opens(receiving, frame2, message2, SECRET_STREAM_MESSAGE, "secretstream frame 2");
+		self.opens(receiving, frame3, message3, SECRET_STREAM_MESSAGE, "secretstream frame 3");
+		self.expect(self.refuses(receiving, frame5), "secretstream refuses a frame from after a rekey");
+		self.opens(receiving, frame4, message4, SECRET_STREAM_REKEY, "secretstream frame 4");
+		self.expectBytes(receiving, 52, "e8691d264828845cddd66b0ddd50d2182bbe43cb969cddd44e92e1b03925994701000000ed5abd3e1d7835e70000000000000000", "secretstream receiver state after a rekey");
+		self.expect(self.refuses(receiving, frame4), "secretstream refuses a frame from before a rekey");
+		self.opens(receiving, frame5, message5, SECRET_STREAM_PUSH, "secretstream frame 5");
+		for (int index = 0; index < 4; index++) { receiving[32 + index] = (unsigned char)255; }
+		self.opens(receiving, frame6, message6, SECRET_STREAM_MESSAGE, "secretstream frame 6");
+		self.opens(receiving, frame7, message7, SECRET_STREAM_FINAL, "secretstream frame 7");
+		self.expectBytes(receiving, 52, "83c3a16b961a326acf34ca5efbd7058a004fc7d7dbce3b2ce3aa5aea2fb1062101000000c3680574d1d245f70000000000000000", "secretstream receiver final state");
+
+		/* Another key opens nothing. */
+		Bytes otherKey = CryptoVectors.pattern(32);
+		otherKey.set(31, 0);
+		SecretStream.begin(receiving, (unsigned char*)header.data, (unsigned char*)otherKey.data);
+		self.expect(self.refuses(receiving, frame1), "secretstream refuses a frame under another key");
+		return self.finish("secretstream");
+	}
+}
+
+int main() {
+	CryptoVectors vectors = CryptoVectors();
+	bool passed = vectors.sha512();
+	passed = vectors.blake2b() && passed;
+	passed = vectors.x25519() && passed;
+	passed = vectors.ed25519() && passed;
+	passed = vectors.chaCha20AndPoly1305() && passed;
+	passed = vectors.secretStream() && passed;
+	return passed ? 0 : 1;
+}

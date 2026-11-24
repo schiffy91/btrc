@@ -1,0 +1,32 @@
+/* Operations on secret bytes whose timing and effect must not depend on the
+ * bytes: comparison without an early exit, and zeroing the C compiler cannot
+ * remove as a dead store. */
+
+class ConstantTime {
+	/* Overwrite `length` bytes with zeros. Every store goes through a
+	 * volatile view, which makes it observable, so the loop survives
+	 * optimization even when the memory is never read again. */
+	class void wipe(volatile unsigned char* data, int length) {
+		for (int index = 0; index < length; index++) { data[index] = (unsigned char)0; }
+	}
+
+	/* Zero `count` 64-bit limbs. */
+	class void wipeLimbs(volatile long long* limbs, int count) {
+		for (int index = 0; index < count; index++) { limbs[index] = 0LL; }
+	}
+
+	/* Whether two buffers hold the same `length` bytes; every byte is read
+	 * whatever the earlier ones were. */
+	class bool equal(unsigned char* left, unsigned char* right, int length) {
+		unsigned int difference = 0U;
+		for (int index = 0; index < length; index++) { difference |= (unsigned int)left[index] ^ (unsigned int)right[index]; }
+		return ((difference - 1U) >> 8) != 0U;
+	}
+
+	/* Whether all `length` bytes are zero. */
+	class bool isZero(unsigned char* data, int length) {
+		unsigned int seen = 0U;
+		for (int index = 0; index < length; index++) { seen |= (unsigned int)data[index]; }
+		return ((seen - 1U) >> 8) != 0U;
+	}
+}

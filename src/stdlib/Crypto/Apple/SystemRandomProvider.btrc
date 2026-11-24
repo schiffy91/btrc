@@ -1,0 +1,10 @@
+/* Random bytes on macOS, iOS and iPadOS: `arc4random_buf`, which the system
+ * seeds from the kernel's generator and which cannot fail. */
+
+#include <stdlib.h>
+
+class SystemRandomProvider {
+	class void fill(unsigned char* out, int length) {
+		if (length > 0) { arc4random_buf(out, (size_t)length); }
+	}
+}

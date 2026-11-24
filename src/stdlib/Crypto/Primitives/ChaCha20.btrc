@@ -1,0 +1,98 @@
+/* ChaCha20 (RFC 8439) with a 32-byte key, a 12-byte nonce and a 32-bit block
+ * counter, and HChaCha20, which turns a key and 16 nonce bytes into a subkey
+ * (the X in XChaCha20). Only additions, rotations and exclusive-ors of whole
+ * words: nothing depends on the key or the data being enciphered. */
+
+import Library.Crypto.Primitives.ConstantTime;
+
+class ChaCha20 {
+	class unsigned int load(unsigned char* bytes) { return (unsigned int)bytes[0] | ((unsigned int)bytes[1] << 8) | ((unsigned int)bytes[2] << 16) | ((unsigned int)bytes[3] << 24); }
+
+	class void store(unsigned char* bytes, unsigned int word) {
+		bytes[0] = (unsigned char)(word & 0xffU);
+		bytes[1] = (unsigned char)((word >> 8) & 0xffU);
+		bytes[2] = (unsigned char)((word >> 16) & 0xffU);
+		bytes[3] = (unsigned char)((word >> 24) & 0xffU);
+	}
+
+	class unsigned int rotateLeft(unsigned int value, int count) { return (value << count) | (value >> (32 - count)); }
+
+	class void quarterRound(unsigned int* x, int a, int b, int c, int d) {
+		x[a] = x[a] + x[b];
+		x[d] = ChaCha20.rotateLeft(x[d] ^ x[a], 16);
+		x[c] = x[c] + x[d];
+		x[b] = ChaCha20.rotateLeft(x[b] ^ x[c], 12);
+		x[a] = x[a] + x[b];
+		x[d] = ChaCha20.rotateLeft(x[d] ^ x[a], 8);
+		x[c] = x[c] + x[d];
+		x[b] = ChaCha20.rotateLeft(x[b] ^ x[c], 7);
+	}
+
+	/* The 20 rounds, in place on 16 words. */
+	class void permute(unsigned int* x) {
+		for (int round = 0; round < 10; round++) {
+			ChaCha20.quarterRound(x, 0, 4, 8, 12);
+			ChaCha20.quarterRound(x, 1, 5, 9, 13);
+			ChaCha20.quarterRound(x, 2, 6, 10, 14);
+			ChaCha20.quarterRound(x, 3, 7, 11, 15);
+			ChaCha20.quarterRound(x, 0, 5, 10, 15);
+			ChaCha20.quarterRound(x, 1, 6, 11, 12);
+			ChaCha20.quarterRound(x, 2, 7, 8, 13);
+			ChaCha20.quarterRound(x, 3, 4, 9, 14);
+		}
+	}
+
+	/* "expand 32-byte k", then the key. */
+	class void setKey(unsigned int* x, unsigned char* key) {
+		x[0] = 0x61707865U;
+		x[1] = 0x3320646eU;
+		x[2] = 0x79622d32U;
+		x[3] = 0x6b206574U;
+		for (int index = 0; index < 8; index++) { x[4 + index] = ChaCha20.load(key + 4 * index); }
+	}
+
+	/* `out = input XOR keystream`, for the keystream that starts at block
+	 * `counter`. `out` may be `input`. */
+	class void xorKeystream(unsigned char* out, unsigned char* input, int length, unsigned char* nonce, unsigned int counter, unsigned char* key) {
+		unsigned int initial[16];
+		unsigned int x[16];
+		unsigned char block[64];
+		ChaCha20.setKey(initial, key);
+		initial[12] = counter;
+		initial[13] = ChaCha20.load(nonce);
+		initial[14] = ChaCha20.load(nonce + 4);
+		initial[15] = ChaCha20.load(nonce + 8);
+		int offset = 0;
+		while (offset < length) {
+			for (int index = 0; index < 16; index++) { x[index] = initial[index]; }
+			ChaCha20.permute(x);
+			for (int index = 0; index < 16; index++) { ChaCha20.store(block + 4 * index, x[index] + initial[index]); }
+			int count = length - offset < 64 ? length - offset : 64;
+			for (int index = 0; index < count; index++) { out[offset + index] = (unsigned char)((unsigned int)input[offset + index] ^ (unsigned int)block[index]); }
+			offset += count;
+			initial[12] = initial[12] + 1U;
+		}
+		ConstantTime.wipe((unsigned char*)initial, 64);
+		ConstantTime.wipe((unsigned char*)x, 64);
+		ConstantTime.wipe(block, 64);
+	}
+
+	/* `length` bytes of keystream starting at block `counter`. */
+	class void keystream(unsigned char* out, int length, unsigned char* nonce, unsigned int counter, unsigned char* key) {
+		for (int index = 0; index < length; index++) { out[index] = (unsigned char)0; }
+		ChaCha20.xorKeystream(out, out, length, nonce, counter, key);
+	}
+
+	/* HChaCha20: a 32-byte subkey from a key and 16 bytes of nonce. */
+	class void subkey(unsigned char* out, unsigned char* nonce, unsigned char* key) {
+		unsigned int x[16];
+		ChaCha20.setKey(x, key);
+		for (int index = 0; index < 4; index++) { x[12 + index] = ChaCha20.load(nonce + 4 * index); }
+		ChaCha20.permute(x);
+		for (int index = 0; index < 4; index++) {
+			ChaCha20.store(out + 4 * index, x[index]);
+			ChaCha20.store(out + 16 + 4 * index, x[12 + index]);
+		}
+		ConstantTime.wipe((unsigned char*)x, 64);
+	}
+}

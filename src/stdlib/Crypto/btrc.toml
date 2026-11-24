@@ -2,25 +2,39 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_crypto"
-exports = ["Base64", "Crypto", "SecureChannel", "SigningKey", "Sodium", "TrustedKeys"]
+exports = [
+	"Base64", "Crypto", "SecureChannel", "SigningKey", "Sodium", "TrustedKeys",
+	"Primitives.BLAKE2b", "Primitives.ChaCha20", "Primitives.Ed25519", "Primitives.Poly1305",
+	"Primitives.SHA512", "Primitives.SecretStream", "Primitives.X25519"
+]
+
+# The primitives are portable btrc. Sodium's only target-specific part is the
+# system's random generator, which each OS names here.
+[[package.providers]]
+module = "Sodium"
+implementation = "Unix.SystemRandomProvider"
+os = ["linux", "android"]
 
 [[package.providers]]
 module = "Sodium"
-implementation = "Unix.SodiumProvider"
-os = ["linux", "macos", "ios"]
+implementation = "Apple.SystemRandomProvider"
+os = ["macos", "ios"]
 
 [[package.providers]]
-module = "SigningKey"
+module = "Sodium"
+implementation = "Windows.SystemRandomProvider"
+os = ["windows"]
+
+# SigningKey is btrc over Sodium and has no row: it builds wherever Sodium
+# does. The rows below are selection only. TrustedKeys keeps its file private
+# with a POSIX mode; SecureChannel runs over Library.Network's TCPStream.
+[[package.providers]]
+module = "TrustedKeys"
 implementation = "Unix.CryptoProvider"
-os = ["linux", "macos", "ios"]
+os = ["linux", "macos", "ios", "android"]
 
 [[package.providers]]
 module = "SecureChannel"
-implementation = "Unix.CryptoProvider"
-os = ["linux", "macos", "ios"]
-
-[[package.providers]]
-module = "TrustedKeys"
 implementation = "Unix.CryptoProvider"
 os = ["linux", "macos", "ios"]
 
@@ -29,28 +43,18 @@ module = "Crypto"
 implementation = "Unix.CryptoProvider"
 os = ["linux", "macos", "ios"]
 
-[[native.pkg-config]]
-name = "libsodium"
-modules = ["Unix.SodiumProvider"]
-os = ["linux", "macos"]
-
-# An iOS program has no pkg-config search path: it links the static library
-# tools/target_hosts/libsodium.py builds for its target, which its build names
-# the directory of.
-[[native.libraries]]
-name = "sodium"
-modules = ["Unix.SodiumProvider"]
-os = ["ios"]
-
+# bcrypt.dll is part of Windows; its import library comes with the toolchain.
 [[native.bindings]]
-module = "Unix.SodiumProvider"
-header = "Unix/Sodium.h"
+module = "Windows.SystemRandomProvider"
+header = "Windows/SystemRandom.h"
 language = "c"
 standard = "c11"
-symbols = [
-	"btrcSodiumStart", "btrcSodiumRandom", "btrcSodiumWipe",
-	"btrcSodiumSigningKeys", "btrcSodiumSign", "btrcSodiumVerify",
-	"btrcSodiumExchangeKeys", "btrcSodiumSessionKeys", "btrcSodiumHash", "btrcSodiumSHA256",
-	"btrcSodiumBeginSending", "btrcSodiumBeginReceiving", "btrcSodiumSeal", "btrcSodiumOpen"
-]
-os = ["linux", "macos", "ios"]
+symbols = ["ULONG", "BCryptGenRandom", "BCRYPT_USE_SYSTEM_PREFERRED_RNG"]
+os = ["windows"]
+env = ["gnu"]
+
+[[native.libraries]]
+name = "bcrypt"
+modules = ["Windows.SystemRandomProvider"]
+os = ["windows"]
+env = ["gnu"]

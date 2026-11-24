@@ -26,7 +26,6 @@ failure names the module, the target and the dependency.
 | libdbus | `Tray/Linux/LinuxTray` | linux | headers `dbus/dbus.h`; pkg-config `dbus-1` | A first-party D-Bus client: the wire protocol over the bus's own socket. |
 | libjpeg-turbo | `Image/Linux/LinuxEncodedImageDecoder` | linux | headers `turbojpeg.h`; pkg-config `libturbojpeg` | Library.Image.JPEG, the first-party codec already in the tree. |
 | libpng | `Image/Linux/LinuxEncodedImageDecoder` | linux | headers `png.h`; pkg-config `libpng` | A first-party PNG decoder in BTRC, used on every target without a system decoder. |
-| libsodium | `Crypto/Unix/SodiumProvider` | ios, linux, macos | headers `sodium.h`; libraries `sodium`; pkg-config `libsodium` | One portable BTRC implementation of the primitives (Ed25519, X25519, BLAKE2b, SHA-2, XChaCha20-Poly1305 secretstream) with the system's random source, wire-compatible with libsodium, on every target. |
 | libwayland-client | `GUI/Shim/Shim` | linux | headers `wayland-client.h`; pkg-config `wayland-client` | The Wayland wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects. |
 | musl's regex, glob and fnmatch (bundled source) | `Pattern` | windows | bundled `src/runtime/windows/musl` | A first-party matcher; Windows supplies no POSIX regex. |
 | musl's regex, glob and fnmatch (bundled source) | `Regex` | windows | bundled `src/runtime/windows/musl` | A first-party matcher; Windows supplies no POSIX regex. |
