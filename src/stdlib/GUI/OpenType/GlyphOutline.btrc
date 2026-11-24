@@ -22,6 +22,9 @@ class GlyphOutline {
 	private Vector<int> kinds = [];
 	private Vector<int> ends = [];
 
+	/* A composite shares this outline with all of its components. */
+	public bool hasGlyphProgram = false;
+
 	public GlyphOutline() {}
 
 	public int pointCount() { return self.xs.size(); }
