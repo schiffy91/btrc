@@ -1,0 +1,528 @@
+import Library.Array;
+import Library.Callback;
+import Library.Image;
+import Library.GPU.GPUCompletionPump;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUReadback;
+import Library.GPU.WebGPU;
+
+enum GPUTextureFormat {
+	GPU_FORMAT_RGBA8_UNORM,
+	GPU_FORMAT_BGRA8_UNORM,
+	GPU_FORMAT_R8_UNORM,
+	GPU_FORMAT_R16_UINT,
+	GPU_FORMAT_RGBA16_FLOAT,
+	GPU_FORMAT_RGBA32_FLOAT,
+	GPU_FORMAT_RGB10A2_UNORM
+};
+
+enum GPUTextureDimension {
+	GPU_TEXTURE_2D,
+	GPU_TEXTURE_2D_ARRAY,
+	GPU_TEXTURE_3D
+};
+
+/* Multi-format 2D, 2D-array, and 3D GPU texture with safe typed uploads,
+ * per-layer 2D storage/render views, IEEE-754 half-float packing, and readback. */
+class GPUTexture {
+	private GPUDevice _device;
+	private GPUTextureFormat _format;
+	private GPUTextureDimension _dimension;
+	private int _width;
+	private int _height;
+	private int _depthOrLayers;
+	private bool _storage;
+	private bool _renderTarget;
+	private bool _copySrc;
+	private WGPUTexture _texture = null;
+	private WGPUTextureView _view = null;
+	private WGPUSampler _sampler = null;
+	private Array<WGPUTextureView>? _layerViews = null;
+
+	class int bytesPerPixel(GPUTextureFormat format) {
+		if (format == GPU_FORMAT_R8_UNORM) { return 1; }
+		if (format == GPU_FORMAT_R16_UINT) { return 2; }
+		if (format == GPU_FORMAT_RGBA8_UNORM || format == GPU_FORMAT_BGRA8_UNORM || format == GPU_FORMAT_RGB10A2_UNORM) { return 4; }
+		if (format == GPU_FORMAT_RGBA16_FLOAT) { return 8; }
+		return 16;
+	}
+
+	class WGPUTextureFormat toNativeFormat(GPUTextureFormat format) {
+		if (format == GPU_FORMAT_RGBA8_UNORM) { return WGPUTextureFormat_RGBA8Unorm; }
+		if (format == GPU_FORMAT_BGRA8_UNORM) { return WGPUTextureFormat_BGRA8Unorm; }
+		if (format == GPU_FORMAT_R8_UNORM) { return WGPUTextureFormat_R8Unorm; }
+		if (format == GPU_FORMAT_R16_UINT) { return WGPUTextureFormat_R16Uint; }
+		if (format == GPU_FORMAT_RGBA16_FLOAT) { return WGPUTextureFormat_RGBA16Float; }
+		if (format == GPU_FORMAT_RGBA32_FLOAT) { return WGPUTextureFormat_RGBA32Float; }
+		return WGPUTextureFormat_RGB10A2Unorm;
+	}
+
+	class bool isFilterableFormat(GPUTextureFormat format) { return format != GPU_FORMAT_R16_UINT && format != GPU_FORMAT_RGBA32_FLOAT; }
+
+	/* IEEE-754 binary32 -> binary16 (round-to-nearest-even). */
+	class unsigned short floatToHalf(float value) {
+		uint32_t bits = 0u;
+		memcpy(&bits, &value, sizeof(uint32_t));
+		uint32_t sign = (bits >> 16u) & 0x8000u;
+		uint32_t exp = (bits >> 23u) & 0xFFu;
+		uint32_t frac = bits & 0x7FFFFFu;
+		if (exp == 0xFFu) {
+			if (frac != 0u) { return (unsigned short)(sign | 0x7E00u | (frac >> 13u)); }
+			return (unsigned short)(sign | 0x7C00u);
+		}
+		int unbiased = (int)exp - 127;
+		if (unbiased < -24) { return (unsigned short)sign; }
+		if (unbiased < -14) {
+			uint32_t mant = frac | 0x800000u;
+			int shift = -14 - unbiased;
+			uint32_t halfMant = mant >> (uint32_t)(shift + 13);
+			return (unsigned short)(sign | halfMant);
+		}
+		if (unbiased > 15) { return (unsigned short)(sign | 0x7C00u); }
+		uint32_t halfExp = (uint32_t)(unbiased + 15) << 10u;
+		uint32_t halfFrac = frac >> 13u;
+		uint32_t roundBit = (frac >> 12u) & 1u;
+		uint32_t sticky = (frac & 0xFFFu) != 0u ? 1u : 0u;
+		uint32_t result = sign | halfExp | halfFrac;
+		if (roundBit != 0u && (sticky != 0u || (halfFrac & 1u) != 0u)) { result++; }
+		return (unsigned short)result;
+	}
+
+	/* IEEE-754 binary16 -> binary32. */
+	class float halfToFloat(unsigned short halfBits) {
+		uint32_t h = (uint32_t)halfBits;
+		uint32_t sign = (h & 0x8000u) << 16u;
+		uint32_t exp = (h >> 10u) & 0x1Fu;
+		uint32_t frac = h & 0x3FFu;
+		uint32_t bits = 0u;
+		if (exp == 0u) {
+			if (frac == 0u) {
+				bits = sign;
+			} else {
+				uint32_t e = 113u;
+				while ((frac & 0x400u) == 0u) {
+					frac <<= 1u;
+					e--;
+				}
+				frac &= 0x3FFu;
+				bits = sign | (e << 23u) | (frac << 13u);
+			}
+		} else if (exp == 31u) {
+			bits = sign | 0x7F800000u | (frac << 13u);
+		} else {
+			bits = sign | ((exp + 112u) << 23u) | (frac << 13u);
+		}
+		float out = 0.0f;
+		memcpy(&out, &bits, sizeof(float));
+		return out;
+	}
+
+	private GPUTexture(GPUDevice device, GPUTextureDimension dimension, int width, int height, int depthOrLayers, GPUTextureFormat format, bool storage, bool renderTarget, bool copySrc, bool linearFilter) {
+		if (width <= 0 || height <= 0 || depthOrLayers <= 0) { throw "GPU texture dimensions must be positive"; }
+		self._device = device;
+		self._dimension = dimension;
+		self._width = width;
+		self._height = height;
+		self._depthOrLayers = depthOrLayers;
+		self._format = format;
+		self._storage = storage;
+		self._renderTarget = renderTarget;
+		self._copySrc = copySrc;
+		var nativeDevice = device.nativeDevice();
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(nativeDevice, &limits) != WGPUStatus_Success) { throw "Cannot read GPU device limits"; }
+		if (dimension == GPU_TEXTURE_3D) {
+			if ((uint32_t)width > limits.maxTextureDimension3D || (uint32_t)height > limits.maxTextureDimension3D || (uint32_t)depthOrLayers > limits.maxTextureDimension3D) { throw "3D GPU texture exceeds device limits"; }
+		} else {
+			if ((uint32_t)width > limits.maxTextureDimension2D || (uint32_t)height > limits.maxTextureDimension2D || (uint32_t)depthOrLayers > limits.maxTextureArrayLayers) { throw "2D GPU texture exceeds device limits"; }
+		}
+		WGPUTextureDescriptor descriptor = {null};
+		descriptor.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+		if (storage) { descriptor.usage |= WGPUTextureUsage_StorageBinding; }
+		if (renderTarget) { descriptor.usage |= WGPUTextureUsage_RenderAttachment; }
+		if (copySrc) { descriptor.usage |= WGPUTextureUsage_CopySrc; }
+		descriptor.dimension = dimension == GPU_TEXTURE_3D ? WGPUTextureDimension_3D : WGPUTextureDimension_2D;
+		descriptor.size.width = (uint32_t)width;
+		descriptor.size.height = (uint32_t)height;
+		descriptor.size.depthOrArrayLayers = (uint32_t)depthOrLayers;
+		descriptor.format = GPUTexture.toNativeFormat(format);
+		descriptor.mipLevelCount = 1u;
+		descriptor.sampleCount = 1u;
+		self._texture = wgpuDeviceCreateTexture(nativeDevice, &descriptor);
+		if (self._texture == null) { throw "Cannot allocate GPU texture"; }
+		WGPUTextureViewDescriptor viewDesc;
+		memset(&viewDesc, 0, sizeof(WGPUTextureViewDescriptor));
+		viewDesc.format = descriptor.format;
+		viewDesc.dimension = dimension == GPU_TEXTURE_3D ? WGPUTextureViewDimension_3D : (dimension == GPU_TEXTURE_2D_ARRAY ? WGPUTextureViewDimension_2DArray : WGPUTextureViewDimension_2D);
+		viewDesc.baseMipLevel = 0u;
+		viewDesc.mipLevelCount = 1u;
+		viewDesc.baseArrayLayer = 0u;
+		viewDesc.arrayLayerCount = dimension == GPU_TEXTURE_3D ? 1u : (uint32_t)depthOrLayers;
+		viewDesc.aspect = WGPUTextureAspect_All;
+		self._view = wgpuTextureCreateView(self._texture, &viewDesc);
+		bool useLinear = linearFilter && GPUTexture.isFilterableFormat(format);
+		WGPUSamplerDescriptor sampler = {null};
+		sampler.addressModeU = WGPUAddressMode_ClampToEdge;
+		sampler.addressModeV = WGPUAddressMode_ClampToEdge;
+		sampler.addressModeW = WGPUAddressMode_ClampToEdge;
+		sampler.magFilter = useLinear ? WGPUFilterMode_Linear : WGPUFilterMode_Nearest;
+		sampler.minFilter = useLinear ? WGPUFilterMode_Linear : WGPUFilterMode_Nearest;
+		sampler.mipmapFilter = WGPUMipmapFilterMode_Nearest;
+		sampler.maxAnisotropy = 1u;
+		if (self._view != null) { self._sampler = wgpuDeviceCreateSampler(nativeDevice, &sampler); }
+		if (self._view == null || self._sampler == null) { self.close(); throw "Cannot create GPU texture view or sampler"; }
+	}
+
+	class GPUTexture create2D(GPUDevice device, int width, int height, GPUTextureFormat format, bool storage = false, bool renderTarget = false, bool copySrc = false, bool linearFilter = true) { return GPUTexture(device, GPU_TEXTURE_2D, width, height, 1, format, storage, renderTarget, copySrc, linearFilter); }
+
+	class GPUTexture createArray(GPUDevice device, int width, int height, int layers, GPUTextureFormat format, bool storage = false, bool copySrc = false, bool linearFilter = true) { return GPUTexture(device, GPU_TEXTURE_2D_ARRAY, width, height, layers, format, storage, false, copySrc, linearFilter); }
+
+	class GPUTexture create3D(GPUDevice device, int width, int height, int depth, GPUTextureFormat format, bool copySrc = false, bool linearFilter = true) { return GPUTexture(device, GPU_TEXTURE_3D, width, height, depth, format, false, false, copySrc, linearFilter); }
+
+	private void requireOpen() { if (self._texture == null) { throw "GPU texture is closed"; } }
+
+	public bool isOpen() { return self._texture != null; }
+
+	public GPUDevice device() { self.requireOpen(); return self._device; }
+
+	public int width() { self.requireOpen(); return self._width; }
+
+	public int height() { self.requireOpen(); return self._height; }
+
+	public int depthOrLayers() { self.requireOpen(); return self._depthOrLayers; }
+
+	public GPUTextureFormat format() { self.requireOpen(); return self._format; }
+
+	public GPUTextureDimension dimension() { self.requireOpen(); return self._dimension; }
+
+	public WGPUTextureFormat nativeFormat() { self.requireOpen(); return GPUTexture.toNativeFormat(self._format); }
+
+	public WGPUTexture nativeTexture() { self.requireOpen(); return self._texture; }
+
+	public WGPUTextureView nativeView() { self.requireOpen(); return self._view; }
+
+	public WGPUSampler nativeSampler() { self.requireOpen(); return self._sampler; }
+
+	/* Obtain a cached 2D view for a single layer of a 2D or 2D-array texture. */
+	public WGPUTextureView nativeLayerView(int layer) {
+		self.requireOpen();
+		if (self._dimension == GPU_TEXTURE_3D) { throw "3D textures do not support 2D layer views"; }
+		if (layer < 0 || layer >= self._depthOrLayers) { throw "GPU texture layer index out of bounds"; }
+		if (self._dimension == GPU_TEXTURE_2D && layer == 0) { return self._view; }
+		if (self._layerViews == null) {
+			Array<WGPUTextureView> createdViews = Array(self._depthOrLayers);
+			self._layerViews = createdViews;
+		}
+		var views = self._layerViews;
+		if (views == null) { throw "Cannot initialize GPU texture layer views"; }
+		WGPUTextureView existing = views.get(layer);
+		if (existing != null) { return existing; }
+		WGPUTextureViewDescriptor viewDesc;
+		memset(&viewDesc, 0, sizeof(WGPUTextureViewDescriptor));
+		viewDesc.format = GPUTexture.toNativeFormat(self._format);
+		viewDesc.dimension = WGPUTextureViewDimension_2D;
+		viewDesc.baseMipLevel = 0u;
+		viewDesc.mipLevelCount = 1u;
+		viewDesc.baseArrayLayer = (uint32_t)layer;
+		viewDesc.arrayLayerCount = 1u;
+		viewDesc.aspect = WGPUTextureAspect_All;
+		WGPUTextureView created = wgpuTextureCreateView(self._texture, &viewDesc);
+		if (created == null) { throw "Cannot create GPU texture layer view"; }
+		views.set(layer, created);
+		return created;
+	}
+
+	public void uploadBytes(Array<unsigned char> data, int bytesPerRow, int layer = 0) {
+		self.requireOpen();
+		if (self._dimension == GPU_TEXTURE_3D) { throw "Use upload3DBytes for 3D textures"; }
+		if (layer < 0 || layer >= self._depthOrLayers) { throw "GPU texture layer index out of bounds"; }
+		int minRow = self._width * GPUTexture.bytesPerPixel(self._format);
+		if (bytesPerRow < minRow || (long long)bytesPerRow * (long long)self._height > (long long)data.length) { throw "GPU texture byte upload exceeds source buffer"; }
+		WGPUTexelCopyTextureInfo dst = {null};
+		dst.texture = self._texture;
+		dst.aspect = WGPUTextureAspect_All;
+		dst.origin.z = (uint32_t)layer;
+		WGPUTexelCopyBufferLayout layout = {0ULL};
+		layout.bytesPerRow = (uint32_t)bytesPerRow;
+		layout.rowsPerImage = (uint32_t)self._height;
+		WGPUExtent3D extent = {(uint32_t)self._width, (uint32_t)self._height, 1u};
+		wgpuQueueWriteTexture(self._device.nativeQueue(), &dst, data.data, (size_t)bytesPerRow * (size_t)self._height, &layout, &extent);
+	}
+
+	public void uploadRegionBytes(Array<unsigned char> data, int dstX, int dstY, int width, int height, int srcBytesPerRow, int layer = 0) {
+		self.requireOpen();
+		if (self._dimension == GPU_TEXTURE_3D) { throw "Region byte upload requires a 2D or 2D-array texture"; }
+		if (layer < 0 || layer >= self._depthOrLayers) { throw "GPU texture layer index out of bounds"; }
+		if (dstX < 0 || dstY < 0 || width <= 0 || height <= 0 || dstX + width > self._width || dstY + height > self._height) { throw "GPU texture upload region is out of bounds"; }
+		int bpp = GPUTexture.bytesPerPixel(self._format);
+		if (srcBytesPerRow < width * bpp || (long long)(height - 1) * (long long)srcBytesPerRow + (long long)(width * bpp) > (long long)data.length) { throw "GPU texture region upload exceeds source buffer"; }
+		WGPUTexelCopyTextureInfo dst = {null};
+		dst.texture = self._texture;
+		dst.aspect = WGPUTextureAspect_All;
+		dst.origin.x = (uint32_t)dstX;
+		dst.origin.y = (uint32_t)dstY;
+		dst.origin.z = (uint32_t)layer;
+		WGPUTexelCopyBufferLayout layout = {0ULL};
+		layout.bytesPerRow = (uint32_t)srcBytesPerRow;
+		layout.rowsPerImage = (uint32_t)height;
+		WGPUExtent3D extent = {(uint32_t)width, (uint32_t)height, 1u};
+		size_t byteSpan = (size_t)(height - 1) * (size_t)srcBytesPerRow + (size_t)(width * bpp);
+		wgpuQueueWriteTexture(self._device.nativeQueue(), &dst, data.data, byteSpan, &layout, &extent);
+	}
+
+	public void uploadImage(Image image, int layer = 0) {
+		self.requireOpen();
+		if (self._format != GPU_FORMAT_RGBA8_UNORM) { throw "uploadImage requires an RGBA8Unorm texture"; }
+		if (image == null || image.data == null || image.width != self._width || image.height != self._height) { throw "GPU image upload dimensions mismatch"; }
+		if (layer < 0 || layer >= self._depthOrLayers) { throw "GPU texture layer index out of bounds"; }
+		WGPUTexelCopyTextureInfo dst = {null};
+		dst.texture = self._texture;
+		dst.aspect = WGPUTextureAspect_All;
+		dst.origin.z = (uint32_t)layer;
+		WGPUTexelCopyBufferLayout layout = {0ULL};
+		layout.bytesPerRow = (uint32_t)image.width * 4u;
+		layout.rowsPerImage = (uint32_t)image.height;
+		WGPUExtent3D extent = {(uint32_t)image.width, (uint32_t)image.height, 1u};
+		wgpuQueueWriteTexture(self._device.nativeQueue(), &dst, image.data, (size_t)image.width * (size_t)image.height * (size_t)4, &layout, &extent);
+	}
+
+	public void uploadImageRegion(Image image, int dstX, int dstY, int layer = 0) {
+		self.requireOpen();
+		if (self._format != GPU_FORMAT_RGBA8_UNORM) { throw "uploadImageRegion requires an RGBA8Unorm texture"; }
+		if (image == null || image.data == null || !Image.validDimensions(image.width, image.height)) { throw "GPU image region upload requires a valid RGBA image"; }
+		if (layer < 0 || layer >= self._depthOrLayers) { throw "GPU texture layer index out of bounds"; }
+		if (dstX < 0 || dstY < 0 || dstX + image.width > self._width || dstY + image.height > self._height) { throw "GPU image region exceeds destination texture bounds"; }
+		WGPUTexelCopyTextureInfo dst = {null};
+		dst.texture = self._texture;
+		dst.aspect = WGPUTextureAspect_All;
+		dst.origin.x = (uint32_t)dstX;
+		dst.origin.y = (uint32_t)dstY;
+		dst.origin.z = (uint32_t)layer;
+		WGPUTexelCopyBufferLayout layout = {0ULL};
+		layout.bytesPerRow = (uint32_t)image.width * 4u;
+		layout.rowsPerImage = (uint32_t)image.height;
+		WGPUExtent3D extent = {(uint32_t)image.width, (uint32_t)image.height, 1u};
+		wgpuQueueWriteTexture(self._device.nativeQueue(), &dst, image.data, (size_t)image.width * (size_t)image.height * (size_t)4, &layout, &extent);
+	}
+
+	public void uploadU16(Array<unsigned short> data, int layer = 0) {
+		self.requireOpen();
+		if (self._dimension == GPU_TEXTURE_3D) { throw "uploadU16 requires a 2D or 2D-array texture"; }
+		if (layer < 0 || layer >= self._depthOrLayers) { throw "GPU texture layer index out of bounds"; }
+		int bpp = GPUTexture.bytesPerPixel(self._format);
+		if (bpp != 2 && bpp != 8) { throw "uploadU16 requires R16Uint or RGBA16Float format"; }
+		int u16PerPixel = bpp / 2;
+		long long needed = (long long)self._width * (long long)self._height * (long long)u16PerPixel;
+		if ((long long)data.length < needed) { throw "uploadU16 source array is too small"; }
+		WGPUTexelCopyTextureInfo dst = {null};
+		dst.texture = self._texture;
+		dst.aspect = WGPUTextureAspect_All;
+		dst.origin.z = (uint32_t)layer;
+		WGPUTexelCopyBufferLayout layout = {0ULL};
+		layout.bytesPerRow = (uint32_t)(self._width * bpp);
+		layout.rowsPerImage = (uint32_t)self._height;
+		WGPUExtent3D extent = {(uint32_t)self._width, (uint32_t)self._height, 1u};
+		wgpuQueueWriteTexture(self._device.nativeQueue(), &dst, data.data, (size_t)needed * (size_t)2, &layout, &extent);
+	}
+
+	public void uploadFloats(Array<float> data, int layer = 0) {
+		self.requireOpen();
+		if (self._dimension == GPU_TEXTURE_3D) { throw "Use upload3DFloats for 3D textures"; }
+		if (layer < 0 || layer >= self._depthOrLayers) { throw "GPU texture layer index out of bounds"; }
+		long long needed = (long long)self._width * (long long)self._height * 4LL;
+		if ((long long)data.length < needed) { throw "uploadFloats source array is too small"; }
+		if (self._format == GPU_FORMAT_RGBA32_FLOAT) {
+			WGPUTexelCopyTextureInfo dst = {null};
+			dst.texture = self._texture;
+			dst.aspect = WGPUTextureAspect_All;
+			dst.origin.z = (uint32_t)layer;
+			WGPUTexelCopyBufferLayout layout = {0ULL};
+			layout.bytesPerRow = (uint32_t)(self._width * 16);
+			layout.rowsPerImage = (uint32_t)self._height;
+			WGPUExtent3D extent = {(uint32_t)self._width, (uint32_t)self._height, 1u};
+			wgpuQueueWriteTexture(self._device.nativeQueue(), &dst, data.data, (size_t)needed * (size_t)4, &layout, &extent);
+			return;
+		}
+		if (self._format == GPU_FORMAT_RGBA16_FLOAT) {
+			Array<unsigned short> packed = Array((int)needed);
+			for (int i = 0; i < (int)needed; i++) { packed.set(i, GPUTexture.floatToHalf(data.get(i))); }
+			self.uploadU16(packed, layer);
+			return;
+		}
+		throw "uploadFloats requires RGBA16Float or RGBA32Float format";
+	}
+
+	public void upload3DBytes(Array<unsigned char> data) {
+		self.requireOpen();
+		if (self._dimension != GPU_TEXTURE_3D) { throw "upload3DBytes requires a 3D texture"; }
+		int bpp = GPUTexture.bytesPerPixel(self._format);
+		long long needed = (long long)self._width * (long long)self._height * (long long)self._depthOrLayers * (long long)bpp;
+		if ((long long)data.length < needed) { throw "upload3DBytes source array is too small"; }
+		WGPUTexelCopyTextureInfo dst = {null};
+		dst.texture = self._texture;
+		dst.aspect = WGPUTextureAspect_All;
+		WGPUTexelCopyBufferLayout layout = {0ULL};
+		layout.bytesPerRow = (uint32_t)(self._width * bpp);
+		layout.rowsPerImage = (uint32_t)self._height;
+		WGPUExtent3D extent = {(uint32_t)self._width, (uint32_t)self._height, (uint32_t)self._depthOrLayers};
+		wgpuQueueWriteTexture(self._device.nativeQueue(), &dst, data.data, (size_t)needed, &layout, &extent);
+	}
+
+	public void upload3DFloats(Array<float> data) {
+		self.requireOpen();
+		if (self._dimension != GPU_TEXTURE_3D) { throw "upload3DFloats requires a 3D texture"; }
+		long long needed = (long long)self._width * (long long)self._height * (long long)self._depthOrLayers * 4LL;
+		if ((long long)data.length < needed) { throw "upload3DFloats source array is too small"; }
+		if (self._format == GPU_FORMAT_RGBA32_FLOAT) {
+			WGPUTexelCopyTextureInfo dst = {null};
+			dst.texture = self._texture;
+			dst.aspect = WGPUTextureAspect_All;
+			WGPUTexelCopyBufferLayout layout = {0ULL};
+			layout.bytesPerRow = (uint32_t)(self._width * 16);
+			layout.rowsPerImage = (uint32_t)self._height;
+			WGPUExtent3D extent = {(uint32_t)self._width, (uint32_t)self._height, (uint32_t)self._depthOrLayers};
+			wgpuQueueWriteTexture(self._device.nativeQueue(), &dst, data.data, (size_t)needed * (size_t)4, &layout, &extent);
+			return;
+		}
+		if (self._format == GPU_FORMAT_RGBA16_FLOAT) {
+			Array<unsigned short> packed = Array((int)needed);
+			for (int i = 0; i < (int)needed; i++) { packed.set(i, GPUTexture.floatToHalf(data.get(i))); }
+			WGPUTexelCopyTextureInfo dst = {null};
+			dst.texture = self._texture;
+			dst.aspect = WGPUTextureAspect_All;
+			WGPUTexelCopyBufferLayout layout = {0ULL};
+			layout.bytesPerRow = (uint32_t)(self._width * 8);
+			layout.rowsPerImage = (uint32_t)self._height;
+			WGPUExtent3D extent = {(uint32_t)self._width, (uint32_t)self._height, (uint32_t)self._depthOrLayers};
+			wgpuQueueWriteTexture(self._device.nativeQueue(), &dst, packed.data, (size_t)needed * (size_t)2, &layout, &extent);
+			return;
+		}
+		throw "upload3DFloats requires RGBA16Float or RGBA32Float format";
+	}
+
+	private WGPUBuffer submitSliceReadback(int layer, uint32_t stride, unsigned long long totalBytes) {
+		var nativeDevice = self._device.nativeDevice();
+		WGPUBufferDescriptor bufDesc = {null};
+		bufDesc.size = totalBytes;
+		bufDesc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+		WGPUBuffer staging = wgpuDeviceCreateBuffer(nativeDevice, &bufDesc);
+		if (staging == null) { throw "Cannot allocate GPU texture readback buffer"; }
+		WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(nativeDevice, null);
+		if (encoder == null) { wgpuBufferRelease(staging); throw "Cannot allocate GPU readback encoder"; }
+		WGPUTexelCopyTextureInfo src = {null};
+		src.texture = self._texture;
+		src.aspect = WGPUTextureAspect_All;
+		src.origin.z = (uint32_t)layer;
+		WGPUTexelCopyBufferInfo dst;
+		memset(&dst, 0, sizeof(WGPUTexelCopyBufferInfo));
+		dst.buffer = staging;
+		dst.layout.bytesPerRow = stride;
+		dst.layout.rowsPerImage = (uint32_t)self._height;
+		WGPUExtent3D extent = {(uint32_t)self._width, (uint32_t)self._height, 1u};
+		wgpuCommandEncoderCopyTextureToBuffer(encoder, &src, &dst, &extent);
+		const WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, null);
+		wgpuCommandEncoderRelease(encoder);
+		if (cmd == null) { wgpuBufferRelease(staging); throw "Cannot finish GPU readback command buffer"; }
+		wgpuQueueSubmit(self._device.nativeQueue(), (size_t)1, &cmd);
+		wgpuCommandBufferRelease(cmd);
+		return staging;
+	}
+
+	/* Synchronously copy one 2D slice back to host memory as tightly packed bytes. */
+	public Array<unsigned char> readbackBytes(int layer = 0) {
+		self.requireOpen();
+		if (!self._copySrc) { throw "GPU texture was not created with copySrc enabled"; }
+		if (self._dimension == GPU_TEXTURE_3D) { throw "3D texture readback is not supported"; }
+		if (layer < 0 || layer >= self._depthOrLayers) { throw "GPU texture layer index out of bounds"; }
+		int bpp = GPUTexture.bytesPerPixel(self._format);
+		uint32_t rowBytes = (uint32_t)(self._width * bpp);
+		uint32_t stride = ((rowBytes + 255u) / 256u) * 256u;
+		unsigned long long totalBytes = (unsigned long long)stride * (unsigned long long)self._height;
+		WGPUBuffer staging = self.submitSliceReadback(layer, stride, totalBytes);
+		var pump = GPUCompletionPump(self._device.nativeInstance());
+		var completion = GPUReadbackCompletion();
+		var cb = WGPUBufferMapCallbackInfoInput();
+		cb.mode = WGPUCallbackMode_AllowProcessEvents;
+		cb.callback = completion;
+		wgpuBufferMapAsync(staging, WGPUMapMode_Read, (size_t)0, (size_t)totalBytes, cb, pump.scope());
+		bool mapped = false;
+		try {
+			for (int spin = 0; spin < 2000000; spin++) {
+				pump.pump();
+				if (completion.delivered) { break; }
+			}
+			if (!completion.delivered || completion.status != (int)WGPUMapAsyncStatus_Success) { throw f"GPU texture readback failed ({completion.status}): {completion.message}"; }
+			mapped = true;
+			const unsigned char* mappedPtr = (const unsigned char*)wgpuBufferGetConstMappedRange(staging, (size_t)0, (size_t)totalBytes);
+			if (mappedPtr == null) { throw "GPU texture readback returned null mapped pointer"; }
+			Array<unsigned char> result = Array(self._width * self._height * bpp);
+			for (int y = 0; y < self._height; y++) {
+				memcpy(result.data + (size_t)y * (size_t)rowBytes, mappedPtr + (size_t)y * (size_t)stride, (size_t)rowBytes);
+			}
+			return result;
+		} finally {
+			if (mapped) { wgpuBufferUnmap(staging); }
+			pump.cancel();
+			while (!pump.drained()) { pump.pump(); }
+			wgpuBufferRelease(staging);
+		}
+	}
+
+	/* Synchronously read back RGBA16Float or RGBA32Float pixels as 4 floats per pixel. */
+	public Array<float> readbackFloats(int layer = 0) {
+		self.requireOpen();
+		if (self._format != GPU_FORMAT_RGBA16_FLOAT && self._format != GPU_FORMAT_RGBA32_FLOAT) { throw "readbackFloats requires RGBA16Float or RGBA32Float format"; }
+		Array<unsigned char> raw = self.readbackBytes(layer);
+		int count = self._width * self._height * 4;
+		Array<float> out = Array(count);
+		if (self._format == GPU_FORMAT_RGBA32_FLOAT) {
+			memcpy(out.data, raw.data, (size_t)count * sizeof(float));
+			return out;
+		}
+		for (int i = 0; i < count; i++) {
+			unsigned short h = 0;
+			memcpy(&h, raw.data + (size_t)i * (size_t)2, (size_t)2);
+			out.set(i, GPUTexture.halfToFloat(h));
+		}
+		return out;
+	}
+
+	public Image readbackImage(int layer = 0) {
+		self.requireOpen();
+		if (self._format != GPU_FORMAT_RGBA8_UNORM && self._format != GPU_FORMAT_BGRA8_UNORM) { throw "readbackImage requires RGBA8Unorm or BGRA8Unorm format"; }
+		Array<unsigned char> raw = self.readbackBytes(layer);
+		Image? allocated = Image.tryCreate(self._width, self._height);
+		if (allocated == null) { throw "Cannot allocate readback image"; }
+		Image img = allocated;
+		bool bgra = self._format == GPU_FORMAT_BGRA8_UNORM;
+		int pixels = self._width * self._height;
+		if (!bgra) {
+			memcpy(img.data, raw.data, (size_t)pixels * (size_t)4);
+		} else {
+			for (int i = 0; i < pixels; i++) {
+				int off = i * 4;
+				img.data[off] = raw.get(off + 2);
+				img.data[off + 1] = raw.get(off + 1);
+				img.data[off + 2] = raw.get(off);
+				img.data[off + 3] = raw.get(off + 3);
+			}
+		}
+		return img;
+	}
+
+	public void close() {
+		var views = self._layerViews;
+		if (views != null) {
+			for (int i = 0; i < views.length; i++) {
+				WGPUTextureView lv = views.get(i);
+				if (lv != null) { wgpuTextureViewRelease(lv); views.set(i, null); }
+			}
+			self._layerViews = null;
+		}
+		if (self._sampler != null) { wgpuSamplerRelease(self._sampler); self._sampler = null; }
+		if (self._view != null) { wgpuTextureViewRelease(self._view); self._view = null; }
+		if (self._texture != null) { wgpuTextureRelease(self._texture); self._texture = null; }
+	}
+
+	public void __del__() { self.close(); }
+}

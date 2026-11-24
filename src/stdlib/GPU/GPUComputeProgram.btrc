@@ -1,0 +1,458 @@
+import Library.Callback;
+import Library.OwnedBuffer;
+import Library.Vector;
+import Library.GPU.GPUCompletionPump;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUStorageBuffer;
+import Library.GPU.GPUTexture;
+import Library.GPU.GPUUniformBuffer;
+import Library.GPU.WebGPU;
+
+const int GPU_STAGE_VERTEX = 1;
+const int GPU_STAGE_FRAGMENT = 2;
+const int GPU_STAGE_VERTEX_FRAGMENT = 3;
+const int GPU_STAGE_COMPUTE = 4;
+const int GPU_STAGE_ALL = 7;
+
+enum GPUBindingKind {
+	GPU_BIND_UNIFORM,
+	GPU_BIND_STORAGE_READ,
+	GPU_BIND_STORAGE_READ_WRITE,
+	GPU_BIND_TEXTURE_2D,
+	GPU_BIND_TEXTURE_2D_UNFILTERABLE,
+	GPU_BIND_TEXTURE_2D_UINT,
+	GPU_BIND_TEXTURE_2D_ARRAY,
+	GPU_BIND_TEXTURE_3D,
+	GPU_BIND_STORAGE_TEXTURE_WRITE,
+	GPU_BIND_SAMPLER_FILTERING,
+	GPU_BIND_SAMPLER_NON_FILTERING
+};
+
+enum GPUComputeProgramState {
+	GPU_COMPUTE_SHADER,
+	GPU_COMPUTE_PIPELINE,
+	GPU_COMPUTE_READY,
+	GPU_COMPUTE_FAILED,
+	GPU_COMPUTE_CLOSING,
+	GPU_COMPUTE_CLOSED
+};
+
+class GPUBindLayoutEntry {
+	public int binding;
+	public GPUBindingKind kind;
+	public int stageMask;
+	public GPUTextureFormat storageFormat;
+
+	public GPUBindLayoutEntry(int binding, GPUBindingKind kind, int stageMask, GPUTextureFormat storageFormat = GPU_FORMAT_RGBA16_FLOAT) {
+		self.binding = binding;
+		self.kind = kind;
+		self.stageMask = stageMask;
+		self.storageFormat = storageFormat;
+	}
+}
+
+/* Declarative bind group layout shared by compute and multi-resource render pipelines. */
+class GPUBindLayout {
+	private Vector<GPUBindLayoutEntry> _entries = [];
+
+	public GPUBindLayout() {}
+
+	public int count() { return self._entries.length; }
+
+	public GPUBindLayoutEntry entryAt(int index) { return self._entries.get(index); }
+
+	public GPUBindLayout addUniform(int binding, int stageMask = GPU_STAGE_COMPUTE) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_UNIFORM, stageMask));
+		return self;
+	}
+
+	public GPUBindLayout addStorageRead(int binding, int stageMask = GPU_STAGE_COMPUTE) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_STORAGE_READ, stageMask));
+		return self;
+	}
+
+	public GPUBindLayout addStorageReadWrite(int binding, int stageMask = GPU_STAGE_COMPUTE) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_STORAGE_READ_WRITE, stageMask));
+		return self;
+	}
+
+	public GPUBindLayout addTexture2D(int binding, int stageMask = GPU_STAGE_COMPUTE) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_TEXTURE_2D, stageMask));
+		return self;
+	}
+
+	public GPUBindLayout addTexture2DUnfilterable(int binding, int stageMask = GPU_STAGE_COMPUTE) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_TEXTURE_2D_UNFILTERABLE, stageMask));
+		return self;
+	}
+
+	public GPUBindLayout addTexture2DUint(int binding, int stageMask = GPU_STAGE_COMPUTE) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_TEXTURE_2D_UINT, stageMask));
+		return self;
+	}
+
+	public GPUBindLayout addTexture2DArray(int binding, int stageMask = GPU_STAGE_FRAGMENT) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_TEXTURE_2D_ARRAY, stageMask));
+		return self;
+	}
+
+	public GPUBindLayout addTexture3D(int binding, int stageMask = GPU_STAGE_COMPUTE) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_TEXTURE_3D, stageMask));
+		return self;
+	}
+
+	public GPUBindLayout addStorageTextureWrite(int binding, GPUTextureFormat format, int stageMask = GPU_STAGE_COMPUTE) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_STORAGE_TEXTURE_WRITE, stageMask, format));
+		return self;
+	}
+
+	public GPUBindLayout addSampler(int binding, int stageMask = GPU_STAGE_COMPUTE) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_SAMPLER_FILTERING, stageMask));
+		return self;
+	}
+
+	public GPUBindLayout addNonFilteringSampler(int binding, int stageMask = GPU_STAGE_COMPUTE) {
+		self._entries.push(GPUBindLayoutEntry(binding, GPU_BIND_SAMPLER_NON_FILTERING, stageMask));
+		return self;
+	}
+
+	public WGPUBindGroupLayout buildNative(GPUDevice device) {
+		int n = self._entries.length;
+		if (n <= 0 || n > 32) { throw "GPU bind layout must have between 1 and 32 entries"; }
+		WGPUBindGroupLayoutEntry nativeEntries[32];
+		memset(nativeEntries, 0, sizeof(nativeEntries));
+		for (int i = 0; i < n; i++) {
+			GPUBindLayoutEntry e = self._entries.get(i);
+			nativeEntries[i].binding = (uint32_t)e.binding;
+			WGPUFlags vis = 0ULL;
+			if ((e.stageMask & GPU_STAGE_VERTEX) != 0) { vis |= WGPUShaderStage_Vertex; }
+			if ((e.stageMask & GPU_STAGE_FRAGMENT) != 0) { vis |= WGPUShaderStage_Fragment; }
+			if ((e.stageMask & GPU_STAGE_COMPUTE) != 0) { vis |= WGPUShaderStage_Compute; }
+			nativeEntries[i].visibility = vis;
+			if (e.kind == GPU_BIND_UNIFORM) {
+				nativeEntries[i].buffer.type = WGPUBufferBindingType_Uniform;
+			} else if (e.kind == GPU_BIND_STORAGE_READ) {
+				nativeEntries[i].buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
+			} else if (e.kind == GPU_BIND_STORAGE_READ_WRITE) {
+				nativeEntries[i].buffer.type = WGPUBufferBindingType_Storage;
+			} else if (e.kind == GPU_BIND_TEXTURE_2D) {
+				nativeEntries[i].texture.sampleType = WGPUTextureSampleType_Float;
+				nativeEntries[i].texture.viewDimension = WGPUTextureViewDimension_2D;
+			} else if (e.kind == GPU_BIND_TEXTURE_2D_UNFILTERABLE) {
+				nativeEntries[i].texture.sampleType = WGPUTextureSampleType_UnfilterableFloat;
+				nativeEntries[i].texture.viewDimension = WGPUTextureViewDimension_2D;
+			} else if (e.kind == GPU_BIND_TEXTURE_2D_UINT) {
+				nativeEntries[i].texture.sampleType = WGPUTextureSampleType_Uint;
+				nativeEntries[i].texture.viewDimension = WGPUTextureViewDimension_2D;
+			} else if (e.kind == GPU_BIND_TEXTURE_2D_ARRAY) {
+				nativeEntries[i].texture.sampleType = WGPUTextureSampleType_Float;
+				nativeEntries[i].texture.viewDimension = WGPUTextureViewDimension_2DArray;
+			} else if (e.kind == GPU_BIND_TEXTURE_3D) {
+				nativeEntries[i].texture.sampleType = WGPUTextureSampleType_Float;
+				nativeEntries[i].texture.viewDimension = WGPUTextureViewDimension_3D;
+			} else if (e.kind == GPU_BIND_STORAGE_TEXTURE_WRITE) {
+				nativeEntries[i].storageTexture.access = WGPUStorageTextureAccess_WriteOnly;
+				nativeEntries[i].storageTexture.format = GPUTexture.toNativeFormat(e.storageFormat);
+				nativeEntries[i].storageTexture.viewDimension = WGPUTextureViewDimension_2D;
+			} else if (e.kind == GPU_BIND_SAMPLER_FILTERING) {
+				nativeEntries[i].sampler.type = WGPUSamplerBindingType_Filtering;
+			} else {
+				nativeEntries[i].sampler.type = WGPUSamplerBindingType_NonFiltering;
+			}
+		}
+		WGPUBindGroupLayoutDescriptor desc = {null};
+		desc.entryCount = (size_t)n;
+		desc.entries = nativeEntries;
+		return wgpuDeviceCreateBindGroupLayout(device.nativeDevice(), &desc);
+	}
+}
+
+class GPUBindResourceEntry {
+	public int binding;
+	public int resourceType; /* 0=uniform, 1=storage, 2=texture, 3=textureLayer, 4=sampler */
+	public GPUUniformBuffer? uniformBuf = null;
+	public GPUStorageBuffer? storageBuf = null;
+	public GPUTexture? texture = null;
+	public int layer = 0;
+
+	public GPUBindResourceEntry(int binding, int resourceType) {
+		self.binding = binding;
+		self.resourceType = resourceType;
+	}
+}
+
+/* Concrete resource bindings matching a GPUBindLayout for a compute or render call. */
+class GPUBindResources {
+	private Vector<GPUBindResourceEntry> _entries = [];
+
+	public GPUBindResources() {}
+
+	public GPUBindResources bindUniform(int binding, GPUUniformBuffer buffer) {
+		var e = GPUBindResourceEntry(binding, 0);
+		e.uniformBuf = buffer;
+		self._entries.push(e);
+		return self;
+	}
+
+	public GPUBindResources bindStorage(int binding, GPUStorageBuffer buffer) {
+		var e = GPUBindResourceEntry(binding, 1);
+		e.storageBuf = buffer;
+		self._entries.push(e);
+		return self;
+	}
+
+	public GPUBindResources bindTexture(int binding, GPUTexture texture) {
+		var e = GPUBindResourceEntry(binding, 2);
+		e.texture = texture;
+		self._entries.push(e);
+		return self;
+	}
+
+	public GPUBindResources bindTextureLayer(int binding, GPUTexture texture, int layer) {
+		var e = GPUBindResourceEntry(binding, 3);
+		e.texture = texture;
+		e.layer = layer;
+		self._entries.push(e);
+		return self;
+	}
+
+	public GPUBindResources bindSampler(int binding, GPUTexture texture) {
+		var e = GPUBindResourceEntry(binding, 4);
+		e.texture = texture;
+		self._entries.push(e);
+		return self;
+	}
+
+	public WGPUBindGroup buildNative(GPUDevice device, WGPUBindGroupLayout layout) {
+		int n = self._entries.length;
+		if (n <= 0 || n > 32) { throw "GPU bind resources must have between 1 and 32 entries"; }
+		WGPUBindGroupEntry nativeEntries[32];
+		memset(nativeEntries, 0, sizeof(nativeEntries));
+		for (int i = 0; i < n; i++) {
+			GPUBindResourceEntry e = self._entries.get(i);
+			nativeEntries[i].binding = (uint32_t)e.binding;
+			if (e.resourceType == 0) {
+				var ub = e.uniformBuf;
+				if (ub == null || ub.device() != device) { throw "GPU uniform buffer binding is invalid"; }
+				nativeEntries[i].buffer = ub.uploadNow();
+				nativeEntries[i].size = ub.byteCount();
+			} else if (e.resourceType == 1) {
+				var sb = e.storageBuf;
+				if (sb == null || sb.device() != device) { throw "GPU storage buffer binding is invalid"; }
+				nativeEntries[i].buffer = sb.nativeBuffer();
+				nativeEntries[i].size = sb.byteCount();
+			} else if (e.resourceType == 2) {
+				var tex = e.texture;
+				if (tex == null || tex.device() != device) { throw "GPU texture binding is invalid"; }
+				nativeEntries[i].textureView = tex.nativeView();
+			} else if (e.resourceType == 3) {
+				var tex = e.texture;
+				if (tex == null || tex.device() != device) { throw "GPU texture layer binding is invalid"; }
+				nativeEntries[i].textureView = tex.nativeLayerView(e.layer);
+			} else {
+				var tex = e.texture;
+				if (tex == null || tex.device() != device) { throw "GPU sampler binding is invalid"; }
+				nativeEntries[i].sampler = tex.nativeSampler();
+			}
+		}
+		WGPUBindGroupDescriptor desc = {null};
+		desc.layout = layout;
+		desc.entryCount = (size_t)n;
+		desc.entries = nativeEntries;
+		WGPUBindGroup group = wgpuDeviceCreateBindGroup(device.nativeDevice(), &desc);
+		if (group == null) { throw "Cannot create GPU bind group"; }
+		return group;
+	}
+}
+
+class GPUComputeValidationCompletion implements IGPUValidationCompletion {
+	public int status = 0;
+	public int errorType = 0;
+	public string message = "";
+	public bool delivered = false;
+	public void invoke(WGPUPopErrorScopeStatus status, WGPUErrorType type, string message) {
+		self.status = (int)status;
+		self.errorType = (int)type;
+		self.message = message;
+		self.delivered = true;
+	}
+}
+
+/* Validated WGSL compute pipeline with explicit GPUBindLayout. */
+class GPUComputeProgram implements ICallbackRegistration {
+	private GPUDevice _device;
+	private GPUBindLayout _bindLayoutSpec;
+	private string _entryPoint;
+	private WGPUShaderModule _shader = null;
+	private WGPUBindGroupLayout _layout = null;
+	private WGPUPipelineLayout _pipelineLayout = null;
+	private WGPUComputePipeline _pipeline = null;
+	private GPUCompletionPump _pump;
+	private GPUComputeValidationCompletion? _completion = null;
+	private GPUComputeProgramState _state = GPU_COMPUTE_SHADER;
+	private string _error = "";
+
+	private GPUComputeProgram(GPUDevice device, string source, GPUBindLayout layout, string entryPoint) {
+		if (source.isEmpty() || entryPoint.isEmpty()) { throw "GPU compute program requires shader source and entry point"; }
+		self._device = device;
+		self._pump = GPUCompletionPump(device.nativeInstance());
+		self._bindLayoutSpec = layout;
+		self._entryPoint = entryPoint;
+	}
+
+	class GPUComputeProgram create(GPUDevice device, string source, GPUBindLayout layout, string entryPoint = "main", CallbackScope? owner = null) {
+		var program = GPUComputeProgram(device, source, layout, entryPoint);
+		if (owner != null) { owner.track(program); }
+		try { program.createShader(source); } catch (string error) { program.close(); throw error; }
+		return program;
+	}
+
+	class GPUComputeProgram createSync(GPUDevice device, string source, GPUBindLayout layout, string entryPoint = "main") {
+		var program = GPUComputeProgram.create(device, source, layout, entryPoint, null);
+		for (int spin = 0; spin < 1000000; spin++) {
+			var st = program.poll();
+			if (st == GPU_COMPUTE_READY) { return program; }
+			if (st == GPU_COMPUTE_FAILED) {
+				string message = program.error();
+				program.close();
+				throw message;
+			}
+			if (st == GPU_COMPUTE_CLOSED) { throw "GPU compute program closed during validation"; }
+		}
+		program.close();
+		throw "Timed out waiting for GPU compute program validation";
+	}
+
+	class OwnedBuffer<char> nativeText(string value) {
+		var bytes = new OwnedBuffer<char>((size_t)value.len() + (size_t)1);
+		if (!bytes.opened()) { throw "Cannot allocate GPU shader text"; }
+		strcpy(bytes.borrow(), value);
+		return bytes;
+	}
+
+	private WGPUPopErrorScopeCallbackInfoInput beginValidation() {
+		var completion = GPUComputeValidationCompletion();
+		self._completion = completion;
+		var callback = WGPUPopErrorScopeCallbackInfoInput();
+		callback.mode = WGPUCallbackMode_AllowProcessEvents;
+		callback.callback = completion;
+		wgpuDevicePushErrorScope(self._device.nativeDevice(), WGPUErrorFilter_Validation);
+		return callback;
+	}
+
+	private void endValidation(WGPUPopErrorScopeCallbackInfoInput callback) { wgpuDevicePopErrorScope(self._device.nativeDevice(), callback, self._pump.scope()); }
+
+	private void createShader(string source) {
+		var device = self._device.nativeDevice();
+		var sourceBytes = GPUComputeProgram.nativeText(source);
+		var callback = self.beginValidation();
+		WGPUShaderSourceWGSL wgsl;
+		memset(&wgsl, 0, sizeof(WGPUShaderSourceWGSL));
+		wgsl.chain.sType = WGPUSType_ShaderSourceWGSL;
+		wgsl.code.data = sourceBytes.borrow();
+		wgsl.code.length = (size_t)source.len();
+		WGPUShaderModuleDescriptor descriptor = {null};
+		descriptor.nextInChain = &wgsl.chain;
+		self._shader = wgpuDeviceCreateShaderModule(device, &descriptor);
+		self.endValidation(callback);
+	}
+
+	private void createPipeline() {
+		var device = self._device.nativeDevice();
+		var entryBytes = GPUComputeProgram.nativeText(self._entryPoint);
+		var callback = self.beginValidation();
+		self._layout = self._bindLayoutSpec.buildNative(self._device);
+		if (self._layout != null) {
+			const WGPUBindGroupLayout layout = self._layout;
+			WGPUPipelineLayoutDescriptor plDesc = {null};
+			plDesc.bindGroupLayoutCount = (size_t)1;
+			plDesc.bindGroupLayouts = &layout;
+			self._pipelineLayout = wgpuDeviceCreatePipelineLayout(device, &plDesc);
+		}
+		if (self._pipelineLayout != null) {
+			WGPUComputePipelineDescriptor cpDesc;
+			memset(&cpDesc, 0, sizeof(WGPUComputePipelineDescriptor));
+			cpDesc.layout = self._pipelineLayout;
+			cpDesc.compute.module = self._shader;
+			cpDesc.compute.entryPoint.data = entryBytes.borrow();
+			cpDesc.compute.entryPoint.length = (size_t)self._entryPoint.len();
+			self._pipeline = wgpuDeviceCreateComputePipeline(device, &cpDesc);
+		}
+		self.endValidation(callback);
+	}
+
+	private void requireExecutor() { self._pump.requireExecutor(); }
+
+	public GPUDevice device() { self.requireExecutor(); return self._device; }
+
+	public GPUComputeProgramState state() { self.requireExecutor(); return self._state; }
+
+	public string error() { self.requireExecutor(); return self._error; }
+
+	public bool isOpen() { return self._pump.isOpen(); }
+
+	public CallbackCancellation cancel() { return self.close(); }
+
+	public CallbackCancellation pollCompletion() {
+		if (self.isOpen()) { return CALLBACK_CANCELLATION_NOT_REQUESTED; }
+		self.poll();
+		return self._pump.completion();
+	}
+
+	public WGPUComputePipeline nativePipeline() {
+		self.requireExecutor();
+		if (self._state != GPU_COMPUTE_READY || self._pipeline == null) { throw "GPU compute program is not ready"; }
+		return self._pipeline;
+	}
+
+	public WGPUBindGroupLayout nativeBindGroupLayout() {
+		self.requireExecutor();
+		if (self._state != GPU_COMPUTE_READY || self._layout == null) { throw "GPU compute program is not ready"; }
+		return self._layout;
+	}
+
+	public GPUComputeProgramState poll() {
+		self.requireExecutor();
+		if (self._state == GPU_COMPUTE_CLOSED || self._state == GPU_COMPUTE_READY) { return self._state; }
+		self._pump.pump();
+		if (self._state == GPU_COMPUTE_CLOSING || self._state == GPU_COMPUTE_FAILED) {
+			if (self._pump.drained() && self._state == GPU_COMPUTE_CLOSING) { self._state = GPU_COMPUTE_CLOSED; }
+			return self._state;
+		}
+		if (self._device.state() != GPU_DEVICE_READY) { self.fail("GPU device closed during compute validation"); return self._state; }
+		var completion = self._completion;
+		if (completion == null) { self.fail("Missing GPU compute validation completion"); return self._state; }
+		if (!completion.delivered) { return self._state; }
+		self._completion = null;
+		if (completion.status != (int)WGPUPopErrorScopeStatus_Success || completion.errorType != (int)WGPUErrorType_NoError) {
+			self.fail(f"GPU compute validation failed ({completion.status}, {completion.errorType}): {completion.message}");
+			return self._state;
+		}
+		if (self._state == GPU_COMPUTE_SHADER) {
+			if (self._shader == null) { self.fail("Cannot create GPU compute shader"); return self._state; }
+			self._state = GPU_COMPUTE_PIPELINE;
+			self.createPipeline();
+		} else {
+			if (self._pipeline == null || self._layout == null) { self.fail("Cannot create GPU compute pipeline"); return self._state; }
+			wgpuShaderModuleRelease(self._shader);
+			self._shader = null;
+			self._state = GPU_COMPUTE_READY;
+		}
+		return self._state;
+	}
+
+	private void fail(string error) { self.close(); self._error = error; self._state = GPU_COMPUTE_FAILED; }
+
+	public CallbackCancellation close() {
+		var result = self._pump == null ? CALLBACK_CANCELLATION_COMPLETE : self._pump.cancel();
+		self._completion = null;
+		if (self._pipeline != null) { wgpuComputePipelineRelease(self._pipeline); self._pipeline = null; }
+		if (self._pipelineLayout != null) { wgpuPipelineLayoutRelease(self._pipelineLayout); self._pipelineLayout = null; }
+		if (self._layout != null) { wgpuBindGroupLayoutRelease(self._layout); self._layout = null; }
+		if (self._shader != null) { wgpuShaderModuleRelease(self._shader); self._shader = null; }
+		self._state = result == CALLBACK_CANCELLATION_COMPLETE ? GPU_COMPUTE_CLOSED : GPU_COMPUTE_CLOSING;
+		return result;
+	}
+
+	public void __del__() { self.close(); }
+}

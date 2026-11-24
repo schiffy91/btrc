@@ -28,6 +28,7 @@ class GPUSurfaceRenderer {
 	 * exactly RenderAttachment is framebuffer-only, and a framebuffer-only
 	 * drawable composites without an extra copy of the whole backing store. */
 	private bool _capture;
+	private bool _preferHDR = false;
 	private bool _captureRequested = false;
 	private bool _capturable = false;
 	private bool _frameCapturable = false;
@@ -44,12 +45,13 @@ class GPUSurfaceRenderer {
 	private WGPUCommandEncoder _encoder = null;
 	private WGPURenderPassEncoder _pass = null;
 
-	public GPUSurfaceRenderer(GPUDevice device, WGPUSurface? surface, bool capture = false, GPUOffscreenTarget? target = null) {
+	public GPUSurfaceRenderer(GPUDevice device, WGPUSurface? surface, bool capture = false, GPUOffscreenTarget? target = null, bool preferHDR = false) {
 		if ((surface == null) == (target == null) || device.state() != GPU_DEVICE_READY) { throw "GPU renderer requires a ready device and exactly one render target"; }
 		self._device = device;
 		self._surface = surface;
 		self._target = target;
 		self._capture = capture;
+		self._preferHDR = preferHDR;
 		if (target != null) {
 			if (target.device() != device) { throw "GPU offscreen target belongs to another device"; }
 			self._format = target.nativeFormat();
@@ -59,7 +61,12 @@ class GPUSurfaceRenderer {
 	}
 
 	/* Frames render into the target's texture; present submits without a swapchain. */
-	class GPUSurfaceRenderer offscreen(GPUDevice device, GPUOffscreenTarget target, bool capture = false) { return GPUSurfaceRenderer(device, null, capture, target); }
+	class GPUSurfaceRenderer offscreen(GPUDevice device, GPUOffscreenTarget target, bool capture = false) { return GPUSurfaceRenderer(device, null, capture, target, false); }
+
+	public bool isHDR() {
+		self.requireOpen();
+		return self._format == WGPUTextureFormat_RGBA16Float || self._format == WGPUTextureFormat_RGB10A2Unorm;
+	}
 
 	private WGPUSurface nativeSurface() {
 		var surface = self._surface;
@@ -72,9 +79,23 @@ class GPUSurfaceRenderer {
 		var status = wgpuSurfaceGetCapabilities(self.nativeSurface(), self._device.nativeAdapter(), &capabilities);
 		if (status != WGPUStatus_Success) { wgpuSurfaceCapabilitiesFreeMembers(capabilities); throw "Cannot read GPU surface capabilities"; }
 		bool formatFound = false;
-		for (size_t index = (size_t)0; index < capabilities.formatCount; index++) {
-			var format = capabilities.formats[index];
-			if (format == WGPUTextureFormat_BGRA8Unorm || format == WGPUTextureFormat_RGBA8Unorm) { self._format = format; formatFound = true; break; }
+		if (self._preferHDR) {
+			for (size_t index = (size_t)0; index < capabilities.formatCount; index++) {
+				var format = capabilities.formats[index];
+				if (format == WGPUTextureFormat_RGBA16Float) { self._format = format; formatFound = true; break; }
+			}
+			if (!formatFound) {
+				for (size_t index = (size_t)0; index < capabilities.formatCount; index++) {
+					var format = capabilities.formats[index];
+					if (format == WGPUTextureFormat_RGB10A2Unorm) { self._format = format; formatFound = true; break; }
+				}
+			}
+		}
+		if (!formatFound) {
+			for (size_t index = (size_t)0; index < capabilities.formatCount; index++) {
+				var format = capabilities.formats[index];
+				if (format == WGPUTextureFormat_BGRA8Unorm || format == WGPUTextureFormat_RGBA8Unorm) { self._format = format; formatFound = true; break; }
+			}
 		}
 		/* Immediate presentation never waits for the display, so the frame rate
 		 * is bounded by rendering cost rather than the panel's refresh (tearing

@@ -51,17 +51,69 @@ class GPUDevice {
 	private GPUDeviceCompletion? _deviceCompletion;
 	private GPUDeviceState _state = GPU_DEVICE_REQUESTING_ADAPTER;
 	private string _error = "";
-	public GPUDevice(WGPUInstance instance, WGPUSurface surface) {
-		if (instance == null || surface == null) { throw "GPU device requires an open instance and surface"; }
+	public GPUDevice(WGPUInstance instance, WGPUSurface? surface = null) {
+		if (instance == null) { throw "GPU device requires an open instance"; }
 		self._pump = GPUCompletionPump(instance);
 		GPUAdapterCompletion adapterCompletion = GPUAdapterCompletion();
 		self._adapterCompletion = adapterCompletion;
 		var options = WGPURequestAdapterOptionsInput();
-		options.compatibleSurface = surface;
+		options.featureLevel = WGPUFeatureLevel_Core;
+		options.powerPreference = WGPUPowerPreference_HighPerformance;
+		if (surface != null) { options.compatibleSurface = surface; }
 		var callback = WGPURequestAdapterCallbackInfoInput();
 		callback.mode = WGPUCallbackMode_AllowProcessEvents;
 		callback.callback = adapterCompletion;
 		wgpuInstanceRequestAdapter(instance, options, callback, self._pump.scope());
+	}
+
+	/* Create a surface-less WebGPU device for headless compute and offscreen rendering. */
+	class GPUDevice headless() {
+		WGPUInstance? instance = wgpuCreateInstance(null);
+		if (instance == null) { throw "Cannot create headless WebGPU instance"; }
+		return GPUDevice(instance, null);
+	}
+
+	/* Create and poll a headless WebGPU device until ready, throwing on failure. */
+	class GPUDevice openHeadless() {
+		GPUDevice device = GPUDevice.headless();
+		for (int spin = 0; spin < 1000000; spin++) {
+			var state = device.poll();
+			if (state == GPU_DEVICE_READY) { return device; }
+			if (state == GPU_DEVICE_FAILED) {
+				string message = device.error();
+				device.close();
+				throw message;
+			}
+			if (state == GPU_DEVICE_CLOSED) { throw "Headless GPU device closed unexpectedly"; }
+		}
+		device.close();
+		throw "Timed out waiting for headless GPU device";
+	}
+
+	public void pumpEvents() { self._pump.pump(); }
+
+	public int maxTextureDimension2D() {
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(self.nativeDevice(), &limits) != WGPUStatus_Success) { throw "Cannot read GPU device limits"; }
+		return (int)limits.maxTextureDimension2D;
+	}
+
+	public int maxTextureArrayLayers() {
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(self.nativeDevice(), &limits) != WGPUStatus_Success) { throw "Cannot read GPU device limits"; }
+		return (int)limits.maxTextureArrayLayers;
+	}
+
+	public unsigned long long maxBufferSize() {
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(self.nativeDevice(), &limits) != WGPUStatus_Success) { throw "Cannot read GPU device limits"; }
+		return (unsigned long long)limits.maxBufferSize;
+	}
+
+	public unsigned long long maxStorageBufferBindingSize() {
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(self.nativeDevice(), &limits) != WGPUStatus_Success) { throw "Cannot read GPU device limits"; }
+		return (unsigned long long)limits.maxStorageBufferBindingSize;
 	}
 
 	private void requireExecutor() { self._pump.requireExecutor(); }
