@@ -13,13 +13,16 @@ int main(int argc, char** argv) {
 	string interpolated = "5e2d04000000fffff8ca982dffffef912900cb630a000000";
 	string untouched = "5f2e05000000fffff9cd9b2dffffee8f2600cb6209000000";
 	string shifted = "5f2e05000000fffff9cd8920e1a4672a0100";
-	Vector<string> masks = [interpolated, untouched, shifted, untouched, shifted, untouched];
+	// G has two distinct IUP anchors that round to the same 26.6 position.
+	string anchors = "0000000d00000035c2f9ac43affeffffffc4fffffffff177ffffdf720e00c75603000000";
+	Vector<string> masks = [anchors, interpolated, untouched, shifted, untouched, shifted, untouched];
 	int count = argv[2][0] == '5' ? 5 : 6;
-	for (int i = 0; i < count; i++) {
-		var m = font.glyph(65 + i, false);
-		var g = font.glyph(65 + i, true);
+	for (int i = 0; i <= count; i++) {
+		int codepoint = i == 0 ? 71 : 64 + i;
+		var m = font.glyph(codepoint, false);
+		var g = font.glyph(codepoint, true);
 		var expected = Bytes.fromHex(masks.get(i));
-		if (expected == null || m == null || g == null || m.advanceFixed() != 512LL || g.advanceFixed() != 512LL || m.width() != 0 || g.bitmapLeft() != 0 || g.bitmapTop() != 4 || g.width() != 6 || g.rows() * 6 != expected.length() || g.pixelMode() != FONT_PIXEL_GRAY || g.numGrays() != 256) { return 4; }
+		if (expected == null || m == null || g == null || m.advanceFixed() != 512LL || g.advanceFixed() != 512LL || m.width() != 0 || g.bitmapLeft() != 0 || g.bitmapTop() != (i == 0 ? 6 : 4) || g.width() != 6 || g.rows() * 6 != expected.length() || g.pixelMode() != FONT_PIXEL_GRAY || g.numGrays() != 256) { return 4; }
 		for (int j = 0; j < expected.length(); j++) {
 			if (g.coverage(j / 6, j % 6) != expected.get(j)) { return 5; }
 		}

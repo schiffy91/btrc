@@ -280,10 +280,28 @@ class TrueTypeProgram {
 		self.execute(code, 0);
 	}
 
+	/* Functions can declare an arbitrary projection or rotation even if an
+	 * early glyph never calls that function. Keep the entire face on the
+	 * SDK when its programs need more than axis-aligned vectors. */
+	private void requireAxisPrograms(OpenTypeSpan code) {
+		int pc = code.offset;
+		int end = code.end();
+		while (pc < end) {
+			int op = self.data.u8(pc);
+			pc++;
+			if ((op >= 0x06 && op <= 0x0e) || op == 0x86 || op == 0x87) { throw "TrueType font requires general vector instructions"; }
+			int bytes = self.operandCount(op, pc, end);
+			if (bytes > end - pc) { throw "Truncated TrueType push"; }
+			pc += bytes;
+		}
+	}
+
 	/* The pre-program runs once per size. Each glyph starts with its own
 	 * copies of this prepared state, including twilight coordinates. A
 	 * failed glyph therefore cannot disturb a subsequent glyph. */
 	public void prepare(OpenTypeSpan functions, OpenTypeSpan prep) {
+		self.requireAxisPrograms(functions);
+		self.requireAxisPrograms(prep);
 		self.run(functions);
 		self.run(prep);
 		self.preparing = false;

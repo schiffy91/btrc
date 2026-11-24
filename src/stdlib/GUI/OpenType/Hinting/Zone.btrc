@@ -108,7 +108,8 @@ class TrueTypeZone {
 				do {
 					int b = a;
 					do { b = b == last ? first : b + 1; } while ((self.touched.get(b) & mask) == 0);
-					int lo = original.get(a) <= original.get(b) ? a : b;
+					// Distinct anchors can round to the same 26.6 coordinate.
+					int lo = units.get(a) <= units.get(b) ? a : b;
 					int hi = lo == a ? b : a;
 					int i = a == last ? first : a + 1;
 					while (i != b) {

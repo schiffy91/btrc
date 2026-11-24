@@ -36,7 +36,7 @@ class HintedFontProvider implements IFontFace {
 				self.nativeFace = new FreeTypeFace("", self.pixels, portable.source);
 				self.reader = null;
 			}
-			return self.nativeFace.glyph(code, render);
+			return self.nativeFace?.glyph(code, render);
 		} finally { self.gate.store(0u, MemoryOrder.RELEASE); }
 	}
 }

@@ -368,9 +368,9 @@ def test_linux_hinted_woff2_after_unlink(tmp_path, request, frontend, sanitized)
     data = (tests / "fixtures/hinted-mixed.woff2").read_bytes()
     env = provider_environment(sanitized)
 
-    def run(suffix, count, environment):
+    def run(suffix, count, environment, fixture=data):
         path = tmp_path / f"input.{suffix}"
-        path.write_bytes(data)
+        path.write_bytes(fixture)
         return subprocess.run(
             [executable, path, str(count)], capture_output=True, text=True, env=environment, timeout=60
         )
@@ -379,8 +379,13 @@ def test_linux_hinted_woff2_after_unlink(tmp_path, request, frontend, sanitized)
         result = run(suffix, 6, env)
         assert result.returncode == 0, result.stdout + result.stderr
         assert "PASS: hinted WOFF2 snapshots after unlink" in result.stdout
+    general = (tests / "fixtures/hinted-general.woff2").read_bytes()
+    result = run("woff2", 6, env, general)
+    assert result.returncode == 0, result.stdout + result.stderr
     if not sanitized:
         blocked = unavailable_freetype(tmp_path, env)
+        early = run("woff2", 5, blocked, general)
+        assert early.returncode != 0 and "Cannot initialize FreeType library" in early.stderr
         supported = run("woff2", 5, blocked)
         assert supported.returncode == 0, supported.stdout + supported.stderr
         fallback = run("woff2", 6, blocked)
