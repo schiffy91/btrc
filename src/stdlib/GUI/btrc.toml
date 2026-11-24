@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["ActionMailbox", "ControlEvents", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageHandle", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISlider", "IStack", "ITextField", "IView", "IWebView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "Raster", "TextRun", "WebView"]
+exports = ["ActionMailbox", "ControlEvents", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageHandle", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISharedFrameView", "ISlider", "IStack", "ITextField", "IView", "IWebView", "IWindow", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "Raster", "SharedFrameView", "TextRun", "WebView"]
 
 [[package.providers]]
 module = "GUI"
@@ -338,7 +338,7 @@ read-only-borrows = ["sel_registerName.str"]
 
 [[native.frameworks]]
 name = "AppKit"
-modules = ["MacOS.GUIProvider", "MacOS.MacOSGPUView", "MacOS.MacOSViewInput", "MacOS.MacOSSlider", "MacOS.AppKitEvents", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSTextField", "MacOS.MacOSWindow", "MacOS.AppKitText", "MacOS.MacOSScrollView", "MacOS.MacOSApplication", "MacOS.MetalLayer", "MacOS.MacOSViewCapture", "MacOS.MacOSComposedCapture", "MacOS.MacOSView", "MacOS.MacOSLabel", "MacOS.MacOSImageView", "MacOS.MacOSImageHandle", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSActionQueue", "MacOS.MacOSButton", "MacOS.MacOSSelect", "MacOS.MacOSGrid", "MacOS.MacOSLevelIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSStack", "MacOS.MacOSContainer", "MacOS.AppKitWeb", "MacOS.MacOSWebView"]
+modules = ["MacOS.GUIProvider", "MacOS.MacOSGPUView", "MacOS.MacOSViewInput", "MacOS.MacOSSlider", "MacOS.AppKitEvents", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSTextField", "MacOS.MacOSWindow", "MacOS.AppKitText", "MacOS.MacOSScrollView", "MacOS.MacOSApplication", "MacOS.MetalLayer", "MacOS.MacOSViewCapture", "MacOS.MacOSComposedCapture", "MacOS.MacOSView", "MacOS.MacOSLabel", "MacOS.MacOSImageView", "MacOS.MacOSImageHandle", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSActionQueue", "MacOS.MacOSButton", "MacOS.MacOSSelect", "MacOS.MacOSGrid", "MacOS.MacOSLevelIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSStack", "MacOS.MacOSContainer", "MacOS.AppKitWeb", "MacOS.MacOSWebView", "MacOS.MacOSSharedFrameView"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -794,7 +794,7 @@ release = "wgpuSurfaceRelease"
 
 [[native.frameworks]]
 name = "QuartzCore"
-modules = ["MacOS.MetalLayer", "MacOS.MacOSPanel", "MacOS.CoreFoundation"]
+modules = ["MacOS.MetalLayer", "MacOS.MacOSPanel", "MacOS.CoreFoundation", "MacOS.MacOSSharedFrameView"]
 os = ["macos"]
 
 [[native.pkg-config]]
@@ -804,7 +804,7 @@ os = ["macos"]
 
 [[native.frameworks]]
 name = "CoreFoundation"
-modules = ["MacOS.CoreFoundation", "MacOS.MacOSSystemText"]
+modules = ["MacOS.CoreFoundation", "MacOS.MacOSSystemText", "MacOS.MacOSSharedFrameView"]
 os = ["macos"]
 
 [[native.frameworks]]
@@ -1222,3 +1222,80 @@ os = ["ios"]
 name = "WebKit"
 modules = ["Shim.ShimWeb"]
 os = ["ios"]
+
+[[package.providers]]
+module = "SharedFrameView"
+implementation = "MacOS.SharedFrameViewProvider"
+os = ["macos"]
+
+[[package.providers]]
+module = "SharedFrameView"
+implementation = "Unavailable.SharedFrameViewProvider"
+os = ["windows", "ios", "android"]
+
+[[package.providers]]
+module = "SharedFrameView"
+implementation = "Linux.SharedFrameViewProvider"
+os = ["linux"]
+
+[[native.bindings]]
+module = "MacOS.MacOSSharedFrameView"
+header = "MacOS/AppKitSharedFrame.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[BTRCSharedFrameHost makeView]", "-[BTRCSharedFrameHost listenToProcess:]", "-[BTRCSharedFrameHost disconnect]", "-[BTRCSharedFrameHost presentPending]", "-[BTRCSharedFrameHost frameWidth]", "-[BTRCSharedFrameHost frameHeight]"]
+os = ["macos"]
+
+[[native.sources]]
+modules = ["MacOS.MacOSSharedFrameView"]
+path = "MacOS/AppKitSharedFrame.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+
+[[native.libraries]]
+name = "bsm"
+modules = ["MacOS.MacOSSharedFrameView"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "AVFoundation"
+modules = ["MacOS.MacOSSharedFrameView"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "IOSurface"
+modules = ["MacOS.MacOSSharedFrameView"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "CoreVideo"
+modules = ["MacOS.MacOSSharedFrameView"]
+os = ["macos"]
+
+[[native.frameworks]]
+name = "CoreMedia"
+modules = ["MacOS.MacOSSharedFrameView"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "Linux.LinuxSharedFrameView"
+header = "Linux/SharedFrame.h"
+language = "c"
+standard = "c11"
+symbols = ["BtrcDmaBufReceiver", "btrcDmaBufListen", "btrcDmaBufAddress", "btrcDmaBufDisconnect", "btrcGtkSupportsSharedFrames", "btrcGtkSharedFrameCreate", "btrcGtkSharedFrameClear", "btrcGtkPictureReceive", "btrcGtkPictureFrameWidth", "btrcGtkPictureFrameHeight"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/DmaBufReceiver.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/GtkSharedFrame.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
