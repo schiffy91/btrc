@@ -141,8 +141,10 @@ def test_dbus_address_discovery_and_authentication(
     account_home = pwd.getpwuid(os.geteuid()).pw_dir
     home = tmp_path / "account"
     home.mkdir(mode=0o700)
+    bwrap_bin = shutil.which("bwrap")
+    assert bwrap_bin is not None
     prefix = (
-        "bwrap",
+        bwrap_bin,
         "--die-with-parent",
         "--bind",
         "/",
@@ -195,7 +197,7 @@ def test_dbus_address_discovery_and_authentication(
     for transport, auth in (("tcp", "DBUS_COOKIE_SHA1"), ("nonce-tcp", "ANONYMOUS")):
         listen = f"{transport}:host=localhost,family=ipv4,port=0"
         config.write_text(
-            "<busconfig><type>session</type><allow_anonymous/><listen>"
+            '<busconfig><type>session</type><apparmor mode="disabled"/><allow_anonymous/><listen>'
             + escape(listen)
             + f'</listen><auth>{auth}</auth><policy context="default"><allow user="*"/>'
             + '<allow own="*"/><allow send_destination="*"/><allow receive_sender="*"/></policy></busconfig>'
@@ -214,7 +216,9 @@ def test_dbus_address_discovery_and_authentication(
                 try:
                     assert select.select([client.stdout], [], [], 30)[0]
                     line = client.stdout.readline()
-                    assert line.startswith("READY :1."), (line, client.poll())
+                    assert line.startswith("READY :1."), (
+                        f"{transport}/{auth} addr={address} line={line!r} rc={client.poll()} err={client.stderr.read()!r} files={[str(p.relative_to(home)) for p in home.rglob('*')]}"
+                    )
                 finally:
                     client.terminate()
                     client.communicate(timeout=10)
@@ -234,14 +238,16 @@ def test_dbus_refuses_malformed_messages(
 
 
 @contextlib.contextmanager
-def _echo_service(executable: Path, environment: dict[str, str]) -> Iterator[subprocess.Popen[str]]:
+def _echo_service(
+    executable: Path, environment: dict[str, str], prefix: tuple[str, ...] = ()
+) -> Iterator[subprocess.Popen[str]]:
     service = subprocess.Popen(
-        [str(executable)], env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        [*prefix, str(executable)], env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     )
     try:
         assert select.select([service.stdout], [], [], 30)[0], "D-Bus service did not become ready"
         ready = service.stdout.readline()
-        assert ready.startswith("READY :1."), (ready, service.poll())
+        assert ready.startswith("READY :1."), (ready, service.poll(), service.stderr.read())
         yield service
     finally:
         if service.poll() is None:
@@ -472,3 +478,224 @@ def test_windows_has_no_dbus_transport(compiler: str, tmp_path: Path, request: p
         refused = transpile(source)
         assert refused.returncode != 0
         assert "provider" in refused.stderr
+
+
+def test_dbus_x11_launch_package_is_noop_on_non_linux(
+    compiler: str, tmp_path: Path, request: pytest.FixtureRequest
+) -> None:
+    """packages/dbus-x11-launch compiles as a no-op on non-Linux without pulling in Linux DBusConnection."""
+    package = (ROOT / "packages" / "dbus-x11-launch").resolve()
+    app = (tmp_path / "app").resolve()
+    app.mkdir()
+    (app / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "dbus_x11_noop"\nexports = ["Main"]\n'
+        f'[dependencies]\ndbusX11 = {{ path = "{os.path.relpath(package, app)}" }}\n'
+    )
+    source = app / "Main.btrc"
+    source.write_text(
+        "import dbusX11.DBusX11Launch;\n\n"
+        "int main() {\n"
+        "\tDBusX11Launch.install();\n"
+        "\treturn DBusX11Launch.available() ? 1 : 0;\n"
+        "}\n"
+    )
+    environment = {**os.environ, "BTRC_CACHE_DIR": str(tmp_path / "cache"), "BTRC_HOME": str(ROOT / "src")}
+    for target in ("windows-x86_64", "macos-aarch64"):
+        generated = tmp_path / f"Main-{target}.c"
+        if compiler == "python":
+            command = [
+                sys.executable,
+                "-m",
+                "src.compiler.python.main",
+                str(source),
+                "--strict-imports",
+                "--target",
+                target,
+                "--no-cache",
+                "-o",
+                str(generated),
+            ]
+        else:
+            btrcc = request.getfixturevalue("immutable_btrcc")
+            command = [str(btrcc), "--strict-imports", "--target", target, str(source)]
+        ran = subprocess.run(
+            command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=COMPILE_TIMEOUT
+        )
+        assert ran.returncode == 0, (target, ran.stderr)
+        emitted = generated.read_text() if compiler == "python" else ran.stdout
+        assert "dbus-launch" not in emitted
+
+
+def test_dbus_x11_autolaunch_is_opt_in(compiler: str, tmp_path: Path, request: pytest.FixtureRequest) -> None:
+    """Standalone Library.DBus never invokes dbus-launch; packages/dbus-x11-launch opts in via link or LD_PRELOAD."""
+    _require_host()
+    import pwd
+
+    package = (ROOT / "packages" / "dbus-x11-launch").resolve()
+    standalone_c = tmp_path / f"DBusEcho-standalone-{compiler}.c"
+    standalone = tmp_path / f"DBusEcho-standalone-{compiler}"
+    standalone_plan = _transpile(compiler, FIXTURE / "DBusEcho.btrc", standalone_c, request)
+    assert "dbus-launch" not in standalone_c.read_text()
+    _build("gcc", standalone_plan, standalone_c, standalone, sanitized=False)
+    assert b"dbus-launch" not in standalone.read_bytes()
+
+    linked_dir = (tmp_path / "linked").resolve()
+    linked_dir.mkdir()
+    (linked_dir / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "dbus_x11_client"\nexports = ["Main"]\n'
+        f'[dependencies]\ndbusX11 = {{ path = "{os.path.relpath(package, linked_dir)}" }}\n'
+    )
+    linked_src = linked_dir / "Main.btrc"
+    echo_source = (FIXTURE / "DBusEcho.btrc").read_text()
+    assert echo_source.count("int main() {\n") == 1
+    linked_src.write_text(
+        "import Library.Platform;\n"
+        "import dbusX11.DBusX11Launch;\n"
+        + echo_source.replace(
+            "int main() {\n",
+            "int main() {\n"
+            "\tDBusX11Launch.install();\n"
+            '\tif (Environment.get("BTRC_CHECK_AVAILABLE", "").equals("1")) {\n'
+            '\t\tprint(DBusX11Launch.available() ? "AVAILABLE 1" : "AVAILABLE 0");\n'
+            "\t\treturn 0;\n"
+            "\t}\n",
+            1,
+        )
+    )
+    linked_c = tmp_path / f"DBusEcho-linked-{compiler}.c"
+    linked = tmp_path / f"DBusEcho-linked-{compiler}"
+    linked_plan = _transpile(compiler, linked_src, linked_c, request)
+    _build("gcc", linked_plan, linked_c, linked, sanitized=False)
+
+    adapter = tmp_path / "libbtrc-dbus-x11-launch.so.1"
+    subprocess.run(
+        [
+            "gcc",
+            *STRICT,
+            "-O2",
+            "-fPIC",
+            "-shared",
+            "-I",
+            str(ROOT / "src" / "stdlib" / "DBus" / "X11Autolaunch"),
+            str(package / "Linux" / "Backend.c"),
+            "-Wl,-soname,libbtrc-dbus-x11-launch.so.1",
+            "-o",
+            str(adapter),
+        ],
+        check=True,
+        timeout=COMPILE_TIMEOUT,
+    )
+    assert_links_no_dbus_library(adapter)
+
+    account_home = pwd.getpwuid(os.geteuid()).pw_dir
+    home = tmp_path / "account"
+    home.mkdir(mode=0o700)
+    machine_id = "0123456789abcdef0123456789abcdef"
+    machine_file = tmp_path / "machine-id"
+    machine_file.write_text(machine_id + "\n")
+    bwrap_bin = shutil.which("bwrap")
+    assert bwrap_bin is not None
+    prefix = (
+        bwrap_bin,
+        "--die-with-parent",
+        "--bind",
+        "/",
+        "/",
+        "--dev",
+        "/dev",
+        "--proc",
+        "/proc",
+        "--bind",
+        str(home),
+        account_home,
+        "--bind",
+        str(tmp_path),
+        str(tmp_path),
+        "--tmpfs",
+        "/var/lib/dbus",
+        "--ro-bind",
+        str(machine_file),
+        "/var/lib/dbus/machine-id",
+    )
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    empty_bin = tmp_path / "empty-bin"
+    empty_bin.mkdir()
+    argv_log = tmp_path / "dbus-launch-argv.log"
+
+    with (
+        tempfile.TemporaryDirectory(prefix="btrc-dbus-") as directory,
+        private_bus(listen=f"unix:path={directory}/bus") as address,
+    ):
+        fake_launcher = fake_bin / "dbus-launch"
+        fake_launcher.write_text(
+            "#!/bin/sh\n"
+            f'printf "%s\\n" "$@" > "{argv_log}"\n'
+            f"printf '%s\\0\\001\\000\\000\\000\\002\\000\\000\\000' '{address}'\n"
+        )
+        fake_launcher.chmod(0o755)
+
+        base_env = {
+            **os.environ,
+            "DISPLAY": ":99",
+            "XDG_RUNTIME_DIR": "",
+            "PATH": f"{fake_bin}:{os.environ.get('PATH', '/bin:/usr/bin')}",
+        }
+        base_env.pop("DBUS_SESSION_BUS_ADDRESS", None)
+        base_env.pop("LD_PRELOAD", None)
+
+        # Saved X11 session file works standalone without invoking dbus-launch.
+        session_dir = home / ".dbus" / "session-bus"
+        session_dir.mkdir(parents=True, mode=0o755)
+        session_dir.chmod(0o755)
+        saved_file = session_dir / f"{machine_id}-99"
+        saved_file.write_text(f"DBUS_SESSION_BUS_ADDRESS='{address}'\n")
+        saved_file.chmod(0o644)
+        with _echo_service(standalone, base_env, prefix=prefix):
+            pass
+        assert not argv_log.exists()
+
+        # Without a saved session file, standalone DBus never spawns dbus-launch.
+        saved_file.unlink()
+        refused = subprocess.run([*prefix, str(standalone)], env=base_env, capture_output=True, text=True, timeout=30)
+        assert refused.returncode == 2, refused.stderr
+        assert not argv_log.exists()
+
+        # Linked packages/dbus-x11-launch opts in and invokes dbus-launch.
+        with _echo_service(linked, base_env, prefix=prefix):
+            pass
+        assert argv_log.read_text().splitlines() == [
+            f"--autolaunch={machine_id}",
+            "--binary-syntax",
+            "--close-stderr",
+        ]
+
+        # LD_PRELOAD enables the same fallback for the unmodified standalone binary.
+        argv_log.unlink()
+        preloaded_env = {**base_env, "LD_PRELOAD": str(adapter)}
+        with _echo_service(standalone, preloaded_env, prefix=prefix):
+            pass
+        assert argv_log.read_text().splitlines() == [
+            f"--autolaunch={machine_id}",
+            "--binary-syntax",
+            "--close-stderr",
+        ]
+
+        # DBusX11Launch.available() reflects whether dbus-launch is executable on PATH.
+        present = subprocess.run(
+            [*prefix, str(linked)],
+            env={**base_env, "BTRC_CHECK_AVAILABLE": "1"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert present.returncode == 0 and present.stdout.strip() == "AVAILABLE 1", (present.stdout, present.stderr)
+        absent = subprocess.run(
+            [*prefix, str(linked)],
+            env={**base_env, "BTRC_CHECK_AVAILABLE": "1", "PATH": str(empty_bin)},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert absent.returncode == 0 and absent.stdout.strip() == "AVAILABLE 0", (absent.stdout, absent.stderr)

@@ -1,0 +1,11 @@
+/* Opt-in legacy X11 dbus-launch activation for Library.DBus on Linux.
+ * Standalone Library.DBus connects through DBUS_SESSION_BUS_ADDRESS,
+ * $XDG_RUNTIME_DIR/bus, and ~/.dbus/session-bus/<machine-id>-<display>
+ * without spawning dbus-launch. Calling DBusX11Launch.install() retains the
+ * optional Linux fallback for unaddressed legacy X11 sessions; on other
+ * targets it has no effect. */
+class DBusX11Launch {
+	class void install() { DBusX11LaunchProvider.install(); }
+
+	class bool available() { return DBusX11LaunchProvider.available(); }
+}

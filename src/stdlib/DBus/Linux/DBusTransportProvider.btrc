@@ -155,15 +155,15 @@ class DBusTransportProvider {
 		return "";
 	}
 
-	/* The optional dbus-x11 service helper is needed only for an unaddressed
-     * legacy X11 session with no reachable runtime socket or saved address. */
+	/* Optional legacy X11 session-bus activation is supplied only when the
+	 * application links packages/dbus-x11-launch or preloads its adapter. */
 	class string launchSession(string machine) {
-		ExecResult child = ChildProcess.run("dbus-launch", ["--autolaunch=" + machine, "--binary-syntax", "--close-stderr"], "", [], [], 25000, 65536, 4096);
-		if (child.code != 0) { return ""; }
-		for (int i = 0; i < child.outBytes.len; i++) {
-			if (child.outBytes.get(i) == 0) { return child.outBytes.slice(0, i).toString(); }
-		}
-		return "";
+		char buffer[16384];
+		size_t length = btrcDBusLaunchSession(machine, buffer, sizeof(buffer));
+		if (length == (size_t)0 || length >= sizeof(buffer)) { return ""; }
+		Bytes bytes = Bytes();
+		bytes.appendRaw(buffer, (int)length);
+		return bytes.toString();
 	}
 
 	class Bytes readNonce(string path) {

@@ -13,9 +13,41 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/uio.h>
+#include <dlfcn.h>
+#include <string.h>
 #include <unistd.h>
+#include "../X11Autolaunch/BtrcLinuxDBusX11Autolaunch.h"
 
 typedef struct sockaddr_un DBusSocketAddress;
+
+/* Linux links optional first-party X11 session-bus activation providers
+ * through a versioned weak symbol (for static linking) with a POSIX dlsym
+ * fallback (for LD_PRELOAD into non-PIE executables). It is null for
+ * standalone DBus programs. A statically linked package or an adapter
+ * selected by the ELF loader stays resident for the lifetime of the process. */
+extern const BtrcLinuxDBusX11AutolaunchV1* btrcLinuxDBusX11AutolaunchV1(void) __attribute__((weak));
+
+static inline const BtrcLinuxDBusX11AutolaunchV1* btrcResolveDBusX11Autolaunch(void) {
+    if (btrcLinuxDBusX11AutolaunchV1) { return btrcLinuxDBusX11AutolaunchV1(); }
+    void* process = dlopen(NULL, RTLD_LAZY);
+    if (!process) { return NULL; }
+    void* symbol = dlsym(process, "btrcLinuxDBusX11AutolaunchV1");
+    dlclose(process);
+    if (!symbol) { return NULL; }
+    typedef const BtrcLinuxDBusX11AutolaunchV1* (*ProviderEntry)(void);
+    ProviderEntry entry = NULL;
+    memcpy(&entry, &symbol, sizeof(entry));
+    return entry();
+}
+
+static inline size_t btrcDBusLaunchSession(const char* machineId, char* output, size_t capacity) {
+    const BtrcLinuxDBusX11AutolaunchV1* provider = btrcResolveDBusX11Autolaunch();
+    if (!provider || !provider->launch || !machineId || !output || capacity <= 1) { return 0; }
+    size_t length = provider->launch(machineId, output, capacity);
+    if (length == 0 || length >= capacity) { return 0; }
+    output[length] = '\0';
+    return length;
+}
 
 /* Receive one part of a single frame. SCM_RIGHTS uses the CMSG macros and
  * an aligned variable-length control record. Return all installed handles
