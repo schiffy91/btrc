@@ -71,6 +71,12 @@ int main(void)
 	if (regcomp(&compiled, "(([^x]|Z){2,})+", REG_EXTENDED | REG_ICASE) || ((uintptr_t)compiled.__opaque & 3u) != 3 ||
 	    regexec(&compiled, "XabcZ", 1, span, 0) || span[0].rm_so != 1 || span[0].rm_eo != 5) return 1;
 	regfree(&compiled);
+	if (regcomp(&compiled, "((\\x61){2}|(\\d){2,})+", REG_EXTENDED | REG_ICASE) || ((uintptr_t)compiled.__opaque & 3u) != 3 ||
+	    regexec(&compiled, "AAaa09", 1, span, 0) || span[0].rm_so != 2 || span[0].rm_eo != 6) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "((\\D\\W){1,3})+", REG_EXTENDED | REG_NEWLINE) || ((uintptr_t)compiled.__opaque & 3u) != 3 ||
+	    regexec(&compiled, "0a!b?", 1, span, 0) || span[0].rm_so != 1 || span[0].rm_eo != 5) return 1;
+	regfree(&compiled);
 	if (regcomp(&compiled, "((^a)|(b$))+", REG_EXTENDED | REG_NEWLINE) || ((uintptr_t)compiled.__opaque & 3u) != 3 ||
 	    regexec(&compiled, "x\na\nb\n", 1, span, REG_NOTBOL | REG_NOTEOL) || span[0].rm_so != 2 || span[0].rm_eo != 3) return 1;
 	regfree(&compiled);

@@ -346,18 +346,13 @@ static inline void btrc_win_pos_build_contexts(btrc_win_pos_builder *b, int tree
 static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, size_t *groups, int flags)
 {
 	if (strlen(pattern) > 255) return NULL;
-	int escapes = 0;
-	for (const char *slash = strchr(pattern, '\\'); slash; slash = strchr(slash + 2, '\\')) {
-		if (!slash[1] || !strchr("bB<>", slash[1])) return NULL;
-		++escapes;
-	}
 	btrc_win_rx_program parsed = {0};
 	parsed.flags = flags;
 	parsed.split_newline_dot = 1;
 	btrc_win_rx_parser parser = {&parsed, (const unsigned char *)pattern, 0, 0, 0, 0};
 	int root = btrc_win_rx_expression(&parser, 0);
 	btrc_win_pos_program *p = NULL;
-	if (!parser.error && root && parser.groups && escapes) {
+	if (!parser.error && root && parser.groups) {
 		btrc_win_boundary_blocks boundary = {0};
 		if (btrc_win_rx_detect_boundary_blocks(&boundary, parsed.nodes, root)) {
 			p = (btrc_win_pos_program *)calloc(1, sizeof *p + strlen(pattern) + 1);
@@ -370,16 +365,15 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 		}
 	}
 	if (!p && !parser.error && root && parser.groups) {
-		int index = 0, word_assertions = 0, kinds = 0;
+		int index = 0, kinds = 0;
 		for (int i = 1; i <= parser.nodes; ++i) {
 			const btrc_win_rx_node *node = &parsed.nodes[i];
 			if (node->op == btrc_win_rx_byte) parsed.nodes[i].arg = index++;
 			if (node->op == btrc_win_rx_assert) {
 				kinds |= 1 << node->arg;
-				if (node->arg >= btrc_win_rx_bow) ++word_assertions;
 			}
 		}
-		if (index <= btrc_win_pos_limit && escapes == word_assertions) {
+		if (index <= btrc_win_pos_limit) {
 			size_t bytes = sizeof *p + btrc_win_pos_limit * sizeof *p->edge + strlen(pattern) + 1;
 			p = (btrc_win_pos_program *)calloc(1, bytes);
 		}

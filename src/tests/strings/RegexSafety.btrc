@@ -95,6 +95,7 @@ int main() {
 	assert(Regex.fullMatch("item([[:digit:]])+", "item42"));
 	assert(Regex.first("((([ab]){2,4})?((a){0,2}|ab)(b){2}){2,4}", "abaaaba").equals("abaaab"));
 	assert(Regex.first("((a){2,3})", "aaaa").equals("aaa"));
+	assert(Regex.first("((\\w\\d){1,3})+", "?!b7c8!").equals("b7c8"));
 	assert(Regex.fullMatch("((((([ab]){2,}){2,}|((ab|ab)){2,})){2,4}){0,2}", "aaaab"));
 	assert(Regex.fullMatch("((((ab|.)){2,4})*((([^ab]){2,4}|ab\\b)|((ab){2,4}){0,2})){2,4}", "b"));
 	assert(Regex.first("((([a-z]){1,3}){1,3}(^){1,3}(\\b|a\\B))*", "aaaab").equals("aaaa"));

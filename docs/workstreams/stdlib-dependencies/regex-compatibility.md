@@ -77,3 +77,5 @@ Raw BRE callers can use backreferences to completed, nonempty fixed-width groups
 A fixed number of copies of a positive-width literal or bracket group also has fixed capture offsets. For `(id([0-9])){2}` on `id7id8`, the whole match covers both copies and the two subgroups contain `id8` and `8`.
 
 Grouped extended expressions honor raw multiline and no-submatch flags. With `REG_NEWLINE`, line anchors also match adjacent to interior line feeds. Dot and negated brackets exclude line feeds, including inside counted groups. With `REG_NOSUB`, callers can pass a match array and its contents remain untouched. With `REG_ICASE`, counted groups preserve the consuming positions of both literal case variants and the opposite-case spans of a bracket range.
+
+Grouped extended expressions also accept the Windows literal, hex, digit, whitespace and word escapes. A hex escape retains its exact byte in a case-insensitive pattern.
