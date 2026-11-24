@@ -460,6 +460,8 @@ class TrueTypeProgram {
 		return self.generalVectors;
 	}
 
+	public bool gridFittingEnabled() { return self.enabled; }
+
 	public void glyph(OpenTypeSpan code, TrueTypeZone points, bool composite = false) {
 		self.compositeGlyph = composite;
 		self.interpolatedAxes = 0;

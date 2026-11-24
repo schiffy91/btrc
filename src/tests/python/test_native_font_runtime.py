@@ -419,6 +419,12 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
         assert measured.returncode == 0, measured.stdout + measured.stderr
         native_ink = run("ttf", "render", blocked, legacy)
         assert native_ink.returncode != 0 and "Cannot initialize FreeType library" in native_ink.stderr
+    composite = (tests / "fixtures/hinted-composite-offset.ttf").read_bytes()
+    for size in (8, 13):
+        for extension, environment in (("raw", env), ("ttf", blocked or env)):
+            result = run(extension, f"composite{size}", environment, composite)
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "PASS: size-specific composite component placement" in result.stdout
     general = (tests / "fixtures/hinted-general.woff2").read_bytes()
     result = run("woff2", 6, env, general)
     assert result.returncode == 0, result.stdout + result.stderr

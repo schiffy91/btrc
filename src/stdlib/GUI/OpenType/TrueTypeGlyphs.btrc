@@ -284,7 +284,7 @@ class TrueTypeGlyphs {
 				}
 				dx = OpenTypeFixed.mul(dx, scale);
 				dy = OpenTypeFixed.mul(dy, scale);
-				if (self.hinting != null && (flags & 4) != 0) { dy = OpenTypeFixed.pixelRound(dy); }
+				if ((flags & 4) != 0 && self.hinting != null && self.hinting.gridFittingEnabled()) { dy = OpenTypeFixed.pixelRound(dy); }
 			} else {
 				long long anchor = first + (long long)startPoint;
 				long long moved = second + (long long)base;

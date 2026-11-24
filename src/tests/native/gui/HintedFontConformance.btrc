@@ -32,11 +32,29 @@ int legacyBMP(const char* path, bool render) {
 	return 0;
 }
 
+/* E places a component at a fractional Y offset with ROUND_XY_TO_GRID.
+ * The font's pre-program disables grid fitting at 8 ppem only. */
+int compositeOffset(const char* path, int size) {
+	var font = FreeType.load(Strings.copy((char*)path), size);
+	if (remove(path) != 0) { return 6; }
+	var glyph = font.glyph(69, true);
+	string mask = size == 8 ? "cf9e6d3d0e00fffffffdb42dffea882100005b0700000000" : "8a592802000000000000fffffff5c69563320700fffffffffffff9b86508ffffffeca2540d000000d98b3d03000000000000";
+	var pixels = Bytes.fromHex(mask);
+	int width = size == 8 ? 6 : 10;
+	if (glyph == null || pixels == null || glyph.advanceFixed() != size * 64 || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != (size == 8 ? 4 : 7) || glyph.width() != width || glyph.rows() * width != pixels.length() || glyph.pitch() != width) { return 7; }
+	for (int i = 0; i < pixels.length(); i++) {
+		if (glyph.coverage(i / width, i % width) != pixels.get(i)) { return 8; }
+	}
+	print("PASS: size-specific composite component placement");
+	return 0;
+}
+
 /* The final glyph uses FLIPON, a native fallback instruction. It is reached
  * after loading the supported triangle variants and unlinking the font. */
 int main(int argc, char** argv) {
 	if (argc != 3) { return 2; }
 	if (strcmp(argv[2], "measure") == 0 || strcmp(argv[2], "render") == 0) { return legacyBMP(argv[1], argv[2][0] == 'r'); }
+	if (strcmp(argv[2], "composite8") == 0 || strcmp(argv[2], "composite13") == 0) { return compositeOffset(argv[1], argv[2][9] == '8' ? 8 : 13); }
 	var font = FreeType.load(argv[1], 8);
 	if (remove(argv[1]) != 0) { return 3; }
 	string interpolated = "5e2d04000000fffff8ca982dffffef912900cb630a000000";
