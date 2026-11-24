@@ -1,5 +1,5 @@
 """The Linux stdlib providers on real SDKs: the GTK4 GUI with WebGPU,
-libpng/libjpeg-turbo decoding, and ALSA duplex sessions. The GUI's portable
+first-party PNG and libjpeg-turbo decoding, and ALSA duplex sessions. The GUI's portable
 contract is held by the conformance suite (test_native_ui_conformance.py);
 here are the provider's own boundaries.
 
@@ -27,6 +27,7 @@ from src.tests.python.linux_provider_fixtures import (
     require_linux_reader,
 )
 from src.tests.runner_capabilities import linux_audio_backend_error, linux_display_error
+from tools.qualification.dependencies import DependencyAudit
 
 # The devcontainer image installs this as /etc/asound.conf.
 DEVCONTAINER_ALSA_CONFIG = ROOT / "nix/asound.conf"
@@ -69,20 +70,21 @@ def _build_and_run(
     expected: str,
     timeout: int = 120,
     data_root: Path | None = None,
-) -> None:
+) -> Path:
     executable = build_provider_program(source, tmp_path, frontend, sanitized, request, data_root=data_root)
     result = subprocess.run(
         [str(executable)], capture_output=True, text=True, timeout=timeout, env=provider_environment(sanitized)
     )
     assert result.returncode == 0, result.stderr
     assert expected in result.stdout
+    return executable
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_image_decoding(tmp_path, request, frontend, sanitized):
     require_linux_reader()
-    _build_and_run(
+    executable = _build_and_run(
         ROOT / "src/tests/native/image/linux/LinuxImageDecoding.btrc",
         tmp_path,
         frontend,
@@ -90,6 +92,10 @@ def test_linux_image_decoding(tmp_path, request, frontend, sanitized):
         request,
         "PASS: linux image decoding",
     )
+    if not sanitized:
+        assert DependencyAudit().binary_problems(executable, TARGET) == [
+            f"third-party requirement: {executable.name} on target {TARGET} imports libjpeg-turbo"
+        ]
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])

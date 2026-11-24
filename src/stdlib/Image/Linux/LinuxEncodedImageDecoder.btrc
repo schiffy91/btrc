@@ -2,8 +2,9 @@ import Library.Bytes;
 import Library.Image.EncodedImage;
 import Library.Image.EncodedImageDispatch;
 import Library.Image.Pixels;
+import Library.Image.PNG;
 
-/* Bounded, synchronous decoding through libpng and libjpeg-turbo: the portable
+/* Bounded, synchronous decoding through the first-party PNG reader and libjpeg-turbo: the portable
  * PNG/JPEG set. The SDK owns its decoders; this module owns the codec calls
  * and every handle's lifetime. EncodedImageDispatch owns admission, sniffing
  * and DDS; GIF and TIFF are a macOS extension and stay UNSUPPORTED here. */
@@ -19,14 +20,16 @@ class LinuxEncodedImageDecoder implements IEncodedImageDecoder, IEncodedImageFor
 	}
 
 	private EncodedImageDecodeOutcome decodePng(Bytes encoded, EncodedImageDecodeLimits limits) {
-		unsigned int width = 0u;
-		unsigned int height = 0u;
-		if (btrcPngHeader((const unsigned char*)encoded.data, (size_t)encoded.length(), &width, &height) == 0) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_CORRUPT, encoded.length()); }
-		if (!Image.validDimensions((long long)width, (long long)height) || !limits.allowsDimensions((int)width, (int)height)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, encoded.length()); }
-		var image = Image.tryCreate((int)width, (int)height);
-		if (image == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }
-		if (btrcPngDecode((const unsigned char*)encoded.data, (size_t)encoded.length(), image.data, width, height) == 0) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_CORRUPT, encoded.length()); }
-		return EncodedImageDecodeOutcome.decoded(image, encoded.length());
+		try {
+			var header = PNGHeader.inspect(encoded);
+			if (!Image.validDimensions(header.width, header.height) || !limits.allowsDimensions(header.width, header.height)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, encoded.length()); }
+			var image = PNG.decodeForDisplay(encoded, header.width * header.height);
+			return EncodedImageDecodeOutcome.decoded(image, encoded.length());
+		} catch (string error) {
+			if (error.startsWith("Could not allocate")) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }
+			if (error.endsWith("limit")) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, encoded.length()); }
+			return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_CORRUPT, encoded.length());
+		}
 	}
 
 	/* tjhandle is `void*`, which the importer cannot declare as a resource

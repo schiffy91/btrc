@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_image"
-exports = ["JPEG", "DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "Image", "Pixels", "Apple.AppleEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
+exports = ["JPEG", "PNG", "DDSEncodedImageDecoder", "EncodedImage", "EncodedImageDispatch", "Image", "Pixels", "Apple.AppleEncodedImageDecoder", "Linux.LinuxEncodedImageDecoder", "SystemImageDecoder"]
 
 # ImageIO and CoreGraphics are on every Apple system.
 [[package.providers]]
@@ -16,11 +16,6 @@ implementation = "Linux.SystemImageDecoderProvider"
 os = ["linux"]
 
 [[native.pkg-config]]
-name = "libpng"
-modules = ["Linux.LinuxEncodedImageDecoder"]
-os = ["linux"]
-
-[[native.pkg-config]]
 name = "libturbojpeg"
 modules = ["Linux.LinuxEncodedImageDecoder"]
 os = ["linux"]
@@ -30,7 +25,7 @@ module = "Linux.LinuxEncodedImageDecoder"
 header = "Linux/Codecs.h"
 language = "c"
 standard = "c11"
-symbols = ["btrcPngHeader", "btrcPngDecode", "tjhandle", "btrcJpegCreate", "tj3Destroy", "tj3DecompressHeader", "tj3Get", "tj3Decompress8", "TJINIT_DECOMPRESS", "TJPARAM_JPEGWIDTH", "TJPARAM_JPEGHEIGHT", "TJPF_RGBA"]
+symbols = ["tjhandle", "btrcJpegCreate", "tj3Destroy", "tj3DecompressHeader", "tj3Get", "tj3Decompress8", "TJINIT_DECOMPRESS", "TJPARAM_JPEGWIDTH", "TJPARAM_JPEGHEIGHT", "TJPF_RGBA"]
 os = ["linux"]
 
 [[native.bindings]]

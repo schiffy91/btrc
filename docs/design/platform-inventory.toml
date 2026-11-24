@@ -1059,14 +1059,14 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 kind = "operation"
 id = "Library.Image.Linux.LinuxEncodedImageDecoder"
 group = "stdlib/Image"
-title = "Linux libpng/libturbojpeg image decoder"
+title = "Linux PNG and libjpeg-turbo image decoder"
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_image_decoding"]
-windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "libpng/libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
-windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "libpng/libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
-ios-device = { parity = "os-restricted", implementation = "missing", owner = "I2", status = "source-only", reason = "libpng/libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
-ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I2", status = "source-only", reason = "libpng/libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
-android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "libpng/libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
-android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "libpng/libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
 
 [[rows]]
 kind = "operation"
@@ -5054,3 +5054,16 @@ ios-device = { parity = "equivalent", implementation = "implemented", owner = "P
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Image.PNG"
+group = "stdlib/Image"
+title = "Portable PNG codec"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC inflates, unfilters and encodes PNG bytes and RGBA pixels with no native codec or zlib." }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC inflates, unfilters and encodes PNG bytes and RGBA pixels with no native codec or zlib." }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC inflates, unfilters and encodes PNG bytes and RGBA pixels with no native codec or zlib." }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC inflates, unfilters and encodes PNG bytes and RGBA pixels with no native codec or zlib." }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC inflates, unfilters and encodes PNG bytes and RGBA pixels with no native codec or zlib." }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC inflates, unfilters and encodes PNG bytes and RGBA pixels with no native codec or zlib." }
