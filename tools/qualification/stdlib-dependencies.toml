@@ -228,6 +228,17 @@ headers = ["curl/*"]
 binaries = ["libcurl.so*"]
 
 # Source in the tree under someone else's copyright.
+# Normative data compiled into the first-party Unicode algorithms. These
+# hashes cover the complete generated files, including their attribution.
+[[standard-data]]
+name = "Unicode Character Database 17.0.0"
+description = "The line-break and grapheme tables contain character properties. First-party code implements both algorithms. The audit checks the tables and their license by SHA-256."
+source = "https://github.com/unicode-org/unicodetools/tree/725fb6055cd42915c74bcf77b91aa8fb8ef18669/unicodetools/data/ucd/17.0.0"
+[standard-data.sha256]
+"src/stdlib/GUI/Text/LineBreakData.h" = "5cd56d37e98500f5e9196120f505adde2c1e70d588073ef8cb414789e1490dad"
+"src/stdlib/GUI/Text/GraphemeData.h" = "8996d4574374a85fb6576cccf0d990cd46dd45264d2151eed2e4e27b0ae38c54"
+"src/stdlib/GUI/Text/UNICODE-LICENSE.txt" = "fe5c62b543e287981db198f2acfa0ca732d12591a1024536dc8fd85dacd77104"
+
 [[bundled]]
 path = "src/runtime/windows/musl"
 dependency = "musl's regex (bundled source)"

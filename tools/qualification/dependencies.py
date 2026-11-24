@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import re
 import struct
 import sys
@@ -54,6 +55,14 @@ C_LAUNCH = re.compile(r"\b(?:execl[pe]?|execv[pe]?|system|popen|_popen)\s*\(\s*L
 JAVA_IMPORT = re.compile(r"^[ \t]*import[ \t]+(?:static[ \t]+)?([A-Za-z_][\w.]*)\s*(?:\.\*)?;", re.MULTILINE)
 NOTICE = re.compile(r"Copyright\s+(?:\(c\)|©|[12][0-9]{3})|SPDX-License-Identifier", re.IGNORECASE)
 NOTICE_FILES = ("COPYRIGHT", "COPYING", "LICENSE", "LICENCE", "NOTICE")
+# The UCD generators emit an optional property enum and a single array of
+# integer pairs. Pinning a different C fragment alone cannot classify it as data.
+UNICODE_PROPERTY_TABLE = re.compile(
+    rb"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/\s+"
+    rb"(?:enum [A-Za-z]+ \{ [A-Z][A-Z0-9]*(?:, [A-Z][A-Z0-9]*)* \};\s+)?"
+    rb"static const struct \{ uint32_t first; uint(?:8|16)_t properties; \} [A-Za-z]+\[\] = \{\s*"
+    rb"(?:\{0x[0-9a-f]+, (?:0x[0-9a-f]+|[0-9]+)\},\s*)+\};\s*"
+)
 # A directory named for an operating system holds that system's code.
 DIRECTORY_SYSTEMS = {
     "linux": ("linux",),
@@ -107,6 +116,7 @@ class DependencyPolicy:
         }
         self.dependencies = tuple(document.get("dependencies", ()))
         self.bundled = tuple(document.get("bundled", ()))
+        self.standard_data = tuple(document.get("standard-data", ()))
         self.pending = tuple(document.get("pending", ()))
         self.decisions = tuple(document.get("decisions", ()))
         for row in self.pending:
@@ -468,16 +478,27 @@ class DependencyAudit:
         return found
 
     def _bundled(self) -> list[Requirement]:
-        """Source in the tree under someone else's copyright."""
+        """Attribute copyright notices and verify the exact copies of normative property data."""
         found: list[Requirement] = []
+        pins = {name: digest for entry in self.policy.standard_data for name, digest in entry["sha256"].items()}
         for base in (self.stdlib, self.runtime):
             for path in sorted(base.rglob("*")):
                 if not path.is_file() or path.suffix in (".md", ".toml", ".lock", ".symbols"):
                     continue
+                relative = path.relative_to(self.root).as_posix()
+                if relative in pins:
+                    expected = pins.pop(relative)
+                    data = path.read_bytes()
+                    if path.is_symlink() or hashlib.sha256(data).hexdigest() != expected:
+                        found.extend(self._data_problems(path, "differs from the reviewed property table or license"))
+                    elif path.name == "UNICODE-LICENSE.txt" and data.startswith(b"UNICODE LICENSE V3\n"):
+                        pass
+                    elif path.suffix != ".h" or not UNICODE_PROPERTY_TABLE.fullmatch(data):
+                        found.extend(self._data_problems(path, "is not a generated Unicode property table"))
+                    continue
                 noticed = path.name.upper().startswith(NOTICE_FILES) or NOTICE.search(path.read_text(errors="replace"))
                 if not noticed:
                     continue
-                relative = path.relative_to(self.root).as_posix()
                 row = next((row for row in self.policy.bundled if relative.startswith(row["path"])), None)
                 if row is None:
                     found.extend(
@@ -499,7 +520,16 @@ class DependencyAudit:
                     for module in row["modules"]
                     for label in self._selected(row)
                 )
+        for name in sorted(pins):
+            found.extend(self._data_problems(self.root / name, "reviewed property table or license is missing"))
         return found
+
+    def _data_problems(self, path: Path, evidence: str) -> list[Requirement]:
+        name = path.relative_to(self.root).as_posix()
+        return [
+            Requirement(self._name(path), target, f"unverified standards data {name}", "bundled", name, evidence)
+            for target in self._selected({}, self._path_systems(path))
+        ]
 
     # ── classification ─────────────────────────────────────────────────────
 
@@ -588,6 +618,13 @@ class DependencyAudit:
                     f"| {dependency} | `{module}` | {', '.join(sorted(systems))} | {'; '.join(how)} | "
                     f"{resolutions.get((dependency, module), '**unlisted**')} |"
                 )
+            lines.append("")
+        if self.policy.standard_data:
+            lines += ["## Standards data used by first-party implementations", ""]
+            for entry in self.policy.standard_data:
+                lines += [f"- {entry['name']}. {entry['description']} [Upstream data]({entry['source']})"]
+                for name in sorted(entry["sha256"]):
+                    lines += [f"  - `{name}`"]
             lines.append("")
         lines += ["## Owner decisions", ""]
         if not self.policy.decisions:

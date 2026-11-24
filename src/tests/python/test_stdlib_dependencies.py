@@ -1,5 +1,6 @@
 """The stdlib requires first-party code, the target's system and wgpu-native: nothing else."""
 
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -75,6 +76,31 @@ def test_only_the_linux_gpu_bridge_can_load_the_wayland_display_library(tmp_path
     assert (
         policy.classify("linux", "loads", "libwayland-client.so.1", "GUI/Linux/Wayland/GPUWire.c")[0] == "third-party"
     )
+
+
+def test_normative_unicode_tables_and_license_are_exact_data(tmp_path: Path) -> None:
+    stdlib = tmp_path / "src/stdlib"
+    runtime = tmp_path / "src/runtime"
+    runtime.mkdir(parents=True)
+    policy = DependencyPolicy()
+    pins = next(entry["sha256"] for entry in policy.standard_data if entry["name"].startswith("Unicode"))
+    for relative in pins:
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / relative, target)
+    audit = DependencyAudit(policy, stdlib, runtime)
+    assert audit._bundled() == []
+    directory = stdlib / "GUI/Text"
+    table = directory / "GraphemeData.h"
+    renamed = directory / "Extra.h"
+    shutil.copyfile(table, renamed)
+    (directory / "UNICODE-LICENSE.txt").unlink()
+    table.write_bytes(b"int ordinary_function(void) { return 1; }\n")
+    findings = audit._bundled()
+    assert {item.name.rsplit("/", 1)[-1] for item in findings} == {renamed.name, table.name, "UNICODE-LICENSE.txt"}
+    assert any(item.name.endswith(table.name) and "differs" in item.evidence for item in findings)
+    pins[table.relative_to(tmp_path).as_posix()] = hashlib.sha256(table.read_bytes()).hexdigest()
+    assert any("not a generated Unicode property table" in item.evidence for item in audit._bundled())
 
 
 def test_every_pending_row_is_a_live_requirement_with_a_replacement() -> None:
