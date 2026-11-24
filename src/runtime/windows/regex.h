@@ -2,7 +2,8 @@
    windows-aarch64). MinGW-w64 ships no regular-expression engine (PLAN.md
    D22: "Windows regex: a vendored POSIX regex").
 
-   Single-atom and literal EREs use first-party byte matchers. Other patterns and flags
+   Literal, single-atom and qualified capture-free EREs use first-party byte
+   matchers. Other patterns and flags
    use musl 1.2.5's TRE-derived regcomp/regexec (musl/, MIT and BSD-2-Clause;
    see musl/COPYRIGHT and README.md). This header declares the
    POSIX interface and compiles the engine into the including translation
@@ -82,10 +83,18 @@ static size_t btrc_win_legacy_regerror(int, const regex_t *restrict, char *restr
 #undef regerror
 
 #include "btrc_win_regex_literal.h"
+#include "btrc_win_regex_compile.h"
+#include "btrc_win_regex_exec.h"
 
-/* Both allocated representations have at least two-byte alignment. Tag the
-   new pointer so an untagged regex_t from existing code stays usable, even
-   when regcomp and regexec are compiled in different translation units. */
+typedef struct {
+	regex_t compiled;
+	char pattern[];
+} btrc_win_regex_flat;
+
+/* Generated programs can still call regexec from a different translation
+   unit. Distinguish allocated programs without changing regex_t or reading
+   an uninitialized padding field in an existing legacy object. A malloc
+   pointer on either supported Windows architecture has two free low bits. */
 static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *restrict pattern, int flags)
 {
 	btrc_win_regex_simple *program = flags == REG_EXTENDED ? btrc_win_regex_compile_simple(pattern) : NULL;
@@ -94,6 +103,23 @@ static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *re
 		re->__opaque = (void *)((uintptr_t)program | (uintptr_t)1);
 		return 0;
 	}
+	if (flags == REG_EXTENDED && !strpbrk(pattern, "()\\")) {
+		size_t length = strlen(pattern);
+		/* Longer expressions retain their established resource handling.
+		   This also excludes the legacy limit on negated named classes. */
+		if (length && length <= 255) {
+			btrc_win_regex_flat *flat = (btrc_win_regex_flat *)malloc(sizeof *flat + length + 1);
+			if (flat) {
+				if (!btrc_win_regcomp(&flat->compiled, pattern, flags)) {
+					memcpy(flat->pattern, pattern, length + 1);
+					memset(re, 0, sizeof *re);
+					re->__opaque = (void *)((uintptr_t)flat | (uintptr_t)2);
+					return 0;
+				}
+				free(flat);
+			}
+		}
+	}
 	return btrc_win_legacy_regcomp(re, pattern, flags);
 }
 
@@ -101,6 +127,20 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
                                             size_t count, regmatch_t *restrict matches, int flags)
 {
 	uintptr_t pointer = (uintptr_t)re->__opaque;
+	if ((pointer & (uintptr_t)3) == 2) {
+		const btrc_win_regex_flat *flat = (const btrc_win_regex_flat *)(pointer - 2);
+		int status = btrc_win_regexec(&flat->compiled, subject, count, matches, flags);
+		if (status != REG_ESPACE) return status;
+		/* A bounded execution may exhaust its work or memory allowance.
+		   Preserve the previous answer and keep the compiled object read-only
+		   for concurrent callers. */
+		regex_t legacy;
+		status = btrc_win_legacy_regcomp(&legacy, flat->pattern, REG_EXTENDED);
+		if (status) return status;
+		status = btrc_win_legacy_regexec(&legacy, subject, count, matches, flags);
+		btrc_win_legacy_regfree(&legacy);
+		return status;
+	}
 	if (!(pointer & (uintptr_t)1)) return btrc_win_legacy_regexec(re, subject, count, matches, flags);
 	const btrc_win_regex_simple *program = (const btrc_win_regex_simple *)(pointer - 1);
 	if ((program->at_start && (flags & REG_NOTBOL)) || (program->at_end && (flags & REG_NOTEOL))) return REG_NOMATCH;
@@ -112,7 +152,12 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 static inline void btrc_win_dispatch_regfree(regex_t *re)
 {
 	uintptr_t pointer = (uintptr_t)re->__opaque;
-	if (pointer & (uintptr_t)1) {
+	if ((pointer & (uintptr_t)3) == 2) {
+		btrc_win_regex_flat *flat = (btrc_win_regex_flat *)(pointer - 2);
+		btrc_win_regfree(&flat->compiled);
+		free(flat);
+		re->__opaque = NULL;
+	} else if (pointer & (uintptr_t)1) {
 		free((void *)(pointer - 1));
 		re->__opaque = NULL;
 	} else {

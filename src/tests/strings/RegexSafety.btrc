@@ -46,6 +46,9 @@ int main() {
 	assert(!Regex.fullMatch("^[0-9]{2,4}$", "12345"));
 	assert(Regex.replaceAll("^[a-z]?", "abc", "X").equals("Xbc"));
 	assert(Regex.replace("[a-z]{0}$", "abc", "X").equals("abcX"));
+	assert(Regex.first("ab|abcd|abc", "xabcd").equals("abcd"));
+	assert(Regex.first("[a-z]+[0-9]{2}|abc", "abc12zz").equals("abc12"));
+	assert(Regex.replaceAll("[0-9]+|[a-z]+", "ab42-CD", "X").equals("XX-CD"));
 	assert(Regex.replaceAll("Content-Type", "Content-Type: Content-Type", "H").equals("H: H"));
 
 	/* Keep the legacy provider for nested Windows intervals until their

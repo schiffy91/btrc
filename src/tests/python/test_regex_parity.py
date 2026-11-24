@@ -95,6 +95,14 @@ def test_vendored_engine_matches_the_host_library(host_library_output, tmp_path)
     assert vendored == host_library_output, "\n".join(difference)
 
 
+def test_flat_regex_recovers_from_workspace_allocation_failure(tmp_path):
+    shim = tmp_path / "include"
+    shim.mkdir()
+    (shim / "regex.h").write_text(f'#include "{OVERLAY / "regex.h"}"\n', encoding="utf-8")
+    driver = DRIVER.with_name("RegexDispatchRecovery.c")
+    assert _run(_build_host(tmp_path / "recovery", shim, driver)) == ""
+
+
 def test_generated_shell_patterns_match_the_host_library(tmp_path):
     shim = tmp_path / "include"
     shim.mkdir()
