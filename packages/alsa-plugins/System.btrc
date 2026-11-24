@@ -1,0 +1,8 @@
+import Library.Audio;
+import Library.Audio.AudioDevice;
+
+class AlsaPluginsProvider {
+	class bool available() { return false; }
+
+	class AudioDeviceProviderOpenOutcome createDevice() { return Audio.createDevice(); }
+}

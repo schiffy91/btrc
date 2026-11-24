@@ -24,6 +24,7 @@ from src.tests.native_bindings import NativeBindingPackage
 from src.tests.python.linux_provider_fixtures import (
     ROOT,
     TARGET,
+    build_alsa_plugin_adapter,
     build_provider_program,
     provider_environment,
     require_linux_reader,
@@ -165,11 +166,15 @@ def test_linux_saved_pcm(tmp_path, request, frontend, route):
     environment = provider_environment(
         False, ALSA_CONFIG_PATH=str(config), PULSE_SERVER="unix:/absent", BTRC_AUDIO_TEST_OUTPUT=str(capture)
     )
-    if route == "builtin":
+    if route == "plugin":
+        environment["LD_PRELOAD"] = str(build_alsa_plugin_adapter(tmp_path))
+    else:
         listing = subprocess.check_output(["ldd", client], text=True)
         dependencies = re.findall(r"(?:=>\s+|^\s*)(/[^ ]+)\s+\(", listing, re.M)
         assert dependencies and "not found" not in listing
-        assert all(Path(lib).name.startswith(("ld-linux", "libc.so.", "libm.so.")) for lib in dependencies), listing
+        assert all(
+            Path(lib).name.startswith(("ld-linux", "libc.so.", "libm.so.", "libpthread.so.")) for lib in dependencies
+        ), listing
         command = [
             "bwrap",
             "--die-with-parent",
@@ -195,10 +200,18 @@ def test_linux_saved_pcm(tmp_path, request, frontend, route):
             "LD_LIBRARY_PATH",
             "/lib",
         ]
+        bound = set()
         for dependency in dependencies:
             name = Path(dependency).name
             destination = dependency if name.startswith("ld-linux") else f"/lib/{name}"
             command.extend(["--ro-bind", dependency, destination])
+            bound.add(destination)
+        headers = subprocess.check_output(["readelf", "-lW", client], text=True)
+        match = re.search(r"\[Requesting program interpreter:\s*([^]]+)\]", headers)
+        if match:
+            interpreter = match.group(1).strip()
+            if interpreter not in bound:
+                command.extend(["--ro-bind", interpreter, interpreter])
         command.extend(["--", "/app"])
     result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr

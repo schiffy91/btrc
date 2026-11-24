@@ -42,6 +42,11 @@ symbols = [
 ]
 os = ["linux"]
 
+[[native.include-directories]]
+path = "PcmPlugin"
+modules = ["Linux.LinuxAudioDevice"]
+os = ["linux"]
+
 [[native.bindings]]
 module = "Linux.ConfiguredRoutes"
 header = "Linux/ConfiguredPcm.h"

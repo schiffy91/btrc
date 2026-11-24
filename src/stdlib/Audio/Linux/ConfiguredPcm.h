@@ -33,7 +33,7 @@ static inline FILE *btrcConfiguredSource(const char *path) {
 
 /* The raw file is opened at session creation, never during inventory. Use
  * the opened inode to check the destination before truncating it. Device,
- * pipe, and command sinks belong to the installed compatibility provider. */
+ * pipe, and command sinks belong to an optional PCM plugin adapter. */
 static inline int btrcConfiguredFileSupported(const char *path) {
     struct stat status;
     if (stat(path, &status) == 0) { return S_ISREG(status.st_mode) && access(path, W_OK) == 0; }

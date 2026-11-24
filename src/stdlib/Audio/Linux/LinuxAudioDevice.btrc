@@ -808,7 +808,7 @@ class AlsaStream implements IAudioSessionBackend, INativeWorkerBody {
 	}
 
 	/* Stops then closes one PCM. A failed stop keeps the handle for a retry;
-	 * alsa-lib frees the handle even when close fails, so that state is unknowable. */
+	 * an optional plugin adapter may free its handle even when close fails, so that state is unknowable. */
 	private AudioDeviceStatus releasePcm(bool capture) {
 		var render = self._render.borrow();
 		struct LinuxPcmStream* pcm = capture ? &render->capture : &render->playback;

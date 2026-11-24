@@ -4,9 +4,9 @@ import Library.Strings;
 import Library.Vector;
 
 /* A complete, self-contained ALSA configuration can describe a null PCM or a
- * raw recording file over a null slave without loading alsa-lib. Unresolved
+ * raw recording file over a null slave without external plugins. Unresolved
  * includes, hooks, plugin properties or expansions defer the entire document
- * to the installed compatibility provider. */
+ * to an optional PCM plugin adapter when present. */
 class ConfiguredAlsaRoute {
 	public string name;
 	public string description;
@@ -244,7 +244,7 @@ class ConfiguredAlsaRoutes {
 		if (path.isEmpty() || path == "/dev/null") { return null; }
 		var stream = btrcConfiguredSource(path);
 		if (stream == null) { return null; }
-		var source = File(null);
+		var source = File("");
 		source.setHandle(stream);
 		try {
 			var text = StringBuilder();

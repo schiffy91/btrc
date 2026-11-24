@@ -1,0 +1,30 @@
+manifest-version = 1
+
+[package]
+name = "alsa_plugins"
+exports = ["AlsaPlugins"]
+
+[[package.providers]]
+module = "AlsaPlugins"
+implementation = "Linux.Install"
+os = ["linux"]
+
+[[package.providers]]
+module = "AlsaPlugins"
+implementation = "System"
+os = ["macos", "ios", "android", "windows"]
+
+[[native.bindings]]
+module = "Linux.Install"
+header = "Linux/Available.h"
+language = "c"
+standard = "c11"
+symbols = ["btrcAlsaPluginAvailable"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Backend.c"
+language = "c"
+standard = "c11"
+modules = ["Linux.Install"]
+os = ["linux"]

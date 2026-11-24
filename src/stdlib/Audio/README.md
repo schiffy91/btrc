@@ -12,7 +12,7 @@ compilation target: `MacOS.AudioProvider` (CoreAudio, through
 `macos`, and `Linux.AudioProvider` (the kernel ALSA PCM interface and the Pulse native socket protocol through
 `Linux/LinuxAudioDevice.btrc`) for `linux`. Application policy and processors consume the
 portable types and never name a platform module. Each platform's native
-bindings, frameworks and pkg-config entries are declared in the same
+bindings, include directories and frameworks are declared in the same
 `btrc.toml`.
 
 Both providers share one provider shell in `AudioDevice.btrc`:
@@ -98,9 +98,12 @@ advertises, including `default`. A self-contained file in `ALSA_CONFIG_PATH`
 can route a persisted ID to a null PCM, or to a regular raw float file backed
 by a null PCM. These routes support PCM aliases and pass-through `plug`
 wrappers. Like the ALSA null plugin, these PCMs can process offline audio
-faster than real time. Includes, configuration functions, command sinks, and other
-installed plugins (including a JACK-only route) use `libasound.so.2` when
-present. The dependency ledger tracks that compatibility path.
+faster than real time. `Library.Audio` itself uses only first-party kernel PCM,
+PulseAudio/PipeWire, and self-contained null/raw-file routes. Callers that need
+includes, configuration functions, command sinks, custom ALSA plugins, or
+JACK-only routes use the optional `packages/alsa-plugins` package, either by
+linking `alsa.AlsaPlugins` or by preloading `libbtrc-alsa-plugins.so.1` through
+the versioned weak-symbol ABI in `PcmPlugin/BtrcLinuxPcmPlugin.h`.
 
 Each session runs one worker, with a bounded wait for each device. Kernel
 xruns prepare the device again. A suspended kernel PCM resumes when the

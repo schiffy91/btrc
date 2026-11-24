@@ -583,10 +583,12 @@
     {
       "id": "linux-optional-pcm-plugin",
       "files": [
-        "src/tests/python/test_native_linux_providers.py"
+        "src/tests/python/test_native_linux_providers.py",
+        "src/tests/python/test_alsa_plugin_adapter.py"
       ],
       "nodes": [
-        "*::test_linux_saved_pcm[[]*-plugin]"
+        "*::test_linux_saved_pcm[[]*-plugin]",
+        "*::test_saved_pcm_across_deployments*"
       ],
       "reason": "^requires the existing alsa-lib PCM plugin runtime$",
       "category": "capability",
