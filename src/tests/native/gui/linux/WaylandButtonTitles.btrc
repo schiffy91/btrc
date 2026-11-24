@@ -1,11 +1,36 @@
+import Library.GUI.IButton;
 import Library.GUI.Linux.Fonts.SystemTextABI;
 import Library.GUI.Shim.Shim;
-import Library.GUI.Shim.ShimControls;
+import Library.GUI.Shim.ShimButton;
+import Library.GUI.Shim.ShimContext;
+import Library.Testing;
 
 extern int waylandButtonTitles();
 
 int main() {
 	SystemTextABI.install();
 	if (!btrcShimInit()) { return 1; }
+	var context = ShimContext(16);
+	IButton button = ShimButton(context, "fi");
+	Expect.strEq(button.title(), "fi");
+	double oldWidth = button.fittingWidth();
+	button.setTitle("AVfi");
+	Expect.strEq(button.title(), "AVfi");
+	Expect.isTrue(button.fittingWidth() > oldWidth);
+	button.setSystemSymbol("gearshape");
+	double withSymbol = button.fittingWidth();
+	button.setBordered(false);
+	button.setFont(40.0);
+	Expect.isTrue(button.fittingWidth() > withSymbol && button.fittingHeight() >= 56.0);
+	button.setCentered(false);
+	button.setSelected(true);
+	button.setTransparent(true);
+	Expect.isTrue(button.isSelected());
+	button.setToolTip("AV");
+	Expect.strEq(button.toolTip(), "AV");
+	button.setEnabled(false);
+	Expect.isFalse(button.activate());
+	button.close();
+	Expect.isFalse(button.isOpen());
 	return waylandButtonTitles();
 }

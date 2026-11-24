@@ -34,37 +34,31 @@ def test_wayland_button_title_measurement_and_pixels(frontend, native_wayland_ro
         NATIVE / "WaylandButtonTitles.btrc", generated, plan, frontend, request, native_wayland_root
     )
     native = json.loads(plan.read_text())
-    assert not native["pkg-config"]
-    sources = [NATIVE / "WaylandButtonTitles.c"]
-    if not any(Path(unit["path"]).name == "ControlText.c" for unit in native["units"]):
-        sources.append(PROVIDER / "ControlText.c")
-    objects = []
-    for path in sources:
-        obj = tmp_path / (path.stem + ".o")
-        subprocess.run(
-            [
-                "cc",
-                "-std=c11",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                "-pedantic-errors",
-                f"-I{PROVIDER}",
-                "-c",
-                path,
-                "-o",
-                obj,
-            ],
-            check=True,
-        )
-        objects.append(str(obj))
+    assert {item["name"] for item in native["pkg-config"]} <= {"wgpu-native"}
+    companion = tmp_path / "WaylandButtonTitles.o"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic-errors",
+            f"-I{PROVIDER}",
+            "-c",
+            NATIVE / "WaylandButtonTitles.c",
+            "-o",
+            companion,
+        ],
+        check=True,
+    )
     NativePlanBuilder().build(
         plan_path=plan,
         generated_c=generated,
         output=program,
         optimization=0,
         compile_flags=["-ffunction-sections", "-fdata-sections"],
-        link_flags=[*objects, "-Wl,--gc-sections", "-lm"],
+        link_flags=[str(companion), "-Wl,--gc-sections", "-lm"],
     )
     assert not DependencyAudit().binary_problems(program, f"linux-{platform.machine()}")
     fonts = tmp_path / "fonts"
