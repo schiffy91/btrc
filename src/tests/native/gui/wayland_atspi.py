@@ -115,7 +115,7 @@ def wait_for_speech(log, expected, iterate):
     raise AssertionError(f"Orca did not send {expected!r} to Speech Dispatcher")
 
 
-def drive_modal_alerts(app, root, children, identity, state, click, iterate):
+def drive_modal_alerts(app, root, children, identity, state, click, iterate, read_text, set_text):
     def eventually(read):
         deadline = time.monotonic() + 12
         while time.monotonic() < deadline:
@@ -143,6 +143,8 @@ def drive_modal_alerts(app, root, children, identity, state, click, iterate):
         parent = frames()[(23, "btrc input and pixels")]
         owner_button = eventually(lambda parent=parent: button(parent, "Parent action"))
         assert not state(owner_button, 24) and not click(owner_button)
+        entry = next(node for node in children(parent) if identity(node) == (79, "Owner field"))
+        assert not state(entry, 7) and not set_text(entry, b"Blocked") and read_text(entry) == b"Existing"
         labels = [name for role, name in map(identity, children(dialog)) if role == 29]
         assert title in labels and any(detail in name for name in labels)
         close = eventually(lambda dialog=dialog: button(dialog, "Close"))
@@ -153,7 +155,11 @@ def drive_modal_alerts(app, root, children, identity, state, click, iterate):
         control = button(parent, "Parent action") if parent else None
         return control if control and state(control, 24) else None
 
-    assert click(eventually(enabled_parent_button))
+    owner_button = eventually(enabled_parent_button)
+    owner = frames()[(23, "btrc input and pixels")]
+    entry = next(node for node in children(owner) if identity(node) == (79, "Owner field"))
+    assert state(entry, 7) and set_text(entry, b"Released") and read_text(entry) == b"Released"
+    assert click(owner_button)
     output, _ = app.communicate(timeout=8)
     assert app.returncode == 0 and output.splitlines() == [
         "keyboard dismissed",
@@ -212,6 +218,12 @@ def main(executable, directory, option=None, orca_trace=None):
     with subprocess.Popen(command, stdout=subprocess.PIPE, text=True) as app:
         try:
             if orca_trace == "--alerts":
+                text_iface = function(library, "atspi_accessible_get_text_iface", pointer, pointer)
+                edit_iface = function(library, "atspi_accessible_get_editable_text_iface", pointer, pointer)
+                get_text = function(library, "atspi_text_get_text", string, pointer, integer, integer, pointer)
+                set_contents = function(
+                    library, "atspi_editable_text_set_text_contents", integer, pointer, string, pointer
+                )
                 drive_modal_alerts(
                     app,
                     root,
@@ -220,6 +232,8 @@ def main(executable, directory, option=None, orca_trace=None):
                     lambda obj, flag: has_state(states(obj), flag),
                     lambda obj: perform(action(obj), 0, None),
                     iterate,
+                    lambda node: get_text(text_iface(node), 0, -1, None),
+                    lambda node, value: set_contents(edit_iface(node), value, None),
                 )
                 return
             end = time.monotonic() + 15
