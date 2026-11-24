@@ -436,6 +436,12 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
                 assert result.returncode == 0, result.stdout + result.stderr
             else:
                 assert result.returncode != 0 and "Cannot initialize FreeType library" in result.stderr
+    delta = (tests / "fixtures/hinted-delta-points.ttf").read_bytes()
+    for size in (13, 14):
+        for extension, environment in (("raw", env), ("ttf", blocked or env)):
+            result = run(extension, f"delta{size}", environment, delta)
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "PASS: size-specific point deltas" in result.stdout
     general = (tests / "fixtures/hinted-general.woff2").read_bytes()
     result = run("woff2", 6, env, general)
     assert result.returncode == 0, result.stdout + result.stderr

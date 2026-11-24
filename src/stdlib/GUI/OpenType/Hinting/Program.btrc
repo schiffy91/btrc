@@ -241,7 +241,15 @@ class TrueTypeProgram {
 			if (steps >= 0) { steps++; }
 			int delta = steps * (64 >> self.settings.deltaShift);
 			if (op >= 0x73) { self.writeCV(point, (int)((unsigned int)self.cv(point) + (unsigned int)delta)); }
-			else if (!self.generalVectors || self.preparing || self.zp0 == 0 || self.interpolatedAxes != 3) { self.move(self.zone(self.zp0), point, delta); }
+			else {
+				var zone = self.zone(self.zp0);
+				zone.need(point);
+				// The modern grayscale interpreter applies a simple glyph's
+				// delta only to points the program has already fitted vertically.
+				if (self.preparing || self.zp0 == 0 || (self.interpolatedAxes != 3 && (self.compositeGlyph || (zone.touched.get(point) & 2) != 0))) {
+					self.move(zone, point, delta);
+				}
+			}
 		}
 	}
 

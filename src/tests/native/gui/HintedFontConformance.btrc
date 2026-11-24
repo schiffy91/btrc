@@ -65,10 +65,33 @@ int inhibitedVectorInk(const char* path, int size) {
 	return 0;
 }
 
+/* A is the unmodified outline. B applies a delta to an untouched point.
+ * C first touches that point with MDAP so the same delta moves it. */
+int deltaPoints(const char* path, int size) {
+	var font = FreeType.load(Strings.copy((char*)path), size);
+	if (remove(path) != 0) { return 9; }
+	for (int code = 65; code <= 67; code++) {
+		string mask = "0400000000000000000000f7c9986735080000000000fffffffffffcd3a2713c00ffffffffffffffe6821c00ffffffffffbd5404000000ffffef9027000000000000cb62090000000000000000";
+		if (size == 13) {
+			mask = code == 67 ? "823f0700000000000000fffff6bb793603000000fffffffffffff1b26d09fffffffffffec36b1700ffffffcb731d00000000d37b2400000000000000" : "8a592802000000000000fffffff5c69563320700ffffffffffffffe67d09ffffffffffbe55050000ffffef90270000000000cb620900000000000000";
+		}
+		var glyph = font.glyph(code, true);
+		var pixels = Bytes.fromHex(mask);
+		int width = size == 13 ? 10 : 11;
+		if (glyph == null || pixels == null || glyph.advanceFixed() != size * 64 || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != size - 7 || glyph.width() != width || glyph.pitch() != width || glyph.rows() * width != pixels.length()) { return 10; }
+		for (int i = 0; i < pixels.length(); i++) {
+			if (glyph.coverage(i / width, i % width) != pixels.get(i)) { return 11; }
+		}
+	}
+	print("PASS: size-specific point deltas");
+	return 0;
+}
+
 /* The final glyph uses FLIPON, a native fallback instruction. It is reached
  * after loading the supported triangle variants and unlinking the font. */
 int main(int argc, char** argv) {
 	if (argc != 3) { return 2; }
+	if (strcmp(argv[2], "delta13") == 0 || strcmp(argv[2], "delta14") == 0) { return deltaPoints(argv[1], argv[2][6] == '3' ? 13 : 14); }
 	if (strcmp(argv[2], "vector9") == 0 || strcmp(argv[2], "vector10") == 0) { return inhibitedVectorInk(argv[1], argv[2][6] == '9' ? 9 : 10); }
 	if (strcmp(argv[2], "measure") == 0 || strcmp(argv[2], "render") == 0) { return legacyBMP(argv[1], argv[2][0] == 'r'); }
 	if (strcmp(argv[2], "composite8") == 0 || strcmp(argv[2], "composite13") == 0) { return compositeOffset(argv[1], argv[2][9] == '8' ? 8 : 13); }
