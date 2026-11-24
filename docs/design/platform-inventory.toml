@@ -1347,8 +1347,8 @@ id = "Library.Pattern"
 group = "stdlib"
 title = "Glob-style pattern matching (fnmatch)"
 regression = ["src/tests/runner.py::test_btrc_file"]
-windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "fnmatch is the overlay's vendored musl 1.2.5 matcher (src/runtime/windows/fnmatch.h), byte-wise in the C locale as on glibc and macOS; PatternAny and the PosixMatching parity table run natively in windows.yml win32-native" }
-windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "fnmatch is the overlay's vendored musl 1.2.5 matcher (src/runtime/windows/fnmatch.h), byte-wise in the C locale as on glibc and macOS; PatternAny and the PosixMatching parity table run natively in windows.yml win32-native" }
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "fnmatch is the first-party Windows matcher (src/runtime/windows/fnmatch.h), byte-wise in the C locale as on glibc and macOS; PatternAny and the PosixMatching parity table run natively in windows.yml win32-native" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W1", status = "implemented-unverified", reason = "fnmatch is the first-party Windows matcher (src/runtime/windows/fnmatch.h), byte-wise in the C locale as on glibc and macOS; PatternAny and the PosixMatching parity table run natively in windows.yml win32-native" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "fnmatch(3) is in iOS libSystem; same code path" }
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "fnmatch(3) is in iOS libSystem; same code path" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "fnmatch(3) is in bionic libc; same code path" }

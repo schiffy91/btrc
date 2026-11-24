@@ -23,8 +23,8 @@ fills exactly those gaps — nothing more.
 ## What's here
 
 * **POSIX matching** (resolved via `-I`): `regex.h`, `fnmatch.h` and `glob.h`
-  are real. Each declares its POSIX interface and compiles the vendored musl
-  engine below into the including translation unit, so the hosted-ABI names
+  declare their POSIX interfaces and compile the matching code below into
+  the including translation unit, so the hosted-ABI names
   (`regcomp`, `regexec`, `regerror`, `regfree`, `fnmatch`, `glob`, `globfree`
   and their `REG_`/`FNM_`/`GLOB_` constants) are available on the
   `windows-x86_64` and `windows-aarch64` rows and `Library.Regex`,
@@ -60,10 +60,18 @@ fills exactly those gaps — nothing more.
     capacity is unknowable and Windows paths can exceed POSIX `PATH_MAX`.
   - `mkdtemp` (real Win32 implementation)
 
-## Vendored musl: regex, fnmatch and glob
+## Shell patterns and filesystem globbing
+
+`fnmatch.h` matches C-locale bytes using a single wildcard retry position
+within each pathname component. Its fixed-size byte sets support bracket
+ranges, POSIX character classes and ASCII case folding. `glob.h` expands
+path components with the Windows wide UCRT directory API and returns UTF-8
+paths. It sorts matches bytewise unless the caller requests `GLOB_NOSORT`.
+
+## Regular expressions
 
 PLAN.md D22 names a vendored POSIX regex for Windows. `musl/` holds
-musl 1.2.5's TRE-derived regex engine, its fnmatch and its glob
+musl 1.2.5's TRE-derived regex engine
 (<https://musl.libc.org/releases/musl-1.2.5.tar.gz>, SHA-256
 `a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4`; the
 release zig 0.16.0 bundles in `lib/libc/musl`, and 1.2.6 changed none of these
@@ -75,17 +83,14 @@ compatible with btrc's MIT licence.
 | --- | --- | --- |
 | `musl/regcomp.c` | `src/regex/regcomp.c` (`56b0a765…`) | unmodified |
 | `musl/regerror.c` | `src/regex/regerror.c` (`72b3ab9c…`) | unmodified |
-| `musl/fnmatch.c` | `src/regex/fnmatch.c` (`b6b0d4f9…`) | unmodified |
 | `musl/regexec.c` | `src/regex/regexec.c` (`072e8a10…`) | aligns to `void *`, not `long` (LLP64) |
 | `musl/tre-mem.c` | `src/regex/tre-mem.c` (`4721979c…`) | aligns to `void *`, not `long` (LLP64) |
 | `musl/tre.h` | `src/regex/tre.h` (`e734e68d…`) | include guard; `tre_cint_t` is `int` (Windows' 16-bit `wint_t` cannot hold `TRE_CHAR_MAX+1`); `ALIGN` through `uintptr_t`; no `__tre_mem_*` link aliases |
-| `musl/glob.c` | `src/regex/glob.c` (`ceb34d24…`) | UTF-16 directory reader (`_wfindfirst64`) returning UTF-8; `GetFileAttributesW` for existence and `GLOB_MARK`; heap path buffer (MinGW's `PATH_MAX` is 260); `.` and `..` always listed, as `readdir` lists them; no GNU `GLOB_PERIOD` or `GLOB_TILDE` |
 | `musl/locale_impl.h` | stands in for musl's internal `src/internal/locale_impl.h` | `LCTRANS_CUR` is the identity, `MB_CUR_MAX` is 1 |
 
 Every change is marked `btrc:` in the source.
 
-`btrc_win_musl.h` compiles the sources into the unit that includes `regex.h`,
-`fnmatch.h` or `glob.h`, once per part, with internal linkage, so the build
+`btrc_win_musl.h` compiles the regex sources into each unit including `regex.h`, with internal linkage, so the build
 paths that already force-include this overlay link it without a separate
 object and two units of one program keep separate copies. Because generated
 code, MinGW headers and `windows.h` share that unit, it saves and restores
@@ -98,7 +103,7 @@ character and only ASCII is classified or case-folded, which is how glibc and
 macOS match in the C locale every btrc program runs in.
 
 `src/tests/python/test_regex_parity.py` runs a table of regex and fnmatch cases
-against the host C library and the vendored engine and requires identical
+against the host C library and the Windows overlay and requires identical
 results; windows.yml runs the same table, the regex, fnmatch and glob corpus
 programs and a non-ASCII glob natively on x64 and ARM64.
 `src/tests/python/test_windows_posix_overlay.py` checks the hygiene. Known

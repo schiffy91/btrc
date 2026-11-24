@@ -1,7 +1,4 @@
-/* Compiles the vendored musl sources (musl/) into the including translation
-   unit for the Windows overlays: regex.h, fnmatch.h and glob.h each include
-   this file once with their part selected (BTRC_WIN_MUSL_PART_REGEX,
-   _FNMATCH or _GLOB), and each part compiles at most once per unit.
+/* Compiles the bundled TRE regular expression implementation for regex.h.
 
    The sources are textually included, so this file keeps them hygienic in a
    unit that also holds generated btrc code, MinGW headers and windows.h:
@@ -35,10 +32,6 @@
 #include <string.h>
 #include <wchar.h>
 #include <wctype.h>
-#ifdef BTRC_WIN_MUSL_PART_GLOB
-#include <io.h>
-#include "btrc_win_realpath.h"
-#endif
 
 /* Save, then clear, every name this file or the sources define or rename. */
 #pragma push_macro("ALIGN")
@@ -756,15 +749,6 @@ static int btrc_win_musl_iswctype(int c, wctype_t class_id)
 #include "musl/regerror.c"
 #endif
 
-#if defined(BTRC_WIN_MUSL_PART_FNMATCH) && !defined(BTRC_WIN_MUSL_FNMATCH)
-#define BTRC_WIN_MUSL_FNMATCH
-#include "musl/fnmatch.c"
-#endif
-
-#if defined(BTRC_WIN_MUSL_PART_GLOB) && !defined(BTRC_WIN_MUSL_GLOB)
-#define BTRC_WIN_MUSL_GLOB
-#include "musl/glob.c"
-#endif
 
 #pragma GCC diagnostic pop
 

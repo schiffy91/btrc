@@ -221,8 +221,8 @@ binaries = ["libcurl.so*"]
 # Source in the tree under someone else's copyright.
 [[bundled]]
 path = "src/runtime/windows/musl"
-dependency = "musl's regex, glob and fnmatch (bundled source)"
-modules = ["Regex", "Pattern"]
+dependency = "musl's regex (bundled source)"
+modules = ["Regex"]
 os = ["windows"]
 
 # Owner decisions on capability, packaging and the supported OS baseline.
@@ -333,13 +333,7 @@ os = ["windows"]
 resolution = "First-party declarations of the COM interfaces used and a first-party lookup of the system's WebView2 runtime, in place of the SDK's header and WebView2Loader.dll."
 
 [[pending]]
-dependency = "musl's regex, glob and fnmatch (bundled source)"
+dependency = "musl's regex (bundled source)"
 module = "Regex"
-os = ["windows"]
-resolution = "A first-party matcher; Windows supplies no POSIX regex."
-
-[[pending]]
-dependency = "musl's regex, glob and fnmatch (bundled source)"
-module = "Pattern"
 os = ["windows"]
 resolution = "A first-party matcher; Windows supplies no POSIX regex."

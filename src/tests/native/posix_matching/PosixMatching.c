@@ -3,7 +3,7 @@
 
    test_regex_parity.py builds this once against the host C library (glibc on
    Linux, TRE-based libc on macOS) and once against the Windows overlay's
-   vendored musl engine (src/runtime/windows/regex.h and fnmatch.h, compiled
+   matching routines (src/runtime/windows/regex.h and fnmatch.h, compiled
    on the host), and requires identical output; it cross-builds the same
    program for windows-x64 and windows-arm64, whose output the win32-native
    job compares with the host library's. Every case is one on which glibc and

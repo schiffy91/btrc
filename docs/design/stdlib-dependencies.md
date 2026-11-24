@@ -24,8 +24,7 @@ failure names the module, the target and the dependency.
 | dbus-launch (legacy X11 session activation) | `DBus/Linux/DBusTransportProvider` | linux | programs `dbus-launch` | Only a legacy X11 session without a reachable XDG bus socket or saved bus address needs the installed dbus-x11 service helper. Moving activation out of the stdlib or retiring automatic startup needs an owner decision. |
 | libX11 | `GUI/Shim/Shim` | linux | headers `X11/Xlib.h`; pkg-config `x11` | Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend. |
 | libwayland-client | `GUI/Shim/Shim` | linux | headers `wayland-client.h`; pkg-config `wayland-client` | The Wayland wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects. |
-| musl's regex, glob and fnmatch (bundled source) | `Pattern` | windows | bundled `src/runtime/windows/musl` | A first-party matcher; Windows supplies no POSIX regex. |
-| musl's regex, glob and fnmatch (bundled source) | `Regex` | windows | bundled `src/runtime/windows/musl` | A first-party matcher; Windows supplies no POSIX regex. |
+| musl's regex (bundled source) | `Regex` | windows | bundled `src/runtime/windows/musl` | A first-party matcher; Windows supplies no POSIX regex. |
 | the WebView2 SDK (header and loader DLL) | `GUI/Shim/ShimWeb` | windows | headers `WebView2.h`; loads `WebView2Loader.dll`; pkg-config `webview2-windows-aarch64`; pkg-config `webview2-windows-x86_64` | First-party declarations of the COM interfaces used and a first-party lookup of the system's WebView2 runtime, in place of the SDK's header and WebView2Loader.dll. |
 
 ## Owner decisions

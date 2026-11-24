@@ -1,7 +1,6 @@
 """The Windows overlay's regex.h, fnmatch.h and glob.h stay out of the caller's way.
 
-Each header compiles musl's engine into the unit that includes it
-(src/runtime/windows/btrc_win_musl.h). Generated btrc code, MinGW headers and
+Each header compiles its matching engine into the including unit. Generated btrc code, MinGW headers and
 windows.h share that unit, so the engine must leave nothing behind but the
 POSIX interface: no macro of its own, no caller macro changed (an earlier
 MIN, END or assert keeps its meaning), and every file-scope name it declares
@@ -72,8 +71,6 @@ FNMATCH_MACROS = {
     "FNM_FILE_NAME",
     "FNM_NOMATCH",
     "FNM_NOSYS",
-    "BTRC_WIN_MUSL_FNMATCH",
-    "BTRC_WIN_MUSL_C_LOCALE",
 }
 GLOB_MACROS = FNMATCH_MACROS | {
     "glob",
@@ -88,14 +85,13 @@ GLOB_MACROS = FNMATCH_MACROS | {
     "GLOB_NOSPACE",
     "GLOB_ABORTED",
     "GLOB_NOMATCH",
-    "BTRC_WIN_MUSL_GLOB",
 }
 HEADERS = {"regex.h": REGEX_MACROS, "fnmatch.h": FNMATCH_MACROS, "glob.h": GLOB_MACROS}
 # The types the POSIX interfaces declare.
 PUBLIC_DECLARATIONS = {"regex_t", "re_pattern_buffer", "regmatch_t", "regoff_t", "glob_t"}
 # Engine files whose declarations must stay in btrc's namespace (btrc_win_compat.h and
 # its realpath and error seams predate the engine and are covered by test_native_win_compat.py).
-ENGINE_FILES = ("regex.h", "fnmatch.h", "glob.h", "btrc_win_musl.h", "/musl/")
+ENGINE_FILES = ("regex.h", "fnmatch.h", "glob.h", "btrc_win_match_bytes.h", "btrc_win_musl.h", "/musl/")
 
 # What a caller has defined before it includes an overlay header: the system
 # headers the engine itself includes, an assert, and macros named like the
