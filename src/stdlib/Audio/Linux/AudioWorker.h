@@ -3,7 +3,7 @@
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #endif
-#include "LegacyJack.h"
+#include "LegacyPcm.h"
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>

@@ -1,0 +1,45 @@
+/* The configured PCM writes raw floats to a file. The default PCM discards
+ * its samples, so the verifier can distinguish routing from inventory alone. */
+import Library.Audio;
+import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
+import Library.Console;
+import Library.Timer;
+
+#include <assert.h>
+
+@realtime void savedPcmProcess(void* context, struct AudioBlockView block, RealtimeAudioInputSamples input, RealtimeAudioOutputSamples output) {
+	Atomic<uint>* blocks = (Atomic<uint>*)context;
+	int frames = block.frameCount;
+	for (int frame = 0; frame < frames; frame++) {
+		size_t offset = (size_t)frame * (size_t)2;
+		output.trySet(offset, 0.25f);
+		output.trySet(offset + (size_t)1, -0.5f);
+	}
+	blocks->fetchAdd(1u, MemoryOrder.RELAXED);
+}
+
+int main() {
+	var opened = Audio.createDevice();
+	assert(opened.succeeded());
+	var provider = opened.provider();
+	var result = provider.inventory();
+	assert(result.succeeded());
+	var inventory = result.inventory();
+	string saved = "plughw:CARD=SavedRoute,DEV=7";
+	assert(inventory.defaultOutput() != null && inventory.defaultOutput().id() == "default");
+	assert(inventory.find(saved) != null && inventory.find("unlisted") == null);
+	Atomic<uint> blocks;
+	blocks.store(0u, MemoryOrder.RELAXED);
+	var request = DuplexAudioOpenRequest.outputOnly(inventory.generation(), saved, AudioChannelSelection.leading(2), AudioStreamRequest(48000, 256));
+	var setup = provider.openDuplex(request, RealtimeAudioProgram(savedPcmProcess, &blocks));
+	assert(setup.succeeded());
+	var session = setup.session();
+	assert(session.start().succeeded());
+	for (int wait = 0; wait < 1000 && blocks.load(MemoryOrder.RELAXED) < 3u; wait++) { Timer.sleepMillis(1); }
+	assert(session.suspend().succeeded() && session.drain().succeeded() && session.close().succeeded());
+	assert(blocks.load(MemoryOrder.RELAXED) >= 3u);
+	assert(provider.close().succeeded());
+	Console.log("PASS: persisted Linux PCM");
+	return 0;
+}

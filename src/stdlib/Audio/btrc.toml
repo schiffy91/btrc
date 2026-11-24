@@ -45,12 +45,13 @@ os = ["linux"]
 [[native.bindings]]
 module = "Linux.LinuxAudioDevice"
 header = "Linux/AudioWorker.h"
+read-only-borrows = ["btrcLegacyOpen.name"]
 language = "c"
 standard = "c11"
 symbols = [
-	"btrcAlsaHostNanoseconds", "btrcAlsaRealtimePriority", "btrcJackAdvertised", "btrcJackOpen",
-	"btrcJackClose", "btrcJackProbe", "btrcJackConfigure", "btrcJackWait", "btrcJackPrepare",
-	"btrcJackStart", "btrcJackDrop", "btrcJackRecover", "btrcJackStartIfPrepared", "btrcJackNeedsDrop", "btrcJackTransfer"
+	"btrcAlsaHostNanoseconds", "btrcAlsaRealtimePriority", "btrcLegacyHints", "btrcLegacyHintCount", "btrcLegacyHint", "btrcLegacyHintsClose", "btrcLegacyOpen",
+	"btrcLegacyClose", "btrcLegacyProbe", "btrcLegacyConfigure", "btrcLegacyWait", "btrcLegacyPrepare",
+	"btrcLegacyStart", "btrcLegacyDrop", "btrcLegacyRecover", "btrcLegacyStartIfPrepared", "btrcLegacyNeedsDrop", "btrcLegacyTransfer"
 ]
 os = ["linux"]
 

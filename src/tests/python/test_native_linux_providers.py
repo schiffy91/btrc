@@ -8,7 +8,9 @@ through the native plan, and runs optimized and under ASan/UBSan. Display and
 hardware loopback cases are opt-in. The standard Linux audio sessions use a clocked
 Pulse native peer and a kernel ioctl fault fixture without host audio packages."""
 
+import ctypes.util
 import os
+import struct
 import subprocess
 import sys
 import tomllib
@@ -122,6 +124,40 @@ def test_linux_pulse_faults(tmp_path, request, frontend, sanitized):
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30, env=environment)
             assert result.returncode == 0, f"{fault}: {result.stdout}{result.stderr}"
             assert "PASS: Pulse stream fault" in result.stdout
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_linux_saved_pcm(tmp_path, request, frontend):
+    """Open a saved custom route while a separate system default remains available."""
+    require_linux_reader()
+    if not ctypes.util.find_library("asound"):
+        pytest.skip("requires the existing alsa-lib PCM plugin runtime")
+    capture = tmp_path / "selected.raw"
+    config = tmp_path / "asound.conf"
+    config.write_text(
+        "defaults.namehint.showall on\n"
+        'namehint.pcm.saved "plughw:CARD=SavedRoute,DEV=7|My persisted stereo output"\n'
+        "pcm.plughw { @args [ CARD DEV ] @args.CARD { type string } @args.DEV { type integer } "
+        f'type file slave.pcm {{ type null }} file "{capture}" format "raw" }}\n'
+        'pcm.!default { type null hint { show on description "Independent default" } }\n'
+        'pcm.unlisted { type null hint { show on description "Ineligible bare PCM name" } }\n'
+    )
+    client = build_provider_program(
+        ROOT / "src/tests/native/audio/linux/LinuxSavedPcm.btrc", tmp_path, frontend, False, request
+    )
+    assert DependencyAudit().binary_problems(client, TARGET) == []
+    result = subprocess.run(
+        [str(client)],
+        env=provider_environment(False, ALSA_CONFIG_PATH=str(config), PULSE_SERVER=f"unix:{tmp_path}/absent"),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: persisted Linux PCM" in result.stdout
+    wanted = struct.pack("<ff", 0.25, -0.5) * 256
+    with capture.open("rb") as stream:
+        assert any(block == wanted for block in iter(lambda: stream.read(len(wanted)), b""))
 
 
 @pytest.mark.parametrize("backend", ["alsa-loopback", "pulse-monitor"])
