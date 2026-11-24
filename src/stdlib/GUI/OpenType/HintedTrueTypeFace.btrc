@@ -110,7 +110,7 @@ class HintedTrueTypeFace implements IFontFace {
 		// The raw font exposes the whole Unicode map. Its vector-hinted
 		// advances agree, while visible outlines can require more native
 		// grid-fitting behavior than the shaped text path exercises.
-		self.nativeVectorInk = usesVectors && !byGlyphIndex;
+		self.nativeVectorInk = usesVectors && !byGlyphIndex && grid.gridFittingEnabled();
 		self.outlines.prepare(grid);
 
 	}

@@ -425,6 +425,17 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
             result = run(extension, f"composite{size}", environment, composite)
             assert result.returncode == 0, result.stdout + result.stderr
             assert "PASS: size-specific composite component placement" in result.stdout
+    inhibited = (tests / "fixtures/hinted-inhibited-vectors.ttf").read_bytes()
+    for size in (9, 10):
+        for suffix in ("raw", "ttf"):
+            result = run(suffix, f"vector{size}", env, inhibited)
+            assert result.returncode == 0, result.stdout + result.stderr
+        if blocked is not None:
+            result = run("ttf", f"vector{size}", blocked, inhibited)
+            if size == 10:
+                assert result.returncode == 0, result.stdout + result.stderr
+            else:
+                assert result.returncode != 0 and "Cannot initialize FreeType library" in result.stderr
     general = (tests / "fixtures/hinted-general.woff2").read_bytes()
     result = run("woff2", 6, env, general)
     assert result.returncode == 0, result.stdout + result.stderr
