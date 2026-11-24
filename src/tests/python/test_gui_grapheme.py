@@ -4,15 +4,19 @@ import lzma
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.native_bindings import NativeBindingPackage
-from src.tests.python.test_gui_bidi import FIXTURE, TEXT
 from src.tests.python.test_network_runtime import _transpile
 from tools.native_plan import NativePlanBuilder
 from tools.qualification.dependencies import DependencyAudit
+
+ROOT = Path(__file__).resolve().parents[3]
+TEXT = ROOT / "src/stdlib/GUI/Text"
+FIXTURE = ROOT / "src/tests/native/gui/text"
 
 
 @pytest.fixture(scope="session")

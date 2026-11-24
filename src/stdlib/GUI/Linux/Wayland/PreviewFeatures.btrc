@@ -5,7 +5,6 @@ import Library.GUI.Shim.ShimContext;
 import Library.GUI.Shim.Shim;
 import Library.GUI.Shim.DialogPump;
 import Library.GUI.Shim.ShimWindow;
-import Library.GUI.Shim.ShimDirectoryPicker;
 import Library.GUI.IDirectoryPicker;
 import Library.GUI.TextRun;
 import Library.Image;

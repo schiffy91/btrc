@@ -29,7 +29,7 @@ libraries = ["c", "m", "pthread", "dl", "rt", "util", "resolv"]
 headers = [
 	"arpa/*", "dirent.h", "dlfcn.h", "endian.h", "fcntl.h", "fnmatch.h", "glob.h", "grp.h", "linux/*", "net/*",
 	"netdb.h", "netinet/*", "poll.h", "pthread.h", "pty.h", "pwd.h", "regex.h", "sched.h",
-	"semaphore.h", "sound/*", "spawn.h", "sys/*", "termios.h", "unistd.h", "utime.h",
+	"semaphore.h", "sound/*", "spawn.h", "strings.h", "sys/*", "termios.h", "unistd.h", "utime.h",
 ]
 programs = ["/bin/sh"]
 binaries = ["libc.so.*", "libm.so.*", "libpthread.so.*", "libdl.so.*", "librt.so.*", "libutil.so.*", "libresolv.so.2", "ld-linux*.so.*"]

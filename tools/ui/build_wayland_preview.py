@@ -25,11 +25,11 @@ TOOLKIT_UNITS = {
     "Linux/GtkCanvas.c",
     "Linux/GtkControls.c",
     "Linux/GtkSurface.c",
-    "Linux/GtkWeb.c",
+    "Linux/GtkPortalParent.c",
     "Linux/DmaBufReceiver.c",
     "Linux/GtkSharedFrame.c",
 }
-TOOLKIT_PACKAGES = {"gtk4", "gtk4-wayland", "gtk4-x11", "wayland-client", "x11", "webkitgtk-6.0"}
+TOOLKIT_PACKAGES = {"gtk4", "gtk4-wayland", "gtk4-x11", "wayland-client", "x11"}
 WAYLAND_UNITS = (
     "Wire",
     "Window",

@@ -285,11 +285,14 @@ installed on your system.
 </fontconfig>
 ```
 
-The preview uses software rendering for these controls. Applications that
-need editable text fields, select menus, native alerts, directory selection,
+The unchanged `examples/gui/Native.btrc` also runs through the same command.
+It uses a text field and two buttons. Editing the draft and activating Apply
+changes the real window title. Text fields support grapheme-aware selection,
+deletion and undo. The current Latin renderer has limited font and script
+coverage. The preview uses software rendering for these controls. Applications that
+need select menus, native alerts, directory selection,
 standalone text rasterization, embedded web views, desktop accessibility, or
-shared-frame views should use the default Linux GUI build. Editable fields,
-selects, alerts and embedded web views report the unavailable operation.
+shared-frame views should use the default Linux GUI build. Selects, alerts and embedded web views report the unavailable operation.
 Shared-frame creation returns its usual unavailable result. Runtime backend
 selection is fixed when the application is built.
 
