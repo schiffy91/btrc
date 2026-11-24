@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import tomllib
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,22 @@ def test_gpu_display_window_lifecycle(client):
     if not ctypes.util.find_library("wayland-client"):
         pytest.skip("driver-facing GPU surfaces need libwayland-client")
     subprocess.run([SESSION, "--wayland", "--", client, "gpu"], check=True, timeout=90)
+
+
+@contextmanager
+def connected_mouse(probe):
+    """Advertise a virtual seat before the GUI client binds its Wayland pointer."""
+    with subprocess.Popen([probe, "mouse"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as mouse:
+        def send(command, x, y):
+            mouse.stdin.write(f"{command} {x} {y}\n")
+            mouse.stdin.flush()
+            assert mouse.stdout.readline().strip() == "sent"
+
+        try:
+            send("m", 1, 1)
+            yield send
+        finally:
+            mouse.stdin.close()
 
 
 @pytest.fixture(scope="module")

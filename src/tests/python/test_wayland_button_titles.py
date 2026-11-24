@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -19,6 +20,7 @@ from src.tests.python.test_first_party_wayland_window import (
     PROVIDER,
     SESSION,
     client,  # noqa: F401
+    connected_mouse,
     input_device,  # noqa: F401
     native_wayland_root,  # noqa: F401
 )
@@ -76,7 +78,10 @@ def test_wayland_button_title_measurement_and_pixels(frontend, native_wayland_ro
 
 def compare(program, probe, config, click=None):
     width, height = 160, 60
-    with subprocess.Popen([program], stdout=subprocess.PIPE, env={**os.environ, "FONTCONFIG_FILE": config}) as app:
+    with (
+        connected_mouse(probe) if click is not None else nullcontext() as send,
+        subprocess.Popen([program], stdout=subprocess.PIPE, env={**os.environ, "FONTCONFIG_FILE": config}) as app,
+    ):
         try:
             rgba = app.stdout.read(width * height * 4)
             assert len(rgba) == width * height * 4
@@ -104,15 +109,9 @@ def compare(program, probe, config, click=None):
             if click is not None:
                 y, x = divmod((start - header.end()) // 3, int(header[1]))
                 px, py = x + click[0], y + click[1]
-                pointer = subprocess.run(
-                    [probe, "mouse"],
-                    input=f"d {px} {py}\nu {px} {py}\n",
-                    capture_output=True,
-                    text=True,
-                    timeout=4,
-                    check=True,
-                )
-                assert pointer.stdout.splitlines() == ["sent", "sent"]
+                send("m", px, py)
+                send("d", px, py)
+                send("u", px, py)
                 assert app.stdout.readline().strip() == b"activated"
             subprocess.run([probe, "close"], check=True)
             assert app.wait(timeout=5) == 0

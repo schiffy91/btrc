@@ -16,6 +16,7 @@ from src.tests.python.test_first_party_wayland_window import (
     ROOT,
     SESSION,
     client,  # noqa: F401
+    connected_mouse,
     input_device,  # noqa: F401
 )
 
@@ -148,7 +149,7 @@ def empty_root_command(executable, work):
 def run_in_root(executable, probe, work):
     command = empty_root_command(executable, work)
     green = bytes((37, 179, 125))
-    with subprocess.Popen(command, stdout=subprocess.PIPE, text=True) as app:
+    with connected_mouse(probe) as send, subprocess.Popen(command, stdout=subprocess.PIPE, text=True) as app:
         try:
             deadline = time.monotonic() + 12
             while time.monotonic() < deadline:
@@ -167,10 +168,9 @@ def run_in_root(executable, probe, work):
             else:
                 raise AssertionError("the mounted panel, label and button did not appear")
             x, y = left + 45, top + 75
-            events = subprocess.run(
-                [probe, "mouse"], input=f"d {x} {y}\nu {x} {y}\n", text=True, capture_output=True, check=True, timeout=5
-            )
-            assert events.stdout.splitlines() == ["sent", "sent"]
+            send("m", x, y)
+            send("d", x, y)
+            send("u", x, y)
             output, _ = app.communicate(timeout=8)
             assert app.returncode == 0 and output.strip() == "Clicked Quit", (app.returncode, output)
         finally:
