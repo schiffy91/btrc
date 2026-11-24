@@ -1,7 +1,7 @@
 /* JNI for Library.Java. The manifest binds the btrcJava* functions below to
  * JavaVirtualMachine.btrc; compiler-generated Java adapters call the rest by
  * name and dispatch through the JNIEnv function table themselves
- * (docs/design/native-interop-ownership.md section 2.3). JavaRuntime.c owns
+ * (docs/design/native-interop-ownership.md section 2.3). The selected native provider owns
  * the one VM, the per-thread environment key, user claim counting and the
  * class and member ID cache, because their state is process-wide. */
 #ifndef BTRC_JAVA_JNI_H
@@ -12,10 +12,7 @@
 #include <jni.h>
 #include <stddef.h>
 
-/* VM lifetime, for JavaVirtualMachine.btrc. Options are queued, then the VM
- * starts with all of them; creation returns the JNI status (0 is JNI_OK). */
-void btrcJavaAddOption(const char* option);
-int btrcJavaCreateHost(void);
+/* VM lifetime and reference accounting for JavaVirtualMachine.btrc. */
 int btrcJavaRunning(void);
 int btrcJavaAdopted(void);
 long long btrcJavaLiveClaims(void);

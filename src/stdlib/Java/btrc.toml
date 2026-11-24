@@ -4,22 +4,17 @@ manifest-version = 1
 name = "btrc_stdlib_java"
 exports = ["JavaVirtualMachine"]
 
-# A host JVM's headers and HotSpot. Android's NDK sysroot supplies jni.h and
-# the application supplies its VM, so an Android target needs neither.
-[[native.pkg-config]]
-name = "btrc-jni"
-modules = ["JavaVirtualMachine"]
-os = ["linux", "macos"]
+[[package.providers]]
+module = "JavaVirtualMachine"
+implementation = "Android.VirtualMachine"
+os = ["android"]
 
-# JNI.h includes <jni.h>: the host JDK's (btrc-jni) on Linux and macOS, the
-# NDK sysroot's on Android, and a JDK's on Windows once its host VM is wired.
-# iOS runs no Java VM and its SDK has no jni.h, so neither record selects it.
 [[native.sources]]
 path = "JavaRuntime.c"
 language = "c"
 standard = "c11"
 modules = ["JavaVirtualMachine"]
-os = ["android", "linux", "macos", "windows"]
+os = ["android"]
 
 # btrcJavaAdopt is not selected: only C calls it, from the JNI_OnLoad of the
 # library a running VM loaded, and BTRC sees the result through adopted().
@@ -28,6 +23,5 @@ module = "JavaVirtualMachine"
 header = "JNI.h"
 language = "c"
 standard = "c11"
-symbols = ["btrcJavaAddOption", "btrcJavaCreateHost", "btrcJavaRunning", "btrcJavaAdopted", "btrcJavaLiveClaims", "btrcJavaLiveWeaks", "btrcJavaAttachedThreads", "btrcJavaLiveNatives", "btrcJavaDestroy"]
-read-only-borrows = ["btrcJavaAddOption.option"]
-os = ["android", "linux", "macos", "windows"]
+symbols = ["btrcJavaRunning", "btrcJavaAdopted", "btrcJavaLiveClaims", "btrcJavaLiveWeaks", "btrcJavaAttachedThreads", "btrcJavaLiveNatives", "btrcJavaDestroy"]
+os = ["android"]

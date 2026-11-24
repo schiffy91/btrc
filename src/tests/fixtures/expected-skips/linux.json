@@ -5,6 +5,29 @@
   "description": "A physical Linux desktop outside any container (NixOS, x86_64): `tools/headless-gate.sh nix develop --command make NIX= test`. That script runs the gate headless, so that no test reaches the desktop session it is started from: DISPLAY and WAYLAND_DISPLAY unset, a private XDG_RUNTIME_DIR, and none of the caller's environment (started from inside another Nix shell, a build would compile against that shell's CPATH). Classified on 2026-11-17 from this host's runs at 7463a68e. The parallel suite skips 4,535: 4,344 are the platform, SDK and provider skips of a Linux host, which linux-devcontainer.json documents and whose rules are repeated here unchanged; 186 are Linux GUI cases that have no display; four are audio cases that have no sound device; one is the real-desktop session check. The E40 burst stage skips 48, all macOS-only, and the bootstrap none. This qualifies the headless gate only. The check of a real X11 and Wayland session, which this runner alone can run and which linux-devcontainer.json expects of it, is not run by that gate and has no covering runner here: it stays awaiting (ci/tiers.toml, hardware entry linux-desktop).",
   "rules": [
     {
+      "id": "optional-desktop-jdk",
+      "files": [
+        "src/tests/python/test_native_jni_host.py",
+        "src/tests/python/test_native_jni_calls.py",
+        "src/tests/python/test_native_jni_adopted.py",
+        "src/tests/python/test_native_jni_natives.py"
+      ],
+      "reason": "^requires the optional JavaHost JDK \\(nix develop \\.#jni\\)$",
+      "category": "missing-sdk",
+      "gating": {
+        "tools": [
+          "pkg-config"
+        ],
+        "env": [
+          "PKG_CONFIG_PATH"
+        ]
+      },
+      "covered_by": [
+        "macos-hosted"
+      ],
+      "note": "The default shell omits the desktop JDK. The macOS hosted unit shard opts into the JNI shell and exercises the full desktop suite with checked JNI."
+    },
+    {
       "id": "native-reader-macos-only",
       "files": [
         "src/tests/python/test_native_*.py",

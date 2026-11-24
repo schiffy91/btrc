@@ -14,22 +14,6 @@
           if lib.hasPrefix "-Ddbus_daemon=" flag then "-Ddbus_daemon=${pkgs.dbus}/bin/dbus-daemon" else flag
         ) (lib.filter (flag: !lib.hasPrefix "-Ddbus_broker=" flag) old.mesonFlags);
       });
-      # The libcurl Library.HTTP's Linux transport links through
-      # `pkg-config libcurl` (docs/design/http-transport.md, Native providers
-      # and the Linux resolver, TLS and revocation profiles): OpenSSL 3.x for
-      # TLS and c-ares for DNS, because a threaded getaddrinfo resolver cannot
-      # be cancelled within the transport's bound. curlMinimal keeps HTTP/1.1
-      # and HTTP/2 and drops what the provider never admits (HTTP/3, brotli,
-      # IDN, scp/sftp, Kerberos). Its dev output propagates the library but
-      # not the curl executable, so the shell gains no curl on PATH: the
-      # transport needs none, and the legacy client keeps the host's curl.
-      # test_http_transport_inputs.py checks the versions it reports.
-      curlHttpTransport = pkgs: (pkgs.curlMinimal.override {
-        opensslSupport = true;
-        c-aresSupport = true;
-        scpSupport = false;
-        gssSupport = false;
-      }).overrideAttrs { propagatedBuildOutputs = [ "out" ]; };
       cfg = {
         name = "btrc";
         image = "btrc-devcontainer:latest";
@@ -75,7 +59,6 @@
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config            # native windowing shims
             fontconfig.dev                    # Linux font provider
-            (curlHttpTransport pkgs).dev   # libcurl.pc: the Linux HTTP transport (OpenSSL 3, c-ares)
             openssh   # ssh-keygen: writes the key files the Library.Crypto driver reads back
             xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
             # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
@@ -206,8 +189,6 @@
             pkgs.pkg-config
             self.packages.${system}.wgpu-native
             self.packages.${system}.btrc-gpu
-            self.packages.${system}.btrc-jni
-            pkgs.jdk17_headless   # javac and java for the host-JVM JNI tests
             self.packages.${system}.btrc-format
             self.packages.${system}.btrc-lsp
           ];
@@ -244,6 +225,10 @@
         platforms = import ./nix/platforms.nix { inherit nixpkgs system lib; };
       in {
         default = pkgs.mkShell defaultShell;
+        # Desktop programs hosting HotSpot and the checked-JNI test suite.
+        jni = pkgs.mkShell (defaultShell // {
+          packages = defaultShell.packages ++ [ self.packages.${system}.btrc-jni pkgs.jdk17_headless ];
+        });
       } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
         embedded-web = import ./packages/embedded-web/shell.nix { inherit pkgs defaultShell; };
       } // lib.optionalAttrs isDarwin {
@@ -326,6 +311,7 @@
         selfhostBundleSource = sourceSubset {
           prefixes = [
             "src/language/"
+            "src/optional/"
             "src/runtime/c/"
             "src/stdlib/"
           ];
@@ -447,6 +433,7 @@
             install -m 0644 src/language/grammar.ebnf \
               "$out/share/btrc/language/grammar.ebnf"
             cp -R src/stdlib "$out/share/btrc/stdlib"
+            cp -R src/optional "$out/share/btrc/optional"
             mkdir -p "$out/share/btrc/runtime"
             cp -R src/runtime/c "$out/share/btrc/runtime/c"
             wrapProgram "$out/bin/btrcc" \
@@ -600,10 +587,10 @@
             patchelf --add-rpath /run/opengl-driver/lib:${pkgs.vulkan-loader}/lib "$library"
           done
         '';
-        # JNI headers and HotSpot for Library.Java on a host JVM: its JNI.h
+        # JNI headers and HotSpot for the optional JavaHost package: its JNI.h
         # binding and runtime source compile against this, and its tests create
         # a VM under -Xcheck:jni. Android reads jni.h from the NDK sysroot and
-        # links no VM, so the stdlib selects this only on macOS and Linux.
+        # links no VM. Only JavaHost consumers and desktop JNI tests select this.
         javaNativeInterface = let
           jdk = pkgs.jdk17_headless;
           platform = if isDarwin then "darwin" else "linux";
@@ -675,7 +662,7 @@
         };
       in {
         inherit btrcpy btrcc btrc-format btrc-lsp;
-        stdlib-windows-sdk = import ./nix/stdlib-windows-sdk.nix { inherit pkgs nixpkgs; };
+        stdlib-windows-sdk = import ./nix/stdlib-windows-sdk.nix { inherit pkgs; };
         btrc-gpu = btrcGpu;
         btrc-native-plan = nativePlan;
         btrc-native-header = nativeHeaderReader;

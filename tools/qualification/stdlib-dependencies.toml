@@ -331,12 +331,6 @@ os = ["linux"]
 resolution = "Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend."
 
 [[pending]]
-dependency = "a desktop JVM (HotSpot)"
-module = "Java/JavaVirtualMachine"
-os = ["linux", "macos", "windows"]
-resolution = "Move desktop VM hosting to an optional JDK-backed package and retain checked-JNI tests."
-
-[[pending]]
 dependency = "the WebView2 SDK (header and loader DLL)"
 module = "GUI/Shim/ShimWeb"
 os = ["windows"]

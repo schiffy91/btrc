@@ -24,11 +24,34 @@ static void key(const RealInput *device, int code) {
     assert(device->key(code));
     settle();
 }
-int main(void) {
+int main(int argc, char **argv) {
     const char *privateSession = getenv("BTRC_UI_PRIVATE_SESSION");
     assert(privateSession && !strcmp(privateSession, "1"));
     const RealInput *device = realInputWayland();
-    assert(device && activate(device, "Native BTRC"));
+    assert(device);
+    if (argc == 2) {
+        bool withMenu = !strcmp(argv[1], "ime-menu");
+        if (withMenu || !strcmp(argv[1], "ime")) {
+            puts("keyboard ready"); fflush(stdout);
+            assert(activate(device, "Native BTRC"));
+            key(device, CONFORMANCE_KEY_TAB);
+            puts("field focused"); fflush(stdout);
+            assert(getchar() == '\n');
+            if (withMenu) {
+                key(device, CONFORMANCE_KEY_TAB);
+                key(device, CONFORMANCE_KEY_RETURN);
+                key(device, CONFORMANCE_KEY_DOWN);
+                key(device, CONFORMANCE_KEY_RETURN);
+            }
+            key(device, CONFORMANCE_KEY_TAB);
+            key(device, CONFORMANCE_KEY_RETURN);
+            assert(activate(device, withMenu ? "Native Wayland / Second" : "Native Wayland"));
+            key(device, CONFORMANCE_KEY_TAB);
+            key(device, CONFORMANCE_KEY_RETURN);
+        } else { return 2; }
+        return 0;
+    }
+    assert(activate(device, "Native BTRC"));
     key(device, CONFORMANCE_KEY_TAB);
     key(device, CONFORMANCE_KEY_SELECT_ALL);
     assert(device->text("Renamed in Wayland", settle));

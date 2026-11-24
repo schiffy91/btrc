@@ -5,6 +5,29 @@
   "description": "CI's Linux shards and `make linux-ci`, inside the podman devcontainer, classified from CI run 36898564273 on cf28fe7 (2026-10-01): the unit shard skips 3,108 and the btrc shard 34; the corpus, bootstrap and eight strict-C11 shards skip none. About 2,950 are macOS-only native interop. Rules marked 'Delete this rule once stage4/tools-ci ...' expire when that lane's dev-shell tools land (lldb, pugixml, sqlite, BTRC_NATIVE_PROVIDER_CC/CXX). Every covered_by macOS claim was checked against macOS run 36898564246's unit and btrc reports, and again (as macos-hosted) against macOS run 37110991739 in Stage 38. Every shard runs under tools/virtual-display.sh (Xvfb and Mesa lavapipe), so the Linux GUI and GPU compute-adapter tests run and their skips are no longer expected. Its macOS coverage names macos-hosted, the runner macos.yml reports as since Stage 38 (CL-R-36), so every claim is checked against hosted reports on each push; the acceptance Mac runs a superset.",
   "rules": [
     {
+      "id": "optional-desktop-jdk",
+      "files": [
+        "src/tests/python/test_native_jni_host.py",
+        "src/tests/python/test_native_jni_calls.py",
+        "src/tests/python/test_native_jni_adopted.py",
+        "src/tests/python/test_native_jni_natives.py"
+      ],
+      "reason": "^requires the optional JavaHost JDK \\(nix develop \\.#jni\\)$",
+      "category": "missing-sdk",
+      "gating": {
+        "tools": [
+          "pkg-config"
+        ],
+        "env": [
+          "PKG_CONFIG_PATH"
+        ]
+      },
+      "covered_by": [
+        "macos-hosted"
+      ],
+      "note": "The default shell omits the desktop JDK. The macOS hosted unit shard opts into the JNI shell and exercises the full desktop suite with checked JNI."
+    },
+    {
       "id": "native-reader-macos-only",
       "files": [
         "src/tests/python/test_native_*.py",

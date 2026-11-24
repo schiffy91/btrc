@@ -1215,14 +1215,14 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 kind = "operation"
 id = "Library.Java.JavaVirtualMachine"
 group = "stdlib/Java"
-title = "Host Java VM, per-thread JNI environment and reference accounting"
-regression = ["src/tests/python/test_native_jni_host.py::test_host_jvm_lifecycle"]
-windows-x64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "btrc-jni pkg-config and the host VM are declared os=[macos,linux] only; a Windows host JVM is unwired" }
-windows-arm64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "btrc-jni pkg-config and the host VM are declared os=[macos,linux] only; a Windows host JVM is unwired" }
+title = "Application ART VM, per-thread JNI environment and reference accounting"
+regression = ["src/tests/python/test_native_jni_android.py::test_checked_jni_round_trip_on_android", "src/tests/python/test_native_jni_host.py::test_desktop_stdlib_without_jdk"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "Windows supplies no application VM. An explicit desktop host uses the optional JavaHost package." }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "Windows supplies no application VM. An explicit desktop host uses the optional JavaHost package." }
 ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS runs no Java VM" }
 ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS runs no Java VM" }
-android-arm64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "createHost aborts on Android, where the application owns the VM; adopting it at JNI_OnLoad is interop step 7 (CL-P2-24)" }
-android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A1", status = "source-only", reason = "createHost aborts on Android, where the application owns the VM; adopting it at JNI_OnLoad is interop step 7 (CL-P2-24)" }
+android-arm64 = { parity = "adapted", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "JNI_OnLoad adopts the application ART VM. NDK JNI supplies the per-thread environment and reference accounting." }
+android-x86_64 = { parity = "adapted", implementation = "implemented", owner = "A1", status = "implemented-unverified", reason = "JNI_OnLoad adopts the application ART VM. NDK JNI supplies the per-thread environment and reference accounting." }
 
 [[rows]]
 kind = "operation"

@@ -22,6 +22,8 @@ bool btrcShimInit(void) {
     BtrcWaylandDisplay *opened = btrcWaylandDisplayOpen();
     if (!opened) { openError = errno; return false; }
     thread = pthread_self();
+    opened->editContext = btrcWaylandSceneEditContext;
+    opened->deleteAround = btrcWaylandSceneDeleteAround;
     opened->routeInput = btrcWaylandSceneInput;
     display = opened;
     return true;
