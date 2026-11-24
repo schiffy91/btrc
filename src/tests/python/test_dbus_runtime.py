@@ -282,7 +282,7 @@ def test_dbus_client_serves_gdbus_in_both_byte_orders(
         [],
     )
     body = GLib.Variant("(ybnqiuxtdsogasa{sv}(sa(iiay)ss)a(ia{sv})vax)", values)
-    with private_bus() as address, _echo_service(executable, _environment(address)) as service:
+    with private_bus() as address, _echo_service(executable, _environment(address)):
         bus = Gio.DBusConnection.new_for_address_sync(
             address,
             Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
