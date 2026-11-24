@@ -855,6 +855,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("decodeLinear", "DecodedPhoto", "method", (("Bytes", "encoded"), ("int", "maxEdge"), ("bool", "linearRec2020"),), "decodeLinear"),
         BuiltinMemberSpec("decodeRGBA8", "Image", "method", (("Bytes", "encoded"), ("int", "maxEdge"),), "decodeRGBA8"),
         BuiltinMemberSpec("encode", "Bytes", "method", (("FloatImage", "image"), ("ImageExportFormat", "format"), ("int", "quality"),), "encode"),
+        BuiltinMemberSpec("segmentForegroundMask", "Bytes", "method", (("Image", "image"), ("int", "outWidth"), ("int", "outHeight"),), "segmentForegroundMask"),
     )),
     ("JPEG", (
         BuiltinMemberSpec("decode", "Image", "method", (("Bytes", "bytes"), ("int", "maxPixels"),), "decode"),
