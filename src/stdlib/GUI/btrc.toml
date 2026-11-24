@@ -1221,13 +1221,8 @@ os = ["macos"]
 
 [[package.providers]]
 module = "SharedFrameView"
-implementation = "Unavailable.SharedFrameViewProvider"
-os = ["windows"]
-
-[[package.providers]]
-module = "SharedFrameView"
 implementation = "Shim.SharedFrameViewProvider"
-os = ["ios", "android"]
+os = ["ios", "android", "windows"]
 
 [[native.bindings]]
 module = "Shim.ShimSharedFrameView"
@@ -1235,7 +1230,29 @@ header = "Shim/SharedFrame.h"
 language = "c"
 standard = "c11"
 symbols = ["btrcShimFrameTransport", "btrcShimFrameCreate", "btrcShimFrameListen", "btrcShimFrameDisconnect", "btrcShimFramePresent", "btrcShimFrameWidth", "btrcShimFrameHeight"]
-os = ["ios", "android"]
+os = ["ios", "android", "windows"]
+
+[[native.sources]]
+path = "Windows/Win32SharedFrame.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.ShimSharedFrameView"]
+os = ["windows"]
+
+[[native.libraries]]
+name = "d3d11"
+modules = ["Shim.ShimSharedFrameView"]
+os = ["windows"]
+
+[[native.libraries]]
+name = "dxgi"
+modules = ["Shim.ShimSharedFrameView"]
+os = ["windows"]
+
+[[native.libraries]]
+name = "dxguid"
+modules = ["Shim.ShimSharedFrameView"]
+os = ["windows"]
 
 [[native.sources]]
 path = "Android/AndroidSharedFrame.c"

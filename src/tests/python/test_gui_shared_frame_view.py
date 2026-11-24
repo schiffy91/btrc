@@ -2,10 +2,11 @@
 
 import contextlib
 import os
-import select
+import queue
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -29,11 +30,22 @@ def wait_file(path, process):
     return path.read_text()
 
 
-def send(process, address, width, format_code):
+def read_output(process):
+    lines = queue.Queue()
+
+    def collect():
+        for line in process.stdout:
+            lines.put(line.strip())
+        lines.put("<producer exited>")
+
+    threading.Thread(target=collect, daemon=True).start()
+    return lines
+
+
+def send(process, lines, address, width, format_code):
     process.stdin.write(f"{address} {width} {format_code}\n")
     process.stdin.flush()
-    assert select.select([process.stdout], [], [], 3)[0], "producer timed out"
-    return process.stdout.readline().strip()
+    return lines.get(timeout=10)
 
 
 @pytest.mark.macos_gui
@@ -106,7 +118,7 @@ def test_linux_shared_frame_view(tmp_path, request, frontend):
     exercise_viewer(tmp_path, provider_environment(False), viewer, [sender, nodes[0]], "1", "0")
 
 
-def exercise_viewer(root, env, viewer, sender, valid, invalid):
+def exercise_viewer(root, env, viewer, sender, valid, invalid, *, verify_dxgi=False):
     with contextlib.ExitStack() as stack:
 
         def launch(argv):
@@ -119,6 +131,7 @@ def exercise_viewer(root, env, viewer, sender, valid, invalid):
 
         producer = launch(sender)
         stranger = launch(sender)
+        outputs = {peer: read_output(peer) for peer in (producer, stranger)}
         app = launch([viewer, root, str(producer.pid)])
         first = wait_file(root / "first", app)
         address = first
@@ -132,11 +145,17 @@ def exercise_viewer(root, env, viewer, sender, valid, invalid):
             ]
         ):
             if step == 4:
+                (root / "reconnect").touch()
                 address = wait_file(root / "second", app)
                 assert address != first
-                assert send(producer, first, width, fourcc) == "closed"
-            assert send(peer, address, width, fourcc) == "sent"
+                assert send(producer, outputs[producer], first, width, fourcc) == "closed"
+            assert send(peer, outputs[peer], address, width, fourcc) == "sent"
             (root / f"sent-{step}").touch()
             wait_file(root / f"done-{step}", app)
+            if verify_dxgi:
+                assert outputs[peer].get(timeout=5) == ("accepted" if step >= 2 else "rejected")
+                if step >= 2:
+                    subprocess.run([*sender, "--pixels", str(app.pid)], check=True, timeout=10, env=env)
+        (root / "finish").touch()
         assert app.wait(timeout=5) == 0, app.stderr.read()
-        assert send(producer, address, 320, valid) == "closed"
+        assert send(producer, outputs[producer], address, 320, valid) == "closed"

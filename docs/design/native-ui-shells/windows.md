@@ -154,3 +154,9 @@ Open for CL-UIA-22 and the Windows track: keyboard traversal (no
 re-laying out children and fonts after a DPI change, input composition,
 real-input (`SendInput`) delivery on a desktop session, Narrator, and Win32
 versus WinUI, which this shell's evidence informs but does not decide.
+
+## Shared GPU frames
+
+Give the producer the `dxgi` address returned by `SharedFrameView.listen(producerPid)` over its private control channel. The view checks the client's process ID on the local named pipe. Each message identifies a D3D11 texture on the producer's adapter. The message layout and mutex keys are in `src/stdlib/GUI/Windows/SharedFrameDXGI.h`.
+
+Create a single-plane BGRA8 texture with one mip level, one array slice and one sample. Use a fresh GUID for its named NT handle. After rendering, release mutex key 1, send the message and keep the handle open for the one-byte reply. A successful copy and presentation returns 1. Discard a rejected texture. The view presents the texture in a child window and preserves its aspect ratio when the window changes size. Closing the view or calling `listen` again invalidates the old address.
