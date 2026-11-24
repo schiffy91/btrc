@@ -23,7 +23,7 @@ class LinuxEncodedImageDecoder implements IEncodedImageDecoder, IEncodedImageFor
 		try {
 			var header = PNGHeader.inspect(encoded);
 			if (!Image.validDimensions(header.width, header.height) || !limits.allowsDimensions(header.width, header.height)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, encoded.length()); }
-			var image = PNG.decode(encoded, header.width * header.height, true);
+			var image = PNG.decodeForDisplay(encoded, header.width * header.height);
 			return EncodedImageDecodeOutcome.decoded(image, encoded.length());
 		} catch (string error) {
 			if (error.startsWith("Could not allocate")) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }

@@ -52,6 +52,12 @@ int main() {
 	if (linear8 == null) { return 1; }
 	var linear8Image = decoder.decode(linear8, limits).image();
 	assert(linear8Image.pixel(1, 0).equals(RGBA(21, 21, 21, 255)));
+	/* The simplified Linux API needs the full checked pixel stream. Trailing
+	 * chunks may be absent and damaged ancillary metadata is discarded. */
+	assert(decoder.decode(linear8.slice(0, linear8.length() - 12), limits).image().diff(linear8Image).exact());
+	assert(decoder.decode(linear8.slice(0, linear8.length() - 13), limits).status() == ENCODED_IMAGE_DECODE_CORRUPT);
+	linear8.set(48, linear8.get(48) ^ 1);
+	assert(decoder.decode(linear8, limits).image().pixel(1, 0).equals(RGBA(1, 1, 1, 255)));
 	var linear16 = Bytes.fromHex("89504e470d0a1a0a0000000d494844520000000c0000000110000000009f10cca60000002249444154789c63606060641410505070704848686858b0e0c081070f3e7cf8ff1f004ec10b011544ddf30000000049454e44ae426082");
 	if (linear16 == null) { return 1; }
 	var linear16Image = decoder.decode(linear16, limits).image();

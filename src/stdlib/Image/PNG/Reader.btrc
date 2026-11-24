@@ -59,7 +59,7 @@ class PNGReader {
 		for (int i = 0; i < 256; i++) { self.palette.set(i * 4 + 3, 255); }
 	}
 
-	// Returns the payload size of the chunk at `at` once its bounds, name and CRC hold.
+	// Returns the payload size of the chunk at `at` once its bounds and name hold.
 	private int chunk(int at) {
 		if (self.bytes.len - at < 12) { throw "Truncated PNG chunk"; }
 		var size = self.bytes.readU32BE(at);
@@ -69,14 +69,17 @@ class PNGReader {
 			if (letter < 97 || letter > 122) { throw "Invalid PNG chunk type"; }
 		}
 		if ((self.bytes.get(at + 6) & 32) != 0) { throw "Invalid PNG chunk type"; }
-		var end = at + 8 + (int)size;
-		if (self.checksum.crc(self.bytes, at + 4, end) != self.bytes.readU32BE(end)) { throw "PNG chunk fails its CRC"; }
 		return (int)size;
+	}
+
+	private bool validCrc(int at, int size) {
+		var end = at + 8 + size;
+		return self.checksum.crc(self.bytes, at + 4, end) == self.bytes.readU32BE(end);
 	}
 
 	public void header() {
 		if (self.bytes.len < 8 || self.bytes.readU32BE(0) != 0x89504e47u || self.bytes.readU32BE(4) != 0x0d0a1a0au) { throw "Invalid PNG signature"; }
-		if (self.chunk(8) != 13 || self.bytes.readU32BE(12) != 0x49484452u) { throw "Missing PNG header"; }
+		if (self.chunk(8) != 13 || self.bytes.readU32BE(12) != 0x49484452u || !self.validCrc(8, 13)) { throw "Missing PNG header"; }
 		var width = self.bytes.readU32BE(16);
 		var height = self.bytes.readU32BE(20);
 		if (width == 0u || height == 0u || width > 0x7fffffffu || height > 0x7fffffffu) { throw "Invalid PNG dimensions"; }
@@ -129,17 +132,28 @@ class PNGReader {
 		self.transparency = true;
 	}
 
-	// Walks every chunk through IEND, so each one's CRC is checked.
-	private void chunks() {
+	// File decoding validates the whole container. Display decoding only needs
+	// the consecutive IDATs that produce a complete checksummed raster.
+	private void chunks(bool pixelsOnly) {
 		int cursor = 33;
 		var started = false;
 		var finished = false;
 		var hasPalette = false;
 		while (true) {
+			if (pixelsOnly && started) {
+				var remaining = self.bytes.len - cursor;
+				if (remaining < 12 || self.bytes.readU32BE(cursor + 4) != 0x49444154u || self.bytes.readU32BE(cursor) > (unsigned int)(remaining - 12)) { break; }
+			}
 			var size = self.chunk(cursor);
 			var kind = self.bytes.readU32BE(cursor + 4);
 			var start = cursor + 8;
+			var valid = self.validCrc(cursor, size);
 			cursor = start + size + 4;
+			if (!valid) {
+				if (pixelsOnly && (kind & 0x20000000u) != 0u) { continue; }
+				if (pixelsOnly && started && kind == 0x49444154u) { break; }
+				throw "PNG chunk fails its CRC";
+			}
 			if (kind == 0x49444154u) {
 				if (finished) { throw "PNG image data is not consecutive"; }
 				if (self.colorType == 3 && !hasPalette) { throw "Missing PNG palette"; }
@@ -325,15 +339,15 @@ class PNGReader {
 		}
 	}
 
-	public Image decode(bool convertToSRGB = false) {
+	public Image decode(bool pixelsOnly = false) {
 		self.header();
 		if (!Image.validDimensions(self.width, self.height) || self.width > self.maxPixels / self.height) { throw "PNG exceeds pixel limit"; }
 		var pixelBits = self.channels * self.depth;
 		long long rowBytes = ((long long)self.width * pixelBits + 7LL) / 8LL;
 		// A scanline may need no more memory than the largest raster does.
 		if (rowBytes > 1073740800LL) { throw "PNG row exceeds limit"; }
-		self.chunks();
-		if (convertToSRGB) { self.prepareColors(); }
+		self.chunks(pixelsOnly);
+		if (pixelsOnly) { self.prepareColors(); }
 		// Adam7: the first column and row of each pass, then its steps.
 		Vector<int> passes = [0,0,1,1];
 		if (self.interlaced) { passes = [0,0,8,8, 4,0,8,8, 0,4,4,8, 2,0,4,4, 0,2,2,4, 1,0,2,2, 0,1,1,2]; }
