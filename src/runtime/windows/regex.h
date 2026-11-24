@@ -109,6 +109,24 @@ static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *re
 		re->__opaque = (void *)((uintptr_t)program | (uintptr_t)1);
 		return 0;
 	}
+	if (flags == REG_EXTENDED && !strchr(pattern, '\\')) {
+		size_t length = strlen(pattern);
+		/* Longer expressions retain their established resource handling.
+		   This also excludes the legacy limit on negated named classes. */
+		if (length && length <= 255) {
+			btrc_win_regex_flat *flat = (btrc_win_regex_flat *)malloc(sizeof *flat + length + 1);
+			if (flat) {
+				if (!btrc_win_regcomp(&flat->compiled, pattern, flags)) {
+					memcpy(flat->pattern, pattern, length + 1);
+					memset(re, 0, sizeof *re);
+					re->re_nsub = (size_t)((const btrc_win_rx_program *)flat->compiled.__opaque)->capture_count;
+					re->__opaque = (void *)((uintptr_t)flat | (uintptr_t)2);
+					return 0;
+				}
+				free(flat);
+			}
+		}
+	}
 	if (flags == REG_EXTENDED && *pattern == '(') {
 		size_t groups = 1;
 		btrc_win_regex_suffix *suffix = btrc_win_regex_compile_suffix(pattern);
@@ -122,23 +140,6 @@ static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *re
 			re->re_nsub = groups;
 			re->__opaque = (void *)((uintptr_t)group | (uintptr_t)3);
 			return 0;
-		}
-	}
-	if (flags == REG_EXTENDED && !strpbrk(pattern, "()\\")) {
-		size_t length = strlen(pattern);
-		/* Longer expressions retain their established resource handling.
-		   This also excludes the legacy limit on negated named classes. */
-		if (length && length <= 255) {
-			btrc_win_regex_flat *flat = (btrc_win_regex_flat *)malloc(sizeof *flat + length + 1);
-			if (flat) {
-				if (!btrc_win_regcomp(&flat->compiled, pattern, flags)) {
-					memcpy(flat->pattern, pattern, length + 1);
-					memset(re, 0, sizeof *re);
-					re->__opaque = (void *)((uintptr_t)flat | (uintptr_t)2);
-					return 0;
-				}
-				free(flat);
-			}
 		}
 	}
 	return btrc_win_legacy_regcomp(re, pattern, flags);
@@ -172,7 +173,18 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 	}
 	if ((pointer & (uintptr_t)3) == 2) {
 		const btrc_win_regex_flat *flat = (const btrc_win_regex_flat *)(pointer - 2);
-		int status = btrc_win_regexec(&flat->compiled, subject, count, matches, flags);
+		const btrc_win_rx_program *rx = (const btrc_win_rx_program *)flat->compiled.__opaque;
+		int status = btrc_win_regexec(&flat->compiled, subject, count ? 1 : 0, matches, flags);
+		if (!status && count) {
+			for (size_t g = 1; g < count; ++g) {
+				if (g > re->re_nsub) matches[g] = (regmatch_t){-1, -1};
+				else if (!rx->fixed_spans) matches[g] = matches[0];
+				else {
+					const int *span = rx->fixed_spans + 2 * g;
+					matches[g] = (regmatch_t){matches[0].rm_so + span[0], matches[0].rm_so + span[1]};
+				}
+			}
+		}
 		if (status != REG_ESPACE) return status;
 		/* A bounded execution may exhaust its work or memory allowance.
 		   Preserve the previous answer and keep the compiled object read-only

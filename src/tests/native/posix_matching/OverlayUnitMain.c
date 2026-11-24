@@ -33,6 +33,17 @@ int main(void)
 	if (overlay_helper_compile(&compiled, "[a-z]+[0-9]{2}|abc") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 2) return 1;
 	if (regexec(&compiled, "abc12zz", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 5) return 1;
 	regfree(&compiled);
+	regmatch_t capture[4];
+	if (overlay_helper_compile(&compiled, "(([a-c]+|xy))") != 0 || compiled.re_nsub != 2 ||
+	    ((uintptr_t)compiled.__opaque & 3u) != 2 || regexec(&compiled, "!abcd", 4, capture, 0)) return 1;
+	for (int g = 0; g < 3; ++g) if (capture[g].rm_so != 1 || capture[g].rm_eo != 4) return 1;
+	if (capture[3].rm_so != -1 || capture[3].rm_eo != -1) return 1;
+	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "[a-z]{2}([0-9]{3})/([A-Z])") != 0 || compiled.re_nsub != 2 ||
+	    ((uintptr_t)compiled.__opaque & 3u) != 2 || regexec(&compiled, "!ab123/X", 4, capture, 0)) return 1;
+	if (capture[0].rm_so != 1 || capture[0].rm_eo != 8 || capture[1].rm_so != 3 || capture[1].rm_eo != 6 ||
+	    capture[2].rm_so != 7 || capture[2].rm_eo != 8 || capture[3].rm_so != -1) return 1;
+	regfree(&compiled);
 	char literal[] = "ababaca";
 	if (overlay_helper_compile(&compiled, literal) != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
 	literal[0] = 'z';

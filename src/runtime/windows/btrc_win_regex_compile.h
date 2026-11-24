@@ -30,7 +30,8 @@ typedef struct {
 	btrc_win_rx_node *nodes;
 	btrc_win_rx_inst *code;
 	int code_count, code_capacity, flags, references;
-	int tag_count, guard_count;
+	int tag_count, guard_count, capture_count;
+	int *fixed_spans;
 	int *guard_tags;
 	/* 0 minimizes and 1 maximizes. A guard (2) and a capture erased by {0}
 	   (3) do not participate in path ranking. */
@@ -547,6 +548,7 @@ static inline void btrc_win_regfree(regex_t *re)
 {
 	btrc_win_rx_program *rx = (btrc_win_rx_program *)re->__opaque;
 	if (!rx) return;
+	free(rx->fixed_spans);
 	free(rx->group_tags);
 	free(rx->guard_tags);
 	free(rx->maximize);
@@ -557,19 +559,43 @@ static inline void btrc_win_regfree(regex_t *re)
 }
 
 /* This dispatch step enables only consuming bytes, concatenation, plain
-   alternatives and a single repetition on a byte. It does not enable
-   submatch rankings, assertions, backreferences or nested repetitions. */
+   alternatives and a single repetition on a byte. Groups that each fully
+   enclose the expression have already been counted and stripped. */
 static inline int btrc_win_rx_flat_eligible(const btrc_win_rx_parser *parser)
 {
 	const btrc_win_rx_node *nodes = parser->program->nodes;
 	for (int i = 1; i <= parser->nodes; ++i) {
 		const btrc_win_rx_node *node = &nodes[i];
-		if (node->op == btrc_win_rx_byte) continue;
+		if (node->op == btrc_win_rx_byte || node->op == btrc_win_rx_group) continue;
 		if (node->op == btrc_win_rx_repeat && nodes[node->child].op == btrc_win_rx_byte) continue;
 		if (node->op == btrc_win_rx_choice && node->child) continue;
 		return 0;
 	}
 	return parser->nodes > 0;
+}
+
+/* All positions in a concatenation of positive fixed-width atoms are
+   determined by the whole-match start. Record the participating captures
+   once during compilation; each occurrence consumes exactly its width. */
+static inline int btrc_win_rx_fixed_spans(btrc_win_rx_program *rx, int n, int *position)
+{
+	for (; n; n = rx->nodes[n].next) {
+		const btrc_win_rx_node *node = &rx->nodes[n];
+		if (node->op == btrc_win_rx_byte) {
+			++*position;
+		} else if (node->op == btrc_win_rx_repeat && rx->nodes[node->child].op == btrc_win_rx_byte &&
+		           node->min > 0 && node->min == node->max) {
+			*position += node->min;
+		} else if (node->op == btrc_win_rx_group && node->child) {
+			int *span = rx->fixed_spans + 2 * node->arg;
+			span[0] = *position;
+			if (!btrc_win_rx_fixed_spans(rx, node->child, position)) return 0;
+			span[1] = *position;
+		} else {
+			return 0;
+		}
+	}
+	return 1;
 }
 
 static inline int btrc_win_regcomp(regex_t *restrict re, const char *restrict pattern, int flags)
@@ -581,7 +607,25 @@ static inline int btrc_win_regcomp(regex_t *restrict re, const char *restrict pa
 	rx->flags = flags;
 	btrc_win_rx_parser parser = {rx, (const unsigned char *)pattern, 0, 0, 0, 0};
 	int root = btrc_win_rx_expression(&parser, 0);
-	if (!parser.error && !btrc_win_rx_flat_eligible(&parser)) parser.error = REG_BADPAT;
+	if (!parser.error) {
+		rx->capture_count = parser.groups;
+		int inner = root, enclosing = 0;
+		while (inner && !rx->nodes[inner].next && rx->nodes[inner].op == btrc_win_rx_group) {
+			++enclosing;
+			inner = rx->nodes[inner].child;
+		}
+		if (inner && enclosing == parser.groups && btrc_win_rx_flat_eligible(&parser)) {
+			root = inner;
+			parser.groups = 0;
+		} else if (root && parser.groups) {
+			rx->fixed_spans = (int *)calloc(2 * ((size_t)parser.groups + 1), sizeof *rx->fixed_spans);
+			int position = 0;
+			if (!rx->fixed_spans) parser.error = REG_ESPACE;
+			else if (!btrc_win_rx_fixed_spans(rx, root, &position)) parser.error = REG_BADPAT;
+		} else {
+			parser.error = REG_BADPAT;
+		}
+	}
 	if (!parser.error && parser.groups < 9 && (rx->references >> (parser.groups + 1)))
 		parser.error = REG_ESUBREG;
 	if (!parser.error) {
