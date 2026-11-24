@@ -47,5 +47,8 @@ BtrcShimWindow *btrcWaylandPlatformWindows(void);
 void btrcWaylandSceneClose(BtrcShimWindow *window);
 int btrcWaylandSceneAdvance(int timeout);
 bool btrcWaylandScenePresent(BtrcShimWindow *window);
+struct BtrcEditContext;
+bool btrcWaylandSceneEditContext(BtrcWaylandWindow *window, struct BtrcEditContext *context);
+bool btrcWaylandSceneDeleteAround(BtrcWaylandWindow *window, unsigned before, unsigned after);
 bool btrcWaylandSceneInput(BtrcWaylandDisplay *display, const BtrcShimEvent *event, bool *handled);
 #endif

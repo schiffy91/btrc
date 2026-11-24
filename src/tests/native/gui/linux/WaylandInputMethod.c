@@ -23,6 +23,8 @@ static struct wl_proxy *manager;
 static struct wl_seat *seat;
 static int active;
 static unsigned serial;
+static char context[4001];
+static unsigned cursor, anchor;
 
 static void global(void *data, struct wl_registry *registry, uint32_t name, const char *interface, uint32_t version) {
     (void)data; (void)version;
@@ -36,12 +38,17 @@ static int methodEvent(const void *impl, void *target, uint32_t opcode, const st
     (void)impl; (void)target; (void)message; (void)args;
     if (opcode == 0) { active = 1; }
     if (opcode == 1) { active = 0; }
+    if (opcode == 2) {
+        assert(strlen(args[0].s) < sizeof context);
+        strcpy(context, args[0].s);
+        cursor = args[1].u; anchor = args[2].u;
+    }
     if (opcode == 5) { ++serial; if (active) { active = 2; } }
     assert(opcode != 6);
     return 0;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     struct wl_display *d = wl_display_connect(NULL);
     assert(d);
     struct wl_registry *r = wl_display_get_registry(d);
@@ -55,6 +62,25 @@ int main(void) {
     puts("IM ready");
     fflush(stdout);
     while (active != 2) { assert(wl_display_dispatch(d) >= 0); }
+    if (argc == 2 && !strcmp(argv[1], "field")) {
+        while (strcmp(context, "Native BTRC")) { assert(wl_display_dispatch(d) >= 0); }
+        assert(cursor == strlen(context) && anchor == cursor);
+        puts("surrounding confirmed"); fflush(stdout);
+        assert(getchar() == '\n');
+        wl_proxy_marshal_flags(im, 1, NULL, 1, 0, "draft", 5, 5);
+        wl_proxy_marshal_flags(im, 3, NULL, 1, 0, serial);
+        assert(wl_display_roundtrip(d) >= 0);
+        puts("preedit sent"); fflush(stdout);
+        assert(getchar() == '\n');
+        wl_proxy_marshal_flags(im, 2, NULL, 1, 0, 4u, 0u);
+        wl_proxy_marshal_flags(im, 0, NULL, 1, 0, "Wayland");
+        wl_proxy_marshal_flags(im, 3, NULL, 1, 0, serial);
+        do { assert(wl_display_dispatch(d) >= 0); } while (strcmp(context, "Native Wayland"));
+        assert(cursor == strlen(context) && anchor == cursor);
+        puts("committed text confirmed"); fflush(stdout);
+        wl_display_disconnect(d);
+        return 0;
+    }
     wl_proxy_marshal_flags(im, 1, NULL, 1, 0, "ä日", 2, 5);
     wl_proxy_marshal_flags(im, 3, NULL, 1, 0, serial);
     assert(wl_display_roundtrip(d) >= 0 && getchar() == '\n');

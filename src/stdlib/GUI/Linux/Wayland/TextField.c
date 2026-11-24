@@ -67,6 +67,7 @@ void btrcShimTextSet(BtrcShimControl *control, const char *value) {
     free(field->composition);
     field->composition = NULL;
     refresh(field);
+    btrcWaylandFieldModelChanged(control);
     btrcWaylandControlChanged(control);
 }
 
@@ -149,9 +150,39 @@ void btrcWaylandFieldPaint(BtrcWaylandTextField *field, const BtrcWaylandControl
 static bool publish(BtrcWaylandTextField *field, BtrcShimWindow *window, unsigned id, unsigned type) {
     if (!refresh(field)) { return false; }
     window->sceneDirty = true;
+    if (window->native->textInput) { btrcWaylandUpdateTextInputs(window->native, false); }
     return btrcWaylandQueueEvent(window->native->display, (BtrcShimEvent){
         .type=type, .window=btrcShimWindowId(window), .control=id, .data1=field->composition != NULL,
         .text=type == BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED ? (field->display.value ? field->display.value : "") : NULL});
+}
+
+const BtrcEditBuffer *btrcWaylandFieldBuffer(const BtrcWaylandTextField *field) { return &field->edit; }
+const char *btrcWaylandFieldPlaceholder(const BtrcWaylandTextField *field) {
+    return field->placeholder.value ? field->placeholder.value : "";
+}
+
+bool btrcWaylandFieldSelectRange(BtrcWaylandTextField *field, BtrcShimWindow *window,
+    unsigned id, size_t anchorByte, size_t caretByte) {
+    if (field->composition || btrcGraphemeFloor(&field->edit.clusters, anchorByte) != anchorByte ||
+        btrcGraphemeFloor(&field->edit.clusters, caretByte) != caretByte) { return false; }
+    btrcEditSelect(&field->edit, anchorByte, caretByte);
+    return publish(field, window, id, BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED);
+}
+
+bool btrcWaylandFieldReplaceRange(BtrcWaylandTextField *field, BtrcShimWindow *window,
+    unsigned id, size_t begin, size_t end, const char *text) {
+    return !field->composition && btrcEditReplaceRange(&field->edit, begin, end, text) &&
+        publish(field, window, id, BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED);
+}
+
+bool btrcWaylandFieldContext(BtrcWaylandTextField *field, BtrcEditContext *context) {
+    return btrcEditContext(&field->edit, context);
+}
+
+bool btrcWaylandFieldDeleteAround(BtrcWaylandTextField *field, BtrcShimWindow *window,
+    unsigned id, unsigned before, unsigned after) {
+    return btrcEditDeleteAround(&field->edit, before, after) &&
+        publish(field, window, id, BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED);
 }
 
 bool btrcWaylandFieldEvent(BtrcWaylandTextField *field, BtrcShimWindow *window,

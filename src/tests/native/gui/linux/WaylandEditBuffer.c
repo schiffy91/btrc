@@ -35,6 +35,25 @@ int main(void) {
     while (btrcEditUndo(&edit, false)) { ++count; }
     assert(count == 64);
     assert(btrcEditReplace(&edit, "z") && !btrcEditUndo(&edit, true));
+    assert(btrcEditReset(&edit, "Xéfoo日Y"));
+    btrcEditSelect(&edit, 6, 3);
+    BtrcEditContext context;
+    assert(btrcEditContext(&edit, &context) && !strcmp(context.text, edit.text) && context.anchor == 6 && context.cursor == 3);
+    assert(btrcEditDeleteAround(&edit, 1, 3) && !strcmp(edit.text, "Xéfoo日Y"));
+    assert(btrcEditDeleteAround(&edit, 2, 3) && !strcmp(edit.text, "XfooY") && edit.anchor == 4 && edit.caret == 1);
+    assert(btrcEditUndo(&edit, false) && edit.anchor == 6 && edit.caret == 3);
+    assert(!btrcEditReplaceRange(&edit, 2, 3, "bad") && !strcmp(edit.text, "Xéfoo日Y"));
+    assert(btrcEditReplaceRange(&edit, 0, 1, "hello") && !strcmp(edit.text, "helloéfoo日Y"));
+    assert(btrcEditUndo(&edit, false) && edit.anchor == 6 && edit.caret == 3);
+    char large[6001];
+    for (int i = 0; i < 2000; ++i) { memcpy(large + i * 3, "日", 3); }
+    large[6000] = 0;
+    assert(btrcEditReset(&edit, large));
+    btrcEditSelect(&edit, 1500, 4500);
+    assert(btrcEditContext(&edit, &context) && strlen(context.text) <= 4000);
+    assert(context.cursor - context.anchor == 3000 && (context.anchor % 3) == 0 && (strlen(context.text) % 3) == 0);
+    btrcEditSelect(&edit, 0, 6000);
+    assert(!btrcEditContext(&edit, &context));
     btrcEditDestroy(&edit);
     return 0;
 }
