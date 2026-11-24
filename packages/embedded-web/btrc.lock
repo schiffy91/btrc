@@ -1,0 +1,1 @@
+{"manifest-hash":"ccd2645053d6457ab6ed320340e1cb8263e3df3bac0a1898e8f1f80037f5f853","packages":[{"dependencies":{},"manifest-hash":"2baf0b0b21af713b7d183f3280a6d96766d842d1e74e1018d2ebd072b764b1d8","name":"embedded_web","source":{"path":"."}}],"root":"embedded_web","schema":3}

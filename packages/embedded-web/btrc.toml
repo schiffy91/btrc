@@ -1,0 +1,35 @@
+manifest-version = 1
+
+[package]
+name = "embedded_web"
+exports = ["EmbeddedWeb"]
+
+[[package.providers]]
+module = "EmbeddedWeb"
+implementation = "Linux.Install"
+os = ["linux"]
+
+[[package.providers]]
+module = "EmbeddedWeb"
+implementation = "System"
+os = ["macos", "ios", "android", "windows"]
+
+[[native.bindings]]
+module = "Linux.Install"
+header = "Install.h"
+language = "c"
+standard = "c11"
+os = ["linux"]
+symbols = ["btrcInstallEmbeddedWeb"]
+
+[[native.sources]]
+path = "Linux/GtkWeb.c"
+language = "c"
+standard = "c11"
+os = ["linux"]
+modules = ["Linux.Install"]
+
+[[native.pkg-config]]
+name = "webkitgtk-6.0"
+modules = ["Linux.Install"]
+os = ["linux"]

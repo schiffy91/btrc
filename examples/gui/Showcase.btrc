@@ -17,6 +17,10 @@ import Library.JSON;
 import Library.Map;
 import Library.Vector;
 
+#if defined(__linux__) && !defined(__ANDROID__)
+import embedded.EmbeddedWeb;
+#endif
+
 /* Three kinds of content in one window, each drawn by what draws it best:
  * the system's own controls, a view the program draws with the GPU, and a
  * page the system's web engine draws. They are siblings in one view tree,
@@ -181,6 +185,9 @@ class QuitShowcase implements IApplicationWork {
 /* showcase [--seconds N]: runs until its window is closed, or for N seconds. */
 int main(Vector<string> args) {
 	GUI.initialize();
+#if defined(__linux__) && !defined(__ANDROID__)
+	EmbeddedWeb.install();
+#endif
 	var scope = CallbackScope();
 	Showcase? showcase = null;
 	ICallbackRegistration? quit = null;

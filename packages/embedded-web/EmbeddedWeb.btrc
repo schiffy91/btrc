@@ -1,0 +1,10 @@
+import Library.GUI.IWebView;
+import Library.GUI.WebView;
+
+/* Install the optional Linux engine for existing WebView.create callers, or
+ * use the factory directly. Both routes preserve the same IWebView contract. */
+class EmbeddedWeb {
+	class void install() { EmbeddedWebProvider.install(); }
+
+	class IWebView create() { EmbeddedWeb.install(); return WebView.create(); }
+}

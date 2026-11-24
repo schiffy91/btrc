@@ -16,8 +16,6 @@ failure names the module, the target and the dependency.
 | --- | --- | --- | --- | --- |
 | FreeType | `GUI/FreeType/FreeTypeFace` | linux, macos, windows | headers `ft2build.h`; pkg-config `freetype2` | A first-party TrueType reader and rasterizer in BTRC behind the same face contract. |
 | GTK 4 | `GUI/Shim/Shim` | linux | headers `gdk/gdkkeysyms.h`; headers `gdk/wayland/gdkwayland.h`; headers `gdk/x11/gdkx.h`; headers `gtk/gtk.h`; pkg-config `gtk4-wayland`; pkg-config `gtk4-x11`; pkg-config `gtk4` | First-party windows and controls over the display server's protocol. |
-| GTK 4 | `GUI/Shim/ShimWeb` | linux | headers `gtk/gtk.h` | Goes with WebKitGTK. |
-| WebKitGTK | `GUI/Shim/ShimWeb` | linux | headers `webkit/webkit.h`; pkg-config `webkitgtk-6.0` | Move the embedded WebKitGTK provider to an optional package and verify the client migration. |
 | a desktop JVM (HotSpot) | `Java/JavaVirtualMachine` | linux, macos, windows | headers `jni.h`; pkg-config `btrc-jni` | Move desktop VM hosting to an optional JDK-backed package and retain checked-JNI tests. |
 | alsa-lib | `Audio/Linux/LinuxAudioDevice` | linux | headers `alsa/asoundlib.h`; pkg-config `alsa` | The kernel's ALSA PCM interface (ioctls on /dev/snd) from first-party code. |
 | curl | `HTTP/HTTPCurlTransport` | android, linux, macos | programs `curl` | On Android, Linux and macOS, plain HTTP and HTTP forward proxies use first-party code. HTTPS and TLS or SOCKS proxies retain curl until HttpURLConnection on Android, first-party TLS on Linux and NSURLSession on macOS are qualified. Windows uses WinHTTP. |

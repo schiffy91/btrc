@@ -292,10 +292,10 @@ the Deck's Gamescope session.
   at once if the window's device is not ready rather than waiting on the UI
   thread; a program that captures straight after `show()` asks again until
   it is, and needs no turn of the loop for the controls to be in it.
-- `WebView.create()` is a WebKitGTK view placed like any control; see
-  `IWebView.btrc` for the contract (one private origin serving a bundle,
-  JSON messages both ways, navigation by rule). WebKitGTK is linked only by
-  programs that import `WebView`.
+- The optional [embedded-web package](../../../packages/embedded-web/README.md)
+  supplies the WebKitGTK control. Call `EmbeddedWeb.install()` before the
+  first `WebView.create()` or use `EmbeddedWeb.create()`. Existing clients keep
+  the same `IWebView` bundle, message, and navigation APIs.
 - Every provider and application entry point except `createImageHandle`
   requires the thread that called `GUI.initialize`.
 - `IWindow.showAlert` is a GTK alert; `GUI.chooseDirectory` is GTK's folder

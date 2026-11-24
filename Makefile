@@ -335,6 +335,10 @@ test: generated-check gpu-required ## Run everything: unit + LSP + debugger + la
 # left with minutes of them while the others had finished. An idle worker
 # takes waiting tests from a busy one instead (SUITE_DISTRIBUTION).
 SUITE_DISTRIBUTION ?= --dist worksteal
+# These suites build the optional WebKitGTK client alongside ordinary GUI programs.
+ifeq ($(shell uname -s),Linux)
+test-suite test-unit test-shard-unit test-native-gui test-shard-gui: private NIX := nix develop .\#embedded-web --command
+endif
 test-suite: generated-check gpu-required ## The parallel suite: everything but the E40 qualification and the bootstrap
 	$(NIX) $(PYTEST) src/tests/ \
 		--ignore=src/tests/btrc/test_bootstrap.py --skip-report=build/skip-report.json $(PYTEST_ARGS) $(SUITE_DISTRIBUTION) -m "not e40_qualification"

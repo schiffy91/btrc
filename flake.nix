@@ -86,8 +86,6 @@
             xvfb dbus (atSpiCore pkgs) libxtst labwc wlr-randr
             # gtk4.pc: the Linux GUI provider's windows and controls.
             gtk4.dev glib.dev
-            # webkitgtk-6.0.pc: the web engine behind the provider's IWebView.
-            webkitgtk_6_0.dev
           ];
       };
       files = import ./nix { inherit cfg lib; };
@@ -96,6 +94,8 @@
       ciFiles = import ./nix {
         inherit lib;
         cfg = cfg // {
+          # The CI image runs the embedded web package's GUI suites as well.
+          devShell = ".#embedded-web";
           claudeCode = cfg.claudeCode // { enable = false; };
           share = cfg.share // { claude = false; };
           extensions = lib.remove "anthropic.claude-code" cfg.extensions;
@@ -244,6 +244,8 @@
         platforms = import ./nix/platforms.nix { inherit nixpkgs system lib; };
       in {
         default = pkgs.mkShell defaultShell;
+      } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        embedded-web = import ./packages/embedded-web/shell.nix { inherit pkgs defaultShell; };
       } // lib.optionalAttrs isDarwin {
         # The portable compiler, generator and bundle writer use Python's
         # standard library. Keep their toolchain and the native smoke-test CC,

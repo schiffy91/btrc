@@ -1,0 +1,4 @@
+/* Other targets keep their standard-library web view providers. */
+class EmbeddedWebProvider {
+	class void install() {}
+}

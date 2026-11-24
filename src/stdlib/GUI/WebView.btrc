@@ -2,7 +2,8 @@ import Library.GUI.IWebView;
 
 /* Web views are made here, not by GUI: a program that shows none does not
  * link the platform's web engine. GUI must be initialized first; the view is
- * then attached and closed like any other.
+ * then attached and closed like any other. On Linux, install the embedded-web
+ * package with EmbeddedWeb.install() before creating the first web view.
  *
  *     import Library.GUI.WebView;
  *     var page = WebView.create();

@@ -1,6 +1,7 @@
-/* The provider's web view; GtkWeb.h is the contract. */
-#include "../Shim/ShimWeb.h"
-#include "GtkShimPrivate.h"
+/* Linux WebKitGTK adapter for the GUI web host. */
+#include "../Backend.h"
+#include <stdlib.h>
+#include <string.h>
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #include <webkit/webkit.h>
@@ -159,7 +160,7 @@ static void btrcGtkOnWebMessage(WebKitUserContentManager* manager, JSCValue* val
 	g_free(json);
 }
 
-BtrcShimControl* btrcShimWebCreate(unsigned int id) {
+BtrcShimControl* btrcEmbeddedWebCreate(unsigned int id) {
 	BtrcGtkWeb* web = g_new0(BtrcGtkWeb, 1);
 	web->files = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)g_bytes_unref);
 	web->origins = g_ptr_array_new_with_free_func(g_free);
@@ -190,28 +191,28 @@ BtrcShimControl* btrcShimWebCreate(unsigned int id) {
 	return web->control;
 }
 
-void btrcShimWebServeDirectory(BtrcShimControl* control, const char* directory) {
+void btrcEmbeddedWebServeDirectory(BtrcShimControl* control, const char* directory) {
 	BtrcGtkWeb* web = btrcGtkWebOf(control);
 	g_hash_table_remove_all(web->files);
 	g_free(web->directory);
 	web->directory = g_strdup(directory);
 }
 
-void btrcShimWebServeFiles(BtrcShimControl* control) {
+void btrcEmbeddedWebServeFiles(BtrcShimControl* control) {
 	BtrcGtkWeb* web = btrcGtkWebOf(control);
 	g_hash_table_remove_all(web->files);
 	g_clear_pointer(&web->directory, g_free);
 }
 
-void btrcShimWebServeFile(BtrcShimControl* control, const char* path, const unsigned char* bytes, unsigned long long length) {
+void btrcEmbeddedWebServeFile(BtrcShimControl* control, const char* path, const unsigned char* bytes, unsigned long long length) {
 	BtrcGtkWeb* web = btrcGtkWebOf(control);
 	while (path[0] == '/') { path++; }
 	g_hash_table_insert(web->files, g_strdup(path), g_bytes_new(bytes, (gsize)length));
 }
 
-void btrcShimWebAllowOrigin(BtrcShimControl* control, const char* origin) { g_ptr_array_add(btrcGtkWebOf(control)->origins, g_strdup(origin)); }
+void btrcEmbeddedWebAllowOrigin(BtrcShimControl* control, const char* origin) { g_ptr_array_add(btrcGtkWebOf(control)->origins, g_strdup(origin)); }
 
-void btrcShimWebLoad(BtrcShimControl* control, const char* entryPath) {
+void btrcEmbeddedWebLoad(BtrcShimControl* control, const char* entryPath) {
 	BtrcGtkWeb* web = btrcGtkWebOf(control);
 	while (entryPath[0] == '/') { entryPath++; }
 	char* uri = g_strconcat("app://bundle/", entryPath, NULL);
@@ -221,7 +222,7 @@ void btrcShimWebLoad(BtrcShimControl* control, const char* entryPath) {
 	g_free(uri);
 }
 
-void btrcShimWebPost(BtrcShimControl* control, const char* json) {
+void btrcEmbeddedWebPost(BtrcShimControl* control, const char* json) {
 	BtrcGtkWeb* web = btrcGtkWebOf(control);
 	if (web->loaded) { btrcGtkWebDeliver(web, json); }
 	else { g_ptr_array_add(web->waiting, g_strdup(json)); }

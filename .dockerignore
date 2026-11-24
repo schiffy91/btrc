@@ -4,6 +4,9 @@
 !nix/
 !nix/*.nix
 !nix/asound.conf
+!packages/
+!packages/embedded-web/
+!packages/embedded-web/shell.nix
 !flake.lock
 !flake.nix
 !LICENSE

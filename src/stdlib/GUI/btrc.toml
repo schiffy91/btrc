@@ -95,7 +95,7 @@ header = "Shim/ShimWeb.h"
 language = "c"
 standard = "c11"
 symbols = [
-	"btrcShimWebCreate", "btrcShimWebServeDirectory", "btrcShimWebServeFiles", "btrcShimWebServeFile", "btrcShimWebAllowOrigin", "btrcShimWebLoad", "btrcShimWebPost",
+	"btrcShimWebInstalled", "btrcShimWebCreate", "btrcShimWebServeDirectory", "btrcShimWebServeFiles", "btrcShimWebServeFile", "btrcShimWebAllowOrigin", "btrcShimWebLoad", "btrcShimWebPost",
 	"BTRC_SHIM_WEB_NAVIGATION_ALLOWED", "BTRC_SHIM_WEB_NAVIGATION_REFUSED", "BTRC_SHIM_WEB_NAVIGATION_HANDED_TO_SYSTEM"
 ]
 read-only-borrows = ["btrcShimWebServeDirectory.directory", "btrcShimWebServeFile.path", "btrcShimWebServeFile.bytes", "btrcShimWebAllowOrigin.origin", "btrcShimWebLoad.entryPath", "btrcShimWebPost.json"]
@@ -137,14 +137,14 @@ modules = ["Shim.ShimSurface"]
 os = ["linux"]
 
 [[native.sources]]
-path = "Linux/GtkWeb.c"
+path = "Shim/EmbeddedWebHost.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.ShimWeb"]
 os = ["linux"]
 
-[[native.pkg-config]]
-name = "webkitgtk-6.0"
+[[native.include-directories]]
+path = "EmbeddedWebHost"
 modules = ["Shim.ShimWeb"]
 os = ["linux"]
 

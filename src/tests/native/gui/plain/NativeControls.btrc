@@ -1,0 +1,15 @@
+import Library.GUI;
+import Library.GUI.IWindow;
+
+int main() {
+	GUI.initialize();
+	try {
+		var window = GUI.createWindow("Native controls", 240.0, 120.0);
+		var button = GUI.createButton("OK");
+		window.attachRoot(button);
+		window.show();
+		window.hide();
+	} finally { GUI.close(); }
+	print("PASS native controls");
+	return 0;
+}

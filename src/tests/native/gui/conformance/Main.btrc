@@ -1,5 +1,9 @@
 import Library.Vector;
 
+#if defined(__linux__) && !defined(__ANDROID__)
+import embedded.EmbeddedWeb;
+#endif
+
 import ./Buttons.btrc;
 import ./Containers.btrc;
 import ./Controls.btrc;
@@ -16,6 +20,9 @@ import ./Windows.btrc;
 
 /* conformance [--list | CASE]: every case, or the one named. */
 int main(Vector<string> args) {
+#if defined(__linux__) && !defined(__ANDROID__)
+	EmbeddedWeb.install();
+#endif
 	var suite = Suite();
 	suite.add(ButtonState());
 	suite.add(ButtonClick());

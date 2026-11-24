@@ -19,11 +19,13 @@ import pytest
 
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.linux_provider_fixtures import (
+    TARGET,
     build_provider_program,
     provider_environment,
     require_linux_reader,
 )
 from src.tests.runner_capabilities import linux_display_error
+from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
 REPO = Path(__file__).resolve().parents[3]
 SUITE = REPO / "src/tests/native/gui/conformance"
@@ -95,6 +97,25 @@ class ConformancePrograms:
 @pytest.fixture(scope="module")
 def programs(tmp_path_factory):
     return ConformancePrograms(tmp_path_factory)
+
+
+@pytest.mark.linux_gui
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_plain_linux_gui_without_webkit(tmp_path, request, frontend):
+    if sys.platform != "linux":
+        pytest.skip(LINUX_ONLY)
+    require_linux_reader()
+    if error := linux_display_error():
+        pytest.skip(error)
+    program = build_provider_program(
+        REPO / "src/tests/native/gui/plain/NativeControls.btrc", tmp_path, frontend, False, request
+    )
+    imports = BinaryImports.read(program)
+    assert all("webkit" not in library.lower() for library in imports), imports
+    problems = DependencyAudit().binary_problems(program, TARGET)
+    assert all("WebKitGTK" not in problem for problem in problems), problems
+    result = subprocess.run([program], env=provider_environment(False), capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0 and "PASS native controls" in result.stdout, result.stderr
 
 
 @pytest.mark.linux_gui
