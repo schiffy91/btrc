@@ -186,12 +186,18 @@ int main(void)
 	regfree(&compiled);
 	if (regcomp(&compiled, "(a|^|$){1,2}", REG_EXTENDED) || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
 	positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
-	if (positions->assertion_count != 2 || regexec(&compiled, "", 1, span, REG_NOTEOL) || span[0].rm_so != 0 ||
+	if (positions->predicates != ((1 << btrc_win_rx_bol) | (1 << btrc_win_rx_eol)) || regexec(&compiled, "", 1, span, REG_NOTEOL) || span[0].rm_so != 0 ||
 	    span[0].rm_eo != 0 || regexec(&compiled, "", 0, NULL, REG_NOTBOL) != REG_NOMATCH) return 1;
 	regfree(&compiled);
 	if (regcomp(&compiled, "((((^([[:digit:]]){0,2}){0,2}|a(b)*)){2,3})?", REG_EXTENDED) ||
 	    ((uintptr_t)compiled.__opaque & 3u) != 3 || regexec(&compiled, "aa", 1, span, REG_NOTBOL) ||
 	    span[0].rm_so != 0 || span[0].rm_eo != 1) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "((^a|b$)|(\\<c|\\Bd))", REG_EXTENDED) || ((uintptr_t)compiled.__opaque & 3u) != 3 ||
+	    regexec(&compiled, "a", 0, NULL, REG_NOTBOL) != REG_NOMATCH ||
+	    regexec(&compiled, "b", 0, NULL, REG_NOTEOL) != REG_NOMATCH ||
+	    regexec(&compiled, " c", 1, span, REG_NOTBOL | REG_NOTEOL) || span[0].rm_so != 1 || span[0].rm_eo != 2 ||
+	    regexec(&compiled, "-d", 0, NULL, 0) != REG_NOMATCH) return 1;
 	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;

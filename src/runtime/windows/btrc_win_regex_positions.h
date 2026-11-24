@@ -34,17 +34,21 @@ typedef struct {
 	btrc_win_byte_set bytes;
 } btrc_win_pos_edge;
 
+enum { btrc_win_pos_masks = 1 << (btrc_win_rx_nonboundary + 1) };
+typedef struct {
+	unsigned char slot[btrc_win_pos_masks];
+	btrc_win_pos_bits row[];
+} btrc_win_pos_contexts;
+
 typedef struct {
 	btrc_win_group_header header;
 	btrc_win_rx_blocks ranked_blocks;
 	btrc_win_suffix_span optional_suffix;
 	btrc_win_boundary_blocks boundary_blocks;
 	btrc_win_pos_bits initial;
-	/* Each assertion truth combination has one row of initial positions
-	   followed by the target set of each outgoing edge. False uses the
-	   ordinary fields below. */
-	btrc_win_pos_bits *contexts;
-	int edges, nullable, assertion_count, assertions[2];
+	/* The all-false assignment uses the ordinary edges below. */
+	btrc_win_pos_contexts *contexts;
+	int edges, nullable, predicates;
 	btrc_win_pos_edge edge[];
 } btrc_win_pos_program;
 
@@ -227,8 +231,7 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 	if (!id || b->failed) return empty;
 	const btrc_win_pos_node *n = &b->nodes[id];
 	if (n->op == btrc_win_pos_boundary) {
-		int bit = n->left == b->program->assertions[0] ? 1 : 2;
-		return (btrc_win_pos_span){ .nullable = (b->assertion_mask & bit) != 0 };
+		return (btrc_win_pos_span){ .nullable = (b->assertion_mask & (1 << n->left)) != 0 };
 	}
 	if (n->op == btrc_win_pos_byte) {
 		btrc_win_pos_program *p = b->program;
@@ -280,23 +283,42 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 	return left;
 }
 
-/* A source predicate has the same value in every counted copy at this
-   byte boundary. Compile each possible nonzero assignment once. */
+/* These are all boundary conditions possible in non-newline ERE mode.
+   An interior boundary enters a word, leaves one, or stays in the same
+   character class. Subject endpoints always satisfy the word boundary.
+   The empty subject is the only location that is both start and end. */
 static inline void btrc_win_pos_build_contexts(btrc_win_pos_builder *b, int tree)
 {
+	enum {
+		start = 1 << btrc_win_rx_bol, end = 1 << btrc_win_rx_eol,
+		enter = 1 << btrc_win_rx_bow, leave = 1 << btrc_win_rx_eow,
+		word = 1 << btrc_win_rx_word_boundary, same = 1 << btrc_win_rx_nonboundary
+	};
+	const int boundaries[] = {
+		same, word, word | enter, word | leave,
+		word | start, word | start | enter, word | end, word | end | leave, word | start | end
+	};
 	btrc_win_pos_program *p = b->program;
-	int rows = (1 << p->assertion_count) - 1;
+	unsigned char slots[btrc_win_pos_masks] = {0};
+	int rows = 0;
+	for (size_t i = 0; i < sizeof boundaries / sizeof boundaries[0]; ++i) {
+		int mask = boundaries[i] & p->predicates;
+		if (mask && !slots[mask]) slots[mask] = (unsigned char)++rows;
+	}
 	btrc_win_pos_bits accept = btrc_win_pos_bit(btrc_win_pos_limit);
-	for (int mask = 1; mask <= rows && !b->failed; ++mask) {
+	for (int mask = 1; mask < btrc_win_pos_masks && !b->failed; ++mask) {
+		if (!slots[mask]) continue;
 		b->assertion_mask = mask;
 		btrc_win_pos_span span = btrc_win_pos_span_for(b, tree);
 		if (b->failed) return;
 		btrc_win_pos_follow(p, span.last, accept);
 		if (!p->contexts) {
-			p->contexts = (btrc_win_pos_bits *)malloc((size_t)rows * (p->edges + 1) * sizeof *p->contexts);
+			size_t entries = (size_t)rows * (p->edges + 1);
+			p->contexts = (btrc_win_pos_contexts *)malloc(sizeof *p->contexts + entries * sizeof *p->contexts->row);
 			if (!p->contexts) { b->failed = 1; return; }
+			memcpy(p->contexts->slot, slots, sizeof slots);
 		}
-		btrc_win_pos_bits *row = p->contexts + (mask - 1) * (p->edges + 1);
+		btrc_win_pos_bits *row = p->contexts->row + (slots[mask] - 1) * (p->edges + 1);
 		row[0] = span.nullable ? btrc_win_pos_union_bits(span.first, accept) : span.first;
 		for (int i = 0; i < p->edges; ++i) row[i + 1] = p->edge[i].target;
 		p->edges = 0;
@@ -340,20 +362,13 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 				if (node->arg >= btrc_win_rx_bow) ++word_assertions;
 			}
 		}
-		int assertions[2] = {0}, count = 0;
-		for (int kind = btrc_win_rx_bol; kind <= btrc_win_rx_nonboundary; ++kind) {
-			if (!(kinds & (1 << kind))) continue;
-			if (count < 2) assertions[count] = kind;
-			++count;
-		}
-		if (index <= btrc_win_pos_limit && count <= 2 && escapes == word_assertions) {
+		if (index <= btrc_win_pos_limit && escapes == word_assertions) {
 			size_t bytes = sizeof *p + btrc_win_pos_limit * sizeof *p->edge + strlen(pattern) + 1;
 			p = (btrc_win_pos_program *)calloc(1, bytes);
 		}
 		if (p) {
-			p->assertion_count = count;
-			memcpy(p->assertions, assertions, sizeof assertions);
-			btrc_win_pos_builder builder = { .parser = &parser, .program = p, .conditional = count != 0 };
+			p->predicates = kinds;
+			btrc_win_pos_builder builder = { .parser = &parser, .program = p, .conditional = kinds != 0 };
 			int offset = 0;
 			int tree = btrc_win_pos_sequence(&builder, root, &offset, 0);
 			if (builder.conditional) btrc_win_pos_build_contexts(&builder, tree);
@@ -405,9 +420,12 @@ static inline const btrc_win_pos_bits *btrc_win_pos_context(const btrc_win_pos_p
 {
 	if (!p->contexts) return NULL;
 	int mask = 0;
-	for (int bit = 0; bit < p->assertion_count; ++bit)
-		if (btrc_win_rx_boundary_ok(p->assertions[bit], s, i, REG_EXTENDED, flags)) mask |= 1 << bit;
-	return mask ? p->contexts + (mask - 1) * (p->edges + 1) : NULL;
+	for (int kind = btrc_win_rx_bol; kind <= btrc_win_rx_nonboundary; ++kind) {
+		int bit = 1 << kind;
+		if ((p->predicates & bit) && btrc_win_rx_boundary_ok(kind, s, i, REG_EXTENDED, flags)) mask |= bit;
+	}
+	int slot = p->contexts->slot[mask];
+	return slot ? p->contexts->row + (slot - 1) * (p->edges + 1) : NULL;
 }
 
 static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *subject,
