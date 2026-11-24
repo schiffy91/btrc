@@ -12,18 +12,25 @@ import Library.Vector;
 import Library.IO;
 import Library.Strings;
 
+/* Construction unwinding can detach managed child objects before cleanup
+ * hooks run. Keep the kernel descriptors with the hook that closes them. */
 class DBusReceivedDescriptors implements IDBusDescriptors {
-	private Vector<int> files = [];
+	private int files[16];  /* the Linux per-message limit */
+	private int length = 0;
 
-	public void append(int fd) { self.files.push(fd); }
+	public bool append(int fd) {
+		if (self.length >= (int)(sizeof(self.files) / sizeof(int))) { close(fd); return false; }
+		self.files[self.length] = fd;
+		self.length++;
+		return true;
+	}
 
-	public int count() { return self.files.len; }
+	public int count() { return self.length; }
 
-	public int get(int index) { return self.files.get(index); }
+	public int get(int index) { return index >= 0 && index < self.length ? self.files[index] : -1; }
 
 	public void clear() {
-		for (int index = 0; index < self.files.len; index++) { close(self.files.get(index)); }
-		self.files.clear();
+		while (self.length > 0) { self.length--; close(self.files[self.length]); }
 	}
 
 	public void __del__() { self.clear(); }
@@ -34,7 +41,11 @@ class DBusTransportProvider {
 		int descriptors[256];
 		int received = 0;
 		ssize_t count = btrcDBusReceive(descriptor, buffer, (size_t)capacity, descriptors, &received);
-		for (int index = 0; index < received; index++) { handles.append(descriptors[index]); }
+		bool accepted = true;
+		for (int index = 0; index < received; index++) {
+			if (!handles.append(descriptors[index])) { accepted = false; }
+		}
+		if (!accepted) { return -1; }
 		if (count > (ssize_t)0) { return (int)count; }
 		if (count < (ssize_t)0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) { return 0; }
 		return -1;

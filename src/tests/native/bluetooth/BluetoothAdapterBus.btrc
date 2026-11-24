@@ -17,6 +17,16 @@ import Library.Timer;
 
 int main() {
 	BluetoothPairingWindow window = BluetoothPairingWindow();
+	/* A reachable daemon can have no adapter by the requested name. Every
+	 * failed open releases its connection before another public call. */
+	for (int attempt = 0; attempt < 3; attempt++) {
+		bool refused = false;
+		try {
+			var missing = BluetoothAdapter.open("hciMissing", window);
+			missing.close();
+		} catch (string error) { refused = error.equals("No Bluetooth adapter hciMissing (is bluetoothd running?)"); }
+		assert(refused);
+	}
 	BluetoothAdapter adapter = BluetoothAdapter.open("hci0", window);
 	assert(adapter.isOpen() && adapter.address().toString().equals("00:AA:01:00:00:23"));
 	assert(adapter.alias().equals("stand-in") && adapter.setAlias("renamed ✓") && adapter.alias().equals("renamed ✓"));

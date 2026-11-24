@@ -267,7 +267,7 @@ class DBusConnection {
 				}
 			}
 			int count = DBusTransportProvider.receiveFrame(self.handle, self.frame + self.frameFill, self.frameSize - self.frameFill, self.handles);
-			if (count < 0 || self.handles.count() > DBusConnection.maximumMessageDescriptors() || (!self.unixFD && self.handles.count() > 0)) {
+			if (count < 0 || (!self.unixFD && self.handles.count() > 0)) {
 				self.close();
 				return;
 			}
@@ -423,9 +423,7 @@ class DBusConnection {
 		return self.call(request, -1) != null;
 	}
 
-	/* Close the socket. Queued messages can still be popped. */
-	public void close() {
-		self.handles.clear();
+	private void closeTransport() {
 		if (self.handle >= 0) {
 			DBusTransportProvider.close(self.handle);
 			self.handle = -1;
@@ -436,5 +434,11 @@ class DBusConnection {
 		}
 	}
 
-	public void __del__() { self.close(); }
+	/* Closing explicitly also drops descriptors of an incomplete message.
+	 * Queued messages retain the descriptors that belong to them. */
+	public void close() { self.closeTransport(); self.handles.clear(); }
+
+	/* Each native owner releases its own resources. A failed enclosing
+	 * constructor may already have detached handles when this hook runs. */
+	public void __del__() { self.closeTransport(); }
 }
