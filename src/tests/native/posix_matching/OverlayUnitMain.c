@@ -22,6 +22,10 @@ int main(void)
 	if (overlay_helper_compile(&compiled, "[a-z]{2,3}") != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
 	if (regexec(&compiled, "5x1abcd", 1, span, 0) || span[0].rm_so != 3 || span[0].rm_eo != 6) return 1;
 	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "^ab$") != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
+	if (regexec(&compiled, "ab", 1, span, REG_NOTBOL) != REG_NOMATCH ||
+	    regexec(&compiled, "ab", 1, span, REG_NOTEOL) != REG_NOMATCH) return 1;
+	regfree(&compiled);
 	char literal[] = "ababaca";
 	if (overlay_helper_compile(&compiled, literal) != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
 	literal[0] = 'z';
