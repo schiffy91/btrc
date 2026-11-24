@@ -30,15 +30,22 @@ int main(int argc, char **argv) {
     const RealInput *device = realInputWayland();
     assert(device);
     if (argc == 2) {
-        if (!strcmp(argv[1], "ime")) {
+        bool withMenu = !strcmp(argv[1], "ime-menu");
+        if (withMenu || !strcmp(argv[1], "ime")) {
             puts("keyboard ready"); fflush(stdout);
             assert(activate(device, "Native BTRC"));
             key(device, CONFORMANCE_KEY_TAB);
             puts("field focused"); fflush(stdout);
             assert(getchar() == '\n');
+            if (withMenu) {
+                key(device, CONFORMANCE_KEY_TAB);
+                key(device, CONFORMANCE_KEY_RETURN);
+                key(device, CONFORMANCE_KEY_DOWN);
+                key(device, CONFORMANCE_KEY_RETURN);
+            }
             key(device, CONFORMANCE_KEY_TAB);
             key(device, CONFORMANCE_KEY_RETURN);
-            assert(activate(device, "Native Wayland"));
+            assert(activate(device, withMenu ? "Native Wayland / Second" : "Native Wayland"));
             key(device, CONFORMANCE_KEY_TAB);
             key(device, CONFORMANCE_KEY_RETURN);
         } else { return 2; }

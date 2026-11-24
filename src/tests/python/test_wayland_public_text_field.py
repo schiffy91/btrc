@@ -88,6 +88,18 @@ def test_input_method_updates_the_public_field(edit_app, edit_devices, tmp_path)
     assert result.returncode == 0
 
 
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_switch_from_input_method_to_keyboard_menu(frontend, edit_devices, tmp_path, request):
+    app = build_app(frontend, NATIVE / "WaylandFieldMenu.btrc", tmp_path, request)
+    driver, method = edit_devices
+    result = subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, "ime-menu", app, driver, method, tmp_path], timeout=50
+    )
+    if result.returncode == 77:
+        pytest.skip("the test compositor does not advertise an input method manager")
+    assert result.returncode == 0
+
+
 def exercise(program, driver, folder):
     with subprocess.Popen(empty_root_command(program, folder)) as app:
         try:
@@ -98,7 +110,7 @@ def exercise(program, driver, folder):
                 app.kill()
 
 
-def input_method(program, driver, method, folder):
+def input_method(program, driver, method, folder, *, menu=False):
     def send(process):
         process.stdin.write("\n")
         process.stdin.flush()
@@ -108,7 +120,9 @@ def input_method(program, driver, method, folder):
 
     with (
         subprocess.Popen([method, "field"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as ime,
-        subprocess.Popen([driver, "ime"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as keys,
+        subprocess.Popen(
+            [driver, "ime-menu" if menu else "ime"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
+        ) as keys,
     ):
         try:
             state = ime.stdout.readline().strip()
@@ -140,7 +154,7 @@ def input_method(program, driver, method, folder):
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "ime":
-        input_method(*sys.argv[2:])
+    if sys.argv[1] in ("ime", "ime-menu"):
+        input_method(*sys.argv[2:], menu=sys.argv[1] == "ime-menu")
     else:
         exercise(*sys.argv[1:])
