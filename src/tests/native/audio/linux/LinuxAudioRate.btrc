@@ -39,6 +39,12 @@ int main() {
 	var channels = AudioChannelSelection.leading(2);
 	var spec = DuplexAudioOpenRequest.duplex(inventory.generation(), id, channels, id, channels, AudioStreamRequest(44100, 1763));
 	struct RateLog log = {};
+	// A raw endpoint exposes the peer's native format. The plughw route
+	// below must still open after the expected raw negotiation failure.
+	string raw = "hw:CARD=Loopback,DEV=0";
+	var rawSpec = DuplexAudioOpenRequest.duplex(inventory.generation(), raw, channels, raw, channels, AudioStreamRequest(44100, 1763));
+	var rejected = provider.openDuplex(rawSpec, RealtimeAudioProgram(rateProcess, &log));
+	assert(rejected.status() == AUDIO_DEVICE_UNSUPPORTED_FORMAT);
 	var setup = provider.openDuplex(spec, RealtimeAudioProgram(rateProcess, &log));
 	if (!setup.succeeded()) { Console.error(setup.message()); }
 	assert(setup.succeeded());
