@@ -1,3 +1,4 @@
+import Library.GUI.Shim.ShimTextField;
 import Library.GUI.ITextField;
 import Library.GUI.ISelect;
 import Library.GUI.Shim.ShimContext;
@@ -14,10 +15,12 @@ import Library.GUI.Linux.Fonts.SystemTextABI;
 /* Direct Wayland clients can choose this preview while the default toolkit
  * supplies editable fields, selects and desktop dialogs. */
 class ShimFeatures {
+	class bool fieldUsesWindowInput() { return true; }
+
 	class void initialize() { SystemTextABI.install(); }
 
 	class ITextField createTextField(ShimContext context, string text, string placeholder) {
-		throw "Text fields require the default Linux GUI backend";
+		return ShimTextField(context, text, placeholder);
 	}
 
 	class ISelect createSelect(ShimContext context) { throw "Select controls require the default Linux GUI backend"; }

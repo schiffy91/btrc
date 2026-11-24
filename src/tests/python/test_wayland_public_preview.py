@@ -24,8 +24,7 @@ SDK_PACKAGES = {"gtk4", "gtk4-wayland", "gtk4-x11", "wayland-client", "x11", "we
 RUNTIME_FORBIDDEN = ("libgtk", "libgdk", "libX11", "libwayland", "libfontconfig", "libfreetype", "libpango")
 
 
-@pytest.mark.parametrize("frontend", ["python", "selfhost"])
-def test_preview(frontend, input_device, tmp_path, request):  # noqa: F811
+def build_app(frontend, source, tmp_path, request):
     require_linux_reader()
     for tool in ("bwrap", "grim", "fc-match"):
         if not shutil.which(tool):
@@ -42,7 +41,7 @@ def test_preview(frontend, input_device, tmp_path, request):  # noqa: F811
     executable = tmp_path / "wayland"
     compiler = "python" if frontend == "python" else str(request.getfixturevalue("immutable_btrcc"))
     subprocess.run(
-        [sys.executable, "-m", "tools.ui.build_wayland_preview", "--compiler", compiler, SAMPLE, "-o", executable],
+        [sys.executable, "-m", "tools.ui.build_wayland_preview", "--compiler", compiler, source, "-o", executable],
         cwd=ROOT,
         env=env,
         check=True,
@@ -61,6 +60,12 @@ def test_preview(frontend, input_device, tmp_path, request):  # noqa: F811
         cwd=ROOT,
         check=True,
     )
+    return executable
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_preview(frontend, input_device, tmp_path, request):  # noqa: F811
+    executable = build_app(frontend, SAMPLE, tmp_path, request)
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, executable, input_device, tmp_path],
         check=True,
@@ -76,7 +81,7 @@ def controls_visible(pixels, width, left, top, background):
     return pixel(26, 70) != background and any(pixel(x, y) != background for x in range(16, 140) for y in range(12, 42))
 
 
-def run_in_root(executable, probe, work):
+def empty_root_command(executable, work):
     executable, work = Path(executable).resolve(), Path(work)
     listing = subprocess.check_output(["ldd", executable], text=True)
     assert not any(lib in listing for lib in RUNTIME_FORBIDDEN), listing
@@ -137,8 +142,13 @@ def run_in_root(executable, probe, work):
         name = Path(dependency).name
         target = dependency if name.startswith("ld-linux") else f"/lib/{name}"
         command.extend(("--ro-bind", dependency, target))
+    return [*command, "/app"]
+
+
+def run_in_root(executable, probe, work):
+    command = empty_root_command(executable, work)
     green = bytes((37, 179, 125))
-    with subprocess.Popen([*command, "/app"], stdout=subprocess.PIPE, text=True) as app:
+    with subprocess.Popen(command, stdout=subprocess.PIPE, text=True) as app:
         try:
             deadline = time.monotonic() + 12
             while time.monotonic() < deadline:

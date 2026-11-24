@@ -47,6 +47,8 @@ WAYLAND_UNITS = (
     "Tooltip",
     "Label",
     "TextLines",
+    "EditBuffer",
+    "TextField",
     "Surface",
 )
 PROVIDERS = {
@@ -81,7 +83,7 @@ def configure(root: Path) -> None:
                     f'implementation = "{PROVIDERS[row["implementation"]]}"',
                 )
         sections.append(section)
-    units = [f"Linux/Wayland/{unit}.c" for unit in WAYLAND_UNITS] + ["Text/LineBreak.c"]
+    units = [f"Linux/Wayland/{unit}.c" for unit in WAYLAND_UNITS] + ["Text/LineBreak.c", "Text/Grapheme.c"]
     for unit in units:
         module = "Shim.ShimSurface" if unit.endswith("/Surface.c") else "Shim.Shim"
         sections.append(

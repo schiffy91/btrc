@@ -13,6 +13,8 @@ import Library.GUI.Shim.ShimSelect;
 import Library.Strings;
 
 class ShimFeatures {
+	class bool fieldUsesWindowInput() { return false; }
+
 	class void initialize() {}
 
 	class ITextField createTextField(ShimContext context, string text, string placeholder) {

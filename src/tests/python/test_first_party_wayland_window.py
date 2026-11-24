@@ -32,7 +32,7 @@ CLIENT_SOURCES = tuple(
     PROVIDER / f"{name}.c" for name in ("Wire", "Window", "Input", "Keymap", "GPUWire", "Cursor", "TextInput", "Clipboard")
 )
 
-PLATFORM_SOURCES = tuple(PROVIDER / f"{name}.c" for name in ("Platform", "Scene", "Slider", "Button", "ControlText", "Tooltip", "Label", "TextLines")) + (PROVIDER.parent.parent / "Text/LineBreak.c",)
+PLATFORM_SOURCES = tuple(PROVIDER / f"{name}.c" for name in ("Platform", "Scene", "Slider", "Button", "ControlText", "Tooltip", "Label", "TextLines", "EditBuffer", "TextField")) + (PROVIDER.parent.parent / "Text/LineBreak.c", PROVIDER.parent.parent / "Text/Grapheme.c")
 SYSTEM_TEXT = PROVIDER.parent.parent / "Text/SystemText.c"
 
 
