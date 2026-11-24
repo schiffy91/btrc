@@ -1,0 +1,171 @@
+import Library.Vector;
+
+import ./OpenTypeData.btrc;
+
+/* A Compact Font Format INDEX: a count, then count + 1 offsets of one to
+ * four bytes, then the objects they delimit. The offsets are checked once
+ * here to lie inside the table, and again for order when an object is read. */
+class CFFIndex {
+	private OpenTypeData data;
+	private int entries = 0;
+	private int offsetSize = 1;
+	private int offsetsAt = 0;
+	private int objectsAt = 0;
+	private int endsAt = 0;
+
+	/* A negative start is an index with no objects, for a font that has no
+	 * subroutines. */
+	public CFFIndex(OpenTypeData data, int start, int limit) {
+		self.data = data;
+
+		if (start >= 0) {
+			if (limit - start < 2) { throw "CFF index is truncated"; }
+			self.entries = data.u16(start);
+			self.endsAt = start + 2;
+		}
+		if (self.entries > 0) {
+			if (limit - start <= 2) { throw "CFF index is truncated"; }
+			self.offsetSize = data.u8(start + 2);
+			if (self.offsetSize < 1 || self.offsetSize > 4) { throw "CFF index has an invalid offset size"; }
+			self.offsetsAt = start + 2 + 1;
+			long long table = ((long long)self.entries + 1LL) * (long long)self.offsetSize;
+			if (table > (long long)(limit - self.offsetsAt)) { throw "CFF index is truncated"; }
+			self.objectsAt = self.offsetsAt + (int)table - 1;
+			long long last = data.unsignedOf(self.offsetsAt + self.entries * self.offsetSize, self.offsetSize);
+			if (data.unsignedOf(self.offsetsAt, self.offsetSize) != 1LL || last < 1LL || last > (long long)(limit - self.objectsAt)) { throw "CFF index offsets lie outside the table"; }
+			self.endsAt = self.objectsAt + (int)last;
+		}
+	}
+
+	public int count() { return self.entries; }
+
+	/* The first byte after the index. */
+	public int end() { return self.endsAt; }
+
+	public OpenTypeSpan object(int index) {
+		if (index < 0 || index >= self.entries) { throw "CFF index has no such object"; }
+		long long from = self.data.unsignedOf(self.offsetsAt + index * self.offsetSize, self.offsetSize);
+		long long to = self.data.unsignedOf(self.offsetsAt + (index + 1) * self.offsetSize, self.offsetSize);
+		if (from < 1LL || to < from || to > (long long)(self.endsAt - self.objectsAt)) { throw "CFF index offsets are out of order"; }
+		return OpenTypeSpan(self.objectsAt + (int)from, (int)(to - from));
+	}
+}
+
+/* A CFF DICT: operators, each after its operands. Only the operators the
+ * outlines need are kept, with their operands as doubles (integers up to 32
+ * bits and binary-coded decimal reals are both exact enough for an offset
+ * or a font matrix). */
+class CFFDict {
+	private Vector<int> keys = [];
+	private Vector<int> starts = [];
+	private Vector<double> operands = [];
+
+	public CFFDict(OpenTypeData data, OpenTypeSpan span) {
+		int p = span.offset;
+		int end = span.end();
+		Vector<double> pending = [];
+		while (p < end) {
+			int b = data.u8(p);
+			p++;
+			if (b <= 21) {
+				int key = b;
+				if (b == 12) {
+					if (p >= end) { throw "CFF dictionary is truncated"; }
+					key = 256 + data.u8(p);
+					p++;
+				}
+				self.keys.push(key);
+				self.starts.push(self.operands.size());
+				for (int i = 0; i < pending.size(); i++) { self.operands.push(pending.get(i)); }
+				pending = [];
+				continue;
+			}
+			if (pending.size() >= 48) { throw "CFF dictionary has too many operands"; }
+			if (b == 28) {
+				if (end - p < 2) { throw "CFF dictionary is truncated"; }
+				pending.push((double)data.s16(p));
+				p += 2;
+			} else if (b == 29) {
+				if (end - p < 4) { throw "CFF dictionary is truncated"; }
+				pending.push((double)data.s32(p));
+				p += 4;
+			} else if (b == 30) {
+				double mantissa = 0.0;
+				int exponent = 0;
+				int fraction = 0;
+				int exponentSign = 0;
+				bool negative = false;
+				bool fractional = false;
+				bool done = false;
+				while (!done) {
+					if (p >= end) { throw "CFF dictionary is truncated"; }
+					int pair = data.u8(p);
+					p++;
+					for (int half = 0; half < 2 && !done; half++) {
+						int nibble = half == 0 ? pair / 16 : pair % 16;
+						if (nibble <= 9) {
+							if (exponentSign != 0) {
+								if (exponent < 1000) { exponent = exponent * 10 + nibble; }
+							} else {
+								mantissa = mantissa * 10.0 + (double)nibble;
+								if (fractional && fraction < 1000) { fraction++; }
+							}
+						} else if (nibble == 10) {
+							fractional = true;
+						} else if (nibble == 11) {
+							exponentSign = 1;
+						} else if (nibble == 12) {
+							exponentSign = -1;
+						} else if (nibble == 14) {
+							negative = true;
+						} else if (nibble == 15) {
+							done = true;
+						}
+					}
+				}
+				int power = exponentSign * exponent - fraction;
+				for (int i = 0; i < power && i < 400; i++) { mantissa = mantissa * 10.0; }
+				for (int i = 0; i > power && i > -400; i--) { mantissa = mantissa / 10.0; }
+				pending.push(negative ? -mantissa : mantissa);
+			} else if (b >= 32 && b <= 246) {
+				pending.push((double)(b - 139));
+			} else if (b >= 247 && b <= 254) {
+				if (p >= end) { throw "CFF dictionary is truncated"; }
+				int low = data.u8(p);
+				p++;
+				pending.push(b <= 250 ? (double)((b - 247) * 256 + low + 108) : (double)(-(b - 251) * 256 - low - 108));
+			} else {
+				throw "CFF dictionary has a reserved byte";
+			}
+		}
+	}
+
+	private int find(int key) {
+		for (int i = 0; i < self.keys.size(); i++) {
+			if (self.keys.get(i) == key) { return i; }
+		}
+		return -1;
+	}
+
+	/* How many operands the operator has; -1 when the operator is absent. */
+	public int count(int key) {
+		int found = self.find(key);
+		if (found < 0) { return -1; }
+		int next = found + 1 < self.starts.size() ? self.starts.get(found + 1) : self.operands.size();
+		return next - self.starts.get(found);
+	}
+
+	public double number(int key, int index) {
+		int found = self.find(key);
+		if (found < 0 || index < 0 || index >= self.count(key)) { throw "CFF dictionary operand is missing"; }
+		return self.operands.get(self.starts.get(found) + index);
+	}
+
+	/* An operand that is an offset or a size: a whole number the caller
+	 * still has to check against the table. */
+	public int whole(int key, int index) {
+		double value = self.number(key, index);
+		if (value != value || value < 0.0 || value > 2147483647.0 || value != (double)(int)value) { throw "CFF dictionary offset is out of range"; }
+		return (int)value;
+	}
+}

@@ -408,6 +408,57 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
+
+    require_linux_reader()
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
+    ):
+        pytest.skip("requires the optional FreeType SDK for the native fallback")
+    fixtures = REPO / "src/tests/native/gui"
+    source = tmp_path / "CFFMeasurementConformance.btrc"
+    source.write_bytes((fixtures / source.name).read_bytes())
+    executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
+    data = (fixtures / "fixtures/measured-cff.otf").read_bytes()
+    env = provider_environment(sanitized)
+
+    def run(suffix, mode, environment, input_bytes=data):
+        path = tmp_path / f"input.{suffix}"
+        path.write_bytes(input_bytes)
+        return subprocess.run([executable, path, mode], capture_output=True, text=True, env=environment, timeout=60)
+
+    for suffix in ("otf", "raw"):
+        visible = run(suffix, "render", env)
+        assert visible.returncode == 0, visible.stdout + visible.stderr
+        assert "PASS: CFF font measurement and retained fallback" in visible.stdout
+    # The final glyph's Type 2 program begins with a reserved operator.
+    # FreeType tolerates it, so the public probe must switch to the saved
+    # bytes after unlink before returning its advance.
+    curve = bytes.fromhex("f9508b16f75cf8eceff75cf72a27f72afd50190e")
+    assert data.count(curve) == 2
+    at = data.rindex(curve)
+    unusual = data[:at] + b"\x00\x0e" + data[at + 2 :]
+    fallback = run("otf", "render", env, unusual)
+    assert fallback.returncode == 0, fallback.stdout + fallback.stderr
+    if not sanitized:
+        blocked = unavailable_freetype(tmp_path, env)
+        rejected = run("otf", "measure", blocked, unusual)
+        assert rejected.returncode != 0 and "Cannot initialize FreeType library" in rejected.stderr
+        measured = run("otf", "measure", blocked)
+        assert measured.returncode == 0, measured.stdout + measured.stderr
+        for suffix, mode in (("raw", "measure"), ("otf", "render")):
+            native = run(suffix, mode, blocked)
+            assert native.returncode != 0 and "Cannot initialize FreeType library" in native.stderr
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_installed_font_catalog(tmp_path, request, gui_provider_root, frontend, sanitized):
     from src.tests.python.linux_provider_fixtures import (
         build_provider_program,
