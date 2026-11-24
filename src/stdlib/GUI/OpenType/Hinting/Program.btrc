@@ -563,7 +563,9 @@ class TrueTypeProgram {
 			else if (op == 0x88) {
 				int requested = self.pop();
 				int result = (requested & 1) != 0 ? 40 : 0;
-				if ((requested & 32) != 0) { result |= 1 << 12; }
+				// These capability bits describe the version-40 interpreter used
+				// for normal glyph rendering. Result bits sit seven above their selectors.
+				result |= (requested & (64 | 1024 | 2048 | 4096)) << 7;
 				self.push((long long)result);
 			} else if (op == 0x8e) {
 				if (!self.preparing) { throw "TrueType instruction control outside size preparation"; }
