@@ -11,7 +11,7 @@
  * one control thread; the provider outlives them.
  */
 
-import ./KernelPcm.btrc;
+import ./KernelRate.btrc;
 import ./PulseStream.btrc;
 import Library.IO;
 import Library.Audio.AudioDevice;
@@ -66,11 +66,21 @@ class AlsaHardwareDevice {
 
 	public string path(bool capture) { return capture ? self._inputPath : self._outputPath; }
 
-	public AlsaHardwareDevice named(string name) { return AlsaHardwareDevice(name, self._description, self._inputPath, self._outputPath, self._inputChannels, self._outputChannels, self._capability); }
+	public AudioStreamCapability adaptedCapability() {
+		if (!self._capability.isKnown()) { return self._capability; }
+		Vector<AudioSampleRateRange> rates = [];
+		rates.push(AudioSampleRateRange(8000, 768000));
+		return AudioStreamCapability.available(rates, self._capability.currentSampleRate(), 16, 8192, self._capability.currentBufferFrames());
+	}
+
+	public AlsaHardwareDevice named(string name) {
+		var capability = name.startsWith("hw:") || self._outputPath == "pulse" ? self._capability : self.adaptedCapability();
+		return AlsaHardwareDevice(name, self._description, self._inputPath, self._outputPath, self._inputChannels, self._outputChannels, capability);
+	}
 
 	class AlsaHardwareDevice fallback(AlsaHardwareDevice? input, AlsaHardwareDevice? output) {
 		var reference = output == null ? input : output;
-		return AlsaHardwareDevice("default", "Default audio device", input == null ? "" : input.path(true), output == null ? "" : output.path(false), input == null ? 0 : input.inputChannels(), output == null ? 0 : output.outputChannels(), reference == null ? AudioStreamCapability.unknown() : reference._capability);
+		return AlsaHardwareDevice("default", "Default audio device", input == null ? "" : input.path(true), output == null ? "" : output.path(false), input == null ? 0 : input.inputChannels(), output == null ? 0 : output.outputChannels(), reference == null ? AudioStreamCapability.unknown() : reference.adaptedCapability());
 	}
 
 	public int inputChannels() { return self._inputChannels; }
@@ -238,17 +248,21 @@ struct LinuxPcmStream {
 	int format;
 	int channels;
 	struct PulseStreamState pulse;
+	struct KernelRateState* rate;
 };
 
 class LinuxAudioPcm {
 	class int wait(struct LinuxPcmStream* pcm, int timeout) {
+		if (pcm->rate != null) { return 1; }
 		return pcm->server ? PulseStream.wait(&pcm->pulse, timeout) : KernelPcm.wait(pcm->descriptor, pcm->capture, timeout);
 	}
-	class long transfer(struct LinuxPcmStream* pcm, float* samples, int frames) {
+	class long transfer(struct LinuxPcmStream* pcm, float* samples, int frames, Atomic<uint>* stopping) {
+		if (pcm->rate != null) { return pcm->capture ? KernelRate.readFrames(pcm->rate, samples, frames, stopping) : KernelRate.writeFrames(pcm->rate, samples, frames, stopping); }
 		return pcm->server ? PulseStream.transfer(&pcm->pulse, samples, frames) : KernelPcm.transfer(pcm->descriptor, pcm->capture, pcm->format, pcm->channels, samples, frames);
 	}
 	class int recover(struct LinuxPcmStream* pcm, int error) {
 		if (pcm->server) { return error == -EPIPE || error == -EINTR || error == -EAGAIN ? 0 : error; }
+		if (pcm->rate != null && (error == -EPIPE || error == -ESTRPIPE)) { KernelRate.reset(pcm->rate); }
 		return KernelPcm.recover(pcm->descriptor, error);
 	}
 	class bool takeDiscontinuity(struct LinuxPcmStream* pcm) {
@@ -310,6 +324,8 @@ enum AlsaStreamState { ALSA_STREAM_READY, ALSA_STREAM_RUNNING, ALSA_STREAM_SUSPE
 /* One duplex ALSA stream and its worker. */
 class AlsaStream implements IAudioSessionBackend, INativeWorkerBody {
 	private OwnedBuffer<AlsaRenderState> _render;
+	private KernelRateStorage? _inputRate = null;
+	private KernelRateStorage? _outputRate = null;
 	private OwnedBuffer<unsigned char>? _inputPulse = null;
 	private OwnedBuffer<unsigned char>? _outputPulse = null;
 	private AtomicBuffer<uint> _counters;
@@ -367,7 +383,27 @@ class AlsaStream implements IAudioSessionBackend, INativeWorkerBody {
 		pcm->capture = capture;
 		pcm->descriptor = descriptor;
 		int actual = 0; int format = 0;
-		int error = KernelPcm.configure(descriptor, !device.name().startsWith("hw:"), channels, rate, periodFrames, &actual, &format);
+		bool adapt = !device.name().startsWith("hw:");
+		int error = KernelPcm.configure(descriptor, adapt, channels, rate, periodFrames, &actual, &format);
+		if (error == -EINVAL && adapt) {
+			int low = KernelPcm.rateBound(descriptor, channels, rate, false);
+			int high = KernelPcm.rateBound(descriptor, channels, rate, true);
+			int nativeRate = KernelPcm.closest(low, high, rate);
+			if (nativeRate < 8000 || nativeRate > 768000) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+			long long scaled = ((long long)periodFrames * (long long)nativeRate + (long long)rate / 2LL) / (long long)rate;
+			int period = (int)(scaled > 65536LL ? 65536LL : (scaled < 1LL ? 1LL : scaled));
+			low = KernelPcm.periodBound(descriptor, channels, nativeRate, period, false);
+			high = KernelPcm.periodBound(descriptor, channels, nativeRate, period, true);
+			int nativePeriod = KernelPcm.closest(low, high, period);
+			if (nativePeriod < 1 || nativePeriod > 65536) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
+			error = KernelPcm.configure(descriptor, true, channels, nativeRate, nativePeriod, &actual, &format);
+			if (error == 0) {
+				var storage = KernelRateStorage();
+				pcm->rate = storage.configure(descriptor, capture, format, actual, rate, nativeRate, nativePeriod);
+				if (pcm->rate == null) { return AUDIO_DEVICE_FAILED; }
+				if (capture) { self._inputRate = storage; } else { self._outputRate = storage; }
+			}
+		}
 		if (error < 0) { return alsaStatus(error); }
 		if (actual < channels || actual > 256) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
 		pcm->channels = actual;
@@ -474,7 +510,7 @@ class AlsaStream implements IAudioSessionBackend, INativeWorkerBody {
 		int frames = state->blockFrames;
 		int ready = AlsaStream.waitReady(state, &state->playback);
 		if (ready == 0) { return 0; }
-		long written = ready < 0 ? (long)ready : LinuxAudioPcm.transfer(&state->playback, state->physicalOutput, frames);
+		long written = ready < 0 ? (long)ready : LinuxAudioPcm.transfer(&state->playback, state->physicalOutput, frames, state->stopping);
 		if (written < 0L) {
 			int recovered = LinuxAudioPcm.recover(&state->playback, (int)written);
 			if (recovered < 0) { return recovered; }
@@ -490,7 +526,7 @@ class AlsaStream implements IAudioSessionBackend, INativeWorkerBody {
 		size_t physicalSamples = (size_t)frames * (size_t)state->physicalInputCount;
 		int ready = AlsaStream.waitReady(state, &state->capture);
 		if (ready == 0) { return 0; }
-		long read = ready < 0 ? (long)ready : LinuxAudioPcm.transfer(&state->capture, state->physicalInput, frames);
+		long read = ready < 0 ? (long)ready : LinuxAudioPcm.transfer(&state->capture, state->physicalInput, frames, state->stopping);
 		if (read < 0L) {
 			int recovered = LinuxAudioPcm.recover(&state->capture, (int)read);
 			if (recovered < 0) { return recovered; }

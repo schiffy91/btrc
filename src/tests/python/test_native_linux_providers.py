@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.c_toolchains import configured_c_compiler
 from src.tests.native_bindings import NativeBindingPackage
 from src.tests.python.linux_provider_fixtures import (
     ROOT,
@@ -84,10 +85,18 @@ def test_linux_image_decoding(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_audio_session(tmp_path, request, frontend, sanitized):
     require_linux_reader()
-    executable = build_provider_program(ROOT / "src/tests/native/audio/linux/LinuxAudioSession.btrc", tmp_path, frontend, sanitized, request)
+    executable = build_provider_program(
+        ROOT / "src/tests/native/audio/linux/LinuxAudioSession.btrc", tmp_path, frontend, sanitized, request
+    )
     assert DependencyAudit().binary_problems(executable, TARGET) == []
     with PulseTestServer(tmp_path) as server:
-        result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30, env=provider_environment(sanitized, **server.environment))
+        result = subprocess.run(
+            [str(executable)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=provider_environment(sanitized, **server.environment),
+        )
         assert result.returncode == 0, result.stderr
         assert "PASS: linux audio session" in result.stdout
         assert len(server.playback) > 100 and all(len(block) == 1024 for block in server.playback)
@@ -97,7 +106,9 @@ def test_linux_audio_session(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_pulse_faults(tmp_path, request, frontend, sanitized):
     require_linux_reader()
-    executable = build_provider_program(ROOT / "src/tests/native/audio/linux/LinuxPulseFaults.btrc", tmp_path, frontend, sanitized, request)
+    executable = build_provider_program(
+        ROOT / "src/tests/native/audio/linux/LinuxPulseFaults.btrc", tmp_path, frontend, sanitized, request
+    )
     assert DependencyAudit().binary_problems(executable, TARGET) == []
     for fault in ("underflow", "overflow", "disconnect", "malformed"):
         directory = tmp_path / fault
@@ -123,11 +134,53 @@ def test_linux_audio_loopback(tmp_path, request, frontend, backend):
         if not os.environ.get("BTRC_TEST_PULSE_MONITOR"):
             pytest.skip("requires BTRC_TEST_PULSE_MONITOR=1 with a default sink and its monitor source")
         environment = provider_environment(False)
-    executable = build_provider_program(ROOT / "src/tests/native/audio/linux/LinuxAudioLoopback.btrc", tmp_path, frontend, False, request)
+    executable = build_provider_program(
+        ROOT / "src/tests/native/audio/linux/LinuxAudioLoopback.btrc", tmp_path, frontend, False, request
+    )
     assert DependencyAudit().binary_problems(executable, TARGET) == []
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30, env=environment)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS: Linux audio loopback" in result.stdout
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_linux_audio_resampling(tmp_path, request, frontend):
+    """An independent 48 kHz kernel peer verifies the public 44.1 kHz frame clock in both directions."""
+    require_linux_reader()
+    if not os.environ.get("BTRC_TEST_AUDIO_HARDWARE"):
+        pytest.skip("requires BTRC_TEST_AUDIO_HARDWARE=1 and snd-aloop")
+    card = next(
+        (
+            entry.parent.name[4:]
+            for entry in Path("/proc/asound").glob("card[0-9]*/id")
+            if entry.read_text().strip() == "Loopback"
+        ),
+        None,
+    )
+    if card is None:
+        pytest.skip("requires snd-aloop")
+    source = ROOT / "src/tests/native/audio/linux"
+    client = build_provider_program(source / "LinuxAudioRate.btrc", tmp_path, frontend, False, request)
+    assert DependencyAudit().binary_problems(client, TARGET) == []
+    peer = tmp_path / "RatePeer"
+    subprocess.run(
+        [
+            *configured_c_compiler(),
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic-errors",
+            str(source / "AlsaRatePeer.c"),
+            "-o",
+            str(peer),
+        ],
+        check=True,
+        timeout=60,
+    )
+    result = subprocess.run([str(peer), card, str(client)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: Linux audio sample-rate conversion" in result.stdout
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
@@ -152,9 +205,7 @@ def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
     )
     assert DependencyAudit().binary_problems(executable, TARGET) == []
     environment = provider_environment(sanitized, PULSE_SERVER=f"unix:{tmp_path}/absent")
-    result = subprocess.run(
-        [str(executable)], capture_output=True, text=True, timeout=120, env=environment
-    )
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=120, env=environment)
     assert result.returncode == 0, result.stderr
     assert "PASS: linux audio faults" in result.stdout
     terminal = subprocess.run(

@@ -1,0 +1,166 @@
+import ./KernelPcm.btrc;
+import Library.OwnedBuffer;
+
+/* Rational phase accumulation: every source frame advances exactly outputRate
+ * units. A phase crossing emits one destination frame, with no rounded block
+ * lengths accumulating over time. Filter tables and sample history are
+ * allocated on the control thread and borrowed by the realtime worker. */
+struct KernelRateState {
+	int descriptor;
+	bool capture;
+	int format;
+	int channels;
+	int inputRate;
+	int outputRate;
+	int phase;
+	int taps;
+	int newest;
+	bool primed;
+	float* history;
+	float* weights;
+	float* wire;
+	int period;
+	int available;
+	int at;
+};
+
+class KernelRateStorage {
+	private OwnedBuffer<KernelRateState> _state;
+	private OwnedBuffer<float>? _history = null;
+	private OwnedBuffer<float>? _weights = null;
+	private OwnedBuffer<float>? _wire = null;
+
+	public KernelRateStorage() { self._state = OwnedBuffer((size_t)1); }
+
+	public struct KernelRateState* configure(int descriptor, bool capture, int format, int channels, int publicRate, int nativeRate, int nativePeriod) {
+		if (!self._state.opened()) { return null; }
+		var state = self._state.borrow();
+		state->descriptor = descriptor; state->capture = capture; state->format = format;
+		state->channels = channels; state->period = nativePeriod;
+		state->inputRate = capture ? nativeRate : publicRate;
+		state->outputRate = capture ? publicRate : nativeRate;
+		double cutoff = 0.94;
+		if (state->outputRate < state->inputRate) { cutoff *= (double)state->outputRate / (double)state->inputRate; }
+		// A shorter transition band during downsampling needs a longer filter.
+		int taps = state->inputRate == state->outputRate ? 1 : 2 * (int)ceil(12.0 / cutoff);
+		state->taps = taps;
+		var history = new OwnedBuffer<float>((size_t)taps * (size_t)channels);
+		var weights = new OwnedBuffer<float>((size_t)taps * (size_t)128);
+		var wire = new OwnedBuffer<float>((size_t)nativePeriod * (size_t)channels);
+		if (!history.opened() || !weights.opened() || !wire.opened()) { return null; }
+		self._history = history; self._weights = weights; self._wire = wire;
+		state->history = history.borrow(); state->weights = weights.borrow(); state->wire = wire.borrow();
+		if (taps == 1) { state->weights[0] = 1.0f; return state; }
+		double pi = 3.14159265358979323846;
+		for (int phase = 0; phase < 128; phase++) {
+			double sum = 0.0;
+			for (int tap = 0; tap < taps; tap++) {
+				double position = (double)(tap - (taps / 2 - 1)) - (double)phase / 128.0;
+				double angle = 2.0 * pi * (double)tap / (double)(taps - 1);
+				double window = 0.42 - 0.5 * cos(angle) + 0.08 * cos(2.0 * angle);
+				double sinc = position == 0.0 ? cutoff : sin(pi * cutoff * position) / (pi * position);
+				double value = sinc * window;
+				state->weights[phase * taps + tap] = (float)value;
+				sum += value;
+			}
+			for (int tap = 0; tap < taps; tap++) { state->weights[phase * taps + tap] /= (float)sum; }
+		}
+		return state;
+	}
+}
+
+class KernelRate {
+	class void reset(struct KernelRateState* state) {
+		state->phase = 0; state->available = 0; state->at = 0; state->primed = false; state->newest = 0;
+	}
+
+	class void push(struct KernelRateState* state, const float* frame) {
+		state->newest = state->newest > 0 ? state->newest - 1 : state->taps - 1;
+		size_t stride = (size_t)state->channels;
+		if (!state->primed) {
+			for (int tap = 0; tap < state->taps; tap++) { memcpy(state->history + (size_t)tap * stride, frame, stride * sizeof(float)); }
+			state->primed = true;
+		} else { memcpy(state->history + (size_t)state->newest * stride, frame, stride * sizeof(float)); }
+		state->phase += state->outputRate;
+	}
+
+	class void pull(struct KernelRateState* state, float* frame) {
+		state->phase -= state->inputRate;
+		int phase = (int)((long long)state->phase * 128LL / (long long)state->outputRate);
+		var weights = state->weights + phase * state->taps;
+		memset(frame, 0, (size_t)state->channels * sizeof(float));
+		int index = state->newest;
+		for (int tap = 0; tap < state->taps; tap++) {
+			var sample = state->history + index * state->channels;
+			float weight = weights[tap];
+			for (int channel = 0; channel < state->channels; channel++) { frame[channel] += sample[channel] * weight; }
+			index++;
+			if (index == state->taps) { index = 0; }
+		}
+	}
+
+	class int ready(struct KernelRateState* state, Atomic<uint>* stopping) {
+		while (stopping->load(MemoryOrder.ACQUIRE) == 0u) {
+			int ready = KernelPcm.wait(state->descriptor, state->capture, 100);
+			if (ready == -EINTR) { continue; }
+			if (ready != 0) { return ready; }
+		}
+		return 0;
+	}
+
+	class int flush(struct KernelRateState* state, int frames, Atomic<uint>* stopping) {
+		KernelPcm.pack(state->wire, frames * state->channels, state->format);
+		int offset = 0;
+		while (offset < frames) {
+			int ready = KernelRate.ready(state, stopping);
+			if (ready <= 0) { return ready; }
+			long count = KernelPcm.writePacked(state->descriptor, state->wire, state->format, state->channels, offset, frames - offset);
+			if (count == -(long)EAGAIN || count == -(long)EINTR) { continue; }
+			if (count <= 0L || count > (long)(frames - offset)) { return count < 0L ? (int)count : -EIO; }
+			offset += (int)count;
+		}
+		return 1;
+	}
+
+	class long writeFrames(struct KernelRateState* state, float* input, int frames, Atomic<uint>* stopping) {
+		int used = 0;
+		for (int frame = 0; frame < frames; frame++) {
+			KernelRate.push(state, input + frame * state->channels);
+			while (state->phase >= state->inputRate) {
+				KernelRate.pull(state, state->wire + used * state->channels);
+				used++;
+				if (used == state->period) {
+					int result = KernelRate.flush(state, used, stopping);
+					if (result <= 0) { return (long)result; }
+					used = 0;
+				}
+			}
+		}
+		if (used > 0) {
+			int result = KernelRate.flush(state, used, stopping);
+			if (result <= 0) { return (long)result; }
+		}
+		return (long)frames;
+	}
+
+	class long readFrames(struct KernelRateState* state, float* output, int frames, Atomic<uint>* stopping) {
+		int yielded = 0;
+		while (yielded < frames) {
+			if (state->phase >= state->inputRate) {
+				KernelRate.pull(state, output + yielded * state->channels);
+				yielded++; continue;
+			}
+			if (state->at >= state->available) {
+				int ready = KernelRate.ready(state, stopping);
+				if (ready <= 0) { return (long)ready; }
+				long read = KernelPcm.transfer(state->descriptor, true, state->format, state->channels, state->wire, state->period);
+				if (read == -(long)EAGAIN || read == -(long)EINTR) { continue; }
+				if (read <= 0L) { return read == 0L ? -(long)EIO : read; }
+				state->available = (int)read; state->at = 0;
+			}
+			KernelRate.push(state, state->wire + state->at * state->channels);
+			state->at++;
+		}
+		return (long)frames;
+	}
+}

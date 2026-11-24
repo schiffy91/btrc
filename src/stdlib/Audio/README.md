@@ -77,9 +77,12 @@ interleaved float32. The `plughw:` and per-card `sysdefault:` entries also
 convert S32_LE, S24_3LE, S24_LE and S16_LE samples to and from the public
 float buffers. A device with a larger fixed channel count opens with its full
 count. The worker scatters selected output channels, silences unselected
-channels and gathers selected input channels. Kernel sessions require a
-hardware-supported sample rate and the requested period. Applications that
-need rate conversion can use the desktop sound server.
+channels and gathers selected input channels. A raw `hw:` session requires
+a hardware-supported sample rate and the requested period. The adapting
+entries negotiate the nearest native timing when necessary. The worker
+converts the rate using rational frame counts and a windowed-sinc filter,
+retaining history across callbacks. The public sample rate and block size
+stay as requested.
 
 On a desktop, `default` and `pulse` connect to PulseAudio or PipeWire's
 Pulse server over a Unix socket. The provider publishes `pipewire` when that
@@ -107,7 +110,7 @@ PCM ioctl fixture. To check real kernel transfer, load the kernel's
 
 ```sh
 sudo modprobe snd-aloop
-BTRC_TEST_AUDIO_HARDWARE=1 python -m pytest src/tests/python/test_native_linux_providers.py -k 'linux_audio_loopback and alsa-loopback' --compilers=both
+BTRC_TEST_AUDIO_HARDWARE=1 python -m pytest src/tests/python/test_native_linux_providers.py -k '(linux_audio_loopback and alsa-loopback) or linux_audio_resampling' --compilers=both
 ```
 
 For the real sound-server round-trip, select a test sink and its matching

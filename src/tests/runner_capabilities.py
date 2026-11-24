@@ -320,5 +320,3 @@ def linux_atspi_error() -> str | None:
         if key == "path" and not Path(value).is_socket():
             return f"AT-SPI is unavailable: the accessibility bus socket {value} is gone"
     return None
-
-

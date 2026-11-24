@@ -38,9 +38,23 @@ def volume(channels: int) -> bytes:
 
 def device(name: str) -> bytes:
     return (
-        u32(1) + string(name) + string("Test audio") + spec(2, RATE) + channel_map(2)
-        + u32(1) + volume(2) + b"0" + u32(1) + string("monitor") + b"U" + bytes(8)
-        + string("clock") + u32(0) + b"PN" + b"U" + bytes(8)
+        u32(1)
+        + string(name)
+        + string("Test audio")
+        + spec(2, RATE)
+        + channel_map(2)
+        + u32(1)
+        + volume(2)
+        + b"0"
+        + u32(1)
+        + string("monitor")
+        + b"U"
+        + bytes(8)
+        + string("clock")
+        + u32(0)
+        + b"PN"
+        + b"U"
+        + bytes(8)
     )
 
 
@@ -102,8 +116,18 @@ class PulseTestPeer(socketserver.StreamRequestHandler):
             assert args.number() == CONTROL
         assert args.done()
         self.capture = capture
-        self.reply(tag, u32(CHANNEL) + u32(1) + metrics + spec(self.channels, self.rate)
-                   + channel_map(self.channels) + u32(1) + string("test") + b"0U" + bytes(8))
+        self.reply(
+            tag,
+            u32(CHANNEL)
+            + u32(1)
+            + metrics
+            + spec(self.channels, self.rate)
+            + channel_map(self.channels)
+            + u32(1)
+            + string("test")
+            + b"0U"
+            + bytes(8),
+        )
 
     def command(self, data):
         args = TagReader(data)
@@ -116,8 +140,17 @@ class PulseTestPeer(socketserver.StreamRequestHandler):
             assert args.take(1) == b"P" and b"application.name\0" in data
             self.reply(tag, u32(0))
         elif op == 20:
-            self.reply(tag, string("PulseAudio") + string("17") + string("test") + string("local")
-                       + spec(2, RATE) + string("sink") + string("source") + u32(1))
+            self.reply(
+                tag,
+                string("PulseAudio")
+                + string("17")
+                + string("test")
+                + string("local")
+                + spec(2, RATE)
+                + string("sink")
+                + string("source")
+                + u32(1),
+            )
         elif op in (22, 24):
             self.reply(tag, device("sink" if op == 22 else "source"))
         elif op in (3, 5):
@@ -204,6 +237,7 @@ class PulseTestServer(socketserver.ThreadingUnixStreamServer):
 
     def handle_error(self, request, client_address):
         import traceback
+
         self.errors.append(traceback.format_exc())
 
     def __enter__(self):
