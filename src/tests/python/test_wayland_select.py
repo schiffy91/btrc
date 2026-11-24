@@ -33,7 +33,7 @@ def screenshot():
     return image[header.end() :], int(header[1]) * 3, int(header[2])
 
 
-def bounds(rgb):
+def bounds(rgb, expected=None):
     deadline = time.monotonic() + 5
     pattern = bytes(rgb) * 12
     while time.monotonic() < deadline:
@@ -48,8 +48,10 @@ def bounds(rgb):
                 xs.append(x // 3)
                 ys.append(y)
         if xs:
-            return min(xs), min(ys), max(ys) - min(ys) + 1
-    raise AssertionError(f"No rendered pixels for {rgb}")
+            result = min(xs), min(ys), max(ys) - min(ys) + 1
+            if expected is None or result == expected:
+                return result
+    raise AssertionError(f"No matching compositor frame for {rgb}, expected bounds {expected}")
 
 
 def observe(program, device, work):
@@ -90,13 +92,13 @@ def observe(program, device, work):
             else:
                 raise AssertionError("scrolling did not move the selected row off screen")
             send("w", x - 2, y + 6)
-            assert bounds(blue) == (x, y, height)
+            bounds(blue, (x, y, height))
             click(x + 20, y + height + height // 2)  # Disabled row.
-            assert bounds(blue) == (x, y, height)
+            bounds(blue, (x, y, height))
             send("m", x + 30, y + height * 2 + height // 2)
             message("reordered")
             # The previous third row is now first and retains its stable key.
-            assert bounds(blue) == (x, y, height)
+            bounds(blue, (x, y, height))
             click(x + 25, y + height // 2)
             message("committed")
 
@@ -104,7 +106,7 @@ def observe(program, device, work):
             assert keys.stdout.strip() == "sent"
             x, y, height = bounds(blue)
             send("j", x - 2, y + 6)
-            assert bounds(blue) == (x, y + height, height)
+            bounds(blue, (x, y + height, height))
             send("e", x - 2, y + 6)
             message("cancelled")
 
