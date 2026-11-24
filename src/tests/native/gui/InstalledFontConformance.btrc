@@ -1,6 +1,5 @@
 import Library.Strings;
 import Library.Vector;
-
 import Library.GUI.Linux.Fonts.InstalledFontCatalog;
 
 int main(int argc, char** argv) {
