@@ -9,8 +9,11 @@ class TestPortalHost implements IShimDialogPump {
 	private long long _started;
 	public int pumps = 0;
 	public TestPortalHost(string mode) { self._mode = mode; self._started = MonotonicClock.milliseconds(); }
+
 	public bool isDispatching() { return self._mode.equals("dispatch"); }
+
 	public bool quitRequested() { return self._mode.equals("quit") && MonotonicClock.milliseconds() - self._started >= 250LL; }
+
 	public void pumpOnce(int timeoutMilliseconds) { self.pumps++; Timer.sleepMillis(timeoutMilliseconds); }
 }
 
