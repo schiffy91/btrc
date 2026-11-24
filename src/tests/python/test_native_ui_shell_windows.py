@@ -267,45 +267,104 @@ def webview2_package():
     return cache, version
 
 
-def webview2_sdk(target, directory):
-    """The row's WebView2 header with its pkg-config record, and the loader DLL a program ships.
+@pytest.mark.parametrize("target", sorted(TARGETS))
+def test_windows_webview_com_abi(tmp_path, target):
+    """Compare the shipped subset with the pinned Microsoft ABI on both Windows architectures."""
+    if sys.platform == "win32":
+        pytest.skip("requires the Windows cross-toolchain")
+    package, _ = webview2_package()
+    with zipfile.ZipFile(package) as bundle:
+        sdk = bundle.read("build/native/include/WebView2.h").decode("utf-8-sig")
+    (tmp_path / "WebView2.h").write_text(sdk, encoding="utf-8")
+    (tmp_path / "EventToken.h").write_text(
+        "typedef struct { INT64 value; } EventRegistrationToken;\n", encoding="utf-8"
+    )
+    directory = REPO / "src/stdlib/GUI/Windows"
+    header = (directory / "WebView2Interfaces.h").read_text(encoding="utf-8")
+    source = (directory / "Win32Web.c").read_text(encoding="utf-8")
+    types = sorted(set(re.findall(r"\b(?:ICoreWebView2\w*|COREWEBVIEW2_\w+|EventRegistrationToken)\b", header)))
+    unit = ["#include <stddef.h>", "#include <WebView2.h>"]
+    unit.extend(f"#define {name} Btrc{name}" for name in types)
+    unit.append('#include "WebView2Interfaces.h"')
+    unit.extend(f"#undef {name}" for name in types)
+    unit.append('_Static_assert(sizeof(BtrcEventRegistrationToken) == sizeof(EventRegistrationToken), "event token");')
+    for symbol in ("COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC", "COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL"):
+        unit.append(f'_Static_assert((int)Btrc{symbol} == (int){symbol}, "{symbol}");')
+    for body, table in re.findall(
+        r"typedef struct \{\n(\s*BTRC_WEB_UNKNOWN.*?)} (ICoreWebView2\w*Vtbl);", header, re.S
+    ):
+        sdk_body = re.search(rf"typedef struct {table}\b(.*?)END_INTERFACE", sdk, re.S)[1]
+        sdk_slots = re.findall(r"\(\s*STDMETHODCALLTYPE\s*\*(\w+)\s*\)\s*\(", sdk_body)
+        for field in ["QueryInterface", "AddRef", "Release", *re.findall(r"STDMETHODCALLTYPE\* (\w+)\)", body)]:
+            unit.append(
+                f'_Static_assert(offsetof(Btrc{table}, {field}) == offsetof({table}, {field}), "{table}.{field}");'
+            )
+        for first, count in re.findall(r"BtrcWebUnusedMethod slot(\d+)\[(\d+)\]", body):
+            for offset in range(int(count)):
+                field = sdk_slots[int(first) + offset]
+                unit.append(
+                    f'_Static_assert(offsetof(Btrc{table}, slot{first}[{offset}]) == offsetof({table}, {field}), "{field}");'
+                )
+    # C's extern const IID is not an integer constant expression. Compare the
+    # eleven initializer constants against the UUID in the SDK's MIDL declaration.
+    guids = dict(
+        (name, uuid.lower())
+        for uuid, name in re.findall(r'MIDL_INTERFACE\("([0-9a-fA-F-]+)"\)\s+(ICoreWebView2\w*) :', sdk)
+    )
+    handlers = {
+        "EnvironmentCompleted": "CreateCoreWebView2EnvironmentCompletedHandler",
+        "ControllerCompleted": "CreateCoreWebView2ControllerCompletedHandler",
+        "BridgeCompleted": "AddScriptToExecuteOnDocumentCreatedCompletedHandler",
+        **{
+            name: name + "EventHandler"
+            for name in (
+                "WebMessageReceived",
+                "NavigationStarting",
+                "NavigationCompleted",
+                "NewWindowRequested",
+                "WebResourceRequested",
+            )
+        },
+    }
+    for name, components in re.findall(r"^BTRC_WIN_GUID\(btrcWinIid(\w+), ([^)]*)\);", source, re.M):
+        uuid = (
+            "00000000-0000-0000-c000-000000000046"
+            if name == "Unknown"
+            else guids["ICoreWebView2" + handlers.get(name, name)]
+        )
+        a, b, c, d, e = uuid.split("-")
+        expected = [int(part, 16) for part in (a, b, c)] + list(bytes.fromhex(d + e))
+        values = components.split(", ")
+        assert len(values) == len(expected), name
+        for actual, wanted in zip(values, expected, strict=True):
+            unit.append(f'_Static_assert({actual} == {wanted}u, "{name} IID");')
+    fixture = tmp_path / "WebView2Abi.c"
+    fixture.write_text("\n".join(unit) + "\n", encoding="utf-8")
+    # Isolate the SDK's non-C11 pragmas and oversized enumerators from the
+    # production build. Its SDK-generated header is only a comparison oracle.
+    compile_probe_units(
+        target,
+        tmp_path,
+        [fixture],
+        [directory, tmp_path],
+        ["-Wno-unknown-pragmas", "-Wno-pedantic", "-Wno-c23-extensions"],
+    )
 
-    WebView2.h includes EventToken.h, a Windows SDK header MinGW-w64 does not
-    have; the one type it needs from it is written beside the header.
-    """
-    label = TARGETS[target][0]
-    package, version = webview2_package()
-    root = directory / "webview2"
-    include = root / "include"
-    include.mkdir(parents=True, exist_ok=True)
+
+def webview2_loader(target, directory):
+    """Stage the supported Microsoft loader for Windows conformance execution."""
+    package, _ = webview2_package()
     architecture = "x64" if target == "windows-x64" else "arm64"
-    loader = root / architecture / "WebView2Loader.dll"
+    loader = directory / "webview2" / architecture / "WebView2Loader.dll"
     loader.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(package) as bundle:
-        (include / "WebView2.h").write_bytes(bundle.read("build/native/include/WebView2.h"))
         loader.write_bytes(bundle.read(f"build/native/{architecture}/WebView2Loader.dll"))
-    (include / "EventToken.h").write_text(
-        "/* MinGW-w64 has no EventToken.h; WebView2.h needs only this from it. */\n"
-        "#ifndef BTRC_EVENT_TOKEN_H\n#define BTRC_EVENT_TOKEN_H\n"
-        "typedef struct EventRegistrationToken { __int64 value; } EventRegistrationToken;\n#endif\n",
-        encoding="utf-8",
-    )
-    pkgconfig = directory / "pkgconfig"
-    pkgconfig.mkdir(parents=True, exist_ok=True)
-    (pkgconfig / f"webview2-{label}.pc").write_text(
-        f"Name: webview2-{label}\n"
-        f"Description: The WebView2 SDK {version} header for {label}\n"
-        f"Version: {version}\n"
-        f"Cflags: -I{include}\n",
-        encoding="utf-8",
-    )
     return loader
 
 
 def cross_environment(target, tmp_path, monkeypatch):
-    """Point the header reader and the native plan at the row's sysroot, wgpu-native and WebView2 SDK."""
+    """Point the header reader and the native plan at the row's sysroot and wgpu-native."""
     pkgconfig, dll = wgpu_native(target, tmp_path / "wgpu")
-    webview2_sdk(target, tmp_path / "wgpu")
     monkeypatch.setenv("BTRC_NATIVE_TARGET", TARGETS[target][1])
     monkeypatch.setenv("BTRC_NATIVE_SYSROOT", str(zig_libc()))
     monkeypatch.setenv(

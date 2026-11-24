@@ -15,14 +15,7 @@
 
 #include <shellapi.h>
 #include <shlwapi.h>
-/* The SDK's header is written for another compiler: its pragmas, and an
- * enumerator wider than int. */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunknown-pragmas"
-#pragma GCC diagnostic ignored "-Wpedantic"
-#pragma GCC diagnostic ignored "-Wc23-extensions"
-#include <WebView2.h>
-#pragma GCC diagnostic pop
+#include "WebView2Interfaces.h"
 
 #define BTRC_WIN_GUID(name, a, b, c, d0, d1, d2, d3, d4, d5, d6, d7) static const GUID name = {a, b, c, {d0, d1, d2, d3, d4, d5, d6, d7}}
 BTRC_WIN_GUID(btrcWinIidUnknown, 0x00000000, 0x0000, 0x0000, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46);

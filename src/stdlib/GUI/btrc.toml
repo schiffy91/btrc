@@ -1084,27 +1084,13 @@ standard = "c11"
 modules = ["Shim.ShimSurface"]
 os = ["windows"]
 
-# The web view is WebView2. Its SDK header comes from the per-slice
-# webview2 record (nix/webview2-sdk-prebuilt.nix); the engine itself is the
-# system's, reached at run time through WebView2Loader.dll beside the program.
+# First-party COM declarations, activated by the supported WebView2 loader.
 [[native.sources]]
 path = "Windows/Win32Web.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.ShimWeb"]
 os = ["windows"]
-
-[[native.pkg-config]]
-name = "webview2-windows-x86_64"
-modules = ["Shim.ShimWeb"]
-os = ["windows"]
-arch = ["x86_64"]
-
-[[native.pkg-config]]
-name = "webview2-windows-aarch64"
-modules = ["Shim.ShimWeb"]
-os = ["windows"]
-arch = ["aarch64"]
 
 [[native.libraries]]
 name = "shlwapi"
