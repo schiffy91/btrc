@@ -1,0 +1,23 @@
+import Library.Image.EncodedImage;
+import Library.Image.JPEG;
+import Library.Image.SystemImageDecoder;
+import Library.Testing;
+
+int main() {
+	var source = Image(4, 2);
+	for (int y = 0; y < source.height; y++) {
+		for (int x = 0; x < source.width; x++) { source.setRGBA(x, y, 80, 80, 80); }
+	}
+	var encoded = JPEG.encode(source, 95);
+	var decoder = SystemImageDecoder();
+	var result = decoder.decode(encoded, EncodedImageDecodeLimits(65536, 4, 2, 8LL));
+	Expect.isTrue(result.succeeded());
+	Expect.intEq(result.image().width, 4);
+	Expect.intEq(result.image().height, 2);
+	var pixel = result.image().pixel(3, 1);
+	Expect.isTrue(pixel.red >= 79 && pixel.red <= 81 && pixel.green == pixel.red && pixel.blue == pixel.red);
+	Expect.intEq(pixel.alpha, 255);
+	Expect.isTrue(decoder.decode(encoded, EncodedImageDecodeLimits(65536, 4, 2, 7LL)).status() == ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED);
+	print("PASS SystemImageDecoder");
+	return 0;
+}
