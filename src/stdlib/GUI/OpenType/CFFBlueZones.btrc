@@ -37,7 +37,7 @@ class CFFBlueZones {
 		}
 	}
 
-	public bool allowsSingleStem(int bottom, int top) {
+	public bool allowsStem(int bottom, int top, bool allowBaseline) {
 		if (!self.usable) { return false; }
 		for (int i = 0; i < self.bounds.size(); i += 2) {
 			int low = self.bounds.get(i) - self.fuzz;
@@ -46,7 +46,7 @@ class CFFBlueZones {
 			if (low <= bottom && bottom <= high) {
 				// At zero the baseline already lies on a device pixel. A
 				// family zone can override the face's chosen flat edge.
-				if (self.familyZones || bottom != 0 || i != self.baseline) { return false; }
+				if (!allowBaseline || self.familyZones || bottom != 0 || i != self.baseline) { return false; }
 			}
 		}
 		return true;

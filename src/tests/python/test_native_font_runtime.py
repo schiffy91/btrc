@@ -493,9 +493,10 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
     assert data.count(curve) == 2
     at = data.rindex(curve)
     unusual = data[:at] + b"\x00\x0e" + data[at + 2 :]
-    # Give B two horizontal stems and a 100-unit square. Its device
+    # Give B two horizontal stems separated by only 10 design units
+    # and a 100-unit square. Its device
     # coverage at 10 px is 248, as independently rendered by FreeType.
-    square = bytes.fromhex("f9508beff75cbd018b16efef27060e").ljust(len(curve), b"\x0e")
+    square = bytes.fromhex("f9508bef95bd018b16efef27060e").ljust(len(curve), b"\x0e")
     hinted = data[:at] + square + data[at + len(curve) :]
     # Straight edges in the triangle (0,0), (90,347), (167,622) cross a
     # subpixel rounding boundary at 65 px. Compare both providers.
@@ -506,6 +507,12 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
         assert visible_edge.returncode == 0, visible_edge.stdout + visible_edge.stderr
     # A 61 by 90 unit rectangle starting at x=10 has fractional grayscale
     # coverage with both explicit vertical stem operators.
+    # The polygon crosses both fitted stems (42..84 and 315..467),
+    # their edges, and the interpolated counter between them.
+    separated = (fixtures / "fixtures/cff-separated-stems.otf").read_bytes()
+    for suffix in ("otf", "raw"):
+        fitted = run(suffix, "polygon", env, separated)
+        assert fitted.returncode == 0, fitted.stdout + fitted.stderr
     # cff-blue-stem.otf is the same authored face with a 10..72 horizontal stem
     # and three BlueValues pairs in unsorted order. B is captured by
     # the 68..75 pair. A has a 25..45 stem clear of every pair.
@@ -551,6 +558,8 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
         assert rejected.returncode != 0 and "Cannot initialize FreeType library" in rejected.stderr
         measured = run("otf", "measure", blocked)
         assert measured.returncode == 0, measured.stdout + measured.stderr
+        fitted = run("otf", "polygon", blocked, separated)
+        assert fitted.returncode == 0, fitted.stdout + fitted.stderr
         zero = run("otf", "zero", blocked, blue)
         assert zero.returncode == 0, zero.stdout + zero.stderr
         inherited = run("otf", "zero", blocked, family)
