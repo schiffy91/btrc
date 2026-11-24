@@ -31,7 +31,71 @@ void progressiveJPEG() {
 	Expect.isTrue(Math.abs(image.pixel(21, 12).red - 46) <= 1);
 }
 
+// Lossless predictor 7, one low bit discarded, with a restart at each row.
+void losslessJPEG() {
+	var bytes = Bytes.fromHex("ffd8ffee000e41646f626500640000000000ffc30011080003000403521100471100421100ffc4001800010101010100000000000000000000000507040603ffdd00040004ffda000c035200470042000700019ff1e03cfbcfbcfbcfbdffd01737bbef3ef3f1d8f475ff00ffd1daef5cf3f1d8f475f79f7bffd9");
+	if (bytes == null) { throw "Bad lossless JPEG fixture"; }
+	var image = JPEG.decode(bytes);
+	Expect.isTrue(image.width == 4 && image.height == 3);
+	for (int y = 0; y < 3; y++) {
+		for (int x = 0; x < 4; x++) {
+			var base = x * 61 + y * 77;
+			var pixel = image.pixel(x, y);
+			Expect.isTrue(pixel.red == (base & 254) && pixel.green == ((base + 33) & 254) && pixel.blue == ((base + 66) & 254) && pixel.alpha == 255);
+		}
+	}
+}
+
+// Integer inverse transform and centered 4:2:0 chroma expansion, including
+// an odd-sized final row and column. Pixels are from TurboJPEG RGBA output.
+void subsampledJPEG() {
+	var encoded = Bytes.fromHex("ffd8ffe000104a46494600010100000100010000ffdb0043000504040504030505040506060506080e0908070708110c0d0a0e141115141311131316181f1b16171e1713131b251c1e2021232323151a26292622291f222322ffdb00430106060608070810090910221613162222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222ffc00011080005000703012200021101031101ffc4001500010100000000000000000000000000000005ffc4002110000103040105000000000000000000000200010304050611071221223142ffc40014010100000000000000000000000000000005ffc4001f1100020005050000000000000000000000010200030411a112313372c2ffda000c03010002110311003f009791db61a5e33c62cf1844f4b5f31cb2910bf531461e3aefafa7f6ce88896a12584c63bea6c1b0c0105d571c9ebe9a3fffd9");
+	var expected = Bytes.fromHex("032f52ff30567bff5b76a1ffa09eb4fff8c7b6ff6c412eff111b34ff0b375aff40668aff728fb1ffaeadbfffe1b09fff6b4030ff2b354eff255176ff4d7493ff809fb4ffcccdd2ffebbaacff93675eff47516cff2b577eff6189a3ff94b6b8ffb4b7aeff7b4940ff46181aff48526dff446f99ff719aaeffa3c8b6ffc9cfb5ff7e4b48ff5b2b39ff5c6584ff");
+	if (encoded == null || expected == null) { throw "Bad subsampled JPEG fixture"; }
+	var image = JPEG.decode(encoded);
+	Expect.isTrue(image.width == 7 && image.height == 5);
+	Expect.isTrue(Bytes.fromRaw((char*)image.data, 140).equals(expected));
+
+	// JFIF explicitly selects YCbCr even with component identifiers "RGB".
+	for (int i = 2; i < encoded.length - 19; i++) {
+		var marker = encoded.readU16BE(i);
+		if (marker == 0xffc0) { encoded.set(i + 10, 82); encoded.set(i + 13, 71); encoded.set(i + 16, 66); }
+		if (marker == 0xffda) { encoded.set(i + 5, 82); encoded.set(i + 7, 71); encoded.set(i + 9, 66); break; }
+	}
+	var jfif = JPEG.decode(encoded);
+	Expect.isTrue(Bytes.fromRaw((char*)jfif.data, 140).equals(expected));
+}
+
+// The same 19x9 grayscale raster in the two arithmetic DCT modes, with a
+// restart every two MCUs. Both streams use non-default DAC parameters.
+void arithmeticJPEG() {
+	var sequential = Bytes.fromHex("ffd8ffe000104a46494600010100000100010000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc9000b080009001301011100ffcc000600421008ffdd00040002ffda0008010100003f00c060b575f9ce0790454ccd9b0c15f8dc1baa16896519c4459dd660a49b2813a5cb4018531596930c736b368b8a8f15d5f04fce91037d79ce7ace0ecc0911f0d855353db49f2ea0ff0049d572b4d115952680ffd0fe737883088c7ea9cd3a022c894c21a4a8728dfb75b3299530bb52e528114b1b30534802bb1a1d7b9bcd65839e1c9a0a41a8ffd1ff00a15286952fbadf51f5563c74618a665dd4dde0f7e3ffd9");
+	var progressive = Bytes.fromHex("ffd8ffe000104a46494600010100000100010000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffca000b080009001301011100ffcc00040042ffdd00040002ffda0008010100000001b8ffd0fce83cffd1ff0045daffcc00041008ffda0008010100010502216964e6efa0ffd0a5129c2bffd1399fc1b3b9ffcc00041008ffda0008010100063f0216df1f3c8c8756e748c127f95be0d3cb189662d2fd80ffd0614255df8391c07a8bc58f6b956c3354ffd1153e7feb4561e0ffcc00041008ffda0008010100013f213b8ef3890687c24fd6bcd28a4b7e2bed99fc5a6b5ef3e0ffd056a6ed3c21acb4a7114571ffd15167d0151fffda000801010000001080ffd0c0ffd1ffcc00041008ffda0008010100013f1029ce0416d1941d3e508963e964628911b67ba09a18e480ffd0aade53413067ab079dd5d551823520ffd1571212f2dff5ffd9");
+	if (sequential == null || progressive == null) { throw "Bad arithmetic JPEG fixture"; }
+	var image = JPEG.decode(sequential);
+	Expect.isTrue(image.diff(JPEG.decode(progressive)).exact());
+	Expect.intEq(image.width, 19);
+	Expect.intEq(image.height, 9);
+	Expect.isTrue(Math.abs(image.pixel(0, 0).red - 3) <= 1);
+	Expect.isTrue(Math.abs(image.pixel(1, 5).red - 162) <= 1);
+	Expect.isTrue(Math.abs(image.pixel(12, 7).red - 124) <= 1);
+	Expect.isTrue(Math.abs(image.pixel(18, 8).red - 145) <= 1);
+
+	// An invalid DC conditioning range (lower bound 15, upper bound 0).
+	for (int i = 0; i < sequential.length - 5; i++) {
+		if (sequential.get(i) == 255 && sequential.get(i + 1) == 204) {
+			sequential.set(i + 5, 15);
+			Expect.isTrue(rejects(sequential));
+			return;
+		}
+	}
+	throw "Missing DAC fixture";
+}
+
 int main() {
+	arithmeticJPEG();
+	subsampledJPEG();
+	losslessJPEG();
 	progressiveJPEG();
 	var image = Image(32, 16);
 	for (int y = 0; y < image.height; y++) {

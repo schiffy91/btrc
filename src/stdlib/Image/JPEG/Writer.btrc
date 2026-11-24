@@ -71,7 +71,7 @@ class JPEGWriter {
 	}
 
 	private void writeBlock(int plane) {
-		self.transform.apply(false);
+		self.transform.forward();
 		int zeros = 0;
 		for (int k = 0; k < 64; k++) {
 			var index = self.transform.zigzag.get(k);

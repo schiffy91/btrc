@@ -40,7 +40,7 @@ the API surface, so the layout follows a few fixed rules.
   that compiler-generated COM bindings call.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
   `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `GUI/Windows`, `GUI/IOS`,
-  `Image/Linux`, `LocalApplicationChannel/Linux`, `Tray/MacOS`, `Tray/Linux`,
+  `LocalApplicationChannel/Linux`, `Tray/MacOS`, `Tray/Linux`,
   `BackgroundJobs/Linux`, `Terminal/Windows`; `BackgroundJobs/Unix` and
   `Terminal/Unix` for code the Unix rows share, and `BackgroundJobs/Apple`,
   `Digest/Apple`, `Image/Apple`, `USB/Apple` and `LocalApplicationChannel/Apple` for code macOS, iOS and
@@ -49,7 +49,10 @@ the API surface, so the layout follows a few fixed rules.
   group's portable contract: `GUI/MacOS/MacOSDirectoryPicker` and
   `GUI/Linux/LinuxDirectoryPicker` implement `GUI/IDirectoryPicker`,
   `Image/Apple/AppleEncodedImageDecoder` implements `Image/IEncodedImageDecoder`
-  (declared in `Image/EncodedImage.btrc`), and `Audio/MacOS/MacOSAudioDevice`
+  (declared in `Image/EncodedImage.btrc`; Linux, Windows and Android take
+  `Image/PortableEncodedImageDecoder`, BTRC's own PNG and JPEG codecs, through
+  `Image/Portable`, and `Image/Linux/LinuxEncodedImageDecoder` is that decoder's
+  earlier name), and `Audio/MacOS/MacOSAudioDevice`
   and `Audio/Linux/LinuxAudioDevice` each supply an `IAudioDevicePlatform` to the
   shared provider in `Audio/AudioDevice.btrc`. A `[[package.providers]]`
   entry in the group's `btrc.toml` maps one portable module to its
@@ -101,7 +104,7 @@ the API surface, so the layout follows a few fixed rules.
 Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
 (`Linux/`, `MacOS/`, `Unix/`), `Bluetooth` (`Linux/`, `MacOS/`, `Unix/`), `Crypto` (`Apple/`, `Primitives/`, `Unix/`, `Windows/`), `Daemon`, `Digest` (`MacOS/`), `FileSystem`,
 `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`, `Windows/`), `HID`, `HTTP`, `Image`
-(`Linux/`, `MacOS/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`), `Network`
+(`Apple/`, `Linux/`, `Portable/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`), `Network`
 (`Unix/`), `Realtime`, `Steam`, `Terminal` (`Unix/`, `Windows/`), `Testing`, `Tray` (`Linux/`, `MacOS/`), `UI`,
 `USB` (`Apple/`, `Linux/`, `Unix/`).
 Each group with behavior worth explaining has its own `README.md`.

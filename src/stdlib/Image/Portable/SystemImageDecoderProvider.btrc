@@ -1,0 +1,5 @@
+import Library.Image.PortableEncodedImageDecoder;
+
+class SystemImageDecoderProvider {
+	class EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) { return PortableEncodedImageDecoder().decode(encoded, limits); }
+}

@@ -1059,14 +1059,14 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 kind = "operation"
 id = "Library.Image.Linux.LinuxEncodedImageDecoder"
 group = "stdlib/Image"
-title = "Linux PNG and libjpeg-turbo image decoder"
+title = "Portable image decoder under its earlier Linux name"
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_image_decoding"]
-windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
-windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
-ios-device = { parity = "os-restricted", implementation = "missing", owner = "I2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
-ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
-android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
-android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "libturbojpeg pkg-config is a Linux SDK; the portable interface resolves to this slice's provider" }
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "the Linux name of PortableEncodedImageDecoder, kept under Image/Linux for Linux callers; this slice imports Library.Image.PortableEncodedImageDecoder or the system decoder" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W2", status = "source-only", reason = "the Linux name of PortableEncodedImageDecoder, kept under Image/Linux for Linux callers; this slice imports Library.Image.PortableEncodedImageDecoder or the system decoder" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I2", status = "source-only", reason = "the Linux name of PortableEncodedImageDecoder, kept under Image/Linux for Linux callers; this slice imports Library.Image.PortableEncodedImageDecoder or the system decoder" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I2", status = "source-only", reason = "the Linux name of PortableEncodedImageDecoder, kept under Image/Linux for Linux callers; this slice imports Library.Image.PortableEncodedImageDecoder or the system decoder" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "the Linux name of PortableEncodedImageDecoder, kept under Image/Linux for Linux callers; this slice imports Library.Image.PortableEncodedImageDecoder or the system decoder" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A2", status = "source-only", reason = "the Linux name of PortableEncodedImageDecoder, kept under Image/Linux for Linux callers; this slice imports Library.Image.PortableEncodedImageDecoder or the system decoder" }
 
 [[rows]]
 kind = "operation"
@@ -1100,12 +1100,12 @@ id = "Library.Image.SystemImageDecoder"
 group = "stdlib/Image"
 title = "Platform system image decoder"
 regression = ["src/tests/python/test_native_linux_providers.py::test_linux_image_decoding", "src/tests/python/test_main.py::test_native_adapters_live_outside_relaxed_composition", "src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program"]
-windows-x64 = { parity = "adapted", implementation = "missing", owner = "W2", status = "source-only", reason = "btrc.toml has SystemImageDecoderProvider only for macos/linux; WIC provider needed" }
-windows-arm64 = { parity = "adapted", implementation = "missing", owner = "W2", status = "source-only", reason = "btrc.toml has SystemImageDecoderProvider only for macos/linux; WIC provider needed" }
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "W2", status = "implemented-unverified", reason = "Portable/SystemImageDecoderProvider over PortableEncodedImageDecoder: BTRC's PNG and JPEG codecs and its DDS decoder, the portable format set, with no native codec (run on Linux only)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "W2", status = "implemented-unverified", reason = "Portable/SystemImageDecoderProvider over PortableEncodedImageDecoder: BTRC's PNG and JPEG codecs and its DDS decoder, the portable format set, with no native codec (run on Linux only)" }
 ios-device = { parity = "equivalent", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "Apple/SystemImageDecoderProvider, the provider macOS uses, over AppleEncodedImageDecoder (src/tests/python/test_stdlib_ios_programs.py on the simulators only; no device has run it)" }
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "Apple/SystemImageDecoderProvider, the provider macOS uses, over AppleEncodedImageDecoder (src/tests/python/test_stdlib_ios_programs.py on the simulators)" }
-android-arm64 = { parity = "adapted", implementation = "missing", owner = "A2", status = "source-only", reason = "no android provider in btrc.toml; AImageDecoder (NDK API 30+) provider needed" }
-android-x86_64 = { parity = "adapted", implementation = "missing", owner = "A2", status = "source-only", reason = "no android provider in btrc.toml; AImageDecoder (NDK API 30+) provider needed" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "A2", status = "implemented-unverified", reason = "Portable/SystemImageDecoderProvider over PortableEncodedImageDecoder: BTRC's PNG and JPEG codecs and its DDS decoder, the portable format set, with no native codec (run on Linux only)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "A2", status = "implemented-unverified", reason = "Portable/SystemImageDecoderProvider over PortableEncodedImageDecoder: BTRC's PNG and JPEG codecs and its DDS decoder, the portable format set, with no native codec (run on Linux only)" }
 
 [[rows]]
 kind = "operation"
@@ -5067,3 +5067,16 @@ ios-device = { parity = "equivalent", implementation = "implemented", owner = "P
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC inflates, unfilters and encodes PNG bytes and RGBA pixels with no native codec or zlib." }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC inflates, unfilters and encodes PNG bytes and RGBA pixels with no native codec or zlib." }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC inflates, unfilters and encodes PNG bytes and RGBA pixels with no native codec or zlib." }
+
+[[rows]]
+kind = "operation"
+id = "Library.Image.PortableEncodedImageDecoder"
+group = "stdlib/Image"
+title = "Portable PNG and JPEG image decoder"
+regression = ["src/tests/python/test_native_linux_providers.py::test_linux_image_decoding"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC's PNG and JPEG codecs behind the encoded-image contract; no native codec." }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC's PNG and JPEG codecs behind the encoded-image contract; no native codec." }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC's PNG and JPEG codecs behind the encoded-image contract; no native codec." }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC's PNG and JPEG codecs behind the encoded-image contract; no native codec." }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC's PNG and JPEG codecs behind the encoded-image contract; no native codec." }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC's PNG and JPEG codecs behind the encoded-image contract; no native codec." }

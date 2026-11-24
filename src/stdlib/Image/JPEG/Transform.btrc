@@ -22,23 +22,58 @@ class JPEGTransform {
 		}
 	}
 
-	public void apply(bool inverse) {
+	public void forward() {
+		double* basis = self.basis.data;
 		for (int pass = 0; pass < 2; pass++) {
-			var input = pass == 0 ? self.block : self.scratch;
-			var output = pass == 0 ? self.scratch : self.block;
+			double* input = pass == 0 ? self.block.data : self.scratch.data;
+			double* output = pass == 0 ? self.scratch.data : self.block.data;
 			for (int row = 0; row < 8; row++) {
 				for (int j = 0; j < 8; j++) {
 					double total = 0.0;
 					for (int k = 0; k < 8; k++) {
-						total += input.get(row * 8 + k) * self.basis.get(inverse ? k * 8 + j : j * 8 + k);
+						total += input[row * 8 + k] * basis[j * 8 + k];
 					}
-					output.set(j * 8 + row, total);
+					output[j * 8 + row] = total;
 				}
+			}
+		}
+	}
+
+	// The 8-point inverse DCT in the 13-bit fixed-point basis used by the
+	// integer decoder. The column pass retains two fractional bits. Rounding
+	// each pass to its specified precision also makes results CPU independent.
+	public void inverseBlock(unsigned char* out, int* coefficients, int* steps) {
+		static const int basis[64] = {
+			8192, 11363, 10703, 9633, 8192, 6437, 4433, 2260,
+			8192, 9633, 4433, -2259, -8192, -11362, -10704, -6436,
+			8192, 6437, -4433, -11362, -8192, 2261, 10704, 9633,
+			8192, 2260, -10703, -6436, 8192, 9633, -4433, -11363,
+			8192, -2260, -10703, 6436, 8192, -9633, -4433, 11363,
+			8192, -6437, -4433, 11362, -8192, -2261, 10704, -9633,
+			8192, -9633, 4433, 2259, -8192, 11362, -10704, 6436,
+			8192, -11363, 10703, -9633, 8192, -6437, 4433, -2260
+		};
+		long long dequantized[64];
+		for (int i = 0; i < 64; i++) { dequantized[self.zigzag.data[i]] = (long long)coefficients[i] * steps[i]; }
+		long long intermediate[64];
+		for (int x = 0; x < 8; x++) {
+			for (int y = 0; y < 8; y++) {
+				long long sum = 1024LL;
+				for (int v = 0; v < 8; v++) { sum += dequantized[v * 8 + x] * basis[y * 8 + v]; }
+				intermediate[y * 8 + x] = sum >> 11;
+			}
+		}
+		for (int y = 0; y < 8; y++) {
+			for (int x = 0; x < 8; x++) {
+				long long sum = 131072LL;
+				for (int u = 0; u < 8; u++) { sum += intermediate[y * 8 + u] * basis[x * 8 + u]; }
+				var sample = 128LL + (sum >> 18);
+				out[y * 8 + x] = (unsigned char)(sample < 0LL ? 0LL : sample > 255LL ? 255LL : sample);
 			}
 		}
 	}
 
 	class int rounded(double value) { return (int)(value < 0.0 ? value - 0.5 : value + 0.5); }
 
-	class int sample(double value) { return value <= 0.0 ? 0 : value >= 255.0 ? 255 : (int)(value + 0.5); }
+	class int clipped(int value) { return value < 0 ? 0 : value > 255 ? 255 : value; }
 }

@@ -2,9 +2,10 @@
  *
  * Importing Library.Image provides deterministic RGBA pixels and the fixture
  * codecs (Pixels), the provider-neutral encoded-image contract
- * (EncodedImage), and BTRC's own DDS decoder. The platform decoder,
- * SystemImageDecoder, is imported on its own because it links the target's
- * native codecs.
+ * (EncodedImage), and BTRC's own DDS decoder. The system decoder,
+ * SystemImageDecoder, is imported on its own: on Apple systems it links
+ * ImageIO, and elsewhere it brings in BTRC's PNG and JPEG codecs, which are
+ * also importable directly as Library.Image.PNG and Library.Image.JPEG.
  */
 import Library.Image.DDSEncodedImageDecoder;
 import Library.Image.EncodedImage;

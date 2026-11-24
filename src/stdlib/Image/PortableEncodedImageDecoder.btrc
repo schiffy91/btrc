@@ -1,0 +1,56 @@
+import Library.Bytes;
+import Library.Image.EncodedImage;
+import Library.Image.EncodedImageDispatch;
+import Library.Image.JPEG;
+import Library.Image.PNG;
+import Library.Image.Pixels;
+
+/* Bounded, synchronous decoding through BTRC's own PNG and JPEG codecs: the
+ * portable set, with no native codec behind it. EncodedImageDispatch owns
+ * admission, sniffing and DDS; GIF and TIFF are a macOS extension and stay
+ * UNSUPPORTED here. A JPEG is returned as stored, without its EXIF
+ * orientation applied. Dimensions are read from the header and held to the
+ * limits before a raster exists. */
+class PortableEncodedImageDecoder implements IEncodedImageDecoder, IEncodedImageFormatDecoder {
+	public PortableEncodedImageDecoder() {}
+
+	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) { return EncodedImageDispatch.decode(encoded, limits, self); }
+
+	/* The codecs fail by throwing a message. One that ends in "limit" names
+	 * a bound of the codec itself, such as the JPEG coefficient store, and
+	 * "Could not allocate ..." a raster or plane the host could not supply.
+	 * Any other message is data the codec cannot decode. */
+	private EncodedImageDecodeStatus failure(string error) {
+		if (error.startsWith("Could not allocate")) { return ENCODED_IMAGE_DECODE_OUT_OF_MEMORY; }
+		if (error.endsWith("limit")) { return ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED; }
+		return ENCODED_IMAGE_DECODE_CORRUPT;
+	}
+
+	public EncodedImageDecodeOutcome decodeFormat(EncodedImageFormat format, Bytes encoded, EncodedImageDecodeLimits limits) {
+		var png = format == ENCODED_IMAGE_FORMAT_PNG;
+		if (!png && format != ENCODED_IMAGE_FORMAT_JPEG) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, encoded.length()); }
+		int width = 0;
+		int height = 0;
+		try {
+			if (png) {
+				var header = PNGHeader.inspect(encoded);
+				width = header.width;
+				height = header.height;
+			} else {
+				var header = JPEGHeader.inspect(encoded);
+				// The header reports display dimensions; the raster is stored ones.
+				width = header.orientation >= 5 ? header.height : header.width;
+				height = header.orientation >= 5 ? header.width : header.height;
+			}
+		} catch (string error) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_CORRUPT, encoded.length()); }
+		if (!Image.validDimensions(width, height) || !limits.allowsDimensions(width, height)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, encoded.length()); }
+		Image? image = null;
+		try {
+			// The codec may decode exactly the raster that was admitted.
+			if (png) { image = PNG.decodeForDisplay(encoded, width * height); }
+			else { image = JPEG.decode(encoded, width * height); }
+		} catch (string error) { return EncodedImageDecodeOutcome.rejected(self.failure(error), encoded.length()); }
+		if (image == null || image.width != width || image.height != height) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_CORRUPT, encoded.length()); }
+		return EncodedImageDecodeOutcome.decoded(image, encoded.length());
+	}
+}
