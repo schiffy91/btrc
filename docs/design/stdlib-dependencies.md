@@ -70,5 +70,5 @@ Keep the current working transport while qualification and review are pending.
 - **android**: classes: `android.app.*`, `android.content.*`, `android.graphics.*`, `android.net.*`, `android.os.*`, `android.text.*`, `android.util.*`, `android.view.*`, `android.webkit.*`, `android.widget.*`, `java.io.*`, `java.nio.*`, `java.util.*`; libraries: `android`, `log`
 - **ios**: frameworks: `CoreFoundation`, `CoreGraphics`, `CoreText`, `Foundation`, `ImageIO`, `Metal`, `QuartzCore`, `UIKit`, `WebKit`
 - **linux**: libraries: `util`; programs: `/bin/sh`
-- **macos**: frameworks: `AVFoundation`, `AppKit`, `AudioToolbox`, `CoreAudio`, `CoreFoundation`, `CoreGraphics`, `CoreMedia`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `QuartzCore`, `WebKit`; libraries: `bsm`; programs: `/bin/sh`
+- **macos**: frameworks: `AVFoundation`, `AppKit`, `AudioToolbox`, `CoreAudio`, `CoreFoundation`, `CoreGraphics`, `CoreMedia`, `CoreServices`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `QuartzCore`, `WebKit`; libraries: `bsm`; programs: `/bin/sh`
 - **windows**: libraries: `bcrypt`, `comctl32`, `dwmapi`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `winhttp`, `ws2_32`
