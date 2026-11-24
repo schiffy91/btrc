@@ -1,0 +1,14 @@
+import Library.GUI.ApplicationSlot;
+import Library.GUI.ISharedFrameView;
+import Library.GUI.Shim.ShimApplication;
+import Library.GUI.Shim.ShimSharedFrameView;
+
+class SharedFrameViewProvider {
+	class ISharedFrameView? tryCreate() {
+		var application = (IShimApplication?)GUIApplicationSlot.require();
+		if (application == null) { throw "Shared frame views require an active GUI application"; }
+		var view = ShimSharedFrameView(application.context());
+		application.adopt(view);
+		return view;
+	}
+}

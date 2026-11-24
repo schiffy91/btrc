@@ -4,6 +4,7 @@
  * events. BTRC polls it each turn, so the provider's own dispatch runs
  * between GTK's callbacks and never inside one. */
 #include "GtkShimPrivate.h"
+#include "GtkShapedText.h"
 #include "../Shim/ShimControls.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -243,7 +244,13 @@ static bool btrcGtkWaylandGlobalsFor(struct wl_display* display) {
  * included. There the surface is a child window that is never shown, which
  * the GPU device is made for, and the provider's frames reach the screen as
  * pictures GTK draws under the controls (btrcShimWindowShowPicture). */
-static bool btrcGtkCreateSurface(BtrcShimWindow* window) {
+bool btrcGtkEnsureSurface(BtrcShimWindow* window) {
+#ifdef GDK_WINDOWING_WAYLAND
+    if (window->child != NULL) { return true; }
+#endif
+#ifdef GDK_WINDOWING_X11
+    if (window->xChild != 0) { return true; }
+#endif
 	GdkSurface* surface = gtk_native_get_surface(GTK_NATIVE(window->window));
 	GdkDisplay* display = gdk_surface_get_display(surface);
 #ifdef GDK_WINDOWING_WAYLAND
@@ -260,6 +267,7 @@ static bool btrcGtkCreateSurface(BtrcShimWindow* window) {
 		struct wl_region* none = wl_compositor_create_region(btrcGtkWayland.compositor);
 		wl_surface_set_input_region(window->child, none);
 		wl_region_destroy(none);
+		btrcGtkPlaceSurface(window);
 		return true;
 	}
 #endif
@@ -448,7 +456,7 @@ static unsigned int btrcGtkScancodeOf(guint lower) {
 	return 0;
 }
 
-static void btrcGtkKey(BtrcShimWindow* window, guint keyval, GdkModifierType state, int down) {
+static void btrcGtkKey(BtrcShimWindow* window, guint keyval, guint keycode, GdkModifierType state, int down) {
 	BtrcShimEvent event = {0};
 	guint lower = gdk_keyval_to_lower(keyval);
 	btrcGtkModifiers = btrcGtkModifiersOf(state);
@@ -456,6 +464,7 @@ static void btrcGtkKey(BtrcShimWindow* window, guint keyval, GdkModifierType sta
 	event.window = window->id;
 	event.key = btrcGtkKeyOf(lower);
 	event.scancode = btrcGtkScancodeOf(lower);
+	if (keycode != 0) { event.physicalSet = BTRC_SHIM_PHYSICAL_XKB; event.physicalCode = keycode; }
 	event.modifiers = btrcGtkModifiers;
 	event.down = down;
 	btrcGtkPush(&event, NULL);
@@ -467,16 +476,14 @@ static void btrcGtkKey(BtrcShimWindow* window, guint keyval, GdkModifierType sta
  * click that focuses a field is already here before that click is handled. */
 static gboolean btrcGtkOnKeyPressed(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
 	BtrcShimWindow* window = data;
-	(void)keycode;
-	btrcGtkKey(window, keyval, state, 1);
+	btrcGtkKey(window, keyval, keycode, state, 1);
 	gtk_im_context_filter_keypress(window->input, gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller)));
 	return TRUE;
 }
 
 static void btrcGtkOnKeyReleased(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
 	BtrcShimWindow* window = data;
-	(void)keycode;
-	btrcGtkKey(window, keyval, state, 0);
+	btrcGtkKey(window, keyval, keycode, state, 0);
 	gtk_im_context_filter_keypress(window->input, gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller)));
 }
 
@@ -633,7 +640,7 @@ BtrcShimWindow* btrcShimWindowCreate(const char* title, int width, int height) {
 	gtk_widget_realize(window->window);
 	btrcShimWindowSetSize(window, width, height);
 	gtk_im_context_set_client_widget(window->input, window->content);
-	if (!btrcGtkCreateSurface(window)) {
+	if (!btrcShimWindowSupportsSoftware(window) && !btrcGtkEnsureSurface(window)) {
 		g_object_unref(window->input);
 		gtk_window_destroy(GTK_WINDOW(window->window));
 		free(window);
@@ -769,6 +776,15 @@ unsigned long btrcGtkWindowX11Window(BtrcShimWindow* window) {
 #endif
 }
 
+bool btrcShimWindowSupportsSoftware(BtrcShimWindow* window) {
+#ifdef GDK_WINDOWING_WAYLAND
+	return GDK_IS_WAYLAND_DISPLAY(gtk_widget_get_display(window->window));
+#else
+	(void)window;
+	return false;
+#endif
+}
+
 bool btrcShimWindowShowsPictures(BtrcShimWindow* window) {
 #ifdef GDK_WINDOWING_X11
 	return window->xChild != 0;
@@ -811,15 +827,19 @@ unsigned char* btrcShimRasterizeText(const char* text, double pixelSize, bool bo
 	if (text == NULL || width == NULL || height == NULL || pixelSize <= 0.0) { g_strlcpy(btrcGtkFailure, "invalid text run", sizeof btrcGtkFailure); return NULL; }
 	PangoFontMap* fonts = pango_cairo_font_map_get_default();
 	PangoContext* context = pango_font_map_create_context(fonts);
-	PangoLayout* layout = pango_layout_new(context);
+	PangoLayout* layout = NULL;
 	PangoFontDescription* font = pango_font_description_from_string("Sans");
 	pango_font_description_set_absolute_size(font, pixelSize * PANGO_SCALE);
 	pango_font_description_set_weight(font, bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
-	pango_layout_set_font_description(layout, font);
-	pango_layout_set_text(layout, text, -1);
 	PangoRectangle ink;
 	PangoRectangle logical;
-	pango_layout_get_pixel_extents(layout, &ink, &logical);
+	BtrcGtkGlyphRun run = {0};
+	if (!btrcGtkShapeText(context, font, text, pixelSize, &run, &ink, &logical)) {
+		layout = pango_layout_new(context);
+		pango_layout_set_font_description(layout, font);
+		pango_layout_set_text(layout, text, -1);
+		pango_layout_get_pixel_extents(layout, &ink, &logical);
+	}
 	/* Wide enough for the advance and for ink that reaches past it; tall
 	 * enough for the line and for ink that reaches past that. */
 	int left = MIN(0, ink.x);
@@ -833,7 +853,11 @@ unsigned char* btrcShimRasterizeText(const char* text, double pixelSize, bool bo
 		cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_A8, drawnWidth, drawnHeight);
 		cairo_t* cairo = cairo_create(surface);
 		cairo_move_to(cairo, -left, (drawnHeight - (bottom - top)) / 2 - top);
-		pango_cairo_show_layout(cairo, layout);
+		if (layout != NULL) { pango_cairo_show_layout(cairo, layout); }
+		else {
+			cairo_rel_move_to(cairo, 0.0, (double)run.baseline / PANGO_SCALE);
+			pango_cairo_show_glyph_string(cairo, run.font, run.glyphs);
+		}
 		cairo_destroy(cairo);
 		cairo_surface_flush(surface);
 		pixels = cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS ? malloc((size_t)drawnWidth * (size_t)drawnHeight * 4u) : NULL;
@@ -854,7 +878,8 @@ unsigned char* btrcShimRasterizeText(const char* text, double pixelSize, bool bo
 	}
 	if (pixels == NULL) { g_strlcpy(btrcGtkFailure, "the text run cannot be drawn", sizeof btrcGtkFailure); }
 	pango_font_description_free(font);
-	g_object_unref(layout);
+	if (layout != NULL) { g_object_unref(layout); }
+	btrcGtkCloseRun(&run);
 	g_object_unref(context);
 	return pixels;
 }

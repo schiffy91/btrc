@@ -14,11 +14,7 @@ class ShimDirectoryPicker implements IDirectoryPicker {
 
 	public ShimDirectoryPicker(ShimWindow? parent, IShimDialogPump pump) { self._parent = parent; self._pump = pump; }
 
-	class DirectoryPickerOutcome modal(ShimWindow? parent, IShimDialogPump pump, DirectoryPickerRequest request) {
-		if (request == null || !request.isValid()) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request")); }
-		if (pump.isDispatching()) { throw "Native event dispatch is already active"; }
-		return DirectoryPickerProvider.choose(parent, pump, request, ShimDirectoryPicker(parent, pump));
-	}
+	class DirectoryPickerOutcome modal(ShimWindow? parent, IShimDialogPump pump, DirectoryPickerRequest request) { return DirectoryPickerProvider.choose(parent, pump, request, ShimDirectoryPicker(parent, pump)); }
 
 	public DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) {
 		if (request == null || !request.isValid()) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request")); }

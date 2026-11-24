@@ -1,0 +1,34 @@
+import Library.HTTP.HTTPClient;
+import Library.Strings;
+
+#include <assert.h>
+
+int main(int argc, char** argv) {
+	assert(argc == 3);
+	string origin = Strings.copy(argv[1]);
+	string wrongName = Strings.copy(argv[2]);
+	HTTPClient client = HTTPClient().timeout(3);
+	if (wrongName.equals("--proxy-only")) {
+		var proxied = client.get(origin + "/missing", []);
+		assert(proxied.status == 404 && proxied.body.equals("missing"));
+		print("PASS Apple HTTPS proxy");
+		return 0;
+	}
+	var post = client.post(origin + "/echo", ["X-Check: native"], "body with spaces");
+	assert(post.status == 201 && post.body.equals("native/body with spaces"));
+	var redirect = client.get(origin + "/redirect", []);
+	assert(redirect.status == 302);
+	var missing = client.get(origin + "/missing", []);
+	assert(missing.status == 404 && missing.body.equals("missing"));
+	client.maxResponseBytes = 4;
+	var large = client.get(origin + "/large", []);
+	assert(large.status == 0 && large.error.equals("response body is too large"));
+	client.maxResponseBytes = 1024;
+	var bad = client.get(wrongName + "/missing", []);
+	assert(bad.status == 0 && bad.error.equals("HTTPS request failed"));
+	client.timeout(1);
+	var slow = client.get(origin + "/slow", []);
+	assert(slow.status == 0 && slow.error.equals("request timed out"));
+	print("PASS Apple HTTPS");
+	return 0;
+}

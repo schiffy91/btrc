@@ -54,7 +54,12 @@ class WindowStateCase implements IConformanceCase {
 		if (Probe.windowSizing() != PROBE_WINDOW_SIZING_SCREEN_ALWAYS) {
 			int reported = log.states.length;
 			window.setContentSize(480.0, 300.0);
-			turns.settle();
+			/* The compositor acknowledges a mapped window's size asynchronously. */
+			long long resized = MonotonicClock.milliseconds();
+			while (MonotonicClock.milliseconds() - resized < 2000LL) {
+				turns.turn();
+				if (log.states.length > reported && window.contentWidth() == 480.0 && window.contentHeight() == 300.0 && log.states.get(log.states.length - 1).width == 480.0) { break; }
+			}
 			Expect.isTrue(window.contentWidth() == 480.0 && window.contentHeight() == 300.0, "a window takes the content size it is given");
 			Expect.isTrue(log.states.length > reported && log.states.get(log.states.length - 1).width == 480.0, "a new size is a state change");
 			Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 480.0, 300.0), "the root after the window was given another size");
@@ -156,6 +161,17 @@ class WindowKey implements IConformanceCase {
 		turns.settle();
 		Expect.isTrue(log.events.length >= 1, "a key reaches the window's handler");
 		Expect.isTrue(log.events.get(0).key == APP_KEY_ESCAPE && log.events.get(0).action == APP_KEY_PRESSED);
+		var physical = log.events.get(0).scanCode;
+		Expect.isTrue(physical != null, "a hardware key has a physical position");
+		if (physical == null) { throw "Missing physical Escape key"; }
+		var expected = 1;
+		if (physical.set == APP_SCAN_MAC_VIRTUAL) { expected = 53; }
+		else if (physical.set == APP_SCAN_USB_KEYBOARD) { expected = 41; }
+		else if (physical.set == APP_SCAN_XKB) { expected = 9; }
+		Expect.intEq((long long)physical.code, (long long)expected, "native Escape position");
+		Expect.isTrue(log.events.length >= 2 && log.events.get(1).action == APP_KEY_RELEASED, "the native key is released");
+		var released = log.events.get(1).scanCode;
+		Expect.isTrue(released != null && released.set == physical.set && released.code == physical.code, "key release retains its physical position");
 		Expect.isTrue(scope.cancel() == CALLBACK_CANCELLATION_COMPLETE);
 		int seen = log.events.length;
 		probe.key(PROBE_KEY_ESCAPE);

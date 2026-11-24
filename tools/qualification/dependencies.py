@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import re
 import struct
 import sys
@@ -54,6 +55,14 @@ C_LAUNCH = re.compile(r"\b(?:execl[pe]?|execv[pe]?|system|popen|_popen)\s*\(\s*L
 JAVA_IMPORT = re.compile(r"^[ \t]*import[ \t]+(?:static[ \t]+)?([A-Za-z_][\w.]*)\s*(?:\.\*)?;", re.MULTILINE)
 NOTICE = re.compile(r"Copyright\s+(?:\(c\)|©|[12][0-9]{3})|SPDX-License-Identifier", re.IGNORECASE)
 NOTICE_FILES = ("COPYRIGHT", "COPYING", "LICENSE", "LICENCE", "NOTICE")
+# The UCD generators emit an optional property enum and a single array of
+# integer pairs. Pinning a different C fragment alone cannot classify it as data.
+UNICODE_PROPERTY_TABLE = re.compile(
+    rb"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/\s+"
+    rb"(?:enum [A-Za-z]+ \{ [A-Z][A-Z0-9]*(?:, [A-Z][A-Z0-9]*)* \};\s+)?"
+    rb"static const struct \{ uint32_t first; uint(?:8|16)_t properties; \} [A-Za-z]+\[\] = \{\s*"
+    rb"(?:\{0x[0-9a-f]+, (?:0x[0-9a-f]+|[0-9]+)\},\s*)+\};\s*"
+)
 # A directory named for an operating system holds that system's code.
 DIRECTORY_SYSTEMS = {
     "linux": ("linux",),
@@ -76,6 +85,7 @@ class Requirement:
     kind: str
     name: str
     evidence: str
+    source: str = ""
 
     @property
     def operating_system(self) -> str:
@@ -101,8 +111,12 @@ class DependencyPolicy:
             if system not in self.supplied:
                 raise ValueError(f"{path}: no [supplied.{system}] table")
         self.exceptions = tuple(document.get("exceptions", ()))
+        self.feature_loads = {
+            (row["os"], row["source"], row["name"]): row["dependency"] for row in document.get("feature-loads", ())
+        }
         self.dependencies = tuple(document.get("dependencies", ()))
         self.bundled = tuple(document.get("bundled", ()))
+        self.standard_data = tuple(document.get("standard-data", ()))
         self.pending = tuple(document.get("pending", ()))
         self.decisions = tuple(document.get("decisions", ()))
         for row in self.pending:
@@ -141,8 +155,10 @@ class DependencyPolicy:
                 return row["name"]
         return name
 
-    def classify(self, system: str, kind: str, name: str) -> tuple[str, str]:
-        """(class, dependency): class is `os`, `exception` or `third-party`."""
+    def classify(self, system: str, kind: str, name: str, source: str = "") -> tuple[str, str]:
+        """Classify a requirement, including runtime loads confined to one source."""
+        if kind == "loads" and (dependency := self.feature_loads.get((system, source, name))):
+            return "feature", dependency
         if excepted := self.excepted(kind, name):
             return "exception", excepted
         if self.supplied_by(system, kind, name):
@@ -403,9 +419,9 @@ class DependencyAudit:
         bound_targets.update(self._selected(record))
         explicit.update(record.get("os", ()))
 
-    def _require(self, module: str, target: str, kind: str, name: str, evidence: str) -> Requirement:
-        _, dependency = self.policy.classify(target.split("-", 1)[0], kind, name)
-        return Requirement(module, target, dependency, kind, name, evidence)
+    def _require(self, module: str, target: str, kind: str, name: str, evidence: str, source: str = "") -> Requirement:
+        _, dependency = self.policy.classify(target.split("-", 1)[0], kind, name, source)
+        return Requirement(module, target, dependency, kind, name, evidence, source)
 
     def _conditional(self, system: str, kind: str, name: str, explicit: frozenset[str]) -> bool:
         """True for another system's name in a source several systems share.
@@ -447,7 +463,9 @@ class DependencyAudit:
                     system = target.split("-", 1)[0]
                     if self._conditional(system, kind, name, explicit):
                         continue
-                    found.extend(self._require(module, target, kind, name, f"{where} {verb} it") for module in modules)
+                    found.extend(
+                        self._require(module, target, kind, name, f"{where} {verb} it", where) for module in modules
+                    )
         if path.suffix in C_FAMILY:
             for name in LOCAL_INCLUDE.findall(text):
                 for base in (path.parent, self.runtime / "c", self.runtime / "windows", self.runtime / "gpu"):
@@ -460,16 +478,27 @@ class DependencyAudit:
         return found
 
     def _bundled(self) -> list[Requirement]:
-        """Source in the tree under someone else's copyright."""
+        """Attribute copyright notices and verify the exact copies of normative property data."""
         found: list[Requirement] = []
+        pins = {name: digest for entry in self.policy.standard_data for name, digest in entry["sha256"].items()}
         for base in (self.stdlib, self.runtime):
             for path in sorted(base.rglob("*")):
                 if not path.is_file() or path.suffix in (".md", ".toml", ".lock", ".symbols"):
                     continue
+                relative = path.relative_to(self.root).as_posix()
+                if relative in pins:
+                    expected = pins.pop(relative)
+                    data = path.read_bytes()
+                    if path.is_symlink() or hashlib.sha256(data).hexdigest() != expected:
+                        found.extend(self._data_problems(path, "differs from the reviewed property table or license"))
+                    elif path.name == "UNICODE-LICENSE.txt" and data.startswith(b"UNICODE LICENSE V3\n"):
+                        pass
+                    elif path.suffix != ".h" or not UNICODE_PROPERTY_TABLE.fullmatch(data):
+                        found.extend(self._data_problems(path, "is not a generated Unicode property table"))
+                    continue
                 noticed = path.name.upper().startswith(NOTICE_FILES) or NOTICE.search(path.read_text(errors="replace"))
                 if not noticed:
                     continue
-                relative = path.relative_to(self.root).as_posix()
                 row = next((row for row in self.policy.bundled if relative.startswith(row["path"])), None)
                 if row is None:
                     found.extend(
@@ -491,7 +520,16 @@ class DependencyAudit:
                     for module in row["modules"]
                     for label in self._selected(row)
                 )
+        for name in sorted(pins):
+            found.extend(self._data_problems(self.root / name, "reviewed property table or license is missing"))
         return found
+
+    def _data_problems(self, path: Path, evidence: str) -> list[Requirement]:
+        name = path.relative_to(self.root).as_posix()
+        return [
+            Requirement(self._name(path), target, f"unverified standards data {name}", "bundled", name, evidence)
+            for target in self._selected({}, self._path_systems(path))
+        ]
 
     # ── classification ─────────────────────────────────────────────────────
 
@@ -501,7 +539,7 @@ class DependencyAudit:
     def _class(self, item: Requirement) -> str:
         if item.kind == "bundled":
             return "third-party"
-        return self.policy.classify(item.operating_system, item.kind, item.name)[0]
+        return self.policy.classify(item.operating_system, item.kind, item.name, item.source)[0]
 
     def check(self) -> list[str]:
         """Problems, each naming module, target and dependency; empty when the policy holds."""
@@ -555,7 +593,8 @@ class DependencyAudit:
             "     tools/qualification/stdlib-dependencies.toml, not this file. -->",
             "",
             "The rule: a stdlib module requires first-party code and what its target's operating",
-            "system supplies. wgpu-native is the only third-party exception. `python -m",
+            "system supplies. wgpu-native is the only general third-party exception. Feature-specific",
+            "runtime loads are restricted to their recorded source and target. `python -m",
             "tools.qualification.dependencies check` enforces it on every manifest link record,",
             "every system header a native source or module includes, every literal run-time load",
             "and process launch, and every file that carries someone else's copyright notice. A",
@@ -567,7 +606,7 @@ class DependencyAudit:
         resolutions = {(row["dependency"], row["module"]): row["resolution"] for row in self.policy.pending}
         third = by_class.get("third-party", {})
         if not third:
-            lines += ["None. wgpu-native is the sole third-party requirement.", ""]
+            lines += ["None.", ""]
         else:
             lines += [
                 "| Dependency | Module | Targets | How it is required | Replacement |",
@@ -580,21 +619,33 @@ class DependencyAudit:
                     f"{resolutions.get((dependency, module), '**unlisted**')} |"
                 )
             lines.append("")
+        if self.policy.standard_data:
+            lines += ["## Standards data used by first-party implementations", ""]
+            for entry in self.policy.standard_data:
+                lines += [f"- {entry['name']}. {entry['description']} [Upstream data]({entry['source']})"]
+                for name in sorted(entry["sha256"]):
+                    lines += [f"  - `{name}`"]
+            lines.append("")
         lines += ["## Owner decisions", ""]
         if not self.policy.decisions:
             lines += ["None open.", ""]
         for row in self.policy.decisions:
             lines += [f"### {row['title']}", "", row["text"].strip(), ""]
-        lines += [
-            "## The exception",
-            "",
-            "| Dependency | Module | Targets | How it is required |",
-            "| --- | --- | --- | --- |",
-        ]
-        for (dependency, module), systems in sorted(by_class.get("exception", {}).items()):
-            how = sorted({entry for entries in systems.values() for entry in entries})
-            lines.append(f"| {dependency} | `{module}` | {', '.join(sorted(systems))} | {'; '.join(how)} |")
-        lines += ["", "## What each operating system supplies, as the stdlib uses it", ""]
+        for classification, heading in (("exception", "The exception"), ("feature", "Feature-specific runtime loads")):
+            groups = by_class.get(classification, {})
+            if classification == "feature" and not groups:
+                continue
+            lines += [
+                f"## {heading}",
+                "",
+                "| Dependency | Module | Targets | How it is required |",
+                "| --- | --- | --- | --- |",
+            ]
+            for (dependency, module), systems in sorted(groups.items()):
+                how = sorted({entry for entries in systems.values() for entry in entries})
+                lines.append(f"| {dependency} | `{module}` | {', '.join(sorted(systems))} | {'; '.join(how)} |")
+            lines.append("")
+        lines += ["## What each operating system supplies, as the stdlib uses it", ""]
         used: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
         for item in requirements:
             if self._class(item) == "os" and item.kind != "headers":

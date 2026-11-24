@@ -257,6 +257,60 @@ coalesced, overflow latched and reported by `take()` after native dispatch,
 matched by `button.matches(action)`; close buttons before their queue. `MacOSScrollView` keeps AppKit's unflipped coordinates for native
 document children while its public offsets count down from the top.
 
+## Native Wayland preview on Linux
+
+Applications can opt into the first-party Wayland backend at build time. The
+same source imports `Library.GUI` and uses the usual window, view, and action
+interfaces. From a checkout with the compiler and wgpu-native SDK available:
+
+```sh
+python -m tools.ui.build_wayland_preview examples/gui/Wayland.btrc -o /tmp/btrc-wayland
+/tmp/btrc-wayland
+```
+
+Pass `--compiler /path/to/btrcc` to use the self-hosted compiler. Run the
+executable inside a Wayland session. The example mounts a label and a button
+on a panel. Clicking Quit dispatches its registered action and closes the
+window. The preview shapes printable Latin text in supported TrueType fonts.
+Noto Sans Regular is verified for this example. If the configured desktop
+sans face cannot be opened or shaped, control creation can fail. To select
+Noto Sans for just this application, point `FONTCONFIG_FILE` to a font
+configuration such as the following, using the directory where Noto Sans is
+installed on your system.
+
+```xml
+<fontconfig>
+  <dir>/usr/share/fonts/truetype/noto</dir>
+  <alias><family>sans-serif</family><prefer><family>Noto Sans</family></prefer></alias>
+</fontconfig>
+```
+
+`GUI.chooseDirectory` opens the desktop portal’s folder chooser. A compositor with
+xdg-foreign can parent the dialog to the application window. If the desktop has
+no directory portal the preview returns a backend-unavailable error.
+
+The unchanged `examples/gui/Native.btrc` also runs through the same command.
+It uses a text field and two buttons. Editing the draft and activating Apply
+changes the real window title. Text fields support grapheme-aware selection,
+deletion and undo. The current Latin renderer has limited font and script
+coverage. The preview supports keyed selection menus through `GUI.createSelect()`.
+A click or Return opens the menu. Arrow keys move between enabled options,
+Return commits the choice, and Escape cancels. Long lists accept wheel input.
+A window can show a parented modal alert with `IWindow.showAlert()`. The call
+returns after the user dismisses the dialog. Long messages accept wheel and
+keyboard scrolling. The preview uses software rendering for these controls.
+
+`GUI.rasterizeText` returns a caller-owned, white RGBA image with the glyph
+coverage in its alpha channel. It uses the same configured regular or bold
+face as the controls. The native text renderer handles printable ASCII,
+precomposed Latin-1 letters, nonbreaking space and ellipsis. A run that needs
+another script or an unavailable glyph reports a rendering error.
+
+Applications that need embedded web views, desktop accessibility, or shared-frame
+views should use the default Linux GUI build. Embedded web views report the unavailable operation.
+Shared-frame creation returns its usual unavailable result. Runtime backend
+selection is fixed when the application is built.
+
 ## The shim provider, and GTK4 on Linux
 
 `Shim/GUIProvider` is selected for `linux` targets. Everything in `Shim/` is
@@ -526,6 +580,8 @@ surface.setFont(FreeType.load("/path/to/font.ttf", 18));
 ```
 
 `.pcf` and gzip-compressed `.pcf.gz` files at their stored pixel size use BTRC's PCF reader. It preserves the fixed strike's native bearings, widths, bitmap row padding, bit order and default glyph. Bitmap-only TrueType files with a horizontal CBDT/CBLC color strike also use a first-party reader at the strike size. It decodes the embedded PNG into the existing grayscale coverage API. Mixed strike formats and unsupported sizes continue through the native FreeType provider.
+
+Name-keyed CFF1 OpenType files support first-party measurement and grayscale rendering of line and cubic outlines with vertical stems, and one horizontal stem when its scaled width splits evenly in 16.16 coordinates. The horizontal stem may lie outside alignment zones or start on the flat baseline at zero at 1–128 pixels per em. The renderer accepts whole design-unit coordinates, a standard 1000-unit em and the default fill matrix. Glyphs requiring overlapping hint adjustment, other blue-zone capture, mask changes, composites or flex operators use the retained native face.
 
 Standalone, non-variable `.ttf`, `.woff` and `.woff2` files containing TrueType outlines and grid-fitting bytecode use BTRC's outline reader, hint interpreter and grayscale rasterizer. The web-font containers use the first-party zlib and Brotli decoders. The current reader accepts a single Unicode character map and axis-aligned hint programs. Fonts declaring general-vector instructions in their font or size programs use FreeType from the start. An unsupported glyph instruction switches the face to FreeType using its original font bytes, even after the source path changes. Fonts that require automatic hinting continue through FreeType at open.
 

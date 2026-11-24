@@ -186,6 +186,19 @@ static bool tap(uint32_t keysym, uint32_t modifiers) {
     return roundtrip();
 }
 
+/* A held key, unlike a tap, lets the client act on the compositor's repeat
+ * interval. Used by the native Wayland keyboard qualification. */
+bool realInputWaylandHoldReturn(void) {
+    int key = keyFor(NAMED_KEY | 0xff0d);
+    if (!key) { return false; }
+    zwp_virtual_keyboard_v1_key(wl.keyboard, now(), (uint32_t)key, WL_KEYBOARD_KEY_STATE_PRESSED);
+    if (!roundtrip()) { return false; }
+    struct timespec hold = {.tv_sec = 2};
+    nanosleep(&hold, NULL);
+    zwp_virtual_keyboard_v1_key(wl.keyboard, now(), (uint32_t)key, WL_KEYBOARD_KEY_STATE_RELEASED);
+    return roundtrip();
+}
+
 static bool waylandMove(double x, double y) {
     zwlr_virtual_pointer_v1_motion_absolute(wl.pointer, now(), (uint32_t)(x < 0 ? 0 : x), (uint32_t)(y < 0 ? 0 : y), (uint32_t)wl.width, (uint32_t)wl.height);
     zwlr_virtual_pointer_v1_frame(wl.pointer);

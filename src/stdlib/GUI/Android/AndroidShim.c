@@ -165,6 +165,10 @@ JNIEXPORT void JNICALL Java_dev_btrc_shim_Shim_push(JNIEnv* env, jclass class, j
 	event.data1 = data1;
 	event.data2 = data2;
 	event.down = down;
+	if (type == BTRC_SHIM_EVENT_KEY_DOWN || type == BTRC_SHIM_EVENT_KEY_UP) {
+		if (data1 > 0) { event.physicalSet = BTRC_SHIM_PHYSICAL_EVDEV; event.physicalCode = (unsigned int)data1; }
+		event.repeat = down && data2 > 0;
+	}
 	event.value = value;
 	const char* characters = text == NULL ? NULL : (*env)->GetStringUTFChars(env, text, NULL);
 	btrcAndroidPush(&event, characters);
@@ -407,6 +411,8 @@ void btrcShimWindowShowMessage(BtrcShimWindow* window, const char* title, const 
 }
 
 /* Frames are presented on the window's surface, never as pictures. */
+bool btrcShimWindowSupportsSoftware(BtrcShimWindow* window) { (void)window; return false; }
+
 bool btrcShimWindowShowsPictures(BtrcShimWindow* window) { (void)window; return false; }
 
 void btrcShimWindowShowPicture(BtrcShimWindow* window, const unsigned char* pixels, int pixelWidth, int pixelHeight) {
@@ -660,6 +666,7 @@ void btrcShimControlDestroy(BtrcShimControl* control) {
 	free(control->items);
 	free(control->itemEnabled);
 	free(control->shapes);
+	if (control->release) { control->release(control->extension); }
 	free(control);
 }
 

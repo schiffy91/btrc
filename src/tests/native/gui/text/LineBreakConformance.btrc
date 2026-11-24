@@ -1,0 +1,39 @@
+#include <assert.h>
+
+int main(int argc, char** argv) {
+	if (argc != 2) { return 2; }
+	FILE* file = fopen(argv[1], "rb");
+	if (file == null) { return 2; }
+	unsigned char header[2];
+	unsigned char text[8192];
+	unsigned char expected[8193];
+	int cases = 0;
+	while (fread(header, (size_t)1, (size_t)2, file) == (size_t)2) {
+		int length = (int)header[0] * 256 + (int)header[1];
+		assert(length <= 8192);
+		assert(fread(text, (size_t)1, (size_t)length, file) == (size_t)length);
+		assert(fread(expected, (size_t)1, (size_t)(length + 1), file) == (size_t)(length + 1));
+		BtrcLineBreaks breaks = {};
+		assert((int)btrcLineBreaks((char*)text, (size_t)length, &breaks) == 0);
+		int index = 0;
+		for (int at = 0; at <= length; at++) {
+			if (expected[at] == 0) { continue; }
+			assert((size_t)index < breaks.count);
+			assert(breaks.items[index].byteOffset == (uint)at);
+			assert(breaks.items[index].mandatory == (expected[at] == 2));
+			index++;
+		}
+		assert((size_t)index == breaks.count);
+		btrcLineBreakDestroy(&breaks);
+		cases++;
+	}
+	assert(!ferror(file));
+	fclose(file);
+	assert(cases == 19339);
+	BtrcLineBreaks invalid = {};
+	char malformed[2] = {(char)0xc0, (char)0x80};
+	assert((int)btrcLineBreaks(malformed, (size_t)2, &invalid) == 1);
+	assert(invalid.count == (size_t)0 && invalid.items == null);
+	btrcLineBreakDestroy(&invalid);
+	return 0;
+}

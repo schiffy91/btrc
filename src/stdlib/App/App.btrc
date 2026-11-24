@@ -156,12 +156,32 @@ enum AppKeyCode {
 	APP_KEY_RIGHT_BRACKET = 27
 };
 
+/* Physical key identity supplied by the host. XKB uses the hardware keycode
+ * reported by GDK. AT set 1 includes the E0/E1 prefix in the high byte.
+ * USB usages refer to the keyboard/keypad page (0x07). */
+enum AppScanCodeSet {
+	APP_SCAN_MAC_VIRTUAL,
+	APP_SCAN_XKB,
+	APP_SCAN_AT_SET1,
+	APP_SCAN_USB_KEYBOARD,
+	APP_SCAN_LINUX_EVDEV
+};
+
+class AppScanCode {
+	public AppScanCodeSet set;
+	public int code;
+	public AppScanCode(AppScanCodeSet set, int code) { self.set = set; self.code = code; }
+}
+
 class AppKeyboardEvent {
 	public AppKeyAction action;
 	public AppKeyCode key;
 	public AppKeyModifiers modifiers;
 
-	public AppKeyboardEvent(AppKeyAction action, AppKeyCode key, AppKeyModifiers modifiers) {
+	public AppScanCode? scanCode;
+
+	public AppKeyboardEvent(AppKeyAction action, AppKeyCode key, AppKeyModifiers modifiers, AppScanCode? scanCode = null) {
+		self.scanCode = scanCode;
 		self.action = action;
 		self.key = key;
 		self.modifiers = modifiers;

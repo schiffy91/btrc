@@ -1,0 +1,99 @@
+import Library.Bytes;
+import Library.FileSystem.FileSystemHandles;
+import Library.GUI.IFontFace;
+
+import ./CFFGlyphs.btrc;
+import ./GlyphOutline.btrc;
+import ./OpenTypeCharacterMap.btrc;
+import ./OpenTypeHorizontalMetrics.btrc;
+import ./OpenTypeLineMetrics.btrc;
+import ./SFNTDirectory.btrc;
+
+/* SFNT supplies the advance. Integral Type 2 paths with supported device hints can be
+ * rendered in device space. Other visible glyphs use the retained face. */
+class CFFMeasuredFace implements IFontFace {
+	public Bytes source;
+	private long long scale;
+	private bool visibleSize;
+	private FontMetrics lineMetrics;
+	private OpenTypeHorizontalMetrics horizontal;
+	private OpenTypeCharacterMap characters;
+	private CFFGlyphs outlines;
+
+	class CFFMeasuredFace? tryOpen(string path, int pixels) {
+		if (path == null || pixels < 1 || pixels > 65535 || !path.toLower().endsWith(".otf")) { return null; }
+		char* properties = getenv("FREETYPE_PROPERTIES");
+		if (properties != null && properties[0] != 0) { return null; }
+		try {
+			var opened = RegularFileSnapshot.open(path, 16777216LL);
+			if (!opened.ok()) { return null; }
+			var file = opened.value();
+			var read = file.readExactAt(0LL, (int)file.size());
+			file.close();
+			if (!read.ok()) { return null; }
+			return new CFFMeasuredFace(read.value(), pixels);
+		} catch (string error) { return null; }
+	}
+
+	public CFFMeasuredFace(Bytes bytes, int pixels) {
+		self.source = bytes;
+		var data = OpenTypeData(bytes);
+		var dir = SFNTDirectory(data, 0, true);
+		if (data.u32(0) != 0x4f54544fLL) { throw "Not an OpenType PostScript face"; }
+		// Embedded strikes, variations and alternate outline technologies
+		// may change metrics at the selected size.
+		string known = "CFF cmapheadhheahmtxmaxpnameOS/2postgaspGDEFGPOSGSUBkernDSIGPCLT";
+		for (int i = 0; i < dir.count; i++) {
+			bool accepted = false;
+			for (int j = 0; j < known.length(); j += 4) {
+				long long tag = 0LL;
+				for (int k = 0; k < 4; k++) { tag = tag * 256LL + (long long)known[j + k]; }
+				if (tag == dir.tag(i)) { accepted = true; break; }
+			}
+			if (!accepted) { throw "Unsupported table in measured CFF face"; }
+		}
+		var head = dir.required(0x68656164LL, 54);
+		int units = data.u16(head.offset + 18);
+		if (data.u32(head.offset) != 0x10000LL || data.u32(head.offset + 12) != 0x5f0f3cf5LL) { throw "Invalid OpenType font header"; }
+		var maxp = dir.required(0x6d617870LL, 6);
+		int count = data.u16(maxp.offset + 4);
+		if (units < 16 || units > 16384 || count == 0 || data.u32(maxp.offset) != 20480LL) { throw "Invalid CFF font metrics"; }
+		var hhea = dir.required(0x68686561LL, 36);
+		if (data.u32(hhea.offset) != 0x10000LL || data.s16(hhea.offset + 32) != 0) { throw "Unsupported CFF horizontal metric format"; }
+		int full = data.u16(hhea.offset + 34);
+		if (full < 1 || full > count) { throw "Invalid CFF horizontal metrics"; }
+		self.horizontal = OpenTypeHorizontalMetrics(data, dir.required(0x686d7478LL, 4 * full + 2 * (count - full)), full);
+		self.visibleSize = units == 1000 && pixels <= 128;
+		self.scale = OpenTypeFixed.div((long long)pixels * 64LL, (long long)units);
+		self.lineMetrics = OpenTypeLineMetrics.scaled(data, dir, hhea, self.scale);
+		var map = dir.required(0x636d6170LL, 4);
+		self.characters = OpenTypeCharacterMap(data, map, count);
+		if (!self.characters.preferredBMPMap(map)) { throw "Unsupported CFF Unicode map"; }
+		self.outlines = CFFGlyphs(data, dir.required(0x43464620LL, 4));
+		if (self.outlines.glyphCount() != count) { throw "CFF charstring count disagrees with maxp"; }
+	}
+
+	public FontMetrics metrics() { return self.lineMetrics; }
+
+	public FontGlyph? glyph(int scalar, bool render) {
+		if (scalar < 0 || scalar > 0x10ffff || (scalar >= 0xd800 && scalar <= 0xdfff)) { throw "Invalid font Unicode scalar"; }
+		try {
+			int glyph = self.characters.glyphIndex(scalar);
+			var path = GlyphOutline();
+			bool visible = self.outlines.load(glyph, self.scale, path, render);
+			long long advance = OpenTypeFixed.pixelRound(OpenTypeFixed.mul((long long)self.horizontal.advance(glyph), self.scale));
+			if (render && !visible) { return null; }
+			if (render && !path.isEmpty()) {
+				if (!self.visibleSize) { return null; }
+				int first = 0;
+				for (int contour = 0; contour < path.contourCount(); contour++) {
+					int last = path.contourEnd(contour);
+					if (last - first < 2) { return null; }
+					first = last + 1;
+				}
+				return path.rasterize(advance, true);
+			}
+			return new FontGlyph(advance, 0, 0, 0, 0, 0, render ? FONT_PIXEL_GRAY : FONT_PIXEL_UNSUPPORTED, render ? 256 : 0, new Bytes());
+		} catch (string error) { return null; }
+	}
+}

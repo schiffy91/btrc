@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urljoin
 from xml.dom import minidom
 
 import pytest
@@ -29,6 +30,15 @@ from tools.target_hosts.android.sdk import SDKVersions
 
 REPO = Path(__file__).resolve().parents[3]
 ANDROID = REPO / "tools/target_hosts/android"
+
+
+def test_16k_arm_image_archive_resolves_against_the_google_apis_feed():
+    # The SDK package tag differs from the directory that serves its feed.
+    feed = "https://dl.google.com/android/repository/sys-img/google_apis/sys-img2-3.xml"
+    images = json.loads((REPO / "nix/android-repo-overlay.json").read_text())["images"]
+    for archive in images["36"]["page_size_16kb"]["arm64-v8a"]["archives"]:
+        url = archive["url"]
+        assert url == urljoin(feed, url.rsplit("/", 1)[1])
 
 
 def test_sdkmanager_package_list_uses_the_integrator_pins():

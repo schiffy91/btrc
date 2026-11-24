@@ -8,7 +8,8 @@ import Library.Timer;
 
 class PortalTestHost implements IApplicationHost {
 	public bool requestTurn() { return true; }
-	public void scheduleTurn(unsigned long long deadline) { }
+
+	public void scheduleTurn(unsigned long long deadline) {}
 }
 
 int main() {

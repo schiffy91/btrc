@@ -3,7 +3,7 @@ import Library.GUI.IFontFace;
 import Library.Strings;
 import Library.Vector;
 
-/* Adobe BDF 2.1 monochrome Unicode strikes. Other encodings, vertical
+/* Adobe BDF 2.1 monochrome strikes. Unsupported encodings, vertical
  * metrics and multibit strikes continue through the configured font SDK. */
 class BDFReader {
 	private Bytes source;
@@ -48,6 +48,7 @@ class BDFFace implements IFontFace {
 	private Vector<int> codes = [];
 	private Vector<FontGlyph> glyphs = [];
 	private int missing = -1;
+	private bool glyphIndices = false;
 	private FontMetrics lineMetrics;
 
 	class BDFFace? tryOpen(string path, int pixelSize) {
@@ -84,13 +85,11 @@ class BDFFace implements IFontFace {
 			else if (row.startsWith("FONT_DESCENT ")) { descent = input.numbers(row, "FONT_DESCENT", 1).get(0); }
 			else if (row.startsWith("PIXEL_SIZE ")) { pixels = input.numbers(row, "PIXEL_SIZE", 1).get(0); }
 			else if (row.startsWith("DEFAULT_CHAR ")) { defaultCode = input.numbers(row, "DEFAULT_CHAR", 1).get(0); }
-			else if (row.startsWith("CHARSET_REGISTRY ")) { registry = row; }
-			else if (row.startsWith("CHARSET_ENCODING ")) { encoding = row; }
+			else if (row.startsWith("CHARSET_REGISTRY ")) { registry = self.propertyString(row); }
+			else if (row.startsWith("CHARSET_ENCODING ")) { encoding = self.propertyString(row); }
 		}
 		if (!input.record().equals("ENDPROPERTIES") || pixels != pixelSize || pixels < 1 || pixels > 2048) { throw "Unavailable BDF strike"; }
-		bool unicodeOrLatin1 = registry.equals("CHARSET_REGISTRY \"ISO10646\"") || registry.equals("CHARSET_REGISTRY \"ISO8859\"");
-		bool ascii = registry.equals("CHARSET_REGISTRY \"ISO646.1991\"") && encoding.equals("CHARSET_ENCODING \"IRV\"");
-		if (!ascii && !(unicodeOrLatin1 && encoding.equals("CHARSET_ENCODING \"1\""))) { throw "Unsupported BDF encoding"; }
+		self.glyphIndices = self.usesGlyphIndices(registry, encoding);
 		if (ascent < 0 || ascent > 32767 || descent < 0 || descent > 32767) { throw "Invalid BDF line metrics"; }
 		self.lineMetrics = new FontMetrics((long long)ascent * 64LL, (long long)(ascent + descent) * 64LL);
 		int count = input.numbers(input.record(), "CHARS", 1).get(0);
@@ -99,14 +98,34 @@ class BDFFace implements IFontFace {
 		for (int i = 0; i < count; i++) {
 			if (!input.record().startsWith("STARTCHAR ")) { throw "Missing BDF glyph name"; }
 			int code = input.numbers(input.record(), "ENCODING", 1).get(0);
+			var bitmap = self.readGlyph(input);
+			if (code == -1) {
+				if (self.glyphIndices) { throw "Unsupported unencoded BDF glyph index"; }
+				continue;
+			}
 			if (code <= previous || code > 0x10ffff) { throw "Unsupported BDF encoding order"; }
 			previous = code;
 			self.codes.push(code);
-			self.glyphs.push(self.readGlyph(input));
-			if (code == defaultCode) { self.missing = i; }
+			self.glyphs.push(bitmap);
+			if (code == defaultCode) { self.missing = self.glyphs.len - 1; }
 		}
 		if (defaultCode < 0) { self.missing = 0; }
-		if (self.missing < 0 || !input.record().equals("ENDFONT")) { throw "Incomplete BDF font"; }
+		if (self.glyphs.len == 0 || self.missing < 0 || !input.record().equals("ENDFONT")) { throw "Incomplete BDF font"; }
+	}
+
+	private string propertyString(string record) {
+		int first = record.find("\"", 0);
+		if (first < 0 || first == record.len() - 1 || !record.endsWith("\"")) { throw "Invalid BDF charset property"; }
+		return record.substring(first + 1, record.len() - first - 2);
+	}
+
+	/* FreeType maps Unicode, Latin-1 and IRV character codes directly. With
+	 * no selected character map, FT_Load_Char treats the input as a glyph index. */
+	private bool usesGlyphIndices(string registry, string encoding) {
+		if (encoding.equals("1") && (registry.equals("ISO10646") || registry.equals("ISO8859"))) { return false; }
+		if (encoding.equals("IRV") && registry.equals("ISO646.1991")) { return false; }
+		if (encoding.equals("0") && (registry.equals("KSC5601.1987") || registry.equals("GB2312.1980") || registry.equals("JISX0208.1983") || registry.equals("JISX0201.1976") || registry.equals("FontSpecific"))) { return true; }
+		throw "Unsupported BDF encoding";
 	}
 
 	private FontGlyph readGlyph(BDFReader input) {
@@ -118,16 +137,17 @@ class BDFFace implements IFontFace {
 		int left = box.get(2);
 		int bottom = box.get(3);
 		int advance = device.get(0);
-		if (width < 1 || width > 2048 || height < 1 || height > 2048 || left < -32768 || left > 32767 || bottom < -32768 || bottom + height > 32767) { throw "Unsupported BDF glyph bounds"; }
+		if (width < 0 || width > 2048 || height < 0 || height > 2048 || left < -32768 || left > 32767 || bottom < -32768 || bottom + height > 32767) { throw "Unsupported BDF glyph bounds"; }
 		if (advance < 0 || advance > 32767 || device.get(1) != 0 || !input.record().equals("BITMAP")) { throw "Unsupported BDF advance"; }
 		int pitch = (width + 7) / 8;
 		var bitmap = new Bytes();
 		for (int y = 0; y < height; y++) {
 			string row = input.line();
-			if (row.len() != pitch * 2) { throw "Invalid BDF row length"; }
+			if (row.len() > pitch * 2 || row.len() % 2 != 0) { throw "Invalid BDF row length"; }
 			var decoded = Bytes.fromHex(row);
-			if (decoded == null || decoded.length() != pitch) { throw "Invalid BDF bitmap"; }
+			if (decoded == null) { throw "Invalid BDF bitmap"; }
 			bitmap.appendBytes(decoded);
+			for (int i = decoded.length(); i < pitch; i++) { bitmap.append(0); }
 		}
 		if (!input.record().equals("ENDCHAR")) { throw "Unterminated BDF glyph"; }
 		return new FontGlyph((long long)advance * 64LL, left, bottom + height, width, height, pitch, FONT_PIXEL_MONO, 0, bitmap);
@@ -137,13 +157,20 @@ class BDFFace implements IFontFace {
 
 	public FontGlyph? glyph(int code, bool render) {
 		if (code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) { throw "Invalid font Unicode scalar"; }
-		int lo = 0;
-		int hi = self.codes.len;
-		while (lo < hi) {
-			int mid = lo + (hi - lo) / 2;
-			if (self.codes.get(mid) < code) { lo = mid + 1; } else { hi = mid; }
+		int selected = self.missing;
+		if (self.glyphIndices) {
+			if (code > self.glyphs.len) { return null; }
+			if (code > 0) { selected = code - 1; }
+		} else {
+			int lo = 0;
+			int hi = self.codes.len;
+			while (lo < hi) {
+				int mid = lo + (hi - lo) / 2;
+				if (self.codes.get(mid) < code) { lo = mid + 1; } else { hi = mid; }
+			}
+			if (lo < self.codes.len && self.codes.get(lo) == code) { selected = lo; }
 		}
-		var glyph = self.glyphs.get(lo < self.codes.len && self.codes.get(lo) == code ? lo : self.missing);
+		var glyph = self.glyphs.get(selected);
 		if (render) { return glyph; }
 		return new FontGlyph(glyph.advanceFixed(), 0, 0, 0, 0, 0, FONT_PIXEL_UNSUPPORTED, 0, new Bytes());
 	}

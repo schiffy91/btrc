@@ -243,11 +243,17 @@ class GUIAppRunner:
         return f"/data/user/0/{self.package}/files/{name}"
 
     def file(self, name):
-        result = self.within(f"if [ -e files/{name} ]; then cat files/{name}; else exit 42; fi", check=False)
+        read = f"if [ -e files/{name} ]; then cat files/{name}; else exit 42; fi"
+        result = self.within(read, check=False)
+        if result.returncode == 1 and (result.stderr + result.stdout).strip() in (b"", b"error: closed"):
+            # adbd sometimes closes a shell during cold launch. Reading the same file is safe to retry.
+            time.sleep(0.1)
+            result = self.within(read, check=False)
         if result.returncode == 42:
             return None
         if result.returncode:
-            raise RuntimeError(f"cannot read the app's {name}: {result.stderr.decode(errors='replace')}")
+            detail = (result.stderr or result.stdout).decode(errors="replace")
+            raise RuntimeError(f"cannot read the app's {name} (adb exit {result.returncode}): {detail}")
         return result.stdout
 
     def front(self):
@@ -286,9 +292,6 @@ class GUIAppRunner:
             time.sleep(0.5)
         return False
 
-    def running(self):
-        return bool(self.adb("shell", "pidof", self.package, check=False).stdout.strip())
-
     def run(self, arguments=(), environment=None, timeout=180):
         """(exit status or None, stdout, stderr): None when the program crashed or ran out of time."""
         values = [f"{key}={value}" for key, value in (environment or {}).items()] + ["--", *arguments]
@@ -305,20 +308,15 @@ class GUIAppRunner:
         else:
             self.adb("shell", "am", "start", "-n", f"{self.package}/{ACTIVITY}", "--esa", "arguments", joined)
         deadline = time.monotonic() + timeout
-        status, started = None, False
+        status = None
+        # During a cold start pidof can briefly lose the app while its activity is still launching.
         while time.monotonic() < deadline:
             payload = self.file("exit.txt")
             if payload is not None and payload.strip():
                 status = int(payload)
                 break
-            alive = self.running()
-            started = started or alive
-            if started and not alive and self.file("exit.txt") is None:
-                break
             time.sleep(0.1)
         front = self.front()
-        self.adb("shell", "am", "force-stop", self.package)
-        self.clear_foreground()
         stdout = (self.file("stdout.txt") or b"").decode(errors="replace")
         stderr = (self.file("stderr.txt") or b"").decode(errors="replace")
         if status != 0:
@@ -330,4 +328,10 @@ class GUIAppRunner:
                 "" if settled else "the launcher never had the focus before it started\n"
             )
             stderr += crash.stdout.decode(errors="replace")
+            if status is None:
+                stderr += f"no exit status after {timeout} seconds\n"
+                history = self.adb("shell", "dumpsys", "activity", "exit-info", self.package, check=False)
+                stderr += history.stdout.decode(errors="replace")
+        self.adb("shell", "am", "force-stop", self.package)
+        self.clear_foreground()
         return status, stdout, stderr

@@ -1,0 +1,21 @@
+import Library.Vector;
+
+/* One positioned glyph in design units. cluster is a byte offset into the
+ * original UTF-8 line, even after substitution combines several characters. */
+class LayoutGlyph {
+	public int id;
+	public int cluster;
+	public int advance = 0;
+	public int xOffset = 0;
+	public int yOffset = 0;
+
+	public LayoutGlyph(int id, int cluster) { self.id = id; self.cluster = cluster; }
+}
+
+class LayoutGlyphRun {
+	public Vector<LayoutGlyph> glyphs = [];
+	public int unitsPerEm;
+	public bool legacyPositioned = false;
+
+	public LayoutGlyphRun(int unitsPerEm) { self.unitsPerEm = unitsPerEm; }
+}

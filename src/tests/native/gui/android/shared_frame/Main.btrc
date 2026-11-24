@@ -1,0 +1,52 @@
+import Library.Callback;
+import Library.Console;
+import Library.FileSystem;
+import Library.GUI;
+import Library.GUI.SharedFrameView;
+import Library.Platform;
+import Library.Timer;
+
+class AwaitCapture implements IApplicationWork {
+	private long long deadline = MonotonicClock.deadlineAfter(30000);
+	public bool captured = false;
+
+	public void run() {
+		self.captured = FileSystem.isFile("frame-captured");
+		if (self.captured || !MonotonicClock.before(self.deadline)) { GUI.requestQuit(); }
+		else { GUI.postAfter(0.05, self); }
+	}
+}
+
+int main() {
+	var pid = acceptFramePeer();
+	if (pid <= 0) { throw "Cannot connect to frame producer"; }
+	GUI.initialize();
+	try {
+		var window = GUI.createWindow("Shared frame", 300.0, 200.0);
+		var root = GUI.createContainer();
+		window.attachRoot(root);
+		var view = SharedFrameView.create();
+		root.attach(view);
+		view.arrange(40.0, 80.0, 192.0, 96.0);
+		window.show();
+		var stranger = view.listen(Platform.pid());
+		if (submitFrame(stranger.address(), 64, 1) != 1 || view.presentPending()) { throw "Wrong producer accepted"; }
+		var first = view.listen(pid);
+		if (first.transport() != "ahardwarebuffer" || submitFrame(first.address(), 64, 0) != 1 || view.presentPending()) { throw "Wrong frame format accepted"; }
+		if (submitFrame(first.address(), 32, 1) != 1 || !view.presentPending() || view.frameWidth() != 32 || view.frameHeight() != 16) { throw "First frame was not presented"; }
+		if (submitFrame(first.address(), 64, 1) != 1 || !view.presentPending() || view.frameWidth() != 64 || view.frameHeight() != 32 || view.presentPending()) { throw "Resize failed"; }
+		view.disconnect();
+		if (view.frameWidth() != 0 || view.frameHeight() != 0) { throw "Disconnected view retained the frame"; }
+		var next = view.listen(pid);
+		if (next.address() == first.address() || submitFrame(first.address(), 64, 1) != 0) { throw "Old endpoint survived reconnect"; }
+		if (submitFrame(next.address(), 64, 2) != 1 || !view.presentPending()) { throw "Cannot present after reconnect"; }
+		closeFramePeer();
+		if (!FileSystem.writeText("frame-ready", "1")) { throw "Cannot signal the screen capture"; }
+		var watch = AwaitCapture();
+		GUI.post(watch);
+		GUI.run();
+		if (!watch.captured) { throw "Screen capture timed out"; }
+		Console.log("Shared frame captured after producer exit");
+	} finally { closeFramePeer(); GUI.close(); }
+	return 0;
+}

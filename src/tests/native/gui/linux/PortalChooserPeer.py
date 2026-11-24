@@ -114,12 +114,12 @@ def main():
     loop.run()
 
 
-def drive_gui(program):
+def drive_gui(*program):
     env = {**os.environ, "BTRC_PORTAL_TEST": "public"}
     with subprocess.Popen([sys.executable, __file__, "public"], env=env, stdout=subprocess.PIPE, text=True) as peer:
         try:
             assert peer.stdout.readline().strip() == "ready"
-            result = subprocess.run([program], env=env, check=True, capture_output=True, text=True, timeout=12)
+            result = subprocess.run(program, env=env, check=True, capture_output=True, text=True, timeout=12)
             assert result.stdout.splitlines() == ["1 /tmp/Folder é+#"], result
             assert peer.stdout.readline().strip() == "opened"
         finally:
@@ -128,6 +128,6 @@ def drive_gui(program):
 
 if __name__ == "__main__":
     if sys.argv[1] == "--drive-gui":
-        drive_gui(sys.argv[2])
+        drive_gui(*sys.argv[2:])
     else:
         main()

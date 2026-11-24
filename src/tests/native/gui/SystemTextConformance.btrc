@@ -1,0 +1,133 @@
+import Library.Bytes;
+import Library.GUI.Linux.Fonts.SystemTextABI;
+
+extern void* btrcSystemTextOpenDefaultFont(double logicalSize, double scale, bool bold);
+extern void* btrcSystemTextOpenFont(const char* path, double logicalSize, double scale);
+extern void btrcSystemTextCloseFont(void* font);
+extern void* btrcSystemTextShapeLine(void* font, const char* text, double width, int overflow);
+extern void btrcSystemTextCloseRun(void* run);
+extern double btrcSystemTextAdvance(void* run);
+extern double btrcSystemTextAscent(void* run);
+extern double btrcSystemTextDescent(void* run);
+extern double btrcSystemTextLineHeight(void* run);
+extern int btrcSystemTextInkLeft(void* run);
+extern int btrcSystemTextInkTop(void* run);
+extern int btrcSystemTextInkWidth(void* run);
+extern int btrcSystemTextInkHeight(void* run);
+extern int btrcSystemTextPixelFormat(void* run);
+extern const unsigned char* btrcSystemTextPixels(void* run);
+
+extern bool btrcSystemTextCaretX(void* run, int offset, double* x);
+extern bool btrcSystemTextHitTest(void* run, double x, int* offset);
+
+bool sameTextInk(void* a, void* b) {
+	if (a == null || b == null || btrcSystemTextInkWidth(a) != btrcSystemTextInkWidth(b) || btrcSystemTextInkHeight(a) != btrcSystemTextInkHeight(b) || btrcSystemTextAdvance(a) != btrcSystemTextAdvance(b)) { return false; }
+	return memcmp(btrcSystemTextPixels(a), btrcSystemTextPixels(b), (size_t)btrcSystemTextInkWidth(a) * (size_t)btrcSystemTextInkHeight(a)) == 0;
+}
+
+int classSubstitution(const char* path) {
+	void* font = btrcSystemTextOpenFont(path, 8.0, 1.0);
+	if (font == null) { return 11; }
+	void* matched = btrcSystemTextShapeLine(font, "BCD", 0.0, 0);
+	void* expected = btrcSystemTextShapeLine(font, "BAD", 0.0, 0);
+	void* noBacktrack = btrcSystemTextShapeLine(font, "CD", 0.0, 0);
+	void* unchanged = btrcSystemTextShapeLine(font, "AD", 0.0, 0);
+	void* noLookahead = btrcSystemTextShapeLine(font, "BC", 0.0, 0);
+	void* changed = btrcSystemTextShapeLine(font, "BA", 0.0, 0);
+	bool valid = sameTextInk(matched, expected) && noBacktrack != null && unchanged != null && !sameTextInk(noBacktrack, unchanged) && noLookahead != null && changed != null && !sameTextInk(noLookahead, changed);
+	btrcSystemTextCloseRun(changed);
+	btrcSystemTextCloseRun(noLookahead);
+	btrcSystemTextCloseRun(unchanged);
+	btrcSystemTextCloseRun(noBacktrack);
+	btrcSystemTextCloseRun(expected);
+	btrcSystemTextCloseRun(matched);
+	btrcSystemTextCloseFont(font);
+	return valid ? 0 : 12;
+}
+
+/* The authored glyph interpolates its anchors in design units, then
+ * writes an intersection after both axes have run IUP. The mask uses
+ * grayscale coverage at 8 pixels per em. */
+int vectorInstructions(const char* path) {
+	void* font = btrcSystemTextOpenFont(path, 8.0, 1.0);
+	if (font == null) { return 13; }
+	void* run = btrcSystemTextShapeLine(font, "A", 0.0, 0);
+	btrcSystemTextCloseFont(font);
+	if (run == null) { return 14; }
+	var expected = Bytes.fromHex("0247ae8100004efffef1110081a24cee7f009d120020ba0e3a0000000720");
+	bool valid = expected != null && btrcSystemTextInkLeft(run) == 0 && btrcSystemTextInkTop(run) == -5 && btrcSystemTextInkWidth(run) == 6 && btrcSystemTextInkHeight(run) == 5 && memcmp(btrcSystemTextPixels(run), expected.data, (size_t)expected.length()) == 0;
+	btrcSystemTextCloseRun(run);
+	return valid ? 0 : 15;
+}
+
+/* The fixture substitutes "fi" into one glyph. The authored GDEF caret
+ * is at 300/1000 of its em; the other font has no ligature caret table. */
+int caretPositions(const char* path, double first) {
+	void* font = btrcSystemTextOpenFont(path, 10.0, 1.0);
+	if (font == null) { return 11; }
+	void* shaped = btrcSystemTextShapeLine(font, "fi…", 0.0, 0);
+	void* clipped = btrcSystemTextShapeLine(font, "fifi", 10.0, 1);
+	void* empty = btrcSystemTextShapeLine(font, "", 0.0, 0);
+	btrcSystemTextCloseFont(font);
+	int offset = -1;
+	double x = -1.0;
+	bool valid = shaped != null && clipped != null && empty != null;
+	valid = valid && btrcSystemTextCaretX(shaped, 1, &x) && x == first && btrcSystemTextHitTest(shaped, x, &offset) && offset == 1;
+	valid = valid && btrcSystemTextCaretX(shaped, 2, &x) && x == 10.0 && !btrcSystemTextCaretX(shaped, 3, &x) && x == 10.0;
+	valid = valid && btrcSystemTextHitTest(shaped, (10.0 + first) / 2.0, &offset) && offset == 2 && btrcSystemTextHitTest(shaped, 80.0, &offset) && offset == 5;
+	valid = valid && !btrcSystemTextCaretX(clipped, 0, &x) && !btrcSystemTextHitTest(clipped, 0.0, &offset) && offset == 5;
+	valid = valid && btrcSystemTextHitTest(empty, -10.0, &offset) && offset == 0 && btrcSystemTextCaretX(empty, 0, &x) && x == 0.0;
+	btrcSystemTextCloseRun(empty);
+	btrcSystemTextCloseRun(clipped);
+	btrcSystemTextCloseRun(shaped);
+	void* fractionalFont = btrcSystemTextOpenFont(path, 13.0, 1.5);
+	void* fractional = btrcSystemTextShapeLine(fractionalFont, "AAAAAA", 0.0, 0);
+	btrcSystemTextCloseFont(fractionalFont);
+	valid = valid && fractional != null && btrcSystemTextHitTest(fractional, 20.0, &offset) && offset == 2;
+	valid = valid && btrcSystemTextCaretX(fractional, 6, &x) && x == btrcSystemTextAdvance(fractional);
+	btrcSystemTextCloseRun(fractional);
+	return valid ? 0 : 12;
+}
+
+int main(int argc, char** argv) {
+	SystemTextABI.install();
+	if (argc == 3 && strcmp(argv[1], "--context") == 0) { return classSubstitution(argv[2]); }
+	if (argc == 3 && strcmp(argv[1], "--vectors") == 0) { return vectorInstructions(argv[2]); }
+	if (argc == 4 && strcmp(argv[1], "--carets") == 0) { return caretPositions(argv[2], (double)atoi(argv[3])); }
+	if (argc != 2) { return 2; }
+	void* font = btrcSystemTextOpenFont(argv[1], 8.0, 1.0);
+	void* installed = btrcSystemTextOpenDefaultFont(8.0, 1.0, false);
+	void* bold = btrcSystemTextOpenDefaultFont(8.0, 1.0, true);
+	if (font == null || installed == null || bold == null || remove(argv[1]) != 0) { return 3; }
+	void* measured = btrcSystemTextShapeLine(installed, "AV", 0.0, 0);
+	if (measured == null || btrcSystemTextAdvance(measured) != 15.0 || btrcSystemTextLineHeight(measured) != 9.0) { return 10; }
+	btrcSystemTextCloseFont(bold);
+	btrcSystemTextCloseFont(installed);
+	btrcSystemTextCloseRun(measured);
+	// The fixture maps a precomposed Latin letter to its A glyph. A
+	// combining-mark sequence still needs a broader shaping engine.
+	void* precomposed = btrcSystemTextShapeLine(font, "ÁV", 0.0, 0);
+	void* plain = btrcSystemTextShapeLine(font, "AV", 0.0, 0);
+	if (precomposed == null || plain == null || btrcSystemTextAdvance(precomposed) != btrcSystemTextAdvance(plain) || btrcSystemTextInkWidth(precomposed) != btrcSystemTextInkWidth(plain) || btrcSystemTextInkHeight(precomposed) != btrcSystemTextInkHeight(plain)) { return 20; }
+	if (memcmp(btrcSystemTextPixels(precomposed), btrcSystemTextPixels(plain), (size_t)btrcSystemTextInkWidth(plain) * (size_t)btrcSystemTextInkHeight(plain)) != 0 || btrcSystemTextShapeLine(font, "A\u0301", 0.0, 0) != null) { return 21; }
+	btrcSystemTextCloseRun(precomposed);
+	btrcSystemTextCloseRun(plain);
+	void* lig = btrcSystemTextShapeLine(font, "fi", 0.0, 0);
+	void* pair = btrcSystemTextShapeLine(font, "AV", 0.0, 0);
+	void* ellipsis = btrcSystemTextShapeLine(font, "AVfi", 8.0, 1);
+	void* unavailable = btrcSystemTextShapeLine(font, "F", 0.0, 0);
+	btrcSystemTextCloseFont(font);
+	if (lig == null || pair == null || ellipsis == null || unavailable != null) { return 4; }
+	if (btrcSystemTextAdvance(lig) != 8.0 || btrcSystemTextAdvance(pair) != 15.0 || btrcSystemTextAdvance(ellipsis) != 8.0) { return 5; }
+	if (btrcSystemTextAscent(lig) != 6.0 || btrcSystemTextDescent(lig) != 3.0 || btrcSystemTextInkLeft(lig) != 0 || btrcSystemTextInkTop(lig) != -4 || btrcSystemTextInkWidth(lig) != 6 || btrcSystemTextInkHeight(lig) != 4 || btrcSystemTextPixelFormat(lig) != 1) { return 6; }
+	var expected = Bytes.fromHex("5f2e05000000fffff9cd9b2dffffee8f2600cb6209000000");
+	const unsigned char* pixels = btrcSystemTextPixels(lig);
+	if (expected == null || pixels == null) { return 7; }
+	for (int i = 0; i < expected.length(); i++) { if ((int)pixels[i] != expected.get(i)) { return 8; } }
+	if (btrcSystemTextInkHeight(ellipsis) != 3 || btrcSystemTextInkWidth(pair) != 13) { return 9; }
+	btrcSystemTextCloseRun(lig);
+	btrcSystemTextCloseRun(pair);
+	btrcSystemTextCloseRun(ellipsis);
+	print("PASS: native text ligatures, kerning, ellipsis and owned pixels");
+	return 0;
+}

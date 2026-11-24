@@ -2,12 +2,132 @@ import Library.Bytes;
 import Library.GUI.Font;
 import Library.GUI.FreeType;
 import Library.GUI.IFontFace;
+import Library.Strings;
 import Library.Vector;
+
+/* The legacy Macintosh record maps A to C; the Unicode record has
+ * distinct advances for both letters. Only visible vector ink needs the
+ * retained native face. */
+int legacyBMP(const char* path, bool render) {
+	var font = FreeType.load(Strings.copy((char*)path), 10);
+	if (remove(path) != 0) { return 6; }
+	if (font.metrics().ascenderFixed() != 448LL || font.metrics().heightFixed() != 640LL) { return 7; }
+	Vector<int> codes = [65, 67, 0xc1];
+	Vector<int> advances = [512, 768, 640];
+	for (int i = 0; i < codes.size(); i++) {
+		var measured = font.glyph(codes.get(i), false);
+		if (measured == null || measured.advanceFixed() != advances.get(i) || measured.bitmapLeft() != 0 || measured.bitmapTop() != 0 || measured.rows() != 0 || measured.width() != 0 || measured.pitch() != 0 || measured.pixelMode() != FONT_PIXEL_UNSUPPORTED || measured.numGrays() != 0) { return 8; }
+	}
+	var space = font.glyph(32, true);
+	if (space == null || space.advanceFixed() != 320LL || space.width() != 0 || space.rows() != 0 || space.pixelMode() != FONT_PIXEL_GRAY || space.numGrays() != 256) { return 9; }
+	if (render) {
+		var glyph = font.glyph(65, true);
+		var mask = Bytes.fromHex("000759c05800000fecffffd4010043ffa5f7ff530079b5002fdbcf009d1900000fad4d3c00000000003c");
+		if (mask == null || glyph == null || glyph.advanceFixed() != 512LL || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != 6 || glyph.width() != 7 || glyph.rows() != 6 || glyph.pitch() != 7) { return 10; }
+		for (int i = 0; i < mask.length(); i++) {
+			if (glyph.coverage(i / 7, i % 7) != mask.get(i)) { return 11; }
+		}
+	}
+	print("PASS: legacy BMP font measurement and retained vector outline");
+	return 0;
+}
+
+/* E places a component at a fractional Y offset with ROUND_XY_TO_GRID.
+ * The font's pre-program disables grid fitting at 8 ppem only. */
+int compositeOffset(const char* path, int size) {
+	var font = FreeType.load(Strings.copy((char*)path), size);
+	if (remove(path) != 0) { return 6; }
+	var glyph = font.glyph(69, true);
+	string mask = size == 8 ? "cf9e6d3d0e00fffffffdb42dffea882100005b0700000000" : "8a592802000000000000fffffff5c69563320700fffffffffffff9b86508ffffffeca2540d000000d98b3d03000000000000";
+	var pixels = Bytes.fromHex(mask);
+	int width = size == 8 ? 6 : 10;
+	if (glyph == null || pixels == null || glyph.advanceFixed() != size * 64 || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != (size == 8 ? 4 : 7) || glyph.width() != width || glyph.rows() * width != pixels.length() || glyph.pitch() != width) { return 7; }
+	for (int i = 0; i < pixels.length(); i++) {
+		if (glyph.coverage(i / width, i % width) != pixels.get(i)) { return 8; }
+	}
+	print("PASS: size-specific composite component placement");
+	return 0;
+}
+
+/* A legacy cmap face enables vector fitting at 9 px and disables all
+ * glyph instructions at 10 px. Both public results survive an unlink. */
+int inhibitedVectorInk(const char* path, int size) {
+	var font = FreeType.load(Strings.copy((char*)path), size);
+	if (remove(path) != 0) { return 12; }
+	var glyph = font.glyph(65, true);
+	string mask = size == 9 ? "001f83cf09000027fdffff6e000059fb7af3e4070089890028d468009a0b00000a810536000000000003" : "0000003c1b0000016ed5ff96000024fffffff81a0055ffffffff900086fffffffff616b7ffeff7ffff89af5503000e2633";
+	var pixels = Bytes.fromHex(mask);
+	if (glyph == null || pixels == null || glyph.advanceFixed() != (size == 9 ? 448LL : 512LL) || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != size - 3 || glyph.width() != 7 || glyph.pitch() != 7 || glyph.rows() * 7 != pixels.length()) { return 13; }
+	for (int i = 0; i < pixels.length(); i++) {
+		if (glyph.coverage(i / 7, i % 7) != pixels.get(i)) { return 14; }
+	}
+	print("PASS: vector font with size-specific grid fitting");
+	return 0;
+}
+
+/* A is the unmodified outline. B applies a delta to an untouched point.
+ * C first touches that point with MDAP so the same delta moves it. */
+int deltaPoints(const char* path, int size) {
+	var font = FreeType.load(Strings.copy((char*)path), size);
+	if (remove(path) != 0) { return 9; }
+	for (int code = 65; code <= 67; code++) {
+		string mask = "0400000000000000000000f7c9986735080000000000fffffffffffcd3a2713c00ffffffffffffffe6821c00ffffffffffbd5404000000ffffef9027000000000000cb62090000000000000000";
+		if (size == 13) {
+			mask = code == 67 ? "823f0700000000000000fffff6bb793603000000fffffffffffff1b26d09fffffffffffec36b1700ffffffcb731d00000000d37b2400000000000000" : "8a592802000000000000fffffff5c69563320700ffffffffffffffe67d09ffffffffffbe55050000ffffef90270000000000cb620900000000000000";
+		}
+		var glyph = font.glyph(code, true);
+		var pixels = Bytes.fromHex(mask);
+		int width = size == 13 ? 10 : 11;
+		if (glyph == null || pixels == null || glyph.advanceFixed() != size * 64 || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != size - 7 || glyph.width() != width || glyph.pitch() != width || glyph.rows() * width != pixels.length()) { return 10; }
+		for (int i = 0; i < pixels.length(); i++) {
+			if (glyph.coverage(i / width, i % width) != pixels.get(i)) { return 11; }
+		}
+	}
+	print("PASS: size-specific point deltas");
+	return 0;
+}
+
+/* B checks individual GETINFO selectors and a combined request. Only a
+ * matching environment shifts its fitted anchor by one device pixel. */
+int interpreterEnvironment(const char* path) {
+	var font = FreeType.load(Strings.copy((char*)path), 13);
+	if (remove(path) != 0) { return 12; }
+	var glyph = font.glyph(66, true);
+	var mask = Bytes.fromHex("98826c56412b15020000fffffffffffffff88409fffffffffffda3230000fffffffeac2a00000000ffffb531000000000000bd390000000000000000");
+	if (glyph == null || mask == null || glyph.advanceFixed() != 832LL || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != 6 || glyph.width() != 10 || glyph.rows() != 6 || glyph.pitch() != 10) { return 13; }
+	for (int i = 0; i < mask.length(); i++) {
+		if (glyph.coverage(i / 10, i % 10) != mask.get(i)) { return 14; }
+	}
+	print("PASS: TrueType interpreter environment");
+	return 0;
+}
 
 /* The final glyph uses FLIPON, a native fallback instruction. It is reached
  * after loading the supported triangle variants and unlinking the font. */
+/* In this legacy vector face, B has no program and D consists entirely
+ * of B. C has a program and E contains C without its own program. */
+int activeVectorOutline(const char* path, int code) {
+	var font = FreeType.load(Strings.copy((char*)path), 9);
+	if (remove(path) != 0) { return 20; }
+	var glyph = font.glyph(code, true);
+	bool plain = code == 66 || code == 68;
+	var mask = Bytes.fromHex(plain ? "ce9d6b3a0b0000fffffffffd9711ffffef91280000cb630a00000000" : "ce9d6b3a0b0000ffffffffd8700ddf9e5c1b000000");
+	if (glyph == null || mask == null || glyph.advanceFixed() != (code == 67 ? 640LL : 576LL) || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != 4 || glyph.width() != 7 || glyph.pitch() != 7 || glyph.pixelMode() != FONT_PIXEL_GRAY || glyph.numGrays() != 256 || glyph.rows() * 7 != mask.length()) { return 21; }
+	for (int i = 0; i < mask.length(); i++) {
+		if (glyph.coverage(i / 7, i % 7) != mask.get(i)) { return 22; }
+	}
+	print("PASS: active vector outline after unlink");
+	return 0;
+}
+
 int main(int argc, char** argv) {
 	if (argc != 3) { return 2; }
+	if (strncmp(argv[2], "active", 6) == 0 && argv[2][6] >= 'B' && argv[2][6] <= 'E') { return activeVectorOutline(argv[1], (int)argv[2][6]); }
+	if (strcmp(argv[2], "environment") == 0) { return interpreterEnvironment(argv[1]); }
+	if (strcmp(argv[2], "delta13") == 0 || strcmp(argv[2], "delta14") == 0) { return deltaPoints(argv[1], argv[2][6] == '3' ? 13 : 14); }
+	if (strcmp(argv[2], "vector9") == 0 || strcmp(argv[2], "vector10") == 0) { return inhibitedVectorInk(argv[1], argv[2][6] == '9' ? 9 : 10); }
+	if (strcmp(argv[2], "measure") == 0 || strcmp(argv[2], "render") == 0) { return legacyBMP(argv[1], argv[2][0] == 'r'); }
+	if (strcmp(argv[2], "composite8") == 0 || strcmp(argv[2], "composite13") == 0) { return compositeOffset(argv[1], argv[2][9] == '8' ? 8 : 13); }
 	var font = FreeType.load(argv[1], 8);
 	if (remove(argv[1]) != 0) { return 3; }
 	string interpolated = "5e2d04000000fffff8ca982dffffef912900cb630a000000";
@@ -16,7 +136,7 @@ int main(int argc, char** argv) {
 	// G has two distinct IUP anchors that round to the same 26.6 position.
 	string anchors = "0000000d00000035c2f9ac43affeffffffc4fffffffff177ffffdf720e00c75603000000";
 	Vector<string> masks = [anchors, interpolated, untouched, shifted, untouched, shifted, untouched];
-	int count = argv[2][0] == '5' ? 5 : 6;
+	int count = argv[2][0] == '6' ? 6 : 5;
 	for (int i = 0; i <= count; i++) {
 		int codepoint = i == 0 ? 71 : 64 + i;
 		var m = font.glyph(codepoint, false);
@@ -26,6 +146,15 @@ int main(int argc, char** argv) {
 		for (int j = 0; j < expected.length(); j++) {
 			if (g.coverage(j / 6, j % 6) != expected.get(j)) { return 5; }
 		}
+	}
+	if (argv[2][0] == 'u') {
+		// The full Unicode map supplies A at U+10000 and U+0041. The BMP
+		// table has a different glyph at U+0041.
+		var wide = font.glyph(0x10000, true);
+		var missing = font.glyph(0x10001, true);
+		var expected = Bytes.fromHex(interpolated);
+		if (wide == null || missing == null || expected == null || wide.advanceFixed() != 512LL || wide.width() != 6 || wide.rows() != 4 || missing.width() != 0) { return 6; }
+		for (int j = 0; j < expected.length(); j++) { if (wide.coverage(j / 6, j % 6) != expected.get(j)) { return 7; } }
 	}
 	print("PASS: hinted outline snapshots after unlink");
 	return 0;

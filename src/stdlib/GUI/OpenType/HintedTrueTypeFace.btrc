@@ -1,12 +1,12 @@
 import Library.Bytes;
 import Library.GUI.IFontFace;
 
-import ./CoverageRasterizer.btrc;
 import ./GlyphOutline.btrc;
 import ./Hinting/Program.btrc;
 import ./OpenTypeCharacterMap.btrc;
 import ./OpenTypeData.btrc;
 import ./OpenTypeHorizontalMetrics.btrc;
+import ./OpenTypeLineMetrics.btrc;
 import ./SFNTDirectory.btrc;
 import ./TrueTypeGlyphs.btrc;
 import ./WOFF2Font.btrc;
@@ -20,6 +20,7 @@ class HintedTrueTypeFace implements IFontFace {
 	private OpenTypeCharacterMap characters;
 	private long long scale;
 	private FontMetrics lineMetrics;
+	private bool nativeVectorInk = false;
 	public Bytes source;
 
 	class HintedTrueTypeFace? tryOpen(string path, int pixels) {
@@ -68,7 +69,7 @@ class HintedTrueTypeFace implements IFontFace {
 		return found == 15;
 	}
 
-	public HintedTrueTypeFace(Bytes bytes, int pixels) {
+	public HintedTrueTypeFace(Bytes bytes, int pixels, bool byGlyphIndex = false) {
 		self.source = bytes;
 		unsigned int format = bytes.readU32BE(0);
 		Bytes sfnt = bytes;
@@ -94,22 +95,22 @@ class HintedTrueTypeFace implements IFontFace {
 		self.outlines = TrueTypeGlyphs(data, directory.required(0x676c7966LL, 0), loca, horizontal, glyphs, locaFormat != 0);
 		var cmap = directory.required(0x636d6170LL, 4);
 		self.characters = OpenTypeCharacterMap(data, cmap, glyphs);
-		if (!self.characters.unambiguousUnicodeMap(cmap)) { throw "Unsupported TrueType character map"; }
-		var os2 = directory.required(0x4f532f32LL, 78);
-		int ascent = data.s16(hhea.offset + 4);
-		int descent = data.s16(hhea.offset + 6);
-		int height = ascent - descent + data.s16(hhea.offset + 8);
-		if ((data.u16(os2.offset + 62) & 128) != 0) {
-			ascent = data.s16(os2.offset + 68);
-			height = ascent - data.s16(os2.offset + 70) + data.s16(os2.offset + 72);
-		} else if (ascent == 0 && descent == 0) { throw "Unsupported TrueType line metrics"; }
-		self.lineMetrics = new FontMetrics(OpenTypeFixed.pixelCeil(OpenTypeFixed.mul((long long)ascent, self.scale)), OpenTypeFixed.pixelRound(OpenTypeFixed.mul((long long)height, self.scale)));
+		bool legacyBMP = false;
+		if (!byGlyphIndex && !self.characters.unambiguousUnicodeMap(cmap) && !self.characters.preferredFullUnicodeMap(cmap)) {
+			legacyBMP = self.characters.preferredBMPMap(cmap);
+			if (!legacyBMP) { throw "Unsupported TrueType character map"; }
+		}
+		self.lineMetrics = OpenTypeLineMetrics.scaled(data, directory, hhea, self.scale);
 
 		var cvt = directory.required(0x63767420LL, 2);
 		var prep = directory.required(0x70726570LL, 1);
 		var functions = directory.required(0x6670676dLL, 1);
 		var grid = TrueTypeProgram(data, cvt, maxp, pixels, self.scale);
-		grid.prepare(functions, prep);
+		bool usesVectors = grid.prepare(functions, prep, byGlyphIndex || legacyBMP);
+		// The raw font exposes the whole Unicode map. Its vector-hinted
+		// advances agree, while visible outlines can require more native
+		// grid-fitting behavior than the shaped text path exercises.
+		self.nativeVectorInk = usesVectors && !byGlyphIndex && grid.gridFittingEnabled();
 		self.outlines.prepare(grid);
 
 	}
@@ -134,27 +135,16 @@ class HintedTrueTypeFace implements IFontFace {
 
 	public FontGlyph? glyph(int codepoint, bool render) {
 		if (codepoint < 0 || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) { throw "Invalid font Unicode scalar"; }
-		try { return self.loadGlyph(codepoint, render); }
+		try { return self.glyphByIndex(self.characters.glyphIndex(codepoint), render); }
 		catch (string error) { return null; }
 	}
 
-	private FontGlyph loadGlyph(int codepoint, bool render) {
+	public FontGlyph glyphByIndex(int glyph, bool render) {
 		var outline = GlyphOutline();
-		long long advance = OpenTypeFixed.pixelRound(self.outlines.load(self.characters.glyphIndex(codepoint), self.scale, outline));
+		long long advance = OpenTypeFixed.pixelRound(self.outlines.load(glyph, self.scale, outline));
 		if (!render) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_UNSUPPORTED, 0, new Bytes()); }
 		if (outline.isEmpty()) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_GRAY, 256, new Bytes()); }
-		var box = outline.controlBox();
-		int left = (int)OpenTypeFixed.floorDiv((long long)box.get(0), 64LL);
-		int bottom = (int)OpenTypeFixed.floorDiv((long long)box.get(1), 64LL);
-		int width = (int)OpenTypeFixed.floorDiv((long long)box.get(2) + 63LL, 64LL) - left;
-		int rows = (int)OpenTypeFixed.floorDiv((long long)box.get(3) + 63LL, 64LL) - bottom;
-		if (width < 1 || rows < 1) { return new FontGlyph(advance, left, bottom + rows, width, rows, width, FONT_PIXEL_GRAY, 256, new Bytes()); }
-		var raster = CoverageRasterizer(width, rows);
-		for (int band = 0; band < raster.bands(); band++) {
-			raster.begin(band);
-			outline.replay(raster, left, bottom);
-			raster.finish();
-		}
-		return new FontGlyph(advance, left, bottom + rows, width, rows, width, FONT_PIXEL_GRAY, 256, raster.coverage());
+		if (self.nativeVectorInk && outline.hasGlyphProgram) { throw "TrueType outline needs the native vector hinter"; }
+		return outline.rasterize(advance, self.nativeVectorInk);
 	}
 }

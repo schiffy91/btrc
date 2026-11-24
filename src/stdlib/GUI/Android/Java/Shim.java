@@ -75,7 +75,7 @@ public final class Shim {
     static final int KEY_BACKSPACE = 10, KEY_DELETE = 11, KEY_HOME = 12, KEY_END = 13, KEY_A = 18, KEY_C = 19, KEY_V = 20;
     static final int MOD_SHIFT = 1, MOD_CTRL = 2, MOD_ALT = 4;
 
-    static final int BUTTON = 1, LABEL = 2, SPINNER = 3, LEVEL = 4, SLIDER = 5, SELECT = 6, TEXT = 7, PICTURE = 8, FILL = 9, SCROLLBAR = 10, WEB = 11;
+    static final int BUTTON = 1, LABEL = 2, SPINNER = 3, LEVEL = 4, SLIDER = 5, SELECT = 6, TEXT = 7, PICTURE = 8, FILL = 9, SCROLLBAR = 10, WEB = 11, FRAME = 12;
 
     private static ShimActivity activity;
     private static Handler ui;
@@ -357,7 +357,7 @@ public final class Shim {
             pushControl(cancelled, SLIDER_CANCELLED, 0, 0.0, null);
             showSlider(cancelled);
         }
-        push(down ? KEY_DOWN : KEY_UP, window.id, 0, 0, 0, 0, 0, 0, 0, scancode(event.getKeyCode()), key(event.getKeyCode()), modifiers(event.getMetaState()), 0, 0, down ? 1 : 0, 0.0, null);
+        push(down ? KEY_DOWN : KEY_UP, window.id, 0, 0, 0, 0, 0, 0, 0, scancode(event.getKeyCode()), key(event.getKeyCode()), modifiers(event.getMetaState()), event.getScanCode(), event.getRepeatCount(), down ? 1 : 0, 0.0, null);
         int typed = event.getUnicodeChar();
         if (down && typed >= 0x20 && typed != 0x7f && (event.getMetaState() & KeyEvent.META_CTRL_ON) == 0) {
             push(TEXT_INPUT, window.id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, new String(Character.toChars(typed)));
@@ -779,6 +779,9 @@ public final class Shim {
                         control.view = picture;
                         break;
                     }
+                    case FRAME:
+                        control.view = new SharedFrameImage(activity);
+                        break;
                     case FILL:
                         control.view = new View(activity);
                         break;
@@ -1433,6 +1436,14 @@ public final class Shim {
                 ((EditText) control(handle).view).setHint(placeholder);
             }
         });
+    }
+
+    static boolean sharedFrameSet(final int handle, final android.hardware.HardwareBuffer buffer) {
+        try {
+            return onUi(() -> ((SharedFrameImage) control(handle).view).present(buffer));
+        } finally {
+            buffer.close();
+        }
     }
 
     /** RGBA rows, not premultiplied; null shows nothing. */

@@ -1,0 +1,18 @@
+manifest-version = 1
+[package]
+name = "iosSharedFrameTest"
+exports = []
+
+[[native.bindings]]
+module = "Main"
+header = "Producer.h"
+language = "c"
+standard = "c11"
+symbols = ["frameProducerPid", "sendTestFrame"]
+read-only-borrows = ["sendTestFrame.address"]
+
+[[native.sources]]
+path = "Producer.m"
+modules = ["Main"]
+language = "objective-c"
+standard = "c11"

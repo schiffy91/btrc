@@ -1,0 +1,17 @@
+import Library.GUI.IFontFace;
+
+import ./SFNTDirectory.btrc;
+
+class OpenTypeLineMetrics {
+	class FontMetrics scaled(OpenTypeData data, SFNTDirectory dir, OpenTypeSpan hhea, long long scale) {
+		var os2 = dir.required(0x4f532f32LL, 78);
+		int ascent = data.s16(hhea.offset + 4);
+		int descent = data.s16(hhea.offset + 6);
+		int height = ascent - descent + data.s16(hhea.offset + 8);
+		if ((data.u16(os2.offset + 62) & 128) != 0) {
+			ascent = data.s16(os2.offset + 68);
+			height = ascent - data.s16(os2.offset + 70) + data.s16(os2.offset + 72);
+		} else if (ascent == 0 && descent == 0) { throw "Unsupported OpenType line metrics"; }
+		return new FontMetrics(OpenTypeFixed.pixelCeil(OpenTypeFixed.mul((long long)ascent, scale)), OpenTypeFixed.pixelRound(OpenTypeFixed.mul((long long)height, scale)));
+	}
+}

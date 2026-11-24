@@ -1,0 +1,24 @@
+import Library.GUI.ITextField;
+import Library.GUI.ISelect;
+import Library.GUI.Shim.ShimContext;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.DialogPump;
+import Library.GUI.Shim.ShimWindow;
+import Library.GUI.Shim.ShimDirectoryPicker;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.Shim.ShimTextField;
+import Library.GUI.Shim.ShimSelect;
+
+class ShimFeatures {
+	class bool fieldUsesWindowInput() { return false; }
+
+	class void initialize() { ShimTextLayoutSetup.prepare(); }
+
+	class ITextField createTextField(ShimContext context, string text, string placeholder) { return ShimTextField(context, text, placeholder); }
+
+	class ISelect createSelect(ShimContext context) { return ShimSelect(context); }
+
+	class void showAlert(BtrcShimWindow* window, string title, string message) { btrcShimWindowShowMessage(window, title, message); }
+
+	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) { return ShimDirectoryPicker.modal(window, pump, request); }
+}

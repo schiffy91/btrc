@@ -1,19 +1,21 @@
+import Library.Bytes;
 import Library.GUI.IFontFace;
 
 import ./FreeTypeFace.btrc;
-import ../OpenType/HintedTrueTypeFace.btrc;
 
 /* The gate covers both rendering and a transition to the SDK. Keep the
  * font's original bytes so fallback still works after the path changes. */
 class HintedFontProvider implements IFontFace {
-	private HintedTrueTypeFace? reader;
+	private IFontFace? reader;
+	private Bytes? source;
 	private FontMetrics lineMetrics;
 	private FreeTypeFace? nativeFace = null;
 	private int pixels;
 	private Atomic<uint> gate;
 
-	public HintedFontProvider(HintedTrueTypeFace reader, int pixels) {
+	public HintedFontProvider(IFontFace reader, Bytes source, int pixels) {
 		self.reader = reader;
+		self.source = source;
 		self.lineMetrics = reader.metrics();
 		self.pixels = pixels;
 		self.gate.init(0u);
@@ -33,8 +35,9 @@ class HintedFontProvider implements IFontFace {
 			if (portable != null) {
 				var glyph = portable.glyph(code, render);
 				if (glyph != null) { return glyph; }
-				self.nativeFace = new FreeTypeFace("", self.pixels, portable.source);
+				self.nativeFace = new FreeTypeFace("", self.pixels, self.source);
 				self.reader = null;
+				self.source = null;
 			}
 			return self.nativeFace?.glyph(code, render);
 		} finally { self.gate.store(0u, MemoryOrder.RELEASE); }

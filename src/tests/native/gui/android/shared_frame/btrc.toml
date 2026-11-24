@@ -1,0 +1,19 @@
+manifest-version = 1
+
+[package]
+name = "androidSharedFrameTest"
+exports = []
+
+[[native.bindings]]
+module = "Main"
+header = "Peer.h"
+language = "c"
+standard = "c11"
+symbols = ["acceptFramePeer", "submitFrame", "closeFramePeer"]
+read-only-borrows = ["submitFrame.address"]
+
+[[native.sources]]
+path = "Peer.c"
+modules = ["Main"]
+language = "c"
+standard = "c11"

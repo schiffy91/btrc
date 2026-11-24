@@ -5,6 +5,7 @@
 
 /* What the window's surface is made on, as GtkShimPrivate.h declares it:
  * this file names WebGPU and nothing of GTK. */
+bool btrcGtkEnsureSurface(BtrcShimWindow* window);
 void* btrcGtkWindowWaylandDisplay(BtrcShimWindow* window);
 void* btrcGtkWindowWaylandSurface(BtrcShimWindow* window);
 void* btrcGtkWindowX11Display(BtrcShimWindow* window);
@@ -13,6 +14,7 @@ unsigned long btrcGtkWindowX11Window(BtrcShimWindow* window);
 WGPUInstance btrcShimCreateInstance(void) { return wgpuCreateInstance(NULL); }
 
 WGPUSurface btrcShimWindowCreateSurface(BtrcShimWindow* window, WGPUInstance instance) {
+	if (!btrcGtkEnsureSurface(window)) { return NULL; }
 	WGPUSurfaceDescriptor descriptor;
 	WGPUSurfaceSourceWaylandSurface wayland;
 	WGPUSurfaceSourceXlibWindow xlib;

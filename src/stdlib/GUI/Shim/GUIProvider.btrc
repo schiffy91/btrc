@@ -1,3 +1,5 @@
+import Library.App;
+import Library.GUI.Shim.Features;
 import Library.Strings;
 import Library.Vector;
 import Library.Image;
@@ -10,7 +12,6 @@ import Library.GUI.Shim.Shim;
 import Library.GUI.Shim.ShimApplication;
 import Library.GUI.Shim.ShimView;
 import Library.GUI.Shim.ShimImageView;
-import Library.GUI.Shim.ShimDirectoryPicker;
 import Library.GUI.Shim.DialogPump;
 import Library.GUI.TextRun;
 
@@ -28,6 +29,7 @@ class GUIProvider {
 	class IApplication createApplication(int workCapacity) {
 		if (!GUIProvider.toolkitReady) {
 			if (!btrcShimInit()) { throw "Cannot initialize native windowing: " + Strings.copy((char*)btrcShimError()); }
+			ShimFeatures.initialize();
 			GUIProvider.toolkitReady = true;
 		}
 		return ShimApplication(workCapacity);
@@ -48,7 +50,9 @@ class GUIProvider {
 		var window = shim.firstWindow();
 		var pump = (IShimDialogPump?)shim;
 		if (pump == null) { throw "GUI application cannot run native dialogs"; }
-		return ShimDirectoryPicker.modal(window, pump, request);
+		if (request == null || !request.isValid()) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request")); }
+		if (pump.isDispatching()) { throw "Native event dispatch is already active"; }
+		return ShimFeatures.chooseDirectory(window, pump, request);
 	}
 
 	/* The shim's picture of a run, copied into an image the caller owns. */
@@ -56,12 +60,20 @@ class GUIProvider {
 		int width = 0;
 		int height = 0;
 		unsigned char* pixels = btrcShimRasterizeText(run.text(), (double)run.fontSize(), run.weight() >= 600, run.lineHeight(), &width, &height);
-		if (pixels == null) { throw "System text cannot be drawn: " + Strings.copy((char*)btrcShimError()); }
+		if (pixels == null) {
+			string detail = Strings.copy((char*)btrcShimError());
+			throw detail.isEmpty() ? "The selected system font cannot render this text run" : "System text cannot be drawn: " + detail;
+		}
 		if (width <= 0 || height <= 0 || width > 4096 || height > 4096) { btrcShimFreePixels(pixels); throw "System text exceeds raster limits"; }
-		var image = Image(width, height);
-		memcpy(image.data, pixels, (size_t)width * (size_t)height * (size_t)4);
-		btrcShimFreePixels(pixels);
-		return image;
+		return GUIProvider.copyRaster(pixels, width, height);
+	}
+
+	class Image copyRaster(unsigned char* pixels, int width, int height) {
+		try {
+			var image = Image(width, height);
+			memcpy(image.data, pixels, (size_t)width * (size_t)height * (size_t)4);
+			return image;
+		} finally { btrcShimFreePixels(pixels); }
 	}
 
 	class void rasterizeText(IApplication? application, TextRasterization request) {
@@ -88,7 +100,7 @@ class GUIProvider {
 			if (gpu == null) { throw "Capture layer belongs to another GPU provider"; }
 			if (gpu.node() != native.node() && !native.node().contains(gpu.node())) { throw "Capture layer is outside the capture root"; }
 		}
-		if (!window.pollDevice()) { throw "Capture window GPU device is not ready"; }
+		if (!window.readyForFrame()) { throw "Capture window GPU device is not ready"; }
 		var image = window.render(true);
 		if (image == null) { throw "Capture window produced no frame"; }
 		return window.pictureOf(native, image);

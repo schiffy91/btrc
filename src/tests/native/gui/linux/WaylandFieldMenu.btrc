@@ -1,0 +1,48 @@
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.IButton;
+import Library.GUI.ISelect;
+import Library.GUI.ITextField;
+import Library.GUI.IWindow;
+
+class ApplyMenu implements IButtonAction {
+	private IWindow window;
+	private ITextField field;
+	private ISelect menu;
+
+	public ApplyMenu(IWindow window, ITextField field, ISelect menu) {
+		self.window = window;
+		self.field = field;
+		self.menu = menu;
+	}
+
+	public void invoke() { self.window.setTitle(self.field.text() + " / " + self.menu.selectedTitle()); }
+}
+
+class CloseMenuExample implements IButtonAction {
+	public void invoke() { GUI.requestQuit(); }
+}
+
+int main() {
+	GUI.initialize();
+	var actions = CallbackScope();
+	try {
+		var window = GUI.createWindow("Native BTRC", 440.0, 240.0);
+		var column = GUI.createColumn(8.0);
+		var field = GUI.createTextField("Native BTRC", "Window title");
+		var menu = GUI.createSelect();
+		menu.setItems(["First", "Second"], 0);
+		var apply = GUI.createButton("Apply");
+		var quit = GUI.createButton("Quit");
+		window.attachRoot(column);
+		column.attach(field);
+		column.attach(menu);
+		column.attach(apply);
+		column.attach(quit);
+		apply.onAction(ApplyMenu(window, field, menu), actions);
+		quit.onAction(CloseMenuExample(), actions);
+		window.show();
+		GUI.run();
+	} finally { actions.cancel(); GUI.close(); }
+	return 0;
+}

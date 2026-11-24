@@ -65,6 +65,7 @@ from src.tests.python.jni_adoption_fixtures import (
     write_project,
 )
 from tools.native_plan import TargetToolchain
+from tools.qualification.dependencies import DependencyAudit
 from tools.target_hosts.android.avd import AvdManager
 from tools.target_hosts.android.build import AndroidHostBuilder
 from tools.target_hosts.android.sdk import SDKVersions
@@ -278,7 +279,7 @@ def test_checked_jni_round_trip_on_android(android_device, compiler, tmp_path, m
     monkeypatch.setenv("ANDROID_NDK_HOME", str(tools.ndk))
     monkeypatch.setenv("BTRC_NATIVE_TARGET", tools.triple)
     monkeypatch.setenv("BTRC_NATIVE_SYSROOT", str(tools.sysroot))
-    source, classes = write_project(tmp_path)
+    source, classes = write_project(tmp_path, android=True)
     monkeypatch.setenv("BTRC_JAVA_CLASSPATH", str(classes / "app"))
 
     evidence = os.environ.get("BTRC_ANDROID_JNI_EVIDENCE")
@@ -293,6 +294,8 @@ def test_checked_jni_round_trip_on_android(android_device, compiler, tmp_path, m
             dict(os.environ),
             link_flags=["-Wl,-z,max-page-size=16384"],
         )
+        assert not DependencyAudit().binary_problems(library, tools.label)
+        assert "btrc-jni" not in (tmp_path / "Program.link.json").read_text()
         report["load_segments"] = tools.check_alignment(library)
         dex = tools.dex(classes, tmp_path / "dex")
 

@@ -15,7 +15,7 @@ class HTTPProxy {
 	class bool needsLegacyHeaders(Vector<string> headers) { return HTTPExchange.names(headers, "proxy-authorization") && !ChildProcessExecutable.resolve("curl", "", [], []).isEmpty(); }
 
 	class string setting(HTTPClientAddress address) {
-		string proxy = Environment.get("http_proxy", "");
+		string proxy = address.secure ? Environment.get("https_proxy", Environment.get("HTTPS_PROXY", "")) : Environment.get("http_proxy", "");
 		if (proxy.isEmpty()) { proxy = Environment.get("all_proxy", Environment.get("ALL_PROXY", "")); }
 		if (proxy.isEmpty()) { return ""; }
 		string rules = Environment.get("no_proxy", Environment.get("NO_PROXY", "")).trim();

@@ -296,14 +296,23 @@ def unavailable_freetype(tmp_path, env):
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 @pytest.mark.parametrize(
-    ("consumer", "suffix", "expected"),
+    ("consumer", "fixture", "expected"),
     [
-        ("MonochromeFontConformance", "pcf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
-        ("MonochromeFontConformance", "bdf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
-        ("ColorBitmapFontConformance", "ttf", "PASS: color bitmap native metrics and coverage"),
+        (
+            "MonochromeFontConformance",
+            "fixture.pcf",
+            "PASS: monochrome strike metrics, default glyph and packed pixels",
+        ),
+        (
+            "MonochromeFontConformance",
+            "mono-strike.bdf",
+            "PASS: monochrome strike metrics, default glyph and packed pixels",
+        ),
+        ("LegacyBDFFontConformance", "legacy-strike.bdf", "PASS: BDF glyph indices and short rows"),
+        ("ColorBitmapFontConformance", "color-bitmap.ttf", "PASS: color bitmap native metrics and coverage"),
     ],
 )
-def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sanitized, consumer, suffix, expected):
+def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sanitized, consumer, fixture, expected):
     from src.tests.python.linux_provider_fixtures import (
         build_provider_program,
         provider_environment,
@@ -321,11 +330,11 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
     source = tmp_path / f"{consumer}.btrc"
     source.write_text((fixtures / source.name).read_text())
     executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
-    portable = tmp_path / f"fixture.{suffix}"
+    portable = tmp_path / fixture
+    suffix = portable.suffix[1:]
     if suffix == "pcf":
         portable.write_bytes(_pcf_strike())
     else:
-        fixture = "mono-strike.bdf" if suffix == "bdf" else "color-bitmap.ttf"
         portable.write_bytes((fixtures / "fixtures" / fixture).read_bytes())
     arguments = [suffix] if consumer == "MonochromeFontConformance" else []
     reference = tmp_path / "fixture.raw"
@@ -346,9 +355,13 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
         # to prove which provider the existing public factory actually used.
         blocked = unavailable_freetype(tmp_path, env)
         for path in first_party:
-            good = subprocess.run([executable, path, *arguments], capture_output=True, text=True, timeout=60, env=blocked)
+            good = subprocess.run(
+                [executable, path, *arguments], capture_output=True, text=True, timeout=60, env=blocked
+            )
             assert good.returncode == 0, good.stdout + good.stderr
-        fallback = subprocess.run([executable, reference, *arguments], capture_output=True, text=True, timeout=60, env=blocked)
+        fallback = subprocess.run(
+            [executable, reference, *arguments], capture_output=True, text=True, timeout=60, env=blocked
+        )
         assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr
 
 
@@ -381,6 +394,11 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
         )
 
     blocked = None if sanitized else unavailable_freetype(tmp_path, env)
+    unicode_maps = (tests / "fixtures/hinted-full-cmap.ttf").read_bytes()
+    for environment in [env] if blocked is None else [env, blocked]:
+        result = run("ttf", "unicode", environment, unicode_maps)
+        assert result.returncode == 0, result.stdout + result.stderr
+
     for extension in ("ttf", "woff", "woff2"):
         mixed = (tests / f"fixtures/hinted-mixed.{extension}").read_bytes()
         for suffix in (extension, "raw"):
@@ -392,9 +410,314 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
             assert supported.returncode == 0, supported.stdout + supported.stderr
             fallback = run(extension, 6, blocked, mixed)
             assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr
+    legacy = (tests / "fixtures/hinted-legacy-bmp.ttf").read_bytes()
+    for suffix in ("ttf", "raw"):
+        rendered = run(suffix, "render", env, legacy)
+        assert rendered.returncode == 0, rendered.stdout + rendered.stderr
+    if blocked is not None:
+        measured = run("ttf", "measure", blocked, legacy)
+        assert measured.returncode == 0, measured.stdout + measured.stderr
+        native_ink = run("ttf", "render", blocked, legacy)
+        assert native_ink.returncode != 0 and "Cannot initialize FreeType library" in native_ink.stderr
+    composite = (tests / "fixtures/hinted-composite-offset.ttf").read_bytes()
+    for size in (8, 13):
+        for extension, environment in (("raw", env), ("ttf", blocked or env)):
+            result = run(extension, f"composite{size}", environment, composite)
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "PASS: size-specific composite component placement" in result.stdout
+    inhibited = (tests / "fixtures/hinted-inhibited-vectors.ttf").read_bytes()
+    for size in (9, 10):
+        for suffix in ("raw", "ttf"):
+            result = run(suffix, f"vector{size}", env, inhibited)
+            assert result.returncode == 0, result.stdout + result.stderr
+        if blocked is not None:
+            result = run("ttf", f"vector{size}", blocked, inhibited)
+            if size == 10:
+                assert result.returncode == 0, result.stdout + result.stderr
+            else:
+                assert result.returncode != 0 and "Cannot initialize FreeType library" in result.stderr
+    active = (tests / "fixtures/hinted-active-instructionless.ttf").read_bytes()
+    for code in "BCDE":
+        for suffix in ("raw", "ttf"):
+            result = run(suffix, f"active{code}", env, active)
+            assert result.returncode == 0, result.stdout + result.stderr
+        if blocked is not None:
+            result = run("ttf", f"active{code}", blocked, active)
+            if code in "BD":
+                assert result.returncode == 0, result.stdout + result.stderr
+            else:
+                assert result.returncode != 0 and "Cannot initialize FreeType library" in result.stderr
+    delta = (tests / "fixtures/hinted-delta-points.ttf").read_bytes()
+    for size in (13, 14):
+        for extension, environment in (("raw", env), ("ttf", blocked or env)):
+            result = run(extension, f"delta{size}", environment, delta)
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "PASS: size-specific point deltas" in result.stdout
+    environment = (tests / "fixtures/hinted-environment.ttf").read_bytes()
+    for extension, runtime in (("raw", env), ("ttf", blocked or env)):
+        result = run(extension, "environment", runtime, environment)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "PASS: TrueType interpreter environment" in result.stdout
     general = (tests / "fixtures/hinted-general.woff2").read_bytes()
     result = run("woff2", 6, env, general)
     assert result.returncode == 0, result.stdout + result.stderr
     if blocked is not None:
         early = run("woff2", 5, blocked, general)
         assert early.returncode != 0 and "Cannot initialize FreeType library" in early.stderr
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
+
+    require_linux_reader()
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
+    ):
+        pytest.skip("requires the optional FreeType SDK for the native fallback")
+    fixtures = REPO / "src/tests/native/gui"
+    source = tmp_path / "CFFMeasurementConformance.btrc"
+    source.write_bytes((fixtures / source.name).read_bytes())
+    executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
+    data = (fixtures / "fixtures/measured-cff.otf").read_bytes()
+    env = provider_environment(sanitized)
+
+    def run(suffix, mode, environment, input_bytes=data):
+        path = tmp_path / f"input.{suffix}"
+        path.write_bytes(input_bytes)
+        return subprocess.run([executable, path, mode], capture_output=True, text=True, env=environment, timeout=60)
+
+    for suffix in ("otf", "raw"):
+        visible = run(suffix, "render", env)
+        assert visible.returncode == 0, visible.stdout + visible.stderr
+        assert "PASS: CFF font measurement and retained fallback" in visible.stdout
+    # The final glyph's Type 2 program begins with a reserved operator.
+    # FreeType tolerates it, so the public probe must switch to the saved
+    # bytes after unlink before returning its advance.
+    curve = bytes.fromhex("f9508b16f75cf8eceff75cf72a27f72afd50190e")
+    assert data.count(curve) == 2
+    at = data.rindex(curve)
+    unusual = data[:at] + b"\x00\x0e" + data[at + 2 :]
+    # Give B two horizontal stems separated by only 10 design units
+    # and a 100-unit square. Its device
+    # coverage at 10 px is 248, as independently rendered by FreeType.
+    square = bytes.fromhex("f9508bef95bd018b16efef27060e").ljust(len(curve), b"\x0e")
+    hinted = data[:at] + square + data[at + len(curve) :]
+    # Straight edges in the triangle (0,0), (90,347), (167,622) cross a
+    # subpixel rounding boundary at 65 px. Compare both providers.
+    triangle = bytes.fromhex("f9508b16e5f7efd8f7a7050e").ljust(len(curve), b"\x0e")
+    long_edge = data[:at] + triangle + data[at + len(curve) :]
+    for suffix in ("otf", "raw"):
+        visible_edge = run(suffix, "edge", env, long_edge)
+        assert visible_edge.returncode == 0, visible_edge.stdout + visible_edge.stderr
+    # A 61 by 90 unit rectangle starting at x=10 has fractional grayscale
+    # coverage with both explicit vertical stem operators.
+    # The polygon crosses both fitted stems (42..84 and 315..467),
+    # their edges, and the interpolated counter between them.
+    separated = (fixtures / "fixtures/cff-separated-stems.otf").read_bytes()
+    for suffix in ("otf", "raw"):
+        fitted = run(suffix, "polygon", env, separated)
+        assert fitted.returncode == 0, fitted.stdout + fitted.stderr
+    # cff-blue-stem.otf is the same authored face with a 10..72 horizontal stem
+    # and three BlueValues pairs in unsorted order. B is captured by
+    # the 68..75 pair. A has a 25..45 stem clear of every pair.
+    blue = (fixtures / "fixtures/cff-blue-stem.otf").read_bytes()
+    # The missing glyph has a bottom stem at exactly zero. Replacing
+    # BlueValues with FamilyBlues makes its alignment SDK-dependent.
+    zones = bytes.fromhex("878ff82490fbe59206")
+    assert blue.count(zones) == 1
+    family = blue.replace(zones, zones[:-1] + b"\x08")
+    for face in (blue, family):
+        for suffix in ("otf", "raw"):
+            zero = run(suffix, "zero", env, face)
+            assert zero.returncode == 0, zero.stdout + zero.stderr
+    for suffix in ("otf", "raw"):
+        outside = run(suffix, "uncaptured", env, blue)
+        assert outside.returncode == 0, outside.stdout + outside.stderr
+        captured = run(suffix, "blue", env, blue)
+        assert captured.returncode == 0, captured.stdout + captured.stderr
+    single = bytes.fromhex("f95095c9019516c88b8be54e8b050e").ljust(len(curve), b"\x0e")
+    single_stem = data[:at] + single + data[at + len(curve) :]
+    for suffix in ("otf", "raw"):
+        shifted = run(suffix, "y", env, single_stem)
+        assert shifted.returncode == 0, shifted.stdout + shifted.stderr
+    odd = bytes.fromhex("f95095c8019516c88b8be54e8b050e").ljust(len(curve), b"\x0e")
+    odd_stem = data[:at] + odd + data[at + len(curve) :]
+    bypass = run("otf", "y", env, odd_stem)
+    assert bypass.returncode == 0, bypass.stdout + bypass.stderr
+    vertical_faces = []
+    for operator in (3, 23):
+        stem = bytes.fromhex("f95095c8") + bytes([operator]) + bytes.fromhex("9516c88b8be54e8b050e")
+        vertical_face = data[:at] + stem.ljust(len(curve), b"\x0e") + data[at + len(curve) :]
+        vertical_faces.append(vertical_face)
+        for suffix in ("otf", "raw"):
+            visible_vertical = run(suffix, "vertical", env, vertical_face)
+            assert visible_vertical.returncode == 0, visible_vertical.stdout + visible_vertical.stderr
+    visible_hint = run("otf", "hint", env, hinted)
+    assert visible_hint.returncode == 0, visible_hint.stdout + visible_hint.stderr
+    fallback = run("otf", "render", env, unusual)
+    assert fallback.returncode == 0, fallback.stdout + fallback.stderr
+    if not sanitized:
+        blocked = unavailable_freetype(tmp_path, env)
+        rejected = run("otf", "measure", blocked, unusual)
+        assert rejected.returncode != 0 and "Cannot initialize FreeType library" in rejected.stderr
+        measured = run("otf", "measure", blocked)
+        assert measured.returncode == 0, measured.stdout + measured.stderr
+        fitted = run("otf", "polygon", blocked, separated)
+        assert fitted.returncode == 0, fitted.stdout + fitted.stderr
+        zero = run("otf", "zero", blocked, blue)
+        assert zero.returncode == 0, zero.stdout + zero.stderr
+        inherited = run("otf", "zero", blocked, family)
+        assert inherited.returncode != 0 and "Cannot initialize FreeType library" in inherited.stderr
+        outside = run("otf", "uncaptured", blocked, blue)
+        assert outside.returncode == 0, outside.stdout + outside.stderr
+        portable_shift = run("otf", "y", blocked, single_stem)
+        assert portable_shift.returncode == 0, portable_shift.stdout + portable_shift.stderr
+        for vertical_face in vertical_faces:
+            portable_vertical = run("otf", "vertical", blocked, vertical_face)
+            assert portable_vertical.returncode == 0, portable_vertical.stdout + portable_vertical.stderr
+        portable_curve = run("otf", "render", blocked)
+        assert portable_curve.returncode == 0, portable_curve.stdout + portable_curve.stderr
+        portable_edge = run("otf", "edge", blocked, long_edge)
+        assert portable_edge.returncode == 0, portable_edge.stdout + portable_edge.stderr
+        for suffix, mode, font_data in (
+            ("raw", "measure", data),
+            ("otf", "hint", hinted),
+            ("otf", "blue", blue),
+            ("otf", "y", odd_stem),
+        ):
+            native = run(suffix, mode, blocked, font_data)
+            assert native.returncode != 0 and "Cannot initialize FreeType library" in native.stderr
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_installed_font_catalog(tmp_path, request, gui_provider_root, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
+
+    require_linux_reader()
+    tests = REPO / "src/tests/native/gui"
+    executable = build_provider_program(
+        tests / "InstalledFontConformance.btrc", tmp_path, frontend, sanitized, request, data_root=gui_provider_root
+    )
+    root = tmp_path / "font root"
+    root.mkdir()
+    (root / "subdir").mkdir()
+    (root / "subdir" / "collection file.ttc").write_bytes((tests / "fixtures/installed-families.ttc").read_bytes())
+    (root / "cycle").symlink_to(root, target_is_directory=True)
+    (root / "duplicate.ttc").symlink_to(root / "subdir" / "collection file.ttc")
+    (root / "invalid.otf").write_bytes(b"OTTO")
+    result = subprocess.run(
+        [executable, root], capture_output=True, text=True, env=provider_environment(sanitized), timeout=60
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: installed font collections, Unicode family fallback and XDG precedence" in result.stdout
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_system_text_runs(tmp_path, request, gui_provider_root, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
+
+    require_linux_reader()
+    tests = REPO / "src/tests/native/gui"
+    program = build_provider_program(
+        tests / "SystemTextConformance.btrc", tmp_path, frontend, sanitized, request, data_root=gui_provider_root
+    )
+    configs = tmp_path / "font settings"
+    configs.mkdir()
+    (configs / "35-primary.conf").write_text(
+        '<fontconfig><alias binding="strong"><family>sans-serif</family><prefer><family>Test</family></prefer></alias></fontconfig>'
+    )
+    config = tmp_path / "fonts.conf"
+    config.write_text(
+        f'<fontconfig><dir>{tmp_path}</dir><include prefix="relative">font settings</include></fontconfig>'
+    )
+    # The program unlinks each font after opening it. The second lookup
+    # therefore exercises a desktop configured with only a web-format face.
+    for extension in ("ttf", "woff2"):
+        path = tmp_path / f"widgets.{extension}"
+        path.write_bytes((tests / f"fixtures/shaping-fixture.{extension}").read_bytes())
+        result = subprocess.run(
+            [program, path],
+            capture_output=True,
+            text=True,
+            env=provider_environment(sanitized, FONTCONFIG_FILE=str(config)),
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "PASS: native text ligatures, kerning, ellipsis and owned pixels" in result.stdout
+    contextual = subprocess.run(
+        [program, "--context", tests / "fixtures/shaping-classes.ttf"],
+        capture_output=True,
+        text=True,
+        env=provider_environment(sanitized),
+        timeout=60,
+    )
+    assert contextual.returncode == 0, contextual.stdout + contextual.stderr
+    vectors = subprocess.run(
+        [program, "--vectors", tests / "fixtures/shaping-vectors.ttf"],
+        capture_output=True,
+        text=True,
+        env=provider_environment(sanitized),
+        timeout=60,
+    )
+    assert vectors.returncode == 0, vectors.stdout + vectors.stderr
+    for fixture, caret in (("shaping-fixture.ttf", "5"), ("shaping-carets.ttf", "3")):
+        result = subprocess.run(
+            [program, "--carets", tests / "fixtures" / fixture, caret],
+            capture_output=True,
+            text=True,
+            env=provider_environment(sanitized),
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.linux_gui
+def test_gtk_shaped_text(tmp_path_factory, tmp_path, request, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import build_observed_provider_program, provider_environment
+
+    program = build_observed_provider_program(
+        tmp_path_factory,
+        request,
+        frontend,
+        sanitized,
+        "src/tests/native/gui/linux/GtkShapedText.btrc",
+        "src/tests/native/gui/linux/GtkTextRoute",
+        ("gtkTextGlyphCalls", "gtkTextLayoutCalls", "gtkTextUseNativeLayout"),
+        ("pango_cairo_show_glyph_string", "pango_cairo_show_layout"),
+        # The optimized cases cover the production binary. An unoptimized
+        # sanitizer translation unit keeps full GUI instrumentation bounded.
+        optimization=0 if sanitized else 2,
+    )
+    fonts = tmp_path / "fonts"
+    fonts.mkdir()
+    shutil.copyfile(REPO / "src/tests/native/gui/fixtures/shaping-fixture.ttf", fonts / "widgets.ttf")
+    config = tmp_path / "fonts.conf"
+    config.write_text(f"<fontconfig><dir>{fonts}</dir><cachedir>{tmp_path / 'cache'}</cachedir></fontconfig>")
+    result = subprocess.run(
+        [program],
+        capture_output=True,
+        text=True,
+        env=provider_environment(sanitized, FONTCONFIG_FILE=str(config), LC_ALL="C.UTF-8"),
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: public Latin shaping and native fallback produce the same RGBA pixels" in result.stdout

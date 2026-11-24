@@ -51,6 +51,7 @@ class TrueTypeGlyphs {
 	private void applyHints(OpenTypeSpan program, TrueTypeZone zone, GlyphOutline outline, int first, int count, bool composite = false) {
 		var engine = self.hinting;
 		if (engine == null || program.length == 0) { return; }
+		outline.hasGlyphProgram = true;
 		engine.glyph(program, zone, composite);
 		for (int i = 0; i < count; i++) {
 			outline.setPoint(first + i, (long long)zone.xs.get(i), (long long)zone.ys.get(i));
@@ -284,7 +285,7 @@ class TrueTypeGlyphs {
 				}
 				dx = OpenTypeFixed.mul(dx, scale);
 				dy = OpenTypeFixed.mul(dy, scale);
-				if (self.hinting != null && (flags & 4) != 0) { dy = OpenTypeFixed.pixelRound(dy); }
+				if ((flags & 4) != 0 && self.hinting != null && self.hinting.gridFittingEnabled()) { dy = OpenTypeFixed.pixelRound(dy); }
 			} else {
 				long long anchor = first + (long long)startPoint;
 				long long moved = second + (long long)base;

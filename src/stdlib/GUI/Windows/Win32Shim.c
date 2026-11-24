@@ -188,6 +188,11 @@ void btrcWinPushKey(BtrcShimWindow* window, bool down, WPARAM virtualKey, LPARAM
 	event.window = window->id;
 	event.key = btrcWinKey(virtualKey, flags);
 	event.scancode = btrcWinScancode(virtualKey);
+	unsigned int scan = ((unsigned long)flags >> 16) & 0xffu;
+	if (scan != 0u) {
+		event.physicalSet = BTRC_SHIM_PHYSICAL_AT_SET1;
+		event.physicalCode = virtualKey == VK_PAUSE ? 0xe145u : scan | (((unsigned long)flags & (1ul << 24)) ? 0xe000u : 0u);
+	}
 	event.modifiers = btrcShimModState();
 	event.down = down ? 1 : 0;
 	event.repeat = down && (flags & (1 << 30)) != 0 ? 1 : 0;
@@ -630,6 +635,8 @@ void btrcShimWindowShowMessage(BtrcShimWindow* window, const char* title, const 
 }
 
 /* Frames are presented on the content window's surface, never as pictures. */
+bool btrcShimWindowSupportsSoftware(BtrcShimWindow* window) { (void)window; return false; }
+
 bool btrcShimWindowShowsPictures(BtrcShimWindow* window) { (void)window; return false; }
 
 void btrcShimWindowShowPicture(BtrcShimWindow* window, const unsigned char* pixels, int pixelWidth, int pixelHeight) {

@@ -1,0 +1,146 @@
+import Library.Bytes;
+import Library.Strings;
+import Library.Vector;
+
+import ../OpenTypeCharacterMap.btrc;
+import ../OpenTypeData.btrc;
+import ../OpenTypeHorizontalMetrics.btrc;
+import ../SFNTDirectory.btrc;
+import ./GlyphRun.btrc;
+import ./LatinPositioning.btrc;
+import ./LatinSubstitution.btrc;
+import ./LayoutTable.btrc;
+
+/* A horizontal printable-Latin run for the default OpenType language
+ * system. A caller can choose a broader shaper if a script, variation or
+ * active lookup cannot be represented by this engine. Advances and
+ * offsets stay in font units until the renderer chooses its scale. */
+class LatinLayout {
+	private int glyphCount;
+	private int units;
+	private OpenTypeHorizontalMetrics horizontal;
+	private OpenTypeCharacterMap characters;
+	private LayoutTable? gsub;
+	private LayoutTable? gpos;
+	private OpenTypeData? gdef;
+	private OpenTypeData? kern;
+	private int classes = 0;
+	private bool requireDefaultEnglish;
+
+	public LatinLayout(OpenTypeData data, int faceOffset = 0, bool requireDefaultEnglish = false) {
+		self.requireDefaultEnglish = requireDefaultEnglish;
+		var dir = SFNTDirectory(data, faceOffset, true);
+		if (dir.find(0x66766172LL, 0) != null || dir.find(0x6d6f7278LL, 0) != null || dir.find(0x6d6f7274LL, 0) != null || dir.find(0x53696c66LL, 0) != null) { throw "Unsupported variable or alternative shaping table"; }
+		self.units = data.u16(dir.required(0x68656164LL, 54).offset + 18);
+		self.glyphCount = data.u16(dir.required(0x6d617870LL, 6).offset + 4);
+		int full = data.u16(dir.required(0x68686561LL, 36).offset + 34);
+		if (self.units < 16 || self.units > 16384 || full < 1 || full > self.glyphCount) { throw "Invalid Latin horizontal metrics"; }
+		self.horizontal = OpenTypeHorizontalMetrics(data, dir.required(0x686d7478LL, 4 * full + 2 * (self.glyphCount - full)), full);
+		self.characters = OpenTypeCharacterMap(data, dir.required(0x636d6170LL, 4), self.glyphCount);
+		self.gsub = self.features(data, dir.find(0x47535542LL, 10), [0x6c747261LL, 0x6c74726dLL, 0x63636d70LL, 0x6c6f636cLL, 0x726c6967LL, 0x63616c74LL, 0x6c696761LL, 0x636c6967LL]);
+		self.gpos = self.features(data, dir.find(0x47504f53LL, 10), [0x6b65726eLL, 0x64697374LL, 0x6d61726bLL, 0x6d6b6d6bLL, 0x6162766dLL, 0x626c776dLL, 0x63757273LL]);
+		var legacy = dir.find(0x6b65726eLL, 4);
+		var position = self.gpos;
+		if (legacy != null && (position == null || !position.hasKerning)) {
+			self.kern = OpenTypeData(data.slice(legacy.offset, legacy.length));
+		}
+		var definitions = dir.find(0x47444546LL, 12);
+		if (definitions != null) {
+			self.gdef = OpenTypeData(data.slice(definitions.offset, definitions.length));
+			self.classes = data.u16(definitions.offset + 4);
+		}
+	}
+
+	private LayoutTable? features(OpenTypeData data, OpenTypeSpan? table, Vector<long long> active) {
+		if (table == null) { return null; }
+		return new LayoutTable(OpenTypeData(data.slice(table.offset, table.length)), active, 0x6c61746eLL, self.requireDefaultEnglish); // latn
+	}
+
+	/* Horizontal GDEF caret coordinates for a single substituted ligature.
+	 * Missing caret data permits even division of its shaped advance. */
+	public Vector<int> ligatureCarets(int glyph, int components) {
+		Vector<int> result = [];
+		var data = self.gdef;
+		if (data == null) { return result; }
+		int list = data.u16(8);
+		if (list == 0) { return result; }
+		int index = LayoutTable.coverageAt(data, list + data.u16(list), glyph);
+		if (index < 0) { return result; }
+		if (index >= data.u16(list + 2)) { throw "Invalid ligature caret index"; }
+		int table = list + data.u16(list + 4 + 2 * index);
+		int count = data.u16(table);
+		if (count == 0) { return result; }
+		if (count != components - 1) { throw "Ligature caret count does not match the text cluster"; }
+		for (int i = 0; i < count; i++) {
+			int caret = table + data.u16(table + 2 + i * 2);
+			if (data.u16(caret) != 1) { throw "Ligature caret requires outline or device adjustment"; }
+			result.push(data.s16(caret + 2));
+		}
+		return result;
+	}
+
+	private void requireBase(int id) {
+		var definitions = self.gdef;
+		if (definitions != null && self.classes != 0 && LayoutTable.glyphClass(definitions, self.classes, id) == 3) { throw "Latin run contains a mark glyph"; }
+	}
+
+	/* The horizontal format-zero kern table predates GPOS. Split each
+	 * adjustment at the pair boundary so advance and ink origin remain
+	 * consistent when glyphs are drawn independently. */
+	private void legacyKerning(OpenTypeData kern, LayoutGlyphRun run) {
+		if (kern.u16(0) != 0 || kern.u16(2) != 1 || kern.u16(4) != 0 || kern.u16(8) != 1) { throw "Unsupported legacy kerning format"; }
+		int count = kern.u16(10);
+		if (kern.u16(6) != ((14 + 6 * count) & 65535)) { throw "Invalid legacy kerning subtable"; }
+		kern.need(18LL, (long long)count * 6LL);
+		for (int i = 1; i < run.glyphs.size(); i++) {
+			var left = run.glyphs.get(i - 1);
+			var right = run.glyphs.get(i);
+			long long pair = (long long)left.id * 65536LL + (long long)right.id;
+			int low = 0;
+			int high = count;
+			while (low < high) {
+				int mid = low + (high - low) / 2;
+				int at = 18 + mid * 6;
+				long long key = kern.u32(at);
+				if (pair < key) { high = mid; }
+				else if (pair > key) { low = mid + 1; }
+				else {
+					int adjustment = kern.s16(at + 4);
+					if (adjustment != 0) { run.legacyPositioned = true; }
+					int before = (int)OpenTypeFixed.floorDiv((long long)adjustment, 2LL);
+					left.advance += before;
+					right.advance += adjustment - before;
+					right.xOffset += adjustment - before;
+					break;
+				}
+			}
+		}
+	}
+
+	public LayoutGlyphRun shape(string text) {
+		if (text == null || text.length() > 4096) { throw "Invalid Latin text length"; }
+		var run = LayoutGlyphRun(self.units);
+		int at = 0;
+		while (at < text.length()) {
+			int cluster = at;
+			int scalar = UTF8.decode(text, text.length(), &at);
+			bool latin1Letter = scalar >= 0xc0 && scalar <= 0xff && scalar != 0xd7 && scalar != 0xf7;
+			if ((scalar < 32 || scalar > 126) && !latin1Letter && scalar != 0x2026 && scalar != 0x00a0) { throw "Text needs another shaping engine"; }
+			int glyph = self.characters.glyphIndex(scalar);
+			if (glyph == 0) { throw "Text needs a fallback font"; }
+			self.requireBase(glyph);
+			run.glyphs.push(new LayoutGlyph(glyph, cluster));
+		}
+		var substitution = self.gsub;
+		if (substitution != null) { var applied = LatinSubstitution(substitution, run, self.glyphCount); }
+		for glyph in run.glyphs {
+			self.requireBase(glyph.id);
+			glyph.advance = self.horizontal.advance(glyph.id);
+		}
+		var positioning = self.gpos;
+		if (positioning != null) { var applied = LatinPositioning(positioning, run); }
+		var legacy = self.kern;
+		if (legacy != null) { self.legacyKerning(legacy, run); }
+		return run;
+	}
+}
