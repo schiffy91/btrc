@@ -300,9 +300,14 @@ A window can show a parented modal alert with `IWindow.showAlert()`. The call
 returns after the user dismisses the dialog. Long messages accept wheel and
 keyboard scrolling. The preview uses software rendering for these controls.
 
-Applications that need standalone text rasterization, embedded web views,
-desktop accessibility, or shared-frame views should use the default Linux GUI
-build. Embedded web views report the unavailable operation.
+`GUI.rasterizeText` returns a caller-owned, white RGBA image with the glyph
+coverage in its alpha channel. It uses the same configured regular or bold
+face as the controls. The native text renderer handles printable ASCII,
+precomposed Latin-1 letters, nonbreaking space and ellipsis. A run that needs
+another script or an unavailable glyph reports a rendering error.
+
+Applications that need embedded web views, desktop accessibility, or shared-frame
+views should use the default Linux GUI build. Embedded web views report the unavailable operation.
 Shared-frame creation returns its usual unavailable result. Runtime backend
 selection is fixed when the application is built.
 

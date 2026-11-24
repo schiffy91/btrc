@@ -55,11 +55,32 @@ class GUIProvider {
 		return ShimFeatures.chooseDirectory(window, pump, request);
 	}
 
+	/* The shim's picture of a run, copied into an image the caller owns. */
+	class Image rasterized(TextRun run) {
+		int width = 0;
+		int height = 0;
+		unsigned char* pixels = btrcShimRasterizeText(run.text(), (double)run.fontSize(), run.weight() >= 600, run.lineHeight(), &width, &height);
+		if (pixels == null) {
+			string detail = Strings.copy((char*)btrcShimError());
+			throw detail.isEmpty() ? "The selected system font cannot render this text run" : "System text cannot be drawn: " + detail;
+		}
+		if (width <= 0 || height <= 0 || width > 4096 || height > 4096) { btrcShimFreePixels(pixels); throw "System text exceeds raster limits"; }
+		return GUIProvider.copyRaster(pixels, width, height);
+	}
+
+	class Image copyRaster(unsigned char* pixels, int width, int height) {
+		try {
+			var image = Image(width, height);
+			memcpy(image.data, pixels, (size_t)width * (size_t)height * (size_t)4);
+			return image;
+		} finally { btrcShimFreePixels(pixels); }
+	}
+
 	class void rasterizeText(IApplication? application, TextRasterization request) {
 		if (application == null) { throw "Initialize GUI before creating views or running work"; }
 		GUIProvider.shimApplication(application);
 		var run = request.run();
-		request.complete(run.text().isEmpty() ? Image.empty() : ShimFeatures.rasterized(run));
+		request.complete(run.text().isEmpty() ? Image.empty() : GUIProvider.rasterized(run));
 	}
 
 	/* The window composites every GPU child itself, so the readback is the

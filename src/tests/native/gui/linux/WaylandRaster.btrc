@@ -1,0 +1,30 @@
+import Library.GUI;
+import Library.GUI.TextRun;
+import Library.Image;
+
+Image raster(string text, int size, int lineHeight, int weight) {
+	var request = TextRasterization(TextRun(text, size, lineHeight, weight));
+	GUI.rasterizeText(request);
+	return request.image();
+}
+
+int main() {
+	GUI.initialize();
+	try {
+		assert(raster("", 16, 20, 400).isEmpty());
+		int ordinal = 0;
+		for text in [" ", "j", "Ágjpq", "fi AV", "Hello, conformance", "X\tY", "A  "] {
+			for weight in [400, 700] {
+				for size in [13, 24] {
+					int lineHeight = size == 13 ? 17 : 41;
+					var image = raster(text, size, lineHeight, weight);
+					assert(image.width >= 1 && image.height >= lineHeight);
+					assert(ImageIO.saveBmp(image, f"raster-{ordinal}.bmp", 32, true));
+					ordinal++;
+				}
+			}
+		}
+	} finally { GUI.close(); }
+	print("PASS public text raster");
+	return 0;
+}

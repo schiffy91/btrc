@@ -220,3 +220,51 @@ void btrcWaylandPaintLines(const BtrcWaylandControlCanvas *canvas, const BtrcWay
         top += line->height;
     }
 }
+
+/* Public TextRun images use backing pixels and preserve white RGB even at
+ * zero coverage. Include overhangs beyond the logical line rectangle. */
+unsigned char *btrcShimRasterizeText(const char *text, double pixelSize, bool bold,
+                                     int lineHeight, int *width, int *height) {
+    if (!text || !width || !height || !(pixelSize > 0) || lineHeight < 1 || lineHeight > 4096) { return NULL; }
+    BtrcSystemTextFont *font = btrcSystemTextOpenDefaultFont(pixelSize, 1, bold);
+    if (!font) { return NULL; }
+    BtrcWaylandTextLines *lines = btrcWaylandShapeLines(font, text, -1);
+    btrcSystemTextCloseFont(font);
+    if (!lines) { return NULL; }
+    double left = 0, right = ceil(lines->width), top = 0, bottom = ceil(lines->height), rowY = 0;
+    for (size_t i = 0; i < lines->count; i++) {
+        const BtrcWaylandTextLine *line = lines->rows[i];
+        double baseline = floor(rowY + (line->height + line->ascent - line->descent) / 2 + .5);
+        for (size_t j = 0; j < line->count; j++) {
+            BtrcSystemTextRun *run = line->parts[j].run;
+            int inkWidth = btrcSystemTextInkWidth(run), inkHeight = btrcSystemTextInkHeight(run);
+            if (inkWidth <= 0 || inkHeight <= 0) { continue; }
+            double x = floor(line->parts[j].x + .5) + btrcSystemTextInkLeft(run);
+            double y = baseline + btrcSystemTextInkTop(run);
+            left = fmin(left, x);
+            right = fmax(right, x + inkWidth);
+            top = fmin(top, y);
+            bottom = fmax(bottom, y + inkHeight);
+        }
+        rowY += line->height;
+    }
+    double w = fmax(1, right - left), h = fmax(lineHeight, bottom - top);
+    unsigned char *pixels = NULL;
+    if (w <= 4096 && h <= 4096) {
+        size_t count = (size_t)w * (size_t)h;
+        pixels = calloc(count, 4);
+        if (pixels) {
+            const unsigned char white[4] = {255,255,255,255};
+            BtrcWaylandControlCanvas canvas = {.rgba=pixels, .width=(int)w, .height=(int)h, .scale=1,
+                .frame={0,0,w,h}, .clip={0,0,w,h}};
+            btrcWaylandPaintLines(&canvas, lines, -left, floor((h - (bottom - top)) / 2) - top, w, false, white);
+            for (size_t i = 0; i < count; i++) { memset(pixels + 4*i, 255, 3); }
+            *width = (int)w;
+            *height = (int)h;
+        }
+    }
+    btrcWaylandFreeLines(lines);
+    return pixels;
+}
+
+void btrcShimFreePixels(unsigned char *pixels) { free(pixels); }
