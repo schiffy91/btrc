@@ -76,6 +76,7 @@ class Requirement:
     kind: str
     name: str
     evidence: str
+    source: str = ""
 
     @property
     def operating_system(self) -> str:
@@ -101,6 +102,9 @@ class DependencyPolicy:
             if system not in self.supplied:
                 raise ValueError(f"{path}: no [supplied.{system}] table")
         self.exceptions = tuple(document.get("exceptions", ()))
+        self.feature_loads = {
+            (row["os"], row["source"], row["name"]): row["dependency"] for row in document.get("feature-loads", ())
+        }
         self.dependencies = tuple(document.get("dependencies", ()))
         self.bundled = tuple(document.get("bundled", ()))
         self.pending = tuple(document.get("pending", ()))
@@ -141,8 +145,10 @@ class DependencyPolicy:
                 return row["name"]
         return name
 
-    def classify(self, system: str, kind: str, name: str) -> tuple[str, str]:
-        """(class, dependency): class is `os`, `exception` or `third-party`."""
+    def classify(self, system: str, kind: str, name: str, source: str = "") -> tuple[str, str]:
+        """Classify a requirement, including runtime loads confined to one source."""
+        if kind == "loads" and (dependency := self.feature_loads.get((system, source, name))):
+            return "feature", dependency
         if excepted := self.excepted(kind, name):
             return "exception", excepted
         if self.supplied_by(system, kind, name):
@@ -403,9 +409,9 @@ class DependencyAudit:
         bound_targets.update(self._selected(record))
         explicit.update(record.get("os", ()))
 
-    def _require(self, module: str, target: str, kind: str, name: str, evidence: str) -> Requirement:
-        _, dependency = self.policy.classify(target.split("-", 1)[0], kind, name)
-        return Requirement(module, target, dependency, kind, name, evidence)
+    def _require(self, module: str, target: str, kind: str, name: str, evidence: str, source: str = "") -> Requirement:
+        _, dependency = self.policy.classify(target.split("-", 1)[0], kind, name, source)
+        return Requirement(module, target, dependency, kind, name, evidence, source)
 
     def _conditional(self, system: str, kind: str, name: str, explicit: frozenset[str]) -> bool:
         """True for another system's name in a source several systems share.
@@ -447,7 +453,9 @@ class DependencyAudit:
                     system = target.split("-", 1)[0]
                     if self._conditional(system, kind, name, explicit):
                         continue
-                    found.extend(self._require(module, target, kind, name, f"{where} {verb} it") for module in modules)
+                    found.extend(
+                        self._require(module, target, kind, name, f"{where} {verb} it", where) for module in modules
+                    )
         if path.suffix in C_FAMILY:
             for name in LOCAL_INCLUDE.findall(text):
                 for base in (path.parent, self.runtime / "c", self.runtime / "windows", self.runtime / "gpu"):
@@ -501,7 +509,7 @@ class DependencyAudit:
     def _class(self, item: Requirement) -> str:
         if item.kind == "bundled":
             return "third-party"
-        return self.policy.classify(item.operating_system, item.kind, item.name)[0]
+        return self.policy.classify(item.operating_system, item.kind, item.name, item.source)[0]
 
     def check(self) -> list[str]:
         """Problems, each naming module, target and dependency; empty when the policy holds."""
@@ -555,7 +563,8 @@ class DependencyAudit:
             "     tools/qualification/stdlib-dependencies.toml, not this file. -->",
             "",
             "The rule: a stdlib module requires first-party code and what its target's operating",
-            "system supplies. wgpu-native is the only third-party exception. `python -m",
+            "system supplies. wgpu-native is the only general third-party exception. Feature-specific",
+            "runtime loads are restricted to their recorded source and target. `python -m",
             "tools.qualification.dependencies check` enforces it on every manifest link record,",
             "every system header a native source or module includes, every literal run-time load",
             "and process launch, and every file that carries someone else's copyright notice. A",
@@ -567,7 +576,7 @@ class DependencyAudit:
         resolutions = {(row["dependency"], row["module"]): row["resolution"] for row in self.policy.pending}
         third = by_class.get("third-party", {})
         if not third:
-            lines += ["None. wgpu-native is the sole third-party requirement.", ""]
+            lines += ["None.", ""]
         else:
             lines += [
                 "| Dependency | Module | Targets | How it is required | Replacement |",
@@ -585,16 +594,21 @@ class DependencyAudit:
             lines += ["None open.", ""]
         for row in self.policy.decisions:
             lines += [f"### {row['title']}", "", row["text"].strip(), ""]
-        lines += [
-            "## The exception",
-            "",
-            "| Dependency | Module | Targets | How it is required |",
-            "| --- | --- | --- | --- |",
-        ]
-        for (dependency, module), systems in sorted(by_class.get("exception", {}).items()):
-            how = sorted({entry for entries in systems.values() for entry in entries})
-            lines.append(f"| {dependency} | `{module}` | {', '.join(sorted(systems))} | {'; '.join(how)} |")
-        lines += ["", "## What each operating system supplies, as the stdlib uses it", ""]
+        for classification, heading in (("exception", "The exception"), ("feature", "Feature-specific runtime loads")):
+            groups = by_class.get(classification, {})
+            if classification == "feature" and not groups:
+                continue
+            lines += [
+                f"## {heading}",
+                "",
+                "| Dependency | Module | Targets | How it is required |",
+                "| --- | --- | --- | --- |",
+            ]
+            for (dependency, module), systems in sorted(groups.items()):
+                how = sorted({entry for entries in systems.values() for entry in entries})
+                lines.append(f"| {dependency} | `{module}` | {', '.join(sorted(systems))} | {'; '.join(how)} |")
+            lines.append("")
+        lines += ["## What each operating system supplies, as the stdlib uses it", ""]
         used: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
         for item in requirements:
             if self._class(item) == "os" and item.kind != "headers":
