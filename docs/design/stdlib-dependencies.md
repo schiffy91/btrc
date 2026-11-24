@@ -4,7 +4,8 @@
      tools/qualification/stdlib-dependencies.toml, not this file. -->
 
 The rule: a stdlib module requires first-party code and what its target's operating
-system supplies. wgpu-native is the only third-party exception. `python -m
+system supplies. wgpu-native is the only general third-party exception. Feature-specific
+runtime loads are restricted to their recorded source and target. `python -m
 tools.qualification.dependencies check` enforces it on every manifest link record,
 every system header a native source or module includes, every literal run-time load
 and process launch, and every file that carries someone else's copyright notice. A
