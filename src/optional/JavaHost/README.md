@@ -29,6 +29,9 @@ int main() {
 }
 ```
 
+In a source checkout, `nix develop .#jni` provides JDK 17 and the matching
+pkg-config metadata on Linux and macOS.
+
 The package requires a JDK for the target and a `btrc-jni.pc` visible to
 pkg-config. Its Cflags select the JDK include directory and the platform
 subdirectory with `jni_md.h`. Its Libs select the JDK's invocation library.
