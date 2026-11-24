@@ -1,6 +1,14 @@
 import Library.Vector;
 
 import ./CFFTables.btrc;
+import ./OpenTypeData.btrc;
+
+enum CFFStemFit {
+	CFF_STEM_FREE,
+	CFF_STEM_BOTTOM,
+	CFF_STEM_TOP,
+	CFF_STEM_NATIVE
+};
 
 /* Type 2 alignment zones are pairs of delta-encoded character-space
  * coordinates. A stem touching a zone needs coordinated blue alignment. */
@@ -9,9 +17,15 @@ class CFFBlueZones {
 	private int fuzz = 1;
 	private bool usable = true;
 	private bool familyZones = false;
-	private int baseline = -1;
+	private Vector<bool> topZones = [];
+	private double blueScale = 0.039625;
 
 	public void read(CFFDict dictionary) {
+		if (dictionary.count(265) >= 0) {
+			if (dictionary.count(265) != 1) { self.usable = false; return; }
+			self.blueScale = dictionary.number(265, 0);
+			if (!(self.blueScale > 0.0 && self.blueScale <= 1.0)) { self.usable = false; return; }
+		}
 		if (dictionary.count(267) >= 0) {
 			if (dictionary.count(267) != 1) { self.usable = false; return; }
 			double n = dictionary.number(267, 0);
@@ -32,23 +46,35 @@ class CFFBlueZones {
 				self.bounds.push(edge);
 				// BlueValues begins with its bottom zone. Every OtherBlues
 				// pair is a bottom zone, with the flat edge at the higher value.
-				if ((i & 1) != 0 && edge == 0 && (key == 7 || (key == 6 && i == 1))) { self.baseline = self.bounds.size() - 2; }
+				if ((i & 1) != 0) { self.topZones.push((key == 6 || key == 8) && i > 1); }
 			}
 		}
 	}
 
-	public bool allowsStem(int bottom, int top, bool allowBaseline) {
-		if (!self.usable) { return false; }
+	public CFFStemFit fit(int bottom, int top, bool single, long long scale) {
+		if (!self.usable) { return CFF_STEM_NATIVE; }
+		CFFStemFit fit = CFF_STEM_FREE;
 		for (int i = 0; i < self.bounds.size(); i += 2) {
-			int low = self.bounds.get(i) - self.fuzz;
-			int high = self.bounds.get(i + 1) + self.fuzz;
-			if (low <= top && top <= high) { return false; }
-			if (low <= bottom && bottom <= high) {
-				// At zero the baseline already lies on a device pixel. A
-				// family zone can override the face's chosen flat edge.
-				if (!allowBaseline || self.familyZones || bottom != 0 || i != self.baseline) { return false; }
+			int low = self.bounds.get(i);
+			int high = self.bounds.get(i + 1);
+			bool bottomHit = bottom >= low - self.fuzz && bottom <= high + self.fuzz;
+			bool topHit = top >= low - self.fuzz && top <= high + self.fuzz;
+			if (!bottomHit && !topHit) { continue; }
+			if (!single || self.familyZones || fit != CFF_STEM_FREE || (bottomHit && topHit)) { return CFF_STEM_NATIVE; }
+			bool topZone = self.topZones.get(i / 2);
+			if (topZone && top == low) { fit = CFF_STEM_TOP; }
+			else if (!topZone && bottom == high) { fit = CFF_STEM_BOTTOM; }
+			else { return CFF_STEM_NATIVE; }
+
+			// Below BlueScale, an outward boost of up to half a pixel
+			// can change the rounded flat edge. Accept only edges whose
+			// rounded destination is independent of the boost.
+			if (scale <= 1LL + (long long)(self.blueScale * 65536.0)) {
+				long long edge = (long long)(topZone ? top : bottom) * scale;
+				long long residue = edge - OpenTypeFixed.floorDiv(edge, 65536LL) * 65536LL;
+				if (topZone ? residue < 32768LL : residue >= 32768LL) { return CFF_STEM_NATIVE; }
 			}
 		}
-		return true;
+		return fit;
 	}
 }

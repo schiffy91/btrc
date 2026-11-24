@@ -522,6 +522,14 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
     zones = bytes.fromhex("878ff82490fbe59206")
     assert blue.count(zones) == 1
     family = blue.replace(zones, zones[:-1] + b"\x08")
+    # Align B exactly to the flat edge in a top or bottom zone. The
+    # opposite edge lies outside every zone, and its 10 px rounding is stable.
+    flat_top = blue.replace(zones, bytes.fromhex("878ff82490fbe19206"))
+    flat_bottom = blue.replace(zones, bytes.fromhex("918ff81a90fbd99206"))
+    for suffix in ("otf", "raw"):
+        for mode, face in (("blue", flat_top), ("y", flat_bottom)):
+            fitted = run(suffix, mode, env, face)
+            assert fitted.returncode == 0, fitted.stdout + fitted.stderr
     for face in (blue, family):
         for suffix in ("otf", "raw"):
             zero = run(suffix, "zero", env, face)
@@ -562,6 +570,9 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
         assert fitted.returncode == 0, fitted.stdout + fitted.stderr
         zero = run("otf", "zero", blocked, blue)
         assert zero.returncode == 0, zero.stdout + zero.stderr
+        for mode, face in (("blue", flat_top), ("y", flat_bottom)):
+            fitted = run("otf", mode, blocked, face)
+            assert fitted.returncode == 0, fitted.stdout + fitted.stderr
         inherited = run("otf", "zero", blocked, family)
         assert inherited.returncode != 0 and "Cannot initialize FreeType library" in inherited.stderr
         outside = run("otf", "uncaptured", blocked, blue)

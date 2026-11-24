@@ -35,7 +35,8 @@ class PostScriptPath {
 		if (bottom < -2147483648LL || bottom + width > 2147483647LL) { return false; }
 		int low = (int)(bottom / 65536LL);
 		int high = low + (int)(width / 65536LL);
-		if (!blues.allowsStem(low, high, single)) { return false; }
+		CFFStemFit fit = blues.fit(low, high, single, self.deviceScale);
+		if (fit == CFF_STEM_NATIVE) { return false; }
 		long long a = (long long)low * self.deviceScale;
 		long long b = (long long)high * self.deviceScale;
 		if (((b - a) & 1LL) != 0LL) { return false; }
@@ -44,6 +45,8 @@ class PostScriptPath {
 		long long lowerDistance = lower < 0LL ? -lower : lower;
 		long long upperDistance = upper < 0LL ? -upper : upper;
 		long long shift = lowerDistance < upperDistance || (lowerDistance == upperDistance && lower > upper) ? lower : upper;
+		if (fit == CFF_STEM_TOP) { shift = upper; }
+		else if (fit == CFF_STEM_BOTTOM) { shift = lower; }
 		int previous = self.stemEdges.size() - 1;
 		if (previous >= 0) {
 			// Keep at least a full device pixel between stems before and
