@@ -19,15 +19,19 @@ failure names the module, the target and the dependency.
 | GTK 4 | `GUI/Shim/Shim` | linux | headers `gdk/gdkkeysyms.h`; headers `gdk/wayland/gdkwayland.h`; headers `gdk/x11/gdkx.h`; headers `gtk/gtk.h`; pkg-config `gtk4-wayland`; pkg-config `gtk4-x11`; pkg-config `gtk4` | First-party windows and controls over the display server's protocol. |
 | a desktop JVM (HotSpot) | `Java/JavaVirtualMachine` | linux, macos, windows | headers `jni.h`; pkg-config `btrc-jni` | Move desktop VM hosting to an optional JDK-backed package and retain checked-JNI tests. |
 | alsa-lib | `Audio/Linux/LinuxAudioDevice` | linux | loads `libasound.so.2` | Kernel PCM, PulseAudio and PipeWire sessions use first-party code. Opening an existing user-configured ALSA plugin PCM, including a JACK-only route, still needs its installed libasound runtime. Retiring that compatibility path requires an owner decision. |
-| bundled source src/stdlib/GUI/Text/GraphemeData.h | `GUI/Text/GraphemeData.h` | android, ios, linux, macos, windows | bundled `src/stdlib/GUI/Text/GraphemeData.h` | **unlisted** |
-| bundled source src/stdlib/GUI/Text/LineBreakData.h | `GUI/Text/LineBreakData.h` | android, ios, linux, macos, windows | bundled `src/stdlib/GUI/Text/LineBreakData.h` | **unlisted** |
-| bundled source src/stdlib/GUI/Text/UNICODE-LICENSE.txt | `GUI/Text/UNICODE-LICENSE.txt` | android, ios, linux, macos, windows | bundled `src/stdlib/GUI/Text/UNICODE-LICENSE.txt` | **unlisted** |
 | curl | `HTTP/HTTPCurlTransport` | android, linux, macos | programs `curl` | On Android, Linux and macOS, plain HTTP and HTTP forward proxies use first-party code. On Linux, plain HTTP also supports SOCKS4/4a/5/5h without curl. An installed curl still handles explicit Proxy-Authorization fields on SOCKS routes and optional SOCKS5 GSSAPI authentication. HTTPS, including standalone Android clients without a VM and caller-configured trust, and remaining proxy paths retain curl until their target transports are qualified. Windows uses WinHTTP. |
 | dbus-launch (legacy X11 session activation) | `DBus/Linux/DBusTransportProvider` | linux | programs `dbus-launch` | Only a legacy X11 session without a reachable XDG bus socket or saved bus address needs the installed dbus-x11 service helper. Moving activation out of the stdlib or retiring automatic startup needs an owner decision. |
 | libX11 | `GUI/Shim/Shim` | linux | headers `X11/Xlib.h`; pkg-config `x11` | Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend. |
 | libwayland-client | `GUI/Shim/Shim` | linux | headers `wayland-client.h`; pkg-config `wayland-client` | The Wayland wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects. |
 | musl's regex (bundled source) | `Regex` | windows | bundled `src/runtime/windows/musl` | A first-party matcher; Windows supplies no POSIX regex. |
 | the WebView2 SDK (header and loader DLL) | `GUI/Shim/ShimWeb` | windows | headers `WebView2.h`; loads `WebView2Loader.dll`; pkg-config `webview2-windows-aarch64`; pkg-config `webview2-windows-x86_64` | First-party declarations of the COM interfaces used and a first-party lookup of the system's WebView2 runtime, in place of the SDK's header and WebView2Loader.dll. |
+
+## Standards data used by first-party implementations
+
+- Unicode Character Database 17.0.0. The line-break and grapheme tables contain character properties. First-party code implements both algorithms. The audit checks the tables and their license by SHA-256. [Upstream data](https://github.com/unicode-org/unicodetools/tree/725fb6055cd42915c74bcf77b91aa8fb8ef18669/unicodetools/data/ucd/17.0.0)
+  - `src/stdlib/GUI/Text/GraphemeData.h`
+  - `src/stdlib/GUI/Text/LineBreakData.h`
+  - `src/stdlib/GUI/Text/UNICODE-LICENSE.txt`
 
 ## Owner decisions
 
