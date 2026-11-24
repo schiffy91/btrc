@@ -19,7 +19,8 @@
         "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]selfhost-windows-arm64-ubsan]",
         "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]selfhost-windows-x64-plain]",
         "src/tests/python/test_native_ui_shell_windows.py::test_windows_native_shell_runs[[]selfhost-windows-x64-ubsan]",
-        "*::test_windows_conformance_case*"
+        "*::test_windows_conformance_case*",
+        "*::test_windows_shared_frame_case*"
       ],
       "reason": "^requires Windows: windows\\.yml's win32-native job runs the executables the build tests publish$",
       "category": "platform",
