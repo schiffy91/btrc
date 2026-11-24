@@ -18,6 +18,12 @@ static void slots(BtrcShimWindow *w, BtrcShimControl *fill, BtrcShimControl *pic
     btrcShimWindowEndPlacement(w);
 }
 
+static void releaseTestPlane(void *owner) {
+    bool *released = owner;
+    assert(!*released);
+    *released = true;
+}
+
 int main(void) {
     assert(!getenv("DISPLAY") && btrcShimInit() && btrcShimIsMainThread());
     BtrcShimWindow *w = btrcShimWindowCreate("btrc input and pixels", WIDTH, HEIGHT);
@@ -25,10 +31,21 @@ int main(void) {
     assert(btrcShimAutomationWindows() == 1 && btrcShimWindowNamed("btrc input and pixels") == btrcShimWindowId(w));
     BtrcShimControl *fill = btrcShimFillCreate(7), *picture = btrcShimPictureCreate(8);
     assert(fill && picture);
+    unsigned char mapped[4] = {0, 0, 128, 128};
+    bool released = false;
+    btrcWaylandPictureStorage(picture, mapped, 4, 1, 1, BTRC_WL_DRM_ARGB, &released, releaseTestPlane);
+    btrcShimWindowBeginPlacement(w);
+    btrcShimWindowPlace(w, picture, 0, 0, 1, 1, 0, 0, 1, 1);
+    btrcShimWindowEndPlacement(w);
+    unsigned char white[4] = {255, 255, 255, 255};
+    assert(btrcShimWindowDrawControls(w, white, 1, 1));
+    const unsigned char blended[4] = {255, 127, 127, 255};
+    assert(!memcmp(white, blended, sizeof(white)) && !released);
     unsigned char input[8];
     memcpy(input, blue, 4);
     memcpy(input + 4, blue, 4);
     btrcShimPictureSet(picture, input, 2, 1);
+    assert(released);
     memset(input, 0, sizeof(input));
     btrcShimFillSet(fill, 255, 255, 0, 255, 0);
     slots(w, fill, picture);

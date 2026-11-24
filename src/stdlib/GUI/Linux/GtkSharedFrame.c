@@ -2,12 +2,12 @@
 #include "DmaBufReceiver.h"
 #include "GtkShimPrivate.h"
 
-bool btrcGtkSupportsSharedFrames(void) {
+bool btrcLinuxSupportsSharedFrames(void) {
     GdkDisplay* display = gdk_display_get_default();
     return display && gdk_dmabuf_formats_get_n_formats(gdk_display_get_dmabuf_formats(display)) > 0;
 }
 
-BtrcShimControl* btrcGtkSharedFrameCreate(unsigned int id) {
+BtrcShimControl* btrcLinuxSharedFrameCreate(unsigned int id) {
     GtkWidget* picture = gtk_picture_new();
     gtk_picture_set_content_fit(GTK_PICTURE(picture), GTK_CONTENT_FIT_CONTAIN);
     gtk_picture_set_can_shrink(GTK_PICTURE(picture), TRUE);
@@ -22,7 +22,7 @@ static GtkPicture* framePicture(BtrcShimControl* control) {
     return GTK_PICTURE(gtk_graphics_offload_get_child(GTK_GRAPHICS_OFFLOAD(offload)));
 }
 
-void btrcGtkSharedFrameClear(BtrcShimControl* control) {
+void btrcLinuxSharedFrameClear(BtrcShimControl* control) {
     gtk_picture_set_paintable(framePicture(control), NULL);
 }
 
@@ -32,7 +32,7 @@ static void releaseBuffer(gpointer data) {
     g_free(frame);
 }
 
-bool btrcGtkPictureReceive(BtrcShimControl* picture, BtrcDmaBufReceiver* receiver) {
+bool btrcLinuxSharedFrameReceive(BtrcShimControl* picture, BtrcDmaBufReceiver* receiver) {
     BtrcDmaBufFrame packet;
     if (!btrcDmaBufReceive(receiver, &packet)) { return false; }
     GtkWidget* widget = btrcGtkControlWidget(picture);
@@ -65,12 +65,12 @@ bool btrcGtkPictureReceive(BtrcShimControl* picture, BtrcDmaBufReceiver* receive
     return true;
 }
 
-int btrcGtkPictureFrameWidth(BtrcShimControl* picture) {
+int btrcLinuxSharedFrameWidth(BtrcShimControl* picture) {
     GdkPaintable* image = gtk_picture_get_paintable(framePicture(picture));
     return image ? gdk_paintable_get_intrinsic_width(image) : 0;
 }
 
-int btrcGtkPictureFrameHeight(BtrcShimControl* picture) {
+int btrcLinuxSharedFrameHeight(BtrcShimControl* picture) {
     GdkPaintable* image = gtk_picture_get_paintable(framePicture(picture));
     return image ? gdk_paintable_get_intrinsic_height(image) : 0;
 }

@@ -35,6 +35,10 @@ struct BtrcShimControl {
     bool running, vertical;
     double viewport, content;
     unsigned char *image;
+    size_t stride;
+    void *imageOwner;
+    void (*releaseImage)(void *);
+    enum BtrcWaylandPixelLayout layout;
     int width;
     int height;
 };
@@ -52,7 +56,8 @@ static void release(BtrcShimControl *control) {
         free(control->tooltip);
         if (control->label) { btrcWaylandLabelDestroy(control->label); }
         if (control->select) { btrcWaylandSelectDestroy(control->select); }
-        free(control->image);
+        if (control->releaseImage) { control->releaseImage(control->imageOwner); }
+        else { free(control->image); }
         free(control);
     }
 }
@@ -320,10 +325,22 @@ void btrcShimPictureSet(BtrcShimControl *picture, const unsigned char *pixels, i
         if (!copy) { return; }
         memcpy(copy, pixels, size);
     }
-    free(picture->image);
-    picture->image = copy;
-    picture->width = copy ? width : 0;
-    picture->height = copy ? height : 0;
+    btrcWaylandPictureStorage(picture, copy, copy ? (size_t)width * 4 : 0,
+                            copy ? width : 0, copy ? height : 0, BTRC_WL_RGBA, NULL, NULL);
+}
+
+void btrcWaylandPictureStorage(BtrcShimControl *picture, unsigned char *pixels, size_t stride,
+                               int width, int height, enum BtrcWaylandPixelLayout layout,
+                               void *owner, void (*release)(void *)) {
+    if (picture->releaseImage) { picture->releaseImage(picture->imageOwner); }
+    else { free(picture->image); }
+    picture->image = pixels;
+    picture->stride = stride;
+    picture->width = width;
+    picture->height = height;
+    picture->layout = layout;
+    picture->imageOwner = owner;
+    picture->releaseImage = release;
     btrcWaylandControlChanged(picture);
 }
 
@@ -430,10 +447,16 @@ static void sample(const BtrcShimControl *c, double x, double y, unsigned char p
         double wy = j ? y - top : 1.0 - (y - top);
         for (int i = 0; i < 2; i++) {
             int sx = left + i < c->width ? left + i : left;
-            const unsigned char *p = c->image + ((size_t)sy * c->width + sx) * 4;
-            double weight = wy * (i ? x - left : 1.0 - (x - left)) * p[3];
-            alpha += weight;
-            for (int k = 0; k < 3; k++) { rgb[k] += weight * p[k]; }
+            const unsigned char *p = c->image + (size_t)sy * c->stride + (size_t)sx * 4;
+            double weight = wy * (i ? x - left : 1.0 - (x - left));
+            unsigned a = c->layout == BTRC_WL_DRM_XRGB ? 255 : p[3];
+            alpha += weight * a;
+            for (int k = 0; k < 3; k++) {
+                /* DRM channels are premultiplied BGR. The regular picture
+                 * stores straight RGB. Accumulate both before dividing. */
+                double channel = c->layout == BTRC_WL_RGBA ? (double)a * p[k] : 255.0 * (p[2-k] < a ? p[2-k] : a);
+                rgb[k] += weight * channel;
+            }
         }
     }
     for (int k = 0; k < 3; k++) { pixel[k] = alpha ? (unsigned char)(rgb[k] / alpha + 0.5) : 0; }

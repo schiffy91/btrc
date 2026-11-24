@@ -1329,7 +1329,7 @@ module = "Linux.LinuxSharedFrameView"
 header = "Linux/SharedFrame.h"
 language = "c"
 standard = "c11"
-symbols = ["BtrcDmaBufReceiver", "btrcDmaBufListen", "btrcDmaBufAddress", "btrcDmaBufDisconnect", "btrcGtkSupportsSharedFrames", "btrcGtkSharedFrameCreate", "btrcGtkSharedFrameClear", "btrcGtkPictureReceive", "btrcGtkPictureFrameWidth", "btrcGtkPictureFrameHeight"]
+symbols = ["BtrcDmaBufReceiver", "btrcDmaBufListen", "btrcDmaBufAddress", "btrcDmaBufDisconnect", "btrcLinuxSupportsSharedFrames", "btrcLinuxSharedFrameCreate", "btrcLinuxSharedFrameClear", "btrcLinuxSharedFrameReceive", "btrcLinuxSharedFrameWidth", "btrcLinuxSharedFrameHeight"]
 os = ["linux"]
 
 [[native.sources]]

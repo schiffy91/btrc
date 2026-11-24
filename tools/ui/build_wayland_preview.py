@@ -27,7 +27,6 @@ TOOLKIT_UNITS = {
     "Linux/GtkControls.c",
     "Linux/GtkSurface.c",
     "Linux/GtkPortalParent.c",
-    "Linux/DmaBufReceiver.c",
     "Linux/GtkSharedFrame.c",
 }
 TOOLKIT_PACKAGES = {"gtk4", "gtk4-wayland", "gtk4-x11", "wayland-client", "x11"}
@@ -43,6 +42,7 @@ WAYLAND_UNITS = (
     "Platform",
     "PortalParent",
     "Scene",
+    "SharedFrame",
     "Slider",
     "Button",
     "ControlText",
@@ -58,7 +58,6 @@ WAYLAND_UNITS = (
 PROVIDERS = {
     "Shim.ToolkitFeatures": "Linux.Wayland.PreviewFeatures",
     "Shim.WebViewProvider": "Linux.Wayland.PreviewWeb",
-    "Linux.SharedFrameViewProvider": "Unavailable.SharedFrameViewProvider",
 }
 
 

@@ -306,10 +306,14 @@ face as the controls. The native text renderer handles printable ASCII,
 precomposed Latin-1 letters, nonbreaking space and ellipsis. A run that needs
 another script or an unavailable glyph reports a rendering error.
 
-Applications that need embedded web views, desktop accessibility, or shared-frame
-views should use the default Linux GUI build. Embedded web views report the unavailable operation.
-Shared-frame creation returns its usual unavailable result. Runtime backend
-selection is fixed when the application is built.
+Applications that need embedded web views or desktop accessibility should use
+the default Linux GUI build. Embedded web views report the unavailable operation.
+The preview's shared-frame view samples completed, single-plane linear DRM
+XRGB8888 and ARGB8888 DMA-BUFs through the Linux kernel mapping API. It honors
+plane offset and stride. Applications producing other formats or modifiers should
+use the default GTK build, which negotiates imports with the display. Runtime
+backend selection is fixed when the application is built.
+
 
 ## The shim provider, and GTK4 on Linux
 
