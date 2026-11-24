@@ -298,7 +298,8 @@ def unavailable_freetype(tmp_path, env):
 @pytest.mark.parametrize(
     ("consumer", "suffix", "expected"),
     [
-        ("PCFFontConformance", "pcf", "PASS: PCF metrics, default glyph and packed pixels"),
+        ("MonochromeFontConformance", "pcf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
+        ("MonochromeFontConformance", "bdf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
         ("ColorBitmapFontConformance", "ttf", "PASS: color bitmap native metrics and coverage"),
     ],
 )
@@ -321,7 +322,12 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
     source.write_text((fixtures / source.name).read_text())
     executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
     portable = tmp_path / f"fixture.{suffix}"
-    portable.write_bytes(_pcf_strike() if suffix == "pcf" else (fixtures / "fixtures/color-bitmap.ttf").read_bytes())
+    if suffix == "pcf":
+        portable.write_bytes(_pcf_strike())
+    else:
+        fixture = "mono-strike.bdf" if suffix == "bdf" else "color-bitmap.ttf"
+        portable.write_bytes((fixtures / "fixtures" / fixture).read_bytes())
+    arguments = [suffix] if consumer == "MonochromeFontConformance" else []
     reference = tmp_path / "fixture.raw"
     reference.write_bytes(portable.read_bytes())
     env = provider_environment(sanitized)
@@ -331,7 +337,7 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
         compressed.write_bytes(gzip.compress(portable.read_bytes(), mtime=0))
         first_party.append(compressed)
     for path in [reference, *first_party]:
-        run = subprocess.run([executable, path], capture_output=True, text=True, timeout=60, env=env)
+        run = subprocess.run([executable, path, *arguments], capture_output=True, text=True, timeout=60, env=env)
         assert run.returncode == 0, run.stdout + run.stderr
         assert expected in run.stdout
 
@@ -340,9 +346,9 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
         # to prove which provider the existing public factory actually used.
         blocked = unavailable_freetype(tmp_path, env)
         for path in first_party:
-            good = subprocess.run([executable, path], capture_output=True, text=True, timeout=60, env=blocked)
+            good = subprocess.run([executable, path, *arguments], capture_output=True, text=True, timeout=60, env=blocked)
             assert good.returncode == 0, good.stdout + good.stderr
-        fallback = subprocess.run([executable, reference], capture_output=True, text=True, timeout=60, env=blocked)
+        fallback = subprocess.run([executable, reference, *arguments], capture_output=True, text=True, timeout=60, env=blocked)
         assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr
 
 
