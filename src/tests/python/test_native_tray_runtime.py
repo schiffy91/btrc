@@ -1,5 +1,4 @@
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -11,8 +10,10 @@ import pytest
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
+from src.tests.python.test_dbus_runtime import assert_links_no_dbus_library
+from src.tests.python.test_network_runtime import _transpile
 from src.tests.runner_capabilities import linux_tray_backend_error
-from tools.native_plan import NativePlanBuilder
+from tools.native_plan import NativePlanBuilder, NativePlanReader
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -42,35 +43,18 @@ def test_native_tray_lifecycle(native_project, native_compile, tmp_path, sanitiz
 
 
 @pytest.mark.parametrize("sanitized", [False, True])
-def test_native_tray_lifecycle_linux(tmp_path, sanitized):
-    """The D-Bus provider hosts the same lifecycle on a live StatusNotifierWatcher."""
+def test_native_tray_lifecycle_linux(compiler, tmp_path, sanitized, request):
+    """The D-Bus provider hosts the same lifecycle on a live StatusNotifierWatcher, from both frontends.
+
+    It speaks to the bus through Library.DBus, so the plan asks pkg-config for nothing and the program
+    links no D-Bus library."""
     if sys.platform != "linux" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
         pytest.skip("requires Linux and the explicitly built native header reader")
     if error := linux_tray_backend_error():
         pytest.skip(error)
     generated = tmp_path / "Tray.c"
-    plan = tmp_path / "Tray.json"
-    compiled = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "src.compiler.python.main",
-            "--no-cache",
-            "--target",
-            "linux-x86_64" if platform.machine() in ("x86_64", "AMD64") else "linux-aarch64",
-            str(ROOT / "src/tests/native/tray/TrayNative.btrc"),
-            "-o",
-            str(generated),
-            "--emit-link-plan",
-            str(plan),
-        ],
-        cwd=ROOT,
-        env={**os.environ, "BTRC_HOME": str(ROOT / "src")},
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    assert compiled.returncode == 0, compiled.stderr
+    plan = _transpile(compiler, ROOT / "src/tests/native/tray/TrayNative.btrc", generated, request)
+    assert NativePlanReader().read(plan).pkg_config == ()
     executable = tmp_path / "Tray"
 
     def run(command, **kwargs):
@@ -79,6 +63,7 @@ def test_native_tray_lifecycle_linux(tmp_path, sanitized):
         return subprocess.run(command, **kwargs)
 
     NativePlanBuilder(runner=run).build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+    assert_links_no_dbus_library(executable)
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert result.stdout == "PASS: test_tray_native\n"
@@ -222,6 +207,141 @@ int main() {
         process.communicate(timeout=10)
 
 
+def test_linux_tray_answers_libdbus_clients(tmp_path):
+    """libdbus's dbus-send reads the item's properties and the menu's layout, and clicks an item: the
+    first-party provider and the reference implementation agree on the wire in both directions."""
+    if sys.platform != "linux" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("requires Linux and the explicitly built native header reader")
+    if error := linux_tray_backend_error():
+        pytest.skip(error)
+    dbus_send = shutil.which("dbus-send")
+    assert dbus_send is not None  # the backend gate found it
+    clicked = tmp_path / "clicked"
+    source = tmp_path / "WiredTray.btrc"
+    source.write_text(f"""import Library.Tray;
+int main() {{
+    var tray = SystemTray("Wired").tip("a tip").item("Open", "touch {clicked}").checkItem("Marked", "true", "true");
+    tray.show();
+    for (int i = 0; i < 3000; i++) {{ if (!tray.pump(10)) {{ break; }} }}
+    tray.close();
+    return 0;
+}}
+""")
+    generated = tmp_path / "WiredTray.c"
+    plan = tmp_path / "WiredTray.json"
+    compiled = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "src.compiler.python.main",
+            "--no-cache",
+            str(source),
+            "-o",
+            str(generated),
+            "--emit-link-plan",
+            str(plan),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "BTRC_HOME": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    executable = tmp_path / "WiredTray"
+    NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
+    process = subprocess.Popen([str(executable)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+
+        def send(destination, path, member, *arguments):
+            command = [dbus_send, "--session", "--print-reply", f"--dest={destination}", path, member, *arguments]
+            return subprocess.run(command, capture_output=True, text=True, timeout=30)
+
+        prefix = f"org.kde.StatusNotifierItem-{process.pid}-"
+        service = None
+        deadline = time.monotonic() + 10
+        while service is None and time.monotonic() < deadline:
+            assert process.poll() is None, process.communicate()
+            listed = send("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus.ListNames").stdout
+            service = next((word.strip('"') for word in listed.split() if word.strip('"').startswith(prefix)), None)
+            time.sleep(0.01)
+        assert service is not None
+
+        def flat(result):
+            assert result.returncode == 0, result.stderr
+            return " ".join(result.stdout.split())
+
+        item = flat(
+            send(
+                service,
+                "/StatusNotifierItem",
+                "org.freedesktop.DBus.Properties.GetAll",
+                "string:org.kde.StatusNotifierItem",
+            )
+        )
+        tooltip = 'variant struct { string "application-x-executable" array [ ] string "Wired" string "a tip" }'
+        for expected in (
+            'dict entry( string "Category" variant string "ApplicationStatus" )',
+            'dict entry( string "Title" variant string "Wired" )',
+            'dict entry( string "Status" variant string "Active" )',
+            'dict entry( string "ItemIsMenu" variant boolean true )',
+            'dict entry( string "Menu" variant object path "/MenuBar" )',
+            f'dict entry( string "ToolTip" {tooltip} )',
+        ):
+            assert expected in item, (expected, item)
+        version = send(
+            service,
+            "/MenuBar",
+            "org.freedesktop.DBus.Properties.Get",
+            "string:com.canonical.dbusmenu",
+            "string:Version",
+        )
+        assert "variant uint32 3" in flat(version)
+
+        layout = flat(
+            send(service, "/MenuBar", "com.canonical.dbusmenu.GetLayout", "int32:0", "int32:-1", "array:string:label")
+        )
+        assert layout.count("variant struct { int32") == 2, layout  # the two items, each a (ia{sv}av) in a variant
+        for expected in (
+            "uint32 1 struct { int32 0",
+            'dict entry( string "label" variant string "Open" )',
+            'dict entry( string "label" variant string "Marked" )',
+            'dict entry( string "toggle-type" variant string "checkmark" )',
+            'dict entry( string "toggle-state" variant int32 1 )',
+            'dict entry( string "enabled" variant boolean true )',
+        ):
+            assert expected in layout, (expected, layout)
+
+        refused = send(
+            service, "/StatusNotifierItem", "org.freedesktop.DBus.Properties.Get", "string:any", "string:Missing"
+        )
+        assert refused.returncode != 0 and "org.freedesktop.DBus.Error.UnknownProperty" in refused.stderr
+        unknown = send(
+            service, "/MenuBar", "com.canonical.dbusmenu.GetLayout", "int32:99", "int32:-1", "array:string:x"
+        )
+        assert unknown.returncode != 0 and "com.canonical.dbusmenu.Error.InvalidMenuItem" in unknown.stderr
+
+        # A click, as a host sends it: (id, eventId, data, timestamp).
+        click = send(
+            service,
+            "/MenuBar",
+            "com.canonical.dbusmenu.Event",
+            "int32:1",
+            "string:clicked",
+            "variant:int32:0",
+            "uint32:0",
+        )
+        assert click.returncode == 0, click.stderr
+        deadline = time.monotonic() + 10
+        while not clicked.exists() and time.monotonic() < deadline:
+            assert process.poll() is None, process.communicate()
+            time.sleep(0.01)
+        assert clicked.exists()
+    finally:
+        process.terminate()
+        process.communicate(timeout=10)
+
+
 def test_linux_tray_click_and_live_state(tmp_path):
     """A click on the icon runs its command; a new icon and tooltip are announced and served."""
     if sys.platform != "linux" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
@@ -333,6 +453,9 @@ int main() {{
             Gio.DBusSignalFlags.NONE,
             lambda _bus, _sender, _path, _interface, member, _arguments: announced.append(member),
         )
+        # The subscription's match rule is sent from another thread. One round trip later the bus has it,
+        # so nothing is announced into a rule that is not there yet.
+        names()
         switch.touch()
         assert eventually(lambda: "NewIcon" in announced and "NewToolTip" in announced), announced
         assert item(live, "IconName") == str(icon) != first_icon

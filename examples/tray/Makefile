@@ -1,8 +1,8 @@
 # btrc native system tray example
 #
-# macOS builds generated AppKit adapters from the native link plan; Linux links
-# libdbus-1 (pkg-config dbus-1) for the StatusNotifierItem provider. Windows has
-# no provider.
+# macOS builds generated AppKit adapters from the native link plan; the Linux
+# StatusNotifierItem provider speaks D-Bus through Library.DBus and links no
+# library for it. Windows has no provider.
 #
 #   make        Transpile, build, and run the tray demo
 #   make build  Transpile + build only (don't run)

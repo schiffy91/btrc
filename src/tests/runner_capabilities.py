@@ -243,9 +243,10 @@ _TRAY_WATCHER_NAME = "org.kde.StatusNotifierWatcher"
 
 @CapabilityGateLog.gate("native-tray")
 def linux_tray_backend_error() -> str | None:
-    """Return why a StatusNotifierItem cannot be hosted on this session bus."""
-    if error := PkgConfig.missing("dbus-1"):
-        return f"native tray backend is unavailable: {error}"
+    """Return why a StatusNotifierItem cannot be hosted on this session bus.
+
+    The provider links no D-Bus library (Library.DBus speaks the protocol), so nothing is asked of pkg-config;
+    dbus-send is only this probe's way of asking the bus who is on it."""
     dbus_send = shutil.which("dbus-send")
     if dbus_send is None:
         return "native tray backend is unavailable: dbus-send is not installed"

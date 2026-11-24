@@ -152,7 +152,7 @@ name = "Cocoa"
 os = ["macos"]
 
 [[native.pkg-config]]
-name = "dbus-1"
+name = "alsa"
 os = ["linux"]
 
 [[native.libraries]]

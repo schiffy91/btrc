@@ -79,7 +79,7 @@ class StandInWatcher:
             from gi.repository import GLibUnix
 
             add_signal = GLibUnix.signal_add
-        except (ImportError, ValueError):
+        except (AttributeError, ImportError, ValueError):
             add_signal = GLib.unix_signal_add
         for signum in (signal.SIGTERM, signal.SIGINT):
             add_signal(GLib.PRIORITY_HIGH, signum, self.forward, signum)

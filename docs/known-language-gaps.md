@@ -198,8 +198,8 @@ Everything else needs a declaration the compiler can see. Source macros
 (`#define`) and enum members in scope always resolve. An SDK macro or
 enumerator of a native binding is imported by naming it in the binding's
 `symbols` (`docs/design/native-interop.md`); it then has its C type, and every
-module importing the bound module sees it. The Linux GUI, Tray and Image
-providers name their SDL, fontconfig, libdbus and TurboJPEG constants that way.
+module importing the bound module sees it. The Linux GUI and Image
+providers name their SDL, fontconfig and TurboJPEG constants that way.
 `btrc/test_analyzer_parity_battery.py` pins the diagnostic, its position and
 the compatibility path in both compilers.
 

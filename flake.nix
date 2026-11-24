@@ -73,7 +73,7 @@
             pugixml sqlite.dev
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
-            wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
+            wayland.dev pkg-config            # native windowing shims
             fontconfig.dev alsa-lib.dev   # Linux font and audio providers
             (curlHttpTransport pkgs).dev   # libcurl.pc: the Linux HTTP transport (OpenSSL 3, c-ares)
             openssh   # ssh-keygen: writes the key files the Library.Crypto driver reads back
