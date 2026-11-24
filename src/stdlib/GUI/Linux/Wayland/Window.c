@@ -351,12 +351,18 @@ BtrcWaylandDisplay *btrcWaylandDisplayOpen(void) {
 
 int btrcWaylandDisplayPoll(BtrcWaylandDisplay *d, int timeout) {
     if (d->failed) { return -1; }
-    int result = btrcWaylandPoll(d->wire, btrcWaylandRepeatTimeout(d, timeout));
+    /* Modal, clipboard and normal event loops all poll this display. An
+     * assistive action can complete the caller's wait without a queued event. */
+    int dispatched = 0;
+    if (d->accessibilityService) { d->wire->accessibility = d->accessibilityService(&dispatched); }
+    int result = btrcWaylandPoll(d->wire, btrcWaylandRepeatTimeout(d, dispatched ? 0 : timeout));
     if (result < 0) { return -1; }
     if (result == 2 && !btrcWaylandQueueEvent(d, (BtrcShimEvent){.type = BTRC_SHIM_EVENT_USER})) { return -1; }
     btrcWaylandClipboardTransfers(d);
     int repeated = btrcWaylandSendRepeats(d);
-    return repeated < 0 || !result ? repeated : result;
+    if (repeated < 0) { return repeated; }
+    if (result) { return result; }
+    return repeated ? repeated : dispatched;
 }
 
 bool btrcWaylandDisplayWake(BtrcWaylandDisplay *d) { return btrcWaylandWake(d->wire); }

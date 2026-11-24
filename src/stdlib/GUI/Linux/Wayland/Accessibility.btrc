@@ -18,6 +18,7 @@ class WaylandAccessible {
 	public string roleName() {
 		if (self.role == 75) { return "application"; }
 		if (self.role == 23) { return "frame"; }
+		if (self.role == 16) { return "dialog"; }
 		if (self.role == 43) { return "push button"; }
 		return "label";
 	}
@@ -57,9 +58,10 @@ class WaylandAccessibility {
 		Vector<WaylandAccessible> nodes = [];
 		var app = WaylandAccessible(WaylandAccessibility.root(), "", "BTRC", 75u, 0);
 		nodes.push(app);
+		bool named = false;
 		for (int i = 0; i < nodes.len; i++) {
 			var parent = nodes.get(i);
-			if (parent.role != 23 && parent.role != 75) { continue; }
+			if (parent.role != 16 && parent.role != 23 && parent.role != 75) { continue; }
 			for (int child = 0;; child++) {
 				BtrcWaylandAccessible native = {};
 				if (!btrcWaylandAccessibleChild(parent.window, child, &native)) { break; }
@@ -70,7 +72,7 @@ class WaylandAccessibility {
 				item.description = Strings.copy((string)native.description);
 				item.x = native.x; item.y = native.y; item.width = native.width; item.height = native.height;
 				nodes.push(item); parent.count++;
-				if (parent.role == 75 && child == 0) { parent.name = item.name; }
+				if (parent.role == 75 && item.role == 23 && !named) { parent.name = item.name; named = true; }
 			}
 		}
 		return nodes;
@@ -225,10 +227,10 @@ class WaylandAccessibility {
 			var before = WaylandAccessibility.lookup(old, after.path);
 			if (before == null) {
 				WaylandAccessibility.childEvent(bus, after, true);
-				if (after.role == 23 && (after.state & 2u) != 0) { WaylandAccessibility.windowEvent(bus, after, true); }
+				if ((after.role == 16 || after.role == 23) && (after.state & 2u) != 0) { WaylandAccessibility.windowEvent(bus, after, true); }
 				continue;
 			}
-			if (after.role == 23 && ((after.state ^ before.state) & 2u) != 0) {
+			if ((after.role == 16 || after.role == 23) && ((after.state ^ before.state) & 2u) != 0) {
 				WaylandAccessibility.changed(bus, after, "StateChanged", "active", (after.state & 2u) != 0 ? 1 : 0);
 				WaylandAccessibility.windowEvent(bus, after, (after.state & 2u) != 0);
 			}
@@ -264,7 +266,7 @@ class WaylandAccessibility {
 		return connection;
 	}
 
-	class int turn() {
+	class int turn(int* dispatched) {
 		if (!WaylandAccessibility.attempted) {
 			WaylandAccessibility.attempted = true;
 			WaylandAccessibility.bus = WaylandAccessibility.connect();
@@ -281,6 +283,7 @@ class WaylandAccessibility {
 		}
 		var message = channel.popMessage();
 		if (message != null) {
+			*dispatched = 1;
 			while (message != null) {
 				if (message.type() == DBUS_MESSAGE_TYPE_METHOD_RETURN && message.replySerial() == WaylandAccessibility.embedSerial && message.signature() == "(so)") {
 					var parent = message.reader().recurse();
@@ -300,6 +303,6 @@ class WaylandAccessibility {
 	class void install() { btrcWaylandAccessibilityInstall(serviceWaylandAccessibility); }
 }
 
-typedef CFunction<int> WaylandAccessibilityPump;
+typedef CFunction<int, int*> WaylandAccessibilityPump;
 extern void btrcWaylandAccessibilityInstall(WaylandAccessibilityPump service);
-int serviceWaylandAccessibility() { try { return WaylandAccessibility.turn(); } catch (string error) { return -1; } }
+int serviceWaylandAccessibility(int* dispatched) { try { return WaylandAccessibility.turn(dispatched); } catch (string error) { return -1; } }

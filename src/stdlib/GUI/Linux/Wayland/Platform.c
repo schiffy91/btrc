@@ -18,8 +18,11 @@ static BtrcShimWindow *windows;
 static pthread_t thread;
 static int openError;
 static bool disconnected;
-static int (*accessibilityService)(void);
-void btrcWaylandAccessibilityInstall(int (*service)(void)) { accessibilityService = service; }
+static int (*accessibilityService)(int *);
+void btrcWaylandAccessibilityInstall(int (*service)(int *)) {
+    accessibilityService = service;
+    if (display) { display->accessibilityService = service; }
+}
 
 bool btrcShimInit(void) {
     if (display) { return !disconnected; }
@@ -29,6 +32,7 @@ bool btrcShimInit(void) {
     opened->editContext = btrcWaylandSceneEditContext;
     opened->deleteAround = btrcWaylandSceneDeleteAround;
     opened->activationChanged = btrcWaylandAccessibilityChanged;
+    opened->accessibilityService = accessibilityService;
     opened->routeInput = btrcWaylandSceneInput;
     display = opened;
     return true;
@@ -109,7 +113,6 @@ int btrcShimWaitEvent(BtrcShimEvent *out, int timeout) {
     long long deadline = btrcWaylandMilliseconds() + timeout;
     int remaining = timeout;
     for (;;) {
-        if (accessibilityService) { display->wire->accessibility = accessibilityService(); }
         if (btrcWaylandDisplayPop(display, out)) { return 1; }
         if (disconnected) { return 0; }
         int result = btrcWaylandDisplayPoll(display, btrcWaylandSceneAdvance(remaining));

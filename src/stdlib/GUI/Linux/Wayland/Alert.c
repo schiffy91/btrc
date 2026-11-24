@@ -151,6 +151,7 @@ int btrcWaylandShowAlert(BtrcShimWindow *parent, const char *title, const char *
         goto finish;
     }
     display->modal = &a;
+    display->modalWindow = a.window->native;
     display->modalFilter = filter;
     if (!btrcWaylandWindowMinimum(a.window->native, 180, 100) || !layout(&a, true)) {
         goto finish;
@@ -175,6 +176,7 @@ finish:
     if (a.window) {
         btrcShimWindowDestroy(a.window);
     }
+    display->modalWindow = NULL;
     display->modalFilter = NULL;
     display->modal = NULL;
     if (a.background) {
