@@ -1,0 +1,81 @@
+/* An object on the session bus for other D-Bus implementations to call:
+ * the test drives it with GDBus and with libdbus's own tools.
+ *
+ * It owns org.btrc.test.Echo and serves /org/btrc/test/Echo: `Echo` returns
+ * its arguments, `Emit` sends them as the signal `Echoed`, `Order` says which
+ * byte order the call arrived in, `Fail` answers with an error. It prints
+ * READY once the name is owned, and CLOSED when the connection ends, as it
+ * does when a peer sends more than this client accepts. */
+
+import Library.DBus;
+import Library.Timer;
+
+#include <fcntl.h>
+#include <unistd.h>
+
+class DBusEcho {
+	class string name() { return "org.btrc.test.Echo"; }
+
+	class string path() { return "/org/btrc/test/Echo"; }
+
+	class void copyBody(DBusMessage source, DBusMessage target) {
+		DBusReader reader = source.reader();
+		DBusWriter writer = target.writer();
+		while (reader.type() != DBUS_TYPE_INVALID) {
+			writer.appendValue(reader);
+			reader.next();
+		}
+	}
+
+	class DBusMessage answer(DBusConnection bus, DBusMessage call) {
+		if (!call.path().equals(DBusEcho.path()) || !call.interfaceName().equals(DBusEcho.name())) { return DBusMessage.error(call, "org.freedesktop.DBus.Error.UnknownObject", "No such object"); }
+		string member = call.member();
+		if (member.equals("Fail")) { return DBusMessage.error(call, "org.btrc.test.Error.Failed", "asked to fail"); }
+		DBusMessage reply = DBusMessage.methodReturn(call);
+		if (member.equals("Echo")) { DBusEcho.copyBody(call, reply); }
+		else if (member.equals("ReadDescriptor")) {
+			int fd = call.reader().readUnixFD();
+			unsigned char unit[1];
+			int flags = fd >= 0 ? fcntl(fd, F_GETFD, 0) : -1;
+			if (flags < 0 || (flags & FD_CLOEXEC) == 0 || read(fd, unit, (size_t)1) != (ssize_t)1) { return DBusMessage.error(call, "org.btrc.test.Error.Descriptor", "cannot read the borrowed descriptor"); }
+			reply.writer().appendByte((int)unit[0]);
+		}
+		else if (member.equals("Order")) { reply.writer().appendString(call.isBigEndian() ? "big" : "little"); }
+		else if (member.equals("Emit")) {
+			DBusMessage signal = DBusMessage.signal(DBusEcho.path(), DBusEcho.name(), "Echoed");
+			DBusEcho.copyBody(call, signal);
+			bus.send(signal);
+		} else { return DBusMessage.error(call, "org.freedesktop.DBus.Error.UnknownMethod", "No such method"); }
+		return reply;
+	}
+
+	/* Serve until the connection ends, or for a minute at most. */
+	class bool serve(DBusConnection bus) {
+		long long deadline = MonotonicClock.deadlineAfter(60000LL);
+		while (MonotonicClock.before(deadline)) {
+			if (!bus.readWrite(200)) { return true; }
+			DBusMessage? popped = bus.popMessage();
+			while (popped != null) {
+				DBusMessage message = popped;
+				if (message.type() == DBUS_MESSAGE_TYPE_METHOD_CALL) {
+					DBusMessage reply = DBusEcho.answer(bus, message);
+					if (!message.noReply()) { bus.send(reply); }
+				}
+				popped = bus.popMessage();
+			}
+		}
+		return false;
+	}
+}
+
+int main() {
+	DBusConnection? opened = DBusConnection.session();
+	if (opened == null) { return 2; }
+	DBusConnection bus = opened;
+	if (!bus.ownName(DBusEcho.name())) { return 2; }
+	print(f"READY {bus.uniqueName()}");
+	fflush(stdout);
+	if (!DBusEcho.serve(bus)) { return 4; }
+	print("CLOSED");
+	return 3;
+}

@@ -17,14 +17,13 @@ let
   program = pkgs.stdenv.mkDerivation {
     name = "btrc-bluetooth-hid-loopback";
     src = source;
-    nativeBuildInputs = [ btrcpy pkgs.pkg-config ];
-    buildInputs = [ pkgs.dbus ];
+    nativeBuildInputs = [ btrcpy ];
     dontConfigure = true;
     buildPhase = ''
       export BTRC_CACHE_DIR="$TMPDIR/cache" BTRC_STATE_DIR="$TMPDIR/state" BTRC_PKG_CACHE="$TMPDIR/packages"
       btrcpy --strict-imports BluetoothHIDLoopback.btrc -o BluetoothHIDLoopback.c
       $CC -std=c11 -Wall -Wextra -Werror -pedantic-errors -D_GNU_SOURCE=1 BluetoothHIDLoopback.c \
-        $(pkg-config --cflags --libs dbus-1) -o bluetooth-hid-loopback
+        -o bluetooth-hid-loopback
     '';
     installPhase = ''
       install -Dm755 bluetooth-hid-loopback "$out/bin/bluetooth-hid-loopback"

@@ -1,0 +1,169 @@
+/* Where a D-Bus server listens, as the specification writes it: a list of
+ * addresses separated by ";", each a transport, ":", and "key=value" pairs
+ * separated by ",", with any other byte of a value written "%xx".
+ *
+ * The client tries supported transports in order. An explicit GUID pins the
+ * authenticated server. Parsing an address opens no sockets or processes. */
+
+import Library.Bytes;
+import Library.Map;
+import Library.Platform;
+import Library.Strings;
+import Library.Vector;
+
+class DBusAddress {
+	private string kind;
+	private Map<string, string> options;
+	private string socketPath;
+	private bool abstractName;
+
+	private DBusAddress(string kind, Map<string, string> options, string socketPath, bool abstractName) {
+		self.kind = kind;
+		self.options = options;
+		self.socketPath = socketPath;
+		self.abstractName = abstractName;
+	}
+
+	public string transport() { return self.kind; }
+
+	public string option(string name) { return self.options.getOrDefault(name, ""); }
+
+	public bool hasOption(string name) { return self.options.has(name); }
+
+	public string path() { return self.socketPath; }
+
+	public bool isAbstract() { return self.abstractName; }
+
+	class bool validGuid(string id) {
+		if (id.len() != 32) { return false; }
+		for (int i = 0; i < id.len(); i++) {
+			if (Bytes.hexValue(id[i]) < 0) { return false; }
+		}
+		return true;
+	}
+
+	/* What a value stands for once its "%xx" escapes are undone; null when
+	 * an escape is malformed or stands for a NUL, which no path holds. */
+	class string? unescape(string value) {
+		Bytes plain = Bytes();
+		int at = 0;
+		while (at < value.len()) {
+			char code = value[at];
+			if (code != '%') {
+				plain.append((int)(unsigned char)code);
+				at++;
+				continue;
+			}
+			if (at + 2 >= value.len()) { return null; }
+			int high = Bytes.hexValue(value[at + 1]);
+			int low = Bytes.hexValue(value[at + 2]);
+			if (high < 0 || low < 0 || (high == 0 && low == 0)) { return null; }
+			plain.append(high * 16 + low);
+			at += 3;
+		}
+		return plain.toString();
+	}
+
+	/* The one address `entry`, or null when this client cannot use it. */
+	class DBusAddress? parseOne(string entry) {
+		int colon = entry.indexOf(":");
+		if (colon < 1) { return null; }
+		string kind = entry.substring(0, colon);
+		Map<string, string> options = {};
+		string parameters = entry.substring(colon + 1, entry.len() - colon - 1);
+		if (kind.equals("autolaunch") && parameters.isEmpty()) { return DBusAddress(kind, options, "", false); }
+		for pair in Strings.split(parameters, ",") {
+			int separator = pair.indexOf("=");
+			if (separator < 1) { return null; }
+			string key = pair.substring(0, separator);
+			string? value = DBusAddress.unescape(pair.substring(separator + 1, pair.len() - separator - 1));
+			if (value == null || options.has(key)) { return null; }
+			options.put(key, value);
+		}
+		if (options.has("guid") && !DBusAddress.validGuid(options.get("guid"))) { return null; }
+		if (kind.equals("unix")) {
+			int choices = 0;
+			string path = "";
+			if (options.has("path")) { path = options.get("path"); choices++; }
+			if (options.has("abstract")) { path = options.get("abstract"); choices++; }
+			if (options.has("runtime")) {
+				string directory = Environment.get("XDG_RUNTIME_DIR", "");
+				if (!options.get("runtime").equals("yes") || directory.isEmpty()) { return null; }
+				path = directory + "/bus";
+				choices++;
+			}
+			if (choices != 1 || path.isEmpty()) { return null; }
+			return DBusAddress(kind, options, path, options.has("abstract"));
+		}
+		if (kind.equals("unixexec")) {
+			string path = options.getOrDefault("path", "");
+			if (path.isEmpty()) { return null; }
+			int last = 0;
+			int count = 0;
+			for key in options.keys() {
+				if (!key.startsWith("argv")) { continue; }
+				string number = key.substring(4, key.len() - 4);
+				if (!number.isDigit() || !Strings.fromInt(number.toInt()).equals(number)) { return null; }
+				int index = number.toInt();
+				if (index > 0) { count++; }
+				if (index > last) { last = index; }
+			}
+			if (count != last) { return null; }
+			return DBusAddress(kind, options, path, false);
+		}
+		if (kind.equals("tcp") || kind.equals("nonce-tcp")) {
+			string port = options.getOrDefault("port", "");
+			string family = options.getOrDefault("family", "");
+			if (!family.isEmpty() && !family.equals("ipv4") && !family.equals("ipv6")) { return null; }
+			if (!port.isDigit() || port.toInt() < 1 || port.toInt() > 65535) { return null; }
+			if (kind.equals("nonce-tcp") && options.getOrDefault("noncefile", "").isEmpty()) { return null; }
+			return DBusAddress(kind, options, "", false);
+		}
+		return null;
+	}
+
+	/* The addresses in `list` this client can connect to, in the order a
+	 * client is to try them. */
+	class Vector<DBusAddress> parse(string list) {
+		Vector<DBusAddress> usable = [];
+		if (list == null) { return usable; }
+		Vector<string> entries = Strings.split(list, ";");
+		for entry in entries {
+			if (entry.isEmpty()) { continue; }
+			DBusAddress? address = DBusAddress.parseOne(entry);
+			if (address != null) { usable.push(address); }
+		}
+		return usable;
+	}
+
+	/* The session bus: DBUS_SESSION_BUS_ADDRESS, or the user's runtime
+	 * directory when that is unset. No bus is ever started to find one. */
+	class string session() {
+		string named = Environment.get("DBUS_SESSION_BUS_ADDRESS", "");
+		if (!named.isEmpty()) { return named; }
+		string directory = Environment.get("XDG_RUNTIME_DIR", "");
+		if (directory.isEmpty()) { return ""; }
+		return "unix:path=" + DBusAddress.escape(directory + "/bus");
+	}
+
+	/* The system bus: DBUS_SYSTEM_BUS_ADDRESS, or its well-known socket. */
+	class string system() { return Environment.get("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/var/run/dbus/system_bus_socket"); }
+
+	/* `value` as an address may carry it. */
+	class string escape(string value) {
+		string digits = "0123456789abcdef";
+		StringBuilder escaped = StringBuilder();
+		for (int at = 0; at < value.len(); at++) {
+			char code = value[at];
+			if (Strings.isAlnum(code) || code == '-' || code == '_' || code == '/' || code == '.' || code == '\\' || code == '*') {
+				escaped.appendChar(code);
+			} else {
+				int unit = (int)(unsigned char)code;
+				escaped.appendChar('%');
+				escaped.appendChar(digits[unit / 16]);
+				escaped.appendChar(digits[unit % 16]);
+			}
+		}
+		return escaped.toString();
+	}
+}

@@ -1,0 +1,428 @@
+/* A connection to a D-Bus message bus, written against the protocol itself:
+ * this client speaks to the bus daemon's socket and links no D-Bus library.
+ *
+ * `session` and `system` find the bus, authenticate as this process's user
+ * (usually EXTERNAL, with credentials supplied by the Unix socket)
+ * and say Hello. After that the connection is pulled, never called back:
+ * `readWrite` reads what arrived, `popMessage` hands messages over one at a
+ * time, and `call` waits for the reply to one request while everything else
+ * that arrives waits its turn in the queue.
+ *
+ * A peer is not trusted. A message is parsed whole before any of it is
+ * queued, a message that is malformed or longer than `DBusWire`'s limit
+ * closes the connection, and reading stops while more than a bounded amount
+ * waits unpopped. A closed connection stays closed: every operation reports
+ * failure, and what was already queued can still be popped.
+ *
+ * Linux supplies the socket transport. Other rows have no provider. */
+
+import Library.Bytes;
+import Library.DBus.DBusAddress;
+import Library.DBus.DBusCookie;
+import Library.DBus.DBusMessage;
+import Library.DBus.DBusWire;
+import Library.Platform;
+import Library.Strings;
+import Library.Timer;
+import Library.Vector;
+
+class DBusConnection {
+	private int handle = -1;
+	private string unique = "";
+	private unsigned int lastSerial = 0u;
+	private Vector<DBusMessage> incoming = [];
+	private long long backlog = 0LL;  /* wire bytes of the queued messages */
+	private unsigned char* frame = null;  /* the message being received */
+	private bool unixFD = false;
+	private DBusReceivedDescriptors handles = DBusReceivedDescriptors();
+	private int frameSize = 0;
+	private int frameFill = 0;
+	private bool framed = false;  /* the fixed header is in and the frame has its full size */
+	private string failure = "";
+
+	private DBusConnection(int handle) { self.handle = handle; }
+
+	class string busName() { return "org.freedesktop.DBus"; }
+
+	class string busPath() { return "/org/freedesktop/DBus"; }
+
+	/* How long a call to the bus itself, or one given a negative timeout,
+	 * waits for its reply. Connecting, authenticating and every write share
+	 * the bound. */
+	class int defaultTimeout() { return 25000; }
+
+	/* Unpopped messages may hold this many wire bytes before reading stops
+	 * until some are popped: a peer cannot grow the queue without bound. */
+	class long long maximumBacklogBytes() { return 8388608LL; }
+
+	/* RequestName's flag: fail at once when another connection owns the name. */
+	class unsigned int doNotQueue() { return 4u; }
+
+	/* The user's session bus, or null when there is none to reach. */
+	class DBusConnection? session() {
+		string explicitAddress = Environment.get("DBUS_SESSION_BUS_ADDRESS", "");
+		if (!explicitAddress.isEmpty()) { return DBusConnection.open(explicitAddress); }
+		if (DBusTransportProvider.userBusAvailable()) {
+			DBusConnection? bus = DBusConnection.open(DBusAddress.session());
+			if (bus != null) { return bus; }
+		}
+		return DBusConnection.open("autolaunch:");
+	}
+
+	/* The system bus, or null. */
+	class DBusConnection? system() { return DBusConnection.open(DBusAddress.system()); }
+
+	/* A registered connection to the bus at the first of `addresses` that
+	 * answers, or null. */
+	class DBusConnection? open(string addresses) {
+		for address in DBusAddress.parse(addresses) {
+			if (address.transport().equals("autolaunch")) {
+				if (!DBusTransportProvider.canDiscover()) { continue; }
+				string machine = DBusTransportProvider.machineId();
+				if (machine.isEmpty()) { continue; }
+				DBusConnection? known = DBusConnection.openNamed(DBusTransportProvider.savedSession(machine));
+				if (known != null) { return known; }
+				DBusConnection? activated = DBusConnection.openNamed(DBusTransportProvider.launchSession(machine));
+				if (activated != null) { return activated; }
+			} else {
+				DBusConnection? connected = DBusConnection.connectAddress(address);
+				if (connected != null) { return connected; }
+			}
+		}
+		return null;
+	}
+
+	/* An address recovered from session discovery cannot request discovery again. */
+	class DBusConnection? openNamed(string addresses) {
+		for address in DBusAddress.parse(addresses) {
+			if (!address.transport().equals("autolaunch")) {
+				DBusConnection? connected = DBusConnection.connectAddress(address);
+				if (connected != null) { return connected; }
+			}
+		}
+		return null;
+	}
+
+	class DBusConnection? connectAddress(DBusAddress address) {
+		int handle = DBusTransportProvider.connect(address);
+		if (handle < 0) { return null; }
+		DBusConnection connection = DBusConnection(handle);
+		if (connection.authenticate(address, MonotonicClock.deadlineAfter((long long)DBusConnection.defaultTimeout())) && connection.hello()) { return connection; }
+		connection.close();
+		return null;
+	}
+
+	public bool isConnected() { return self.handle >= 0; }
+
+	/* The name the bus gave this connection, such as ":1.42". */
+	public string uniqueName() { return self.unique; }
+
+	/* The socket, for a caller that waits on several things at once; -1
+	 * when closed. It is the connection's: read it only through `readWrite`. */
+	public int descriptor() { return self.handle; }
+
+	/* Why the last `call` or `exchange` returned null: the error's name. */
+	public string lastError() { return self.failure; }
+
+	private bool write(const unsigned char* data, int length, long long deadline) {
+		int sent = 0;
+		while (sent < length) {
+			if (self.handle < 0) { return false; }
+			int count = DBusTransportProvider.transmit(self.handle, data + sent, length - sent);
+			if (count > 0) {
+				sent += count;
+				continue;
+			}
+			long long remaining = MonotonicClock.remaining(deadline);
+			/* What was half written cannot be taken back, so the stream is lost. */
+			if (count < 0 || remaining <= 0LL) {
+				self.close();
+				return false;
+			}
+			DBusTransportProvider.wait(self.handle, true, (int)remaining);
+		}
+		return true;
+	}
+
+	private bool writeLine(string line, long long deadline) {
+		string whole = line + "\r\n";
+		return self.write((const unsigned char*)(char*)whole, whole.len(), deadline);
+	}
+
+	/* One line of the authentication exchange without its CR LF; empty when
+	 * none arrived. Bytes are taken one at a time, so nothing after the line
+	 * is consumed. */
+	private string readLine(long long deadline) {
+		Bytes line = Bytes();
+		unsigned char unit[1];
+		while (line.len < 1024 && self.handle >= 0) {
+			int count = DBusTransportProvider.receive(self.handle, unit, 1);
+			if (count < 0) { return ""; }
+			if (count == 0) {
+				long long remaining = MonotonicClock.remaining(deadline);
+				if (remaining <= 0LL) { return ""; }
+				DBusTransportProvider.wait(self.handle, false, (int)remaining);
+				continue;
+			}
+			int value = (int)unit[0];
+			if (value == 10) {
+				if (line.len < 1 || line.get(line.len - 1) != 13) { return ""; }
+				return line.slice(0, line.len - 1).toString();
+			}
+			if (value == 0) { return ""; }
+			line.append(value);
+		}
+		return "";
+	}
+
+	private string cookieChallenge(string input) {
+		if (!input.startsWith("DATA ")) { return ""; }
+		Bytes? encoded = Bytes.fromHex(input.substring(5, input.len() - 5));
+		if (encoded == null) { return ""; }
+		Bytes challenge = encoded;
+		for (int i = 0; i < challenge.len; i++) {
+			if (challenge.get(i) < 32 || challenge.get(i) > 126) { return ""; }
+		}
+		Vector<string> parts = Strings.split(challenge.toString(), " ");
+		if (parts.len != 3 || !DBusCookie.safeContext(parts.get(0)) || !parts.get(1).isDigit() || parts.get(2).isEmpty()) { return ""; }
+		string secret = DBusTransportProvider.cookie(parts.get(0), parts.get(1));
+		string random = DBusTransportProvider.challenge();
+		if (secret.isEmpty() || random.isEmpty()) { return ""; }
+		string digest = DBusCookie.digest(parts.get(2) + ":" + random + ":" + secret);
+		return "DATA " + Bytes.fromString(random + " " + digest).toHex();
+	}
+
+	/* The SASL exchange: a NUL, then EXTERNAL with this user's id in hex. */
+	private bool authenticate(DBusAddress address, long long deadline) {
+		Bytes greeting = Bytes();
+		if (address.transport().equals("nonce-tcp")) {
+			Bytes nonce = DBusTransportProvider.readNonce(address.option("noncefile"));
+			if (nonce.len != 16) { return false; }
+			greeting.appendBytes(nonce);
+		}
+		greeting.append(0);
+		string offer = "AUTH EXTERNAL " + Bytes.fromString(DBusTransportProvider.user()).toHex() + "\r\n";
+		greeting.appendRaw((char*)offer, offer.len());
+		if (!self.write((const unsigned char*)greeting.data, greeting.len, deadline)) { return false; }
+		string answer = self.readLine(deadline);
+		if (answer.equals("DATA") || answer.startsWith("DATA ")) {
+			if (!self.writeLine("DATA", deadline)) { return false; }
+			answer = self.readLine(deadline);
+		}
+		string offered = " " + answer + " ";
+		if (answer.startsWith("REJECTED ") && offered.contains(" DBUS_COOKIE_SHA1 ")) {
+			if (!self.writeLine("AUTH DBUS_COOKIE_SHA1 " + Bytes.fromString(DBusTransportProvider.user()).toHex(), deadline)) { return false; }
+			answer = self.readLine(deadline);
+			if (answer.startsWith("DATA ")) {
+				string response = self.cookieChallenge(answer);
+				if (!self.writeLine(response.isEmpty() ? "CANCEL" : response, deadline)) { return false; }
+				answer = self.readLine(deadline);
+			}
+		}
+		offered = " " + answer + " ";
+		if (answer.startsWith("REJECTED ") && offered.contains(" ANONYMOUS ")) {
+			if (!self.writeLine("AUTH ANONYMOUS " + Bytes.fromString("btrc").toHex(), deadline)) { return false; }
+			answer = self.readLine(deadline);
+		}
+		if (!answer.startsWith("OK ")) { return false; }
+		string guid = answer.substring(3, answer.len() - 3);
+		if (!DBusAddress.validGuid(guid) || (!address.option("guid").isEmpty() && !guid.toLower().equals(address.option("guid").toLower()))) { return false; }
+		if (!address.transport().equals("unix")) { return self.writeLine("BEGIN", deadline); }
+		if (!self.writeLine("NEGOTIATE_UNIX_FD", deadline)) { return false; }
+		answer = self.readLine(deadline);
+		self.unixFD = answer.equals("AGREE_UNIX_FD");
+		if (!self.unixFD && !answer.equals("ERROR") && !answer.startsWith("ERROR ")) { return false; }
+		return self.writeLine("BEGIN", deadline);
+	}
+
+	private bool hello() {
+		DBusMessage? reply = self.call(DBusMessage.methodCall(DBusConnection.busName(), DBusConnection.busPath(), DBusConnection.busName(), "Hello"), -1);
+		if (reply == null) { return false; }
+		DBusMessage answer = reply;
+		self.unique = answer.reader().readString();
+		return !self.unique.isEmpty();
+	}
+
+	/* Read what the socket holds, without waiting, into whole messages. */
+	private void receive() {
+		int budget = 64;
+		while (self.handle >= 0 && budget > 0 && self.backlog <= DBusConnection.maximumBacklogBytes()) {
+			if (self.frame == null) {
+				self.frame = (unsigned char*)malloc((size_t)16);
+				self.frameSize = 16;
+				self.frameFill = 0;
+				self.framed = false;
+				if (self.frame == null) {
+					self.close();
+					return;
+				}
+			}
+			int count = DBusTransportProvider.receiveFrame(self.handle, self.frame + self.frameFill, self.frameSize - self.frameFill, self.handles);
+			if (count < 0 || (!self.unixFD && self.handles.count() > 0)) {
+				self.close();
+				return;
+			}
+			if (count == 0) { return; }
+			self.frameFill += count;
+			if (self.frameFill < self.frameSize) { continue; }
+			if (!self.framed) {
+				int total = DBusMessage.frameLength(self.frame, 16);
+				if (total < 16) {
+					self.close();
+					return;
+				}
+				self.framed = true;
+				if (total > 16) {
+					unsigned char* grown = (unsigned char*)realloc(self.frame, (size_t)total);
+					if (grown == null) {
+						self.close();
+						return;
+					}
+					self.frame = grown;
+					self.frameSize = total;
+					continue;
+				}
+			}
+			DBusMessage? message = DBusMessage.parse(self.frame, self.frameSize, self.handles);
+			self.handles = DBusReceivedDescriptors();
+			int size = self.frameSize;
+			free(self.frame);
+			self.frame = null;
+			if (message == null) {
+				self.close();
+				return;
+			}
+			DBusMessage arrived = message;
+			/* A message of a type this client does not know is dropped. */
+			if (arrived.type() != DBUS_MESSAGE_TYPE_INVALID) {
+				self.incoming.push(arrived);
+				self.backlog += (long long)size;
+			}
+			budget--;
+		}
+	}
+
+	/* Wait up to `timeoutMilliseconds` (without limit when negative) for
+	 * the bus to send something, and read it into the queue. It does not
+	 * wait while messages are already queued. False once the connection is
+	 * closed. */
+	public bool readWrite(int timeoutMilliseconds) {
+		if (self.handle < 0) { return false; }
+		if (DBusTransportProvider.wait(self.handle, false, self.incoming.len > 0 ? 0 : timeoutMilliseconds)) { self.receive(); }
+		return self.handle >= 0;
+	}
+
+	/* The oldest queued message, or null when none waits. */
+	public DBusMessage? popMessage() {
+		if (self.incoming.len == 0) { return null; }
+		DBusMessage first = self.incoming.get(0);
+		self.incoming.remove(0);
+		self.backlog -= (long long)first.wireLength();
+		return first;
+	}
+
+	/* Send a message, giving it its serial. False when the connection is
+	 * closed or the message is one that must not be sent. */
+	public bool send(DBusMessage message) {
+		if (self.handle < 0 || message == null) { return false; }
+		unsigned int serial = self.lastSerial + 1u;
+		if (serial == 0u) { serial = 1u; }
+		Bytes? marshalled = message.marshal(serial);
+		if (marshalled == null) { return false; }
+		Bytes wire = marshalled;
+		self.lastSerial = serial;
+		return self.write((const unsigned char*)wire.data, wire.len, MonotonicClock.deadlineAfter((long long)DBusConnection.defaultTimeout()));
+	}
+
+	/* Send a call and wait for what answers it: the reply or the error
+	 * reply, or null when neither came in time or the connection closed.
+	 * Other messages that arrive meanwhile stay queued, in order. */
+	public DBusMessage? exchange(DBusMessage request, int timeoutMilliseconds) {
+		self.failure = "";
+		int scanned = self.incoming.len;
+		if (!self.send(request)) {
+			self.failure = "org.freedesktop.DBus.Error.Disconnected";
+			return null;
+		}
+		unsigned int serial = request.serial();
+		long long deadline = MonotonicClock.deadlineAfter((long long)(timeoutMilliseconds < 0 ? DBusConnection.defaultTimeout() : timeoutMilliseconds));
+		while (true) {
+			while (scanned < self.incoming.len) {
+				DBusMessage candidate = self.incoming.get(scanned);
+				if ((candidate.type() == DBUS_MESSAGE_TYPE_METHOD_RETURN || candidate.type() == DBUS_MESSAGE_TYPE_ERROR) && candidate.replySerial() == serial) {
+					self.incoming.remove(scanned);
+					self.backlog -= (long long)candidate.wireLength();
+					return candidate;
+				}
+				scanned++;
+			}
+			if (self.handle < 0) {
+				self.failure = "org.freedesktop.DBus.Error.Disconnected";
+				return null;
+			}
+			long long remaining = MonotonicClock.remaining(deadline);
+			if (remaining <= 0LL || self.backlog > DBusConnection.maximumBacklogBytes()) {
+				self.failure = remaining <= 0LL ? "org.freedesktop.DBus.Error.NoReply" : "org.freedesktop.DBus.Error.LimitsExceeded";
+				return null;
+			}
+			if (DBusTransportProvider.wait(self.handle, false, (int)remaining)) { self.receive(); }
+		}
+		return null;
+	}
+
+	/* The same, for a caller that wants the reply only: null when the call
+	 * was answered with an error as well, which `lastError` then names. */
+	public DBusMessage? call(DBusMessage request, int timeoutMilliseconds) {
+		DBusMessage? reply = self.exchange(request, timeoutMilliseconds);
+		if (reply == null) { return null; }
+		DBusMessage answer = reply;
+		if (answer.type() == DBUS_MESSAGE_TYPE_ERROR) {
+			self.failure = answer.errorName();
+			return null;
+		}
+		return answer;
+	}
+
+	/* Ask the bus for a well-known name. Its answer: 1 this connection is
+	 * now the owner, 2 it waits in the queue, 3 another owns it, 4 it
+	 * owned the name already; 0 when the request itself failed. */
+	public int requestName(string name, unsigned int flags) {
+		DBusMessage request = DBusMessage.methodCall(DBusConnection.busName(), DBusConnection.busPath(), DBusConnection.busName(), "RequestName");
+		DBusWriter arguments = request.writer();
+		arguments.appendString(name);
+		arguments.appendUInt32(flags);
+		DBusMessage? reply = self.call(request, -1);
+		if (reply == null) { return 0; }
+		DBusMessage answer = reply;
+		return (int)answer.reader().readUInt32();
+	}
+
+	/* Own `name`, or fail at once when another connection does. */
+	public bool ownName(string name) {
+		int answer = self.requestName(name, DBusConnection.doNotQueue());
+		return answer == 1 || answer == 4;
+	}
+
+	/* Ask the bus to deliver the messages `rule` matches, such as
+	 * "type='signal',interface='org.example.Thing'". */
+	public bool addMatch(string rule) {
+		DBusMessage request = DBusMessage.methodCall(DBusConnection.busName(), DBusConnection.busPath(), DBusConnection.busName(), "AddMatch");
+		request.writer().appendString(rule);
+		return self.call(request, -1) != null;
+	}
+
+	/* Close the socket. Queued messages can still be popped. */
+	public void close() {
+		self.handles.clear();
+		if (self.handle >= 0) {
+			DBusTransportProvider.close(self.handle);
+			self.handle = -1;
+		}
+		if (self.frame != null) {
+			free(self.frame);
+			self.frame = null;
+		}
+	}
+
+	public void __del__() { self.close(); }
+}

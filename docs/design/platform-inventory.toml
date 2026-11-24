@@ -458,6 +458,58 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.DBus"
+group = "stdlib/DBus"
+title = "DBus facade: addresses, messages and a bus connection"
+regression = ["src/tests/python/test_dbus_runtime.py::test_dbus_client_against_a_private_bus", "src/tests/python/test_dbus_runtime.py::test_windows_has_no_dbus_transport"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "the facade imports DBusConnection; Windows supplies no D-Bus message bus, and the transport (a Unix-domain socket authenticated by its peer credentials) has a Linux row only; the stdlib's users of the client are Linux providers" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "the facade imports DBusConnection; Windows supplies no D-Bus message bus, and the transport (a Unix-domain socket authenticated by its peer credentials) has a Linux row only; the stdlib's users of the client are Linux providers" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "the facade imports DBusConnection; iOS supplies no D-Bus message bus and an app cannot reach another process's socket; the transport has a Linux row only" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "the facade imports DBusConnection; iOS supplies no D-Bus message bus and an app cannot reach another process's socket; the transport has a Linux row only" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "the facade imports DBusConnection; Android supplies no D-Bus message bus (its services are reached through Binder and JNI); the transport has a Linux row only" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "the facade imports DBusConnection; Android supplies no D-Bus message bus (its services are reached through Binder and JNI); the transport has a Linux row only" }
+
+[[rows]]
+kind = "operation"
+id = "Library.DBus.DBusAddress"
+group = "stdlib/DBus"
+title = "D-Bus server addresses: parsing, escaping, where the buses are"
+regression = ["src/tests/python/test_dbus_runtime.py::test_dbus_client_against_a_private_bus", "src/tests/python/test_dbus_runtime.py::test_windows_has_no_dbus_transport"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Strings, Bytes and the environment; opens nothing (DBusAddress.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Strings, Bytes and the environment; opens nothing (DBusAddress.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Strings, Bytes and the environment; opens nothing (DBusAddress.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Strings, Bytes and the environment; opens nothing (DBusAddress.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Strings, Bytes and the environment; opens nothing (DBusAddress.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc over Strings, Bytes and the environment; opens nothing (DBusAddress.btrc)" }
+
+[[rows]]
+kind = "operation"
+id = "Library.DBus.DBusConnection"
+group = "stdlib/DBus"
+title = "A connection to a D-Bus message bus: authentication, calls, the message queue"
+regression = ["src/tests/python/test_dbus_runtime.py::test_dbus_client_against_a_private_bus", "src/tests/python/test_dbus_runtime.py::test_dbus_client_serves_gdbus_in_both_byte_orders", "src/tests/python/test_dbus_runtime.py::test_dbus_client_serves_libdbus_tools", "src/tests/python/test_dbus_runtime.py::test_windows_has_no_dbus_transport"]
+windows-x64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "Windows supplies no D-Bus message bus, and the transport (a Unix-domain socket authenticated by its peer credentials) has a Linux row only; the stdlib's users of the client are Linux providers" }
+windows-arm64 = { parity = "os-restricted", implementation = "missing", owner = "W1", status = "source-only", reason = "Windows supplies no D-Bus message bus, and the transport (a Unix-domain socket authenticated by its peer credentials) has a Linux row only; the stdlib's users of the client are Linux providers" }
+ios-device = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS supplies no D-Bus message bus and an app cannot reach another process's socket; the transport has a Linux row only" }
+ios-simulator = { parity = "os-restricted", implementation = "missing", owner = "I1", status = "source-only", reason = "iOS supplies no D-Bus message bus and an app cannot reach another process's socket; the transport has a Linux row only" }
+android-arm64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android supplies no D-Bus message bus (its services are reached through Binder and JNI); the transport has a Linux row only" }
+android-x86_64 = { parity = "os-restricted", implementation = "missing", owner = "A1", status = "source-only", reason = "Android supplies no D-Bus message bus (its services are reached through Binder and JNI); the transport has a Linux row only" }
+
+[[rows]]
+kind = "operation"
+id = "Library.DBus.DBusMessage"
+group = "stdlib/DBus"
+title = "D-Bus messages: header fields, and the writer and reader of a body"
+regression = ["src/tests/python/test_dbus_runtime.py::test_dbus_client_against_a_private_bus", "src/tests/python/test_dbus_runtime.py::test_dbus_refuses_malformed_messages", "src/tests/python/test_dbus_runtime.py::test_windows_has_no_dbus_transport"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc marshalling and validation over Bytes and libc memory; no I/O (DBusMessage.btrc, DBusWire.btrc)" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc marshalling and validation over Bytes and libc memory; no I/O (DBusMessage.btrc, DBusWire.btrc)" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc marshalling and validation over Bytes and libc memory; no I/O (DBusMessage.btrc, DBusWire.btrc)" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc marshalling and validation over Bytes and libc memory; no I/O (DBusMessage.btrc, DBusWire.btrc)" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc marshalling and validation over Bytes and libc memory; no I/O (DBusMessage.btrc, DBusWire.btrc)" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "pure btrc marshalling and validation over Bytes and libc memory; no I/O (DBusMessage.btrc, DBusWire.btrc)" }
+
+[[rows]]
+kind = "operation"
 id = "Library.Daemon"
 group = "stdlib/Daemon"
 title = "Daemon spec and Unix supervisor controller"

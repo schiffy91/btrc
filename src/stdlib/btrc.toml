@@ -36,6 +36,7 @@ BackgroundJobs = { path = "BackgroundJobs" }
 Bluetooth = { path = "Bluetooth" }
 COM = { path = "COM" }
 Crypto = { path = "Crypto" }
+DBus = { path = "DBus" }
 Daemon = { path = "Daemon" }
 Digest = { path = "Digest" }
 FileSystem = { path = "FileSystem" }

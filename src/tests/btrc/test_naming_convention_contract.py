@@ -194,7 +194,7 @@ def _native_binding_names() -> frozenset[str]:
 
     A `[[native.bindings]]` entry names a header and the symbols btrc takes
     from it. When that header is the system's rather than the repository's --
-    libdbus, AppKit, FreeType -- there is no C source in the tree spelling
+    ALSA, AppKit, FreeType -- there is no C source in the tree spelling
     those names, so the manifest is their declaration site. Entries are not
     always bare identifiers (an Objective-C selector reads
     `-[NSMenuItem setTitle:]`), so words are pulled out of each entry rather
