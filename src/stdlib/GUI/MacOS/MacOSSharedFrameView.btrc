@@ -1,0 +1,71 @@
+import Library.GUI.MacOS.MacOSView;
+import Library.GUI.MacOS.AppKitText;
+import Library.GUI.ISharedFrameView;
+
+class MacOSSharedFrameView implements ISharedFrameView, IMacOSView {
+	private BTRCSharedFrameHost? _host;
+	private MacOSView _view;
+
+	public MacOSSharedFrameView() {
+		var host = BTRCSharedFrameHost.makeView();
+		if (host == null) { throw "Cannot create native shared frame view"; }
+		self._host = host;
+		self._view = MacOSView(host);
+	}
+
+	private BTRCSharedFrameHost host() {
+		self.nativeView();
+		var host = self._host;
+		if (host == null) { throw "Shared frame view is closed"; }
+		return host;
+	}
+
+	public SharedFrameEndpoint listen(int producerPid) {
+		var address = self.host().listenToProcess(producerPid);
+		if (address == null) { throw "Cannot open IOSurface receiver"; }
+		return SharedFrameEndpoint("iosurface", AppKitText.ownedValue(address));
+	}
+
+	public void disconnect() { self.host().disconnect(); }
+	public bool presentPending() { return self.host().presentPending(); }
+	public int frameWidth() { return self.host().frameWidth(); }
+	public int frameHeight() { return self.host().frameHeight(); }
+
+	public MacOSViewState stateNode() { return self._view.stateNode(); }
+
+	public ViewInteractionState interactionState() { return self._view.interactionState(); }
+
+	public ICallbackRegistration onInteractionStateChanged(IViewInteractionStateHandler handler, CallbackScope owner) { return self._view.onInteractionStateChanged(handler, owner); }
+
+	public NSView nativeView() { return self._view.nativeView(); }
+
+	public void attachTo(NSView parent) { self._view.attachTo(parent); }
+
+	public void detachFrom(NSView parent) { self._view.detachFrom(parent); }
+
+	public bool isOpen() { return self._view.isOpen(); }
+
+	public double fittingWidth() { return self._view.fittingWidth(); }
+
+	public double fittingHeight() { return self._view.fittingHeight(); }
+
+	public void arrange(double x, double y, double width, double height) { self._view.arrange(x, y, width, height); }
+
+	public bool isVisible() { return self._view.isVisible(); }
+
+	public ICallbackRegistration onPointer(IViewPointerHandler handler, CallbackScope owner) { return self._view.onPointer(handler, owner); }
+
+	public ICallbackRegistration onScroll(IViewScrollHandler handler, CallbackScope owner) { return self._view.onScroll(handler, owner); }
+
+	public void cancelPointerCapture() { self._view.cancelPointerCapture(); }
+
+	public void setVisible(bool visible) { self._view.setVisible(visible); }
+
+	public CallbackCancellation pollClose() { return self._view.pollClose(); }
+
+	public CallbackCancellation close() {
+		var state = self._view.close();
+		if (self._host != null) { self._host.disconnect(); self._host = null; }
+		return state;
+	}
+}

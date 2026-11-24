@@ -1,0 +1,5 @@
+manifest-version = 1
+
+[package]
+name = "sharedFrameViewTest"
+exports = []

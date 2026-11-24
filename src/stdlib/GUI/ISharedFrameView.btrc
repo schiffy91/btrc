@@ -1,0 +1,26 @@
+import Library.GUI.IView;
+
+/* Give the endpoint to the producer over an existing private control channel.
+ * Its address is valid until disconnect(), close(), or the next listen().
+ * The producer must finish its writes before delivery and keep each frame
+ * immutable for the lifetime of the consumer's reference. */
+class SharedFrameEndpoint {
+	private string _transport;
+	private string _address;
+	public SharedFrameEndpoint(string transport, string address) {
+		self._transport = transport;
+		self._address = address;
+	}
+	public string transport() { return self._transport; }
+	public string address() { return self._address; }
+}
+
+interface ISharedFrameView extends IView {
+	SharedFrameEndpoint listen(int producerPid);
+	void disconnect();
+	/* Poll once on the UI thread. True means the provider accepted a frame
+	 * for presentation. An empty receiver and a dropped frame return false. */
+	bool presentPending();
+	int frameWidth();
+	int frameHeight();
+}

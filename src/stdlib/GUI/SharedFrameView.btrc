@@ -1,0 +1,11 @@
+import Library.GUI.ISharedFrameView;
+
+class SharedFrameView {
+	class ISharedFrameView? tryCreate() { return SharedFrameViewProvider.tryCreate(); }
+
+	class ISharedFrameView create() {
+		var view = SharedFrameView.tryCreate();
+		if (view == null) { throw "Shared frame presentation is unavailable on this host"; }
+		return view;
+	}
+}

@@ -1,0 +1,13 @@
+import Library.GUI.ApplicationSlot;
+import Library.GUI.MacOS.MacOSApplication;
+import Library.GUI.MacOS.MacOSSharedFrameView;
+
+class SharedFrameViewProvider {
+	class ISharedFrameView? tryCreate() {
+		var application = (IMacOSApplication?)GUIApplicationSlot.require();
+		if (application == null) { throw "Shared frame views require an active macOS application"; }
+		var view = MacOSSharedFrameView();
+		application.adopt(view);
+		return view;
+	}
+}
