@@ -12,6 +12,12 @@ struct PulseStreamState {
 	bool broken;
 	bool discontinuity;
 	uint channel;
+	unsigned char header[20];
+	int headerUsed;
+	int bodyUsed;
+	int bodyLength;
+	uint incomingChannel;
+	long long assemblyDeadline;
 	int frameBytes;
 	int periodBytes;
 	unsigned long long credit;
@@ -93,12 +99,49 @@ class PulseStream {
 		return 0;
 	}
 
+	/* A Unix socket can split either the header or body across worker waits.
+	 * Keep the consumed bytes on the stream and let suspend check admission
+	 * after each wait. A peer cannot keep one incomplete frame open forever. */
+	class int receivePart(struct PulseStreamState* stream, unsigned char* output, int length, int* used, long long deadline) {
+		while (*used < length) {
+			if (stream->assemblyDeadline != 0LL && !MonotonicClock.before(stream->assemblyDeadline)) { return -ETIMEDOUT; }
+			if (!MonotonicClock.before(deadline)) { return 0; }
+			ssize_t count = recv(stream->descriptor, output + *used, (size_t)(length - *used), 0);
+			if (count > (ssize_t)0) {
+				if (stream->assemblyDeadline == 0LL) { stream->assemblyDeadline = MonotonicClock.deadlineAfter(2000LL); }
+				*used += (int)count; continue;
+			}
+			if (count == (ssize_t)0) { return -ECONNRESET; }
+			if (errno == EINTR) { continue; }
+			if (errno != EAGAIN && errno != EWOULDBLOCK) { return -errno; }
+			int ready = PulseSocket.ready(stream->descriptor, false, deadline);
+			if (ready <= 0) { return ready; }
+		}
+		return 1;
+	}
+
+	class int receivePacket(struct PulseStreamState* stream, long long deadline) {
+		if (stream->headerUsed < 20) {
+			int ready = PulseStream.receivePart(stream, stream->header, 20, &stream->headerUsed, deadline);
+			if (ready <= 0) { return ready; }
+			struct PulseCursor header = {stream->header, 20, 0, false};
+			uint length = PulseWire.read32(&header); stream->incomingChannel = PulseWire.read32(&header);
+			uint high = PulseWire.read32(&header); uint low = PulseWire.read32(&header); uint flags = PulseWire.read32(&header);
+			if (length == 0u || length > (uint)stream->capacity || high != 0u || low != 0u || flags != 0u) { return -EPROTO; }
+			stream->bodyLength = (int)length;
+		}
+		int ready = PulseStream.receivePart(stream, stream->packet, stream->bodyLength, &stream->bodyUsed, deadline);
+		if (ready <= 0) { return ready; }
+		stream->headerUsed = 0; stream->bodyUsed = 0; stream->assemblyDeadline = 0LL;
+		return stream->bodyLength;
+	}
+
 	/* A control reply returns 1. An asynchronous event or capture memblock
 	 * returns 0. All packet fields must fit the peer's declared frame. */
 	class int receive(struct PulseStreamState* stream, uint awaited, long long deadline) {
-		uint channel = 0u;
-		int bytes = PulseSocket.receiveFrame(stream->descriptor, &channel, stream->packet, stream->capacity, deadline);
-		if (bytes < 0) { return bytes; }
+		int bytes = PulseStream.receivePacket(stream, deadline);
+		if (bytes <= 0) { return bytes; }
+		uint channel = stream->incomingChannel;
 		if (channel != 0xffffffffu) {
 			if (!stream->capture || channel != stream->channel) { return -EPROTO; }
 			return PulseStream.enqueue(stream, bytes);
@@ -173,8 +216,7 @@ class PulseStream {
 		long long deadline = MonotonicClock.deadlineAfter((long long)timeout);
 		while (true) {
 			if (stream->capture ? stream->queued >= stream->periodBytes : stream->credit >= (unsigned long long)stream->periodBytes) { return 1; }
-			int ready = PulseSocket.ready(stream->descriptor, false, deadline);
-			if (ready <= 0) { return ready; }
+			if (!MonotonicClock.before(deadline)) { return 0; }
 			int event = PulseStream.receive(stream, 0xffffffffu, deadline);
 			if (event < 0) { return event; }
 		}

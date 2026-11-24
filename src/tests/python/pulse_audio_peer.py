@@ -192,7 +192,15 @@ class PulseTestPeer(socketserver.StreamRequestHandler):
                             return
                         if self.server.fault == "overflow":
                             self.event(62)
-                    self.send(CHANNEL, (samples * ((self.period + 7) // 8))[: self.period])
+                    block = (samples * ((self.period + 7) // 8))[: self.period]
+                    if self.server.fault in ("split-header", "split-body") and self.sent_blocks == 8:
+                        frame = struct.pack(">5I", len(block), CHANNEL, 0, 0, 0) + block
+                        split = 3 if self.server.fault == "split-header" else 23
+                        self.request.sendall(frame[:split])
+                        time.sleep(0.15)
+                        self.request.sendall(frame[split:])
+                    else:
+                        self.send(CHANNEL, block)
                     self.next_tick += self.period / (4 * self.channels * self.rate)
                 delay = max(0.0, self.next_tick - time.monotonic()) if self.capture and self.running else 1.0
                 ready, _, _ = select.select([self.request], [], [], delay)

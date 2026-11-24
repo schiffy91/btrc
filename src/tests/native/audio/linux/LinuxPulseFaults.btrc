@@ -36,6 +36,8 @@ int main() {
 		assert(drained.succeeded() && log.blocks > 12);
 		if (fault == "underflow") { assert(log.outputGaps > 1); }
 		else { assert(log.inputGaps > 1); }
+	} else if (fault == "split-header" || fault == "split-body") {
+		assert(drained.succeeded() && log.blocks > 12);
 	} else {
 		assert(drained.status() == AUDIO_DEVICE_UNAVAILABLE && log.blocks > 0);
 	}

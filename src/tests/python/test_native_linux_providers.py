@@ -116,7 +116,7 @@ def test_linux_pulse_faults(tmp_path, request, frontend, sanitized):
         ROOT / "src/tests/native/audio/linux/LinuxPulseFaults.btrc", tmp_path, frontend, sanitized, request
     )
     assert DependencyAudit().binary_problems(executable, TARGET) == []
-    for fault in ("underflow", "overflow", "disconnect", "malformed"):
+    for fault in ("underflow", "overflow", "disconnect", "malformed", "split-header", "split-body"):
         directory = tmp_path / fault
         directory.mkdir()
         with PulseTestServer(directory, fault) as server:
