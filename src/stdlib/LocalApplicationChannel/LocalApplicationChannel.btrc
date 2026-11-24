@@ -567,6 +567,27 @@ class LocalChannelSocket {
 		return peer;
 	}
 
+	/* Read available bytes from a same-user stream. Empty means it would
+	 * block; null means EOF. The socket stays nonblocking. */
+	public Bytes? readAvailable(int maximum = 16384) {
+		if (maximum < 1) { throw "Local socket read size must be positive"; }
+		unsigned char buffer[16384];
+		int capacity = maximum < 16384 ? maximum : 16384;
+		while (true) {
+			ssize_t count = self.readSome(buffer, capacity);
+			if (count > (ssize_t)0) { return Bytes.fromRaw((char*)buffer, (int)count); }
+			if (count == (ssize_t)0) { return null; }
+			if (errno == EAGAIN || errno == EWOULDBLOCK) { return Bytes(); }
+			if (errno != EINTR) { throw "Local socket read failed"; }
+		}
+		return null;
+	}
+
+	/* A failed write may have sent a prefix before the deadline. */
+	public bool writeBytes(Bytes data, long long deadline) {
+		return data != null && self.transfer((unsigned char*)data.data, data.len, true, deadline);
+	}
+
 	public ssize_t readSome(unsigned char* buffer, int length) { return recv(self.descriptor, buffer, (size_t)length, 0); }
 
 	public ssize_t writeSome(const unsigned char* buffer, int length) { return send(self.descriptor, buffer, (size_t)length, MSG_NOSIGNAL); }
