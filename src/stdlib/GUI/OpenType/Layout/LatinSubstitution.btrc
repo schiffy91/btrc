@@ -57,6 +57,7 @@ class LatinSubstitution {
 		var glyph = self.run.glyphs.get(p);
 		int index = self.table.coverage(sub + data.u16(sub + 2), glyph.id);
 		if (index < 0) { return 0; }
+		if (kind == 6 && format == 2) { return self.chainedClasses(sub, p, depth); }
 		if (kind == 1) {
 			if (format == 1) { glyph.id = self.valid((glyph.id + data.s16(sub + 4)) & 65535); }
 			else if (format == 2 && index < data.u16(sub + 4)) { glyph.id = self.valid(data.u16(sub + 6 + index * 2)); }
@@ -88,6 +89,48 @@ class LatinSubstitution {
 		return 0;
 	}
 
+	/* Format two groups glyphs into classes for each part of a rule.
+	 * Backtrack classes are stored nearest first. The first input class
+	 * selects the rule set and is implicit in its input sequence. */
+	private int chainedClasses(int sub, int p, int depth) {
+		var data = self.table.data;
+		int backClasses = sub + data.u16(sub + 4);
+		int inputClasses = sub + data.u16(sub + 6);
+		int lookClasses = sub + data.u16(sub + 8);
+		int first = LayoutTable.glyphClass(data, inputClasses, self.run.glyphs.get(p).id);
+		if (first >= data.u16(sub + 10)) { return 0; }
+		int setOffset = data.u16(sub + 12 + 2 * first);
+		if (setOffset == 0) { return 0; }
+		int set = sub + setOffset;
+		int rules = data.u16(set);
+		for (int i = 0; i < rules; i++) {
+			self.work++;
+			if (self.work > 262144) { throw "Layout substitution limit exceeded"; }
+			int rule = set + data.u16(set + 2 + i * 2);
+			int back = data.u16(rule);
+			if (back > p || !self.classesMatch(backClasses, rule + 2, back, p - 1, -1)) { continue; }
+			int at = rule + 2 + back * 2;
+			int input = data.u16(at);
+			if (input < 1 || input > self.run.glyphs.size() - p || !self.classesMatch(inputClasses, at + 2, input - 1, p + 1, 1)) { continue; }
+			at += input * 2;
+			int look = data.u16(at);
+			if (look > self.run.glyphs.size() - p - input || !self.classesMatch(lookClasses, at + 2, look, p + input, 1)) { continue; }
+			return self.contextRecords(at + 2 + look * 2, p, input, depth);
+		}
+		return 0;
+	}
+
+	private bool classesMatch(int definitions, int classes, int count, int p, int step) {
+		var data = self.table.data;
+		self.work += count;
+		if (self.work > 262144) { throw "Layout substitution limit exceeded"; }
+		for (int i = 0; i < count; i++) {
+			if (LayoutTable.glyphClass(data, definitions, self.run.glyphs.get(p).id) != data.u16(classes + i * 2)) { return false; }
+			p += step;
+		}
+		return true;
+	}
+
 	private int chain(int sub, int p, int depth) {
 		var data = self.table.data;
 		int back = data.u16(sub + 2);
@@ -111,6 +154,11 @@ class LatinSubstitution {
 			if (self.table.coverage(sub + data.u16(at), self.run.glyphs.get(p + input + i).id) < 0) { return 0; }
 			at += 2;
 		}
+		return self.contextRecords(at, p, input, depth);
+	}
+
+	private int contextRecords(int at, int p, int input, int depth) {
+		var data = self.table.data;
 		int records = data.u16(at);
 		at += 2;
 		int before = self.run.glyphs.size();
