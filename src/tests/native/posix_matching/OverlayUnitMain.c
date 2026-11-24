@@ -134,7 +134,7 @@ int main(void)
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "((a){2,3})") || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
 	const btrc_win_pos_program *positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
-	if (btrc_win_pos_match(positions, "aaaa", 1, span, 0) != btrc_win_pos_competing_starts ||
+	if (btrc_win_pos_match(positions, "aaaa", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 3 ||
 	    regexec(&compiled, "aaaa", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 3) return 1;
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "(((([abc]){0}|.)|(b){0}[[:space:]])){1,3}") != 0 ||

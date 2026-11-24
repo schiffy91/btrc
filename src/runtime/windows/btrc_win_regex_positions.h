@@ -56,7 +56,7 @@ typedef struct {
 	btrc_win_rx_blocks ranked_blocks;
 	btrc_win_suffix_span optional_suffix;
 	btrc_win_boundary_blocks boundary_blocks;
-	btrc_win_pos_bits initial;
+	btrc_win_pos_bits initial, duplicate_edges;
 	/* The all-false assignment uses the ordinary edges below. */
 	btrc_win_pos_contexts *contexts;
 	int edges, nullable, predicates;
@@ -259,10 +259,13 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 		int slot = 0;
 		while (slot < p->edges && (p->edge[slot].source != label ||
 		       memcmp(&p->edge[slot].bytes, bytes, sizeof *bytes))) ++slot;
+		int repeated = slot < p->edges || b->parser->program->nodes[n->left].copy_stride > 1;
 		if (slot == p->edges) {
 			if (slot == btrc_win_pos_limit) { b->failed = 1; return empty; }
 			p->edge[p->edges++] = (btrc_win_pos_edge){label, {{0}}, *bytes};
 		}
+		/* A merged edge can represent more than one incoming final path. */
+		if (repeated) p->duplicate_edges = btrc_win_pos_union_bits(p->duplicate_edges, btrc_win_pos_bit(slot));
 		return (btrc_win_pos_span){position, btrc_win_pos_bit(slot), 0, {label + 1, label + 1, 1, {{0}}}};
 	}
 	btrc_win_pos_span left = btrc_win_pos_span_for(b, n->left);
@@ -416,9 +419,6 @@ static inline btrc_win_pos_bits btrc_win_pos_step(const btrc_win_pos_program *p,
 	return next;
 }
 
-enum { btrc_win_pos_origin_limit = 4 };
-typedef struct { regoff_t start; btrc_win_pos_bits live; } btrc_win_pos_origin;
-
 static inline int btrc_win_pos_ranked(const btrc_win_pos_program *p, const char *subject, regmatch_t *matches)
 {
 	if (p->optional_suffix.optional_prefix_limit)
@@ -439,59 +439,102 @@ static inline const btrc_win_pos_bits *btrc_win_pos_context(const btrc_win_pos_p
 	return slot ? p->contexts->row + (slot - 1) * (p->edges + 1) : NULL;
 }
 
+static inline int btrc_win_pos_test(const btrc_win_pos_program *p, const unsigned char *s, int flags)
+{
+	btrc_win_pos_bits live = {{0}};
+	const btrc_win_pos_bits *context = btrc_win_pos_context(p, s, 0, flags);
+	for (regoff_t i = 0; ; ++i) {
+		if (context ? btrc_win_pos_contains(context[0], btrc_win_pos_limit) : p->nullable) return 0;
+		if (!s[i]) return REG_NOMATCH;
+		live = btrc_win_pos_union_bits(live, context ? context[0] : p->initial);
+		context = btrc_win_pos_context(p, s, i + 1, flags);
+		live = btrc_win_pos_step(p, live, s[i], context);
+		if (btrc_win_pos_contains(live, btrc_win_pos_limit)) return 0;
+	}
+}
+
+typedef struct {
+	btrc_win_pos_bits present;
+	regoff_t origin[btrc_win_pos_limit];
+} btrc_win_pos_frontier;
+
+/* The whole-match start is the first, minimizing tag. Among paths at the
+   same position, a later start cannot advance past an earlier one. */
+static inline void btrc_win_pos_mark(btrc_win_pos_frontier *front, btrc_win_pos_bits positions, regoff_t origin)
+{
+	for (int w = 0; w < btrc_win_pos_words; ++w) {
+		uint64_t word = positions.word[w];
+		while (word) {
+			int bit = __builtin_ctzll(word);
+			int slot = 64 * w + bit;
+			if (!(front->present.word[w] & (UINT64_C(1) << bit)) || origin < front->origin[slot])
+				front->origin[slot] = origin;
+			word &= word - 1;
+		}
+		front->present.word[w] |= positions.word[w];
+	}
+}
+
 static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *subject,
                                      size_t count, regmatch_t *matches, int flags)
 {
 	if (p->boundary_blocks.width)
 		return btrc_win_rx_match_boundary_blocks(&p->boundary_blocks, subject, count, matches);
 	const unsigned char *s = (const unsigned char *)subject;
+	if (!count) return btrc_win_pos_test(p, s, flags);
 	const btrc_win_pos_bits *context = btrc_win_pos_context(p, s, 0, flags);
-	btrc_win_pos_origin row[btrc_win_pos_origin_limit];
-	int rows = 0;
-	regoff_t start = -1, end = -1;
+	btrc_win_pos_frontier a, b, *live = &a, *next = &b;
+	live->present = (btrc_win_pos_bits){{0}};
+	regoff_t start = -1, end = -1, latest_start = -1;
 	for (regoff_t i = 0; ; ++i) {
-		int admit = end < 0;
-		if (admit && (context ? btrc_win_pos_contains(context[0], btrc_win_pos_limit) : p->nullable)) {
-			if (!count) return 0;
-			start = end = i;
+		if (end < 0) {
+			btrc_win_pos_bits first = context ? context[0] : p->initial;
+			if (context ? btrc_win_pos_contains(first, btrc_win_pos_limit) : p->nullable)
+				start = latest_start = end = i;
+			btrc_win_pos_remove_accept(&first);
+			btrc_win_pos_mark(live, first, i);
 		}
 		if (!s[i]) break;
-		/* The legacy search admits a new start only at positions absent
-		   from the frontier before consuming this byte. */
-		btrc_win_pos_bits occupied = {{0}};
-		for (int k = 0; k < rows; ++k) occupied = btrc_win_pos_union_bits(occupied, row[k].live);
-		btrc_win_pos_bits first = context ? context[0] : p->initial;
-		btrc_win_pos_bits initial = first;
-		for (int w = 0; w < btrc_win_pos_words; ++w) initial.word[w] &= ~occupied.word[w];
-		btrc_win_pos_remove_accept(&initial);
-		int candidates = rows + (admit && btrc_win_pos_any(initial));
 		context = btrc_win_pos_context(p, s, i + 1, flags);
-		int remaining = 0;
-		for (int k = 0; k < candidates; ++k) {
-			btrc_win_pos_origin origin = k == rows ? (btrc_win_pos_origin){i, initial} : row[k];
-			btrc_win_pos_bits next = btrc_win_pos_step(p, origin.live, s[i], context);
-			if (btrc_win_pos_contains(next, btrc_win_pos_limit)) {
-				if (!count) return 0;
-				/* Distinct accepting origins need the old subgroup ranking.
-				   If every acceptance has one origin, its longest end is exact. */
-				if (end >= 0 && start != origin.start) return btrc_win_pos_ranked(p, subject, matches);
-				start = origin.start;
-				end = i + 1;
-			}
-			btrc_win_pos_remove_accept(&next);
-			if (btrc_win_pos_any(next)) {
-				/* Pure existence queries do not distinguish origins. */
-				if (!count && remaining) row[0].live = btrc_win_pos_union_bits(row[0].live, next);
-				else {
-					if (remaining == btrc_win_pos_origin_limit) return btrc_win_pos_ranked(p, subject, matches);
-					row[remaining++] = (btrc_win_pos_origin){origin.start, next};
+		next->present = (btrc_win_pos_bits){{0}};
+		regoff_t earliest = -1;
+		int arrivals = 0;
+		for (int e = 0; e < p->edges; ++e) {
+			const btrc_win_pos_edge *edge = &p->edge[e];
+			if (!btrc_win_pos_contains(live->present, edge->source) || !btrc_win_set_has(&edge->bytes, s[i])) continue;
+			regoff_t origin = live->origin[edge->source];
+			btrc_win_pos_bits target = context ? context[e + 1] : edge->target;
+			if (btrc_win_pos_contains(target, btrc_win_pos_limit)) {
+				if (earliest < 0 || origin < earliest) {
+					earliest = origin;
+					arrivals = 0;
 				}
+				/* New starts enter the queue after all older starts. Their
+				   transitions stay in that order, so only another arrival
+				   from the earliest candidate can improve its subgroup tags. */
+				if (origin == earliest) arrivals += 1 + btrc_win_pos_contains(p->duplicate_edges, e);
+				btrc_win_pos_remove_accept(&target);
+			}
+			btrc_win_pos_mark(next, target, origin);
+		}
+		if (earliest >= 0) {
+			if (start < 0 || earliest <= start) {
+				start = latest_start = earliest;
+				end = i + 1;
+			} else if (arrivals > 1 || earliest <= latest_start) {
+				/* Only a competing arrival at the same end can replace
+				   an earlier saved start using subgroup priority. Retain
+				   both outcomes until a subsequent acceptance resolves them. */
+				latest_start = earliest;
 			}
 		}
-		rows = remaining;
-		if (!rows && end >= 0) break;
+		if (end >= 0 && !btrc_win_pos_any(next->present)) break;
+		btrc_win_pos_frontier *swap = live;
+		live = next;
+		next = swap;
 	}
-	if (end < 0) return REG_NOMATCH;
-	if (count) matches[0] = (regmatch_t){start, end};
+	if (start < 0) return REG_NOMATCH;
+	if (latest_start != start) return btrc_win_pos_ranked(p, subject, matches);
+	matches[0] = (regmatch_t){start, end};
 	return 0;
 }
