@@ -4,6 +4,8 @@ import Library.Regex;
 import Library.Vector;
 
 #include <assert.h>
+#include <regex.h>
+#include <string.h>
 
 int main() {
 	assert(Regex.first("b+c", "abbcd").equals("bbc"));
@@ -18,6 +20,20 @@ int main() {
 
 	assert(Regex.replace("^", "abc", "X").equals("Xabc"));
 	assert(Regex.replaceAll("$", "abc", "X").equals("abcX"));
+
+#if defined(_WIN32)
+	regex_t broken;
+	int error = regcomp(&broken, "[", REG_EXTENDED);
+	assert(error == (int)REG_EBRACK);
+	char message[16];
+	assert((int)regerror(error, &broken, null, 0) == 12);
+	assert((int)regerror(error, &broken, message, 5) == 12);
+	assert(strcmp(message, "Miss") == 0);
+	assert((int)regerror(error, &broken, message, 16) == 12);
+	assert(strcmp(message, "Missing ']'") == 0);
+	assert((int)regerror(-1, null, message, 16) == 14);
+	assert(strcmp(message, "Unknown error") == 0);
+#endif
 
 	print("PASS: test_regex_safety");
 	return 0;

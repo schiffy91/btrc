@@ -18,6 +18,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <string.h>
 
 typedef ptrdiff_t regoff_t;
 
@@ -63,7 +64,6 @@ typedef struct {
 static int btrc_win_regcomp(regex_t *restrict, const char *restrict, int);
 static int btrc_win_regexec(const regex_t *restrict, const char *restrict, size_t, regmatch_t *restrict, int);
 static void btrc_win_regfree(regex_t *);
-static size_t btrc_win_regerror(int, const regex_t *restrict, char *restrict, size_t);
 #pragma GCC diagnostic pop
 
 #define regcomp btrc_win_regcomp
@@ -74,3 +74,35 @@ static size_t btrc_win_regerror(int, const regex_t *restrict, char *restrict, si
 #define BTRC_WIN_MUSL_PART_REGEX
 #include "btrc_win_musl.h"
 #undef BTRC_WIN_MUSL_PART_REGEX
+
+/* The Windows C-locale messages and their required sizes are observable
+   through the hosted POSIX interface, including after regcomp fails. */
+static inline size_t btrc_win_regerror(int code, const regex_t *restrict compiled,
+                                      char *restrict buffer, size_t capacity)
+{
+	static const char *const btrc_win_regex_diagnostics[] = {
+		[REG_OK] = "No error",
+		[REG_NOMATCH] = "No match",
+		[REG_BADPAT] = "Invalid regexp",
+		[REG_ECOLLATE] = "Unknown collating element",
+		[REG_ECTYPE] = "Unknown character class name",
+		[REG_EESCAPE] = "Trailing backslash",
+		[REG_ESUBREG] = "Invalid back reference",
+		[REG_EBRACK] = "Missing ']'",
+		[REG_EPAREN] = "Missing ')'",
+		[REG_EBRACE] = "Missing '}'",
+		[REG_BADBR] = "Invalid contents of {}",
+		[REG_ERANGE] = "Invalid character range",
+		[REG_ESPACE] = "Out of memory",
+		[REG_BADRPT] = "Repetition not preceded by valid expression",
+	};
+	(void)compiled;
+	const char *description = (unsigned int)code <= REG_BADRPT ? btrc_win_regex_diagnostics[code] : "Unknown error";
+	size_t length = strlen(description);
+	if (capacity) {
+		size_t copied = length < capacity ? length : capacity - 1;
+		memcpy(buffer, description, copied);
+		buffer[copied] = 0;
+	}
+	return length + 1;
+}

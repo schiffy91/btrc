@@ -60,6 +60,8 @@ fills exactly those gaps — nothing more.
     capacity is unknowable and Windows paths can exceed POSIX `PATH_MAX`.
   - `mkdtemp` (real Win32 implementation)
 
+The Windows overlay supplies the `regerror` diagnostic strings and buffer-size behavior.
+
 ## Shell patterns and filesystem globbing
 
 `fnmatch.h` matches C-locale bytes using a single wildcard retry position
@@ -82,11 +84,9 @@ compatible with btrc's MIT licence.
 | File | Upstream (SHA-256 of the 1.2.5 file) | Here |
 | --- | --- | --- |
 | `musl/regcomp.c` | `src/regex/regcomp.c` (`56b0a765…`) | unmodified |
-| `musl/regerror.c` | `src/regex/regerror.c` (`72b3ab9c…`) | unmodified |
 | `musl/regexec.c` | `src/regex/regexec.c` (`072e8a10…`) | aligns to `void *`, not `long` (LLP64) |
 | `musl/tre-mem.c` | `src/regex/tre-mem.c` (`4721979c…`) | aligns to `void *`, not `long` (LLP64) |
 | `musl/tre.h` | `src/regex/tre.h` (`e734e68d…`) | include guard; `tre_cint_t` is `int` (Windows' 16-bit `wint_t` cannot hold `TRE_CHAR_MAX+1`); `ALIGN` through `uintptr_t`; no `__tre_mem_*` link aliases |
-| `musl/locale_impl.h` | stands in for musl's internal `src/internal/locale_impl.h` | `LCTRANS_CUR` is the identity, `MB_CUR_MAX` is 1 |
 
 Every change is marked `btrc:` in the source.
 

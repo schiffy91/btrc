@@ -68,7 +68,6 @@
 #pragma push_macro("IS_SPECIAL")
 #pragma push_macro("IS_TAG")
 #pragma push_macro("IS_WORD_CHAR")
-#pragma push_macro("LCTRANS_CUR")
 #pragma push_macro("MAX")
 #pragma push_macro("MAX_NEG_CLASSES")
 #pragma push_macro("MIN")
@@ -260,7 +259,6 @@
 #pragma push_macro("tre_backtrack_struct")
 #pragma push_macro("tre_backtrack_t")
 #pragma push_macro("tre_tnfa_run_backtrack")
-#pragma push_macro("messages")
 #pragma push_macro("str_next")
 #pragma push_macro("pat_next")
 #pragma push_macro("casefold")
@@ -311,7 +309,6 @@
 #undef IS_SPECIAL
 #undef IS_TAG
 #undef IS_WORD_CHAR
-#undef LCTRANS_CUR
 #undef MAX
 #undef MAX_NEG_CLASSES
 #undef MIN
@@ -503,7 +500,6 @@
 #undef tre_backtrack_struct
 #undef tre_backtrack_t
 #undef tre_tnfa_run_backtrack
-#undef messages
 #undef str_next
 #undef pat_next
 #undef casefold
@@ -657,7 +653,6 @@
 #define tre_backtrack_struct btrc_win_musl_tre_backtrack_struct
 #define tre_backtrack_t btrc_win_musl_tre_backtrack_t
 #define tre_tnfa_run_backtrack btrc_win_musl_tre_tnfa_run_backtrack
-#define messages btrc_win_musl_messages
 #define str_next btrc_win_musl_str_next
 #define pat_next btrc_win_musl_pat_next
 #define casefold btrc_win_musl_casefold
@@ -746,7 +741,6 @@ static int btrc_win_musl_iswctype(int c, wctype_t class_id)
 #include "musl/tre-mem.c"
 #include "musl/regcomp.c"
 #include "musl/regexec.c"
-#include "musl/regerror.c"
 #endif
 
 
@@ -787,7 +781,6 @@ static int btrc_win_musl_iswctype(int c, wctype_t class_id)
 #undef IS_SPECIAL
 #undef IS_TAG
 #undef IS_WORD_CHAR
-#undef LCTRANS_CUR
 #undef MAX
 #undef MAX_NEG_CLASSES
 #undef MIN
@@ -979,7 +972,6 @@ static int btrc_win_musl_iswctype(int c, wctype_t class_id)
 #undef tre_backtrack_struct
 #undef tre_backtrack_t
 #undef tre_tnfa_run_backtrack
-#undef messages
 #undef str_next
 #undef pat_next
 #undef casefold
@@ -1030,7 +1022,6 @@ static int btrc_win_musl_iswctype(int c, wctype_t class_id)
 #pragma pop_macro("IS_SPECIAL")
 #pragma pop_macro("IS_TAG")
 #pragma pop_macro("IS_WORD_CHAR")
-#pragma pop_macro("LCTRANS_CUR")
 #pragma pop_macro("MAX")
 #pragma pop_macro("MAX_NEG_CLASSES")
 #pragma pop_macro("MIN")
@@ -1222,7 +1213,6 @@ static int btrc_win_musl_iswctype(int c, wctype_t class_id)
 #pragma pop_macro("tre_backtrack_struct")
 #pragma pop_macro("tre_backtrack_t")
 #pragma pop_macro("tre_tnfa_run_backtrack")
-#pragma pop_macro("messages")
 #pragma pop_macro("str_next")
 #pragma pop_macro("pat_next")
 #pragma pop_macro("casefold")
