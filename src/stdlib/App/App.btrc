@@ -177,7 +177,6 @@ class AppKeyboardEvent {
 	public AppKeyAction action;
 	public AppKeyCode key;
 	public AppKeyModifiers modifiers;
-
 	public AppScanCode? scanCode;
 
 	public AppKeyboardEvent(AppKeyAction action, AppKeyCode key, AppKeyModifiers modifiers, AppScanCode? scanCode = null) {

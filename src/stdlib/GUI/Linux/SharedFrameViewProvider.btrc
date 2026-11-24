@@ -4,12 +4,12 @@ import Library.GUI.Shim.ShimApplication;
 import Library.GUI.Linux.LinuxSharedFrameView;
 
 class SharedFrameViewProvider {
-    class ISharedFrameView? tryCreate() {
-        var application = (IShimApplication?)GUIApplicationSlot.require();
-        if (application == null) { throw "Shared frame views require an active Linux application"; }
-        if (!LinuxSharedFrameView.supported()) { return null; }
-        var view = LinuxSharedFrameView(application.context());
-        application.adopt(view);
-        return view;
-    }
+	class ISharedFrameView? tryCreate() {
+		var application = (IShimApplication?)GUIApplicationSlot.require();
+		if (application == null) { throw "Shared frame views require an active Linux application"; }
+		if (!LinuxSharedFrameView.supported()) { return null; }
+		var view = LinuxSharedFrameView(application.context());
+		application.adopt(view);
+		return view;
+	}
 }

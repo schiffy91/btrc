@@ -11,7 +11,9 @@ class SharedFrameEndpoint {
 		self._transport = transport;
 		self._address = address;
 	}
+
 	public string transport() { return self._transport; }
+
 	public string address() { return self._address; }
 }
 

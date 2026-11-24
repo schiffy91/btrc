@@ -16,6 +16,7 @@ is one; the local guest is another (tools/target_hosts/windows/vm.py).
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -112,3 +113,68 @@ def test_windows_conformance_case(name, frontend, target, sanitized):
     result = shell.run_shell([str(executable), name], environment, 180)
     report = f"{name} on {target} ({frontend}, {'ubsan' if sanitized else 'plain'})\n{result.stdout}{result.stderr}"
     assert result.returncode == 0 and f"CASE {name} PASS" in result.stdout, report
+
+
+@pytest.mark.parametrize("target", sorted(shell.TARGETS))
+@pytest.mark.parametrize("frontend", sorted(shell.FRONTENDS))
+def test_windows_shared_frame_builds(tmp_path, request, monkeypatch, frontend, target):
+    if sys.platform == "win32":
+        pytest.skip("cross-builds on a Linux or macOS host with the dev shell; Windows runs the published executables")
+    NativeBindingPackage.require_reader()
+    dll = shell.cross_environment(target, tmp_path, monkeypatch)
+    source = SUITE.parent / "shared_frame_view"
+    generated, plan = tmp_path / "Viewer.c", tmp_path / "Viewer.json"
+    result = transpile(source / "Main.btrc", generated, plan, frontend, request, shell.TARGETS[target][0])
+    assert result.returncode == 0, result.stderr
+    executable = shell.link(plan, generated, tmp_path / f"frame-view-{frontend}.exe", [])
+    assert DependencyAudit().binary_problems(executable, shell.TARGETS[target][0]) == []
+    sender = tmp_path / "frame-producer.exe"
+    subprocess.run(
+        [
+            "zig",
+            "cc",
+            "-target",
+            f"{shell.TARGETS[target][2]}-windows-gnu",
+            "-std=c11",
+            "-O1",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source / "ProducerWindows.c"),
+            "-ldxguid",
+            "-ld3d11",
+            "-ldxgi",
+            "-lgdi32",
+            "-lole32",
+            "-o",
+            str(sender),
+        ],
+        check=True,
+        timeout=180,
+    )
+    directory = published(target)
+    if directory:
+        directory.mkdir(parents=True, exist_ok=True)
+        for path in (executable, sender, dll):
+            shutil.copy2(path, directory / path.name)
+
+
+@pytest.mark.parametrize("target", sorted(shell.TARGETS))
+@pytest.mark.parametrize("frontend", sorted(shell.FRONTENDS))
+def test_windows_shared_frame_case(tmp_path, frontend, target):
+    if sys.platform != "win32":
+        pytest.skip("requires Windows: windows.yml's win32-native job runs the executables the build tests publish")
+    from src.tests.python.test_gui_shared_frame_view import exercise_viewer
+
+    directory = published(target)
+    assert directory, "BTRC_WIN32_EVIDENCE_DIR must contain the cross-built viewer and producer"
+    directory = directory.resolve()
+    exercise_viewer(
+        tmp_path,
+        os.environ,
+        directory / f"frame-view-{frontend}.exe",
+        [directory / "frame-producer.exe"],
+        "1",
+        "0",
+        verify_dxgi=True,
+    )

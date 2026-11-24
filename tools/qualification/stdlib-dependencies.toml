@@ -98,12 +98,12 @@ binaries = ["/usr/lib/*", "/System/Library/*"]
 [supplied.windows]
 libraries = [
 	"advapi32", "avrt", "bcrypt", "bthprops", "comctl32", "comdlg32", "crypt32", "d2d1", "d3d11",
-	"d3d12", "dwmapi", "dwrite", "dxgi", "gdi32", "hid", "imm32", "iphlpapi", "kernel32", "mfplat",
+	"d3d12", "dwmapi", "dwrite", "dxgi", "dxguid", "gdi32", "hid", "imm32", "iphlpapi", "kernel32", "mfplat",
 	"ncrypt", "ntdll", "ole32", "oleaut32", "propsys", "secur32", "setupapi", "shell32", "shlwapi",
 	"user32", "userenv", "uuid", "uxtheme", "version", "windowscodecs", "winhttp", "winmm", "ws2_32",
 ]
 headers = [
-	"bcrypt.h", "commctrl.h", "commdlg.h", "direct.h", "dwmapi.h", "io.h", "objbase.h", "objidl.h", "ole2.h",
+	"bcrypt.h", "commctrl.h", "commdlg.h", "d3d11_1.h", "direct.h", "dwmapi.h", "dxgi1_2.h", "io.h", "objbase.h", "objidl.h", "ole2.h",
 	"oleauto.h", "process.h", "shellapi.h", "shlobj.h", "shlwapi.h", "shobjidl.h", "tlhelp32.h",
 	"uxtheme.h", "winbase.h", "wincrypt.h", "windef.h", "windows.h", "windowsx.h", "winhttp.h",
 	"winioctl.h", "winnls.h", "winsock2.h", "winternl.h", "ws2tcpip.h",
@@ -118,7 +118,7 @@ loads = [
 ]
 binaries = [
 	"advapi32.dll", "api-ms-win-*.dll", "avrt.dll", "bcrypt.dll", "comctl32.dll", "comdlg32.dll",
-	"crypt32.dll", "dwmapi.dll", "gdi32.dll", "imm32.dll", "iphlpapi.dll", "kernel32.dll", "msvcrt.dll",
+	"crypt32.dll", "d3d11.dll", "dwmapi.dll", "dxgi.dll", "gdi32.dll", "imm32.dll", "iphlpapi.dll", "kernel32.dll", "msvcrt.dll",
 	"ntdll.dll", "ole32.dll", "oleaut32.dll", "secur32.dll", "shell32.dll", "shlwapi.dll", "ucrtbase.dll",
 	"user32.dll", "userenv.dll", "uxtheme.dll", "version.dll", "winhttp.dll", "winmm.dll", "ws2_32.dll",
 ]

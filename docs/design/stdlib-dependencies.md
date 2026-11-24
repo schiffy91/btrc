@@ -80,4 +80,4 @@ Keep the current working transport while qualification and review are pending.
 - **ios**: frameworks: `CoreFoundation`, `CoreGraphics`, `CoreImage`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `Metal`, `QuartzCore`, `Security`, `UIKit`, `Vision`, `WebKit`
 - **linux**: libraries: `util`; programs: `/bin/sh`
 - **macos**: frameworks: `AVFoundation`, `AppKit`, `AudioToolbox`, `CFNetwork`, `CoreAudio`, `CoreFoundation`, `CoreGraphics`, `CoreMedia`, `CoreServices`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `QuartzCore`, `Security`, `Vision`, `WebKit`; libraries: `bsm`; programs: `/bin/sh`
-- **windows**: libraries: `advapi32`, `bcrypt`, `comctl32`, `dwmapi`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `winhttp`, `ws2_32`
+- **windows**: libraries: `advapi32`, `bcrypt`, `comctl32`, `d3d11`, `dwmapi`, `dxgi`, `dxguid`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `winhttp`, `ws2_32`

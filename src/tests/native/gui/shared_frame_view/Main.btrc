@@ -10,6 +10,7 @@ class Visit implements IApplicationWork {
 	private string folder;
 	private int producer;
 	private int step = 0;
+	private bool reconnected = false;
 	private long long deadline = MonotonicClock.deadlineAfter(25000);
 	public int status = 1;
 
@@ -22,13 +23,25 @@ class Visit implements IApplicationWork {
 
 	private void publishAddress(string name) {
 		var endpoint = self.view.listen(self.producer);
-		if (endpoint.transport() != (Platform.isApple() ? "iosurface" : "dmabuf") || endpoint.address().isEmpty()) { throw "Invalid frame endpoint"; }
+		var transport = Platform.isWindows() ? "dxgi" : (Platform.isApple() ? "iosurface" : "dmabuf");
+		if (endpoint.transport() != transport || endpoint.address().isEmpty()) { throw "Invalid frame endpoint"; }
 		if (!FileSystem.writeAtomic(PathTools.join(self.folder, name), endpoint.address(), 0o600)) { throw "Cannot publish test address"; }
 	}
 
 	public void run() {
 		try {
 			if (!MonotonicClock.before(self.deadline)) { throw "Shared frame test timed out"; }
+			if (self.step == 4 && !self.reconnected && FileSystem.isFile(PathTools.join(self.folder, "reconnect"))) {
+				self.publishAddress("second");
+				self.reconnected = true;
+			}
+			if (self.step == 5 && FileSystem.isFile(PathTools.join(self.folder, "finish"))) {
+				self.view.disconnect();
+				if (self.view.frameWidth() != 0 || self.view.frameHeight() != 0 || self.view.presentPending()) { throw "Disconnect retained a frame"; }
+				self.status = 0;
+				GUI.requestQuit();
+				return;
+			}
 			if (FileSystem.isFile(PathTools.join(self.folder, f"sent-{self.step}"))) {
 				var accepted = self.view.presentPending();
 				if (self.step < 2) {
@@ -38,13 +51,7 @@ class Visit implements IApplicationWork {
 					if (!accepted || self.view.frameWidth() != width || self.view.frameHeight() != width / 2) { throw "Expected frame was not presented"; }
 					if (self.view.presentPending()) { throw "An empty receiver presented a frame"; }
 				}
-				if (self.step == 3) { self.publishAddress("second"); }
-				if (self.step == 4) {
-					self.view.disconnect();
-					if (self.view.frameWidth() != 0 || self.view.frameHeight() != 0 || self.view.presentPending()) { throw "Disconnect retained a frame"; }
-				}
 				if (!FileSystem.writeText(PathTools.join(self.folder, f"done-{self.step}"), "1")) { throw "Cannot confirm test frame"; }
-				if (self.step == 4) { self.status = 0; GUI.requestQuit(); return; }
 				self.step++;
 			}
 			GUI.postAfter(0.005, self);
