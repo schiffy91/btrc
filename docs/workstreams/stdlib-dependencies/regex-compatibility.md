@@ -1,16 +1,16 @@
 # Windows Regex compatibility
 
-`Library.Regex` specifies POSIX extended regular expressions and leftmost-longest byte spans. Programs can observe the chosen span through `Regex.first`, `fullMatch`, and replacement, even though the public API does not expose subgroup offsets. Keep the legacy Windows provider available while qualifying its replacement.
+`Library.Regex` specifies POSIX extended regular expressions and leftmost-longest byte spans. Programs can observe the chosen span through `Regex.first`, `fullMatch`, and replacement, even though the public API does not expose subgroup offsets. Windows now dispatches qualified pattern classes to first-party code and retains the legacy provider for the remaining expressions.
 
 ## A public difference
 
-`Regex.fullMatch("((a{2})?b)?", "ab")` returns true on the legacy Windows provider. Under the written ERE the only complete strings are the empty string, `b`, and `aab`. A first-party matcher following those rules returns false.
+`Regex.fullMatch("((a{2})?b)?", "ab")` returns true on the legacy Windows provider. Under the written ERE the only complete strings are the empty string, `b`, and `aab`. The full first-party candidate returns false. The incremental dispatcher continues to return the legacy result for this pattern.
 
 The following case also shows the effect on an existing caller's output. Each column was exercised through the reference and self-host compilers in separate Windows x64 executables under Wine. Each executable passed the binary import audit.
 
-With pattern `((b{1,3}){2,3}|.x){0,2}` and subject `ab`:
+Both builds used pattern `((b{1,3}){2,3}|.x){0,2}` and subject `ab`.
 
-| Public call | Legacy Windows | First-party candidate |
+| Public call | Legacy Windows | Full first-party candidate |
 | --- | --- | --- |
 | `Regex.fullMatch` | true | false |
 | `CompiledRegex.fullMatch` | true | false |
@@ -25,6 +25,13 @@ A compatibility implementation can reproduce at least one family without bundlin
 
 A first-party btrc prototype encoded that rule. Separate Windows x64 executables from both compilers compared it against the legacy provider's `first`, `replace`, static and compiled `fullMatch`. Each passed 5,980 cases with n=2–24. A separate group-zero oracle exercised every n through 255, two choices of X and Y, and 62,396 cases. The tested rule covers only this grammar and group zero.
 
-A broader compatibility engine would need to model which repeated consuming positions share outbound transitions, then verify the resulting whole spans and subgroup histories. The tests already exhibit interactions with alternation, trailing literals and optional and unbounded outer quantifiers. Loosening each interval independently would change which lengths the client accepts. For an incremental migration, a dispatcher could first select the replacement for validated expressions containing only a single literal or bracket expression and a single optional quantifier. Keep other syntax and invalid patterns on the existing provider until their spans and diagnostics are qualified. The dependency row stays open while any route uses the legacy provider.
+A broader compatibility engine would need to model which repeated consuming positions share outbound transitions, then verify the resulting whole spans and subgroup histories. The tests already exhibit interactions with alternation, trailing literals and optional and unbounded outer quantifiers. Loosening each interval independently would change which lengths the client accepts.
+
+## Current dispatch
+
+For `REG_EXTENDED`, single byte sets, plain literal searches and their start/end assertions use first-party byte matching. This includes one simple or counted quantifier on a set. Capture-free sequences and nonempty alternatives made entirely from consuming byte atoms and one quantifier per atom can use the bounded first-party Thompson matcher. Its current eligibility check limits this latter class to expressions of up to 255 bytes and routes parentheses, escapes, assertions, stacked quantifiers and other syntax to the legacy provider. The two public examples above therefore preserve the existing Windows answers.
+
+The compiled regex owns its pattern data. If the Thompson matcher exhausts its working memory or per-input work allowance, the dispatcher retries with the legacy provider. Both execution paths maintain the public `regex_t` layout and support compiling in one translation unit and matching and freeing in another. The dependency audit continues to name bundled Windows regex while this fallback remains.
+
 
 The independently qualified bracket fix covers punctuation ranges that the Windows dialect accepts, including `[a-z--@]`. It restores a capability without changing nested-repetition semantics.
