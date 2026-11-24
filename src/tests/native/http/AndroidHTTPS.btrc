@@ -46,6 +46,11 @@ int main(int argc, char** argv) {
 		print("PASS Android HTTPS proxy deadline");
 		return 0;
 	}
+	if (wrongName.equals("explicit-header")) {
+		var result = client.get(origin + "/proxy-header", ["Proxy-Authorization: Bearer caller"]);
+		print(f"Android explicit header status {result.status}");
+		return 0;
+	}
 	if (wrongName.equals("challenge")) {
 		var result = client.get(origin + "/challenge", []);
 		print(f"Android challenge status {result.status}");

@@ -51,7 +51,9 @@ class Peer(http.server.BaseHTTPRequestHandler):
         self.reply(200, b"PATCH:" + data)
 
     def do_GET(self):
-        if self.path == "/explicit":
+        if self.path == "/proxy-header":
+            self.reply(403 if self.headers.get("Proxy-Authorization") else 204, b"")
+        elif self.path == "/explicit":
             ok = self.headers.get("Authorization") == "Basic Y2FsbGVyOnNlY3JldA=="
             self.reply(200 if ok else 403, b"caller" if ok else b"")
         elif self.path == "/challenge":
@@ -83,7 +85,10 @@ class ConnectPeer(http.server.BaseHTTPRequestHandler):
         if self.path not in self.server.authorities:
             self.send_error(403)
             return
-        if self.server.require_credentials and self.headers.get("Proxy-Authorization") != "Basic dXNlcjpwYXNz":
+        expected = getattr(self.server, "expected_proxy_header", None)
+        if self.server.require_credentials:
+            expected = "Basic dXNlcjpwYXNz"
+        if expected is not None and self.headers.get("Proxy-Authorization") != expected:
             self.send_error(407)
             return
         self.server.tunnels.append(self.path)
@@ -364,6 +369,9 @@ def main():
                 "bundle-invalid",
                 "bundle-indexed",
                 "installed-curl",
+                "installed-header",
+                "explicit-direct",
+                "explicit-proxy",
                 "bundle-raw-invalid",
                 "bundle-gap-invalid",
                 "nested-valid",
@@ -374,10 +382,19 @@ def main():
                 "forward-bad-host",
             ):
                 proxy.require_credentials = mode == "authenticated-proxy"
+                proxy.expected_proxy_header = "Bearer caller" if mode == "explicit-proxy" else None
                 credentials = "user:pass@" if proxy.require_credentials else ""
                 bypass = (
                     ""
-                    if mode in {"proxy", "isolated-proxy", "authenticated-proxy", "system-proxy", "system-stalled"}
+                    if mode
+                    in {
+                        "proxy",
+                        "isolated-proxy",
+                        "authenticated-proxy",
+                        "system-proxy",
+                        "system-stalled",
+                        "explicit-proxy",
+                    }
                     else "*"
                 )
                 before = len(proxy.tunnels)
@@ -411,7 +428,7 @@ def main():
                 before_forward = len(forward_peer.requests)
                 command = [
                     "env",
-                    "PATH=" + (directory if mode == "installed-curl" else "/no-curl"),
+                    "PATH=" + (directory if mode in {"installed-curl", "installed-header"} else "/no-curl"),
                     "https_proxy=" + proxy_setting,
                     "HTTPS_PROXY=",
                     "http_proxy="
@@ -440,7 +457,10 @@ def main():
                     mode,
                     proxy_port,
                 ]
-                if not (mode.startswith(("ambient-", "bundle-")) or mode in {"untrusted", "installed-curl"}):
+                if not (
+                    mode.startswith(("ambient-", "bundle-"))
+                    or mode in {"untrusted", "installed-curl", "installed-header"}
+                ):
                     command = [directory + "/trust-root", directory + "/platform", "/system/bin/env", *command[1:]]
                 result = adb("shell", shlex.join(command), text=True, capture_output=True, timeout=45)
                 if mode == "challenge":
@@ -455,6 +475,9 @@ def main():
                     continue
                 expected = {
                     "installed-curl": "Android challenge status 218",
+                    "installed-header": "Android explicit header status 218",
+                    "explicit-direct": "Android explicit header status 204",
+                    "explicit-proxy": "Android explicit header status 204",
                     "ambient-origin": "PASS Android HTTPS untrusted issuer",
                     "ambient-proxy": "PASS Android HTTPS untrusted issuer",
                     "cookies": "PASS Android HTTPS cookie isolation",

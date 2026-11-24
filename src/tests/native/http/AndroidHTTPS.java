@@ -27,6 +27,11 @@ public class AndroidHTTPS {
     public static void main(String[] args) { finish(AndroidHTTPS::probe, args); }
 
     private static void probe(String[] args) throws Exception {
+        if (args.length > 4 && (args[4].equals("installed-header") || args[4].startsWith("explicit-"))) {
+            System.load(args[0]);
+            if (run(args[2], "explicit-header") != 0) throw new AssertionError("installed curl header behavior lost");
+            return;
+        }
         if (args.length > 4 && args[4].equals("installed-curl")) {
             System.load(args[0]);
             if (run(args[2], "challenge") != 0) throw new AssertionError("installed curl trust defaults lost");

@@ -162,7 +162,7 @@ class HTTPTransportProvider {
 		if (address.secure) {
 #if defined(__ANDROID__)
 			long long deadline = MonotonicClock.deadlineAfter((long long)timeoutSecs * 1000LL);
-			if (JavaVirtualMachine.running() && AndroidJSSEStream.supportsTrust()) {
+			if (JavaVirtualMachine.running() && !HTTPProxy.needsLegacyHeaders(headers) && AndroidJSSEStream.supportsTrust()) {
 				string setting = HTTPProxy.setting(address);
 				string socks = HTTPSocks.scheme(setting);
 				HTTPClientAddress? proxy = null;

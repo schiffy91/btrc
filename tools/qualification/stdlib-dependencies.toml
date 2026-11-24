@@ -277,7 +277,7 @@ resolution = "Only a legacy X11 session without a reachable XDG bus socket or sa
 dependency = "curl"
 module = "HTTP/HTTPCurlTransport"
 os = ["android", "linux", "macos"]
-resolution = "On Android, Linux and macOS, plain HTTP and HTTP forward proxies use first-party code. Linux plain HTTP supports SOCKS4/4a/5/5h without curl; an installed curl handles caller Proxy-Authorization fields on SOCKS routes and optional SOCKS5 GSSAPI authentication. Android applications use private platform TLS contexts for HTTPS, authenticated CONNECT and HTTPS proxies. Android supports ordinary PEM trust files, explicit file plus indexed CA directories, and SOCKS4/4a/5/5h. Standalone Android HTTPS, OpenSSL-specific trust policy, implicit custom curl CA locations and installed curl's optional SOCKS GSSAPI authentication retain curl. Linux HTTPS and macOS HTTPS await first-party TLS and NSURLSession respectively. Windows uses WinHTTP."
+resolution = "On Android, Linux and macOS, plain HTTP and HTTP forward proxies use first-party code. Linux plain HTTP supports SOCKS4/4a/5/5h without curl; an installed curl handles caller Proxy-Authorization fields on SOCKS routes and optional SOCKS5 GSSAPI authentication. Android applications use private platform TLS contexts for HTTPS, authenticated CONNECT and HTTPS proxies. Android supports ordinary PEM trust files, explicit file plus indexed CA directories, and SOCKS4/4a/5/5h. Standalone Android HTTPS, OpenSSL-specific trust policy, implicit custom curl CA locations, installed curl's explicit Proxy-Authorization behavior and optional SOCKS GSSAPI authentication retain curl. Linux HTTPS and macOS HTTPS await first-party TLS and NSURLSession respectively. Windows uses WinHTTP."
 
 [[pending]]
 dependency = "FreeType"
