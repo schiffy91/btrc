@@ -1,0 +1,208 @@
+/* Read-only memory-mapped file reader with bounds-checked binary accessors. */
+
+import Library.Array;
+import Library.Bytes;
+
+class MappedFile {
+	private BtrcMappedRegion? _region;
+	private long long _size;
+
+	private MappedFile(BtrcMappedRegion region) {
+		self._size = btrcMappedFileSize(region);
+		self._region = region;
+	}
+
+	class MappedFile openReadOnly(string path) {
+		if (path == null || path.length() == 0) { throw "MappedFile.openReadOnly requires a non-empty path"; }
+		var region = btrcMappedFileOpen(path);
+		if (region == null) { throw "MappedFile.openReadOnly failed to open file"; }
+		return MappedFile(region);
+	}
+
+	public bool isOpen() { return self._region != null; }
+
+	public long long size() { return self._region != null ? self._size : 0LL; }
+
+	public void close() {
+		self._region = null;
+		self._size = 0LL;
+	}
+
+	public void __del__() { self.close(); }
+
+	private void checkRange(long long offset, long long count) {
+		if (self._region == null) { throw "MappedFile is closed"; }
+		if (offset < 0LL || count < 0LL || offset > self._size || count > self._size - offset) {
+			throw "MappedFile read out of bounds";
+		}
+	}
+
+	public int byteAt(long long offset) {
+		self.checkRange(offset, 1LL);
+		unsigned char b = 0;
+		if (btrcMappedFileCopy(self._region, offset, (void*)&b, (size_t)1) == 0) {
+			throw "MappedFile read failed";
+		}
+		return (int)b;
+	}
+
+	public int readU16LE(long long offset) {
+		self.checkRange(offset, 2LL);
+		unsigned char buf[2];
+		if (btrcMappedFileCopy(self._region, offset, (void*)buf, (size_t)2) == 0) {
+			throw "MappedFile readU16LE failed";
+		}
+		return (int)buf[0] | ((int)buf[1] << 8);
+	}
+
+	public int readU16BE(long long offset) {
+		self.checkRange(offset, 2LL);
+		unsigned char buf[2];
+		if (btrcMappedFileCopy(self._region, offset, (void*)buf, (size_t)2) == 0) {
+			throw "MappedFile readU16BE failed";
+		}
+		return ((int)buf[0] << 8) | (int)buf[1];
+	}
+
+	public unsigned int readU32LE(long long offset) {
+		self.checkRange(offset, 4LL);
+		unsigned char buf[4];
+		if (btrcMappedFileCopy(self._region, offset, (void*)buf, (size_t)4) == 0) {
+			throw "MappedFile readU32LE failed";
+		}
+		return (unsigned int)buf[0] | ((unsigned int)buf[1] << 8) | ((unsigned int)buf[2] << 16) | ((unsigned int)buf[3] << 24);
+	}
+
+	public unsigned int readU32BE(long long offset) {
+		self.checkRange(offset, 4LL);
+		unsigned char buf[4];
+		if (btrcMappedFileCopy(self._region, offset, (void*)buf, (size_t)4) == 0) {
+			throw "MappedFile readU32BE failed";
+		}
+		return ((unsigned int)buf[0] << 24) | ((unsigned int)buf[1] << 16) | ((unsigned int)buf[2] << 8) | (unsigned int)buf[3];
+	}
+
+	public int readI32LE(long long offset) {
+		unsigned int raw = self.readU32LE(offset);
+		int out = 0;
+		memcpy(&out, &raw, (size_t)4);
+		return out;
+	}
+
+	public int readI32BE(long long offset) {
+		unsigned int raw = self.readU32BE(offset);
+		int out = 0;
+		memcpy(&out, &raw, (size_t)4);
+		return out;
+	}
+
+	public unsigned long long readU64LE(long long offset) {
+		self.checkRange(offset, 8LL);
+		unsigned char buf[8];
+		if (btrcMappedFileCopy(self._region, offset, (void*)buf, (size_t)8) == 0) {
+			throw "MappedFile readU64LE failed";
+		}
+		unsigned long long value = 0ULL;
+		for (int i = 0; i < 8; i++) {
+			value = value | ((unsigned long long)buf[i] << (i * 8));
+		}
+		return value;
+	}
+
+	public unsigned long long readU64BE(long long offset) {
+		self.checkRange(offset, 8LL);
+		unsigned char buf[8];
+		if (btrcMappedFileCopy(self._region, offset, (void*)buf, (size_t)8) == 0) {
+			throw "MappedFile readU64BE failed";
+		}
+		unsigned long long value = 0ULL;
+		for (int i = 0; i < 8; i++) {
+			value = (value << 8) | (unsigned long long)buf[i];
+		}
+		return value;
+	}
+
+	public long long readI64LE(long long offset) {
+		unsigned long long raw = self.readU64LE(offset);
+		long long out = 0LL;
+		memcpy(&out, &raw, (size_t)8);
+		return out;
+	}
+
+	public float readF32LE(long long offset) {
+		unsigned int raw = self.readU32LE(offset);
+		float out = 0.0f;
+		memcpy(&out, &raw, (size_t)4);
+		return out;
+	}
+
+	public double readF64LE(long long offset) {
+		unsigned long long raw = self.readU64LE(offset);
+		double out = 0.0;
+		memcpy(&out, &raw, (size_t)8);
+		return out;
+	}
+
+	public Bytes sliceBytes(long long offset, int length) {
+		if (length < 0) { throw "MappedFile.sliceBytes length cannot be negative"; }
+		self.checkRange(offset, (long long)length);
+		if (length == 0) { return Bytes(); }
+		Bytes out = Bytes.zeros(length);
+		if (btrcMappedFileCopy(self._region, offset, (void*)out.data, (size_t)length) == 0) {
+			throw "MappedFile.sliceBytes copy failed";
+		}
+		return out;
+	}
+
+	public void copyToIntArray(long long offset, Array<int> dst, int count) {
+		if (dst == null || count < 0 || count > dst.length) { throw "MappedFile.copyToIntArray invalid target"; }
+		if (count == 0) { return; }
+		long long byteLen = (long long)count * 4LL;
+		self.checkRange(offset, byteLen);
+		if (btrcMappedFileCopy(self._region, offset, (void*)dst.data, (size_t)byteLen) == 0) {
+			throw "MappedFile.copyToIntArray copy failed";
+		}
+	}
+
+	public void copyToLongArray(long long offset, Array<long long> dst, int count) {
+		if (dst == null || count < 0 || count > dst.length) { throw "MappedFile.copyToLongArray invalid target"; }
+		if (count == 0) { return; }
+		long long byteLen = (long long)count * 8LL;
+		self.checkRange(offset, byteLen);
+		if (btrcMappedFileCopy(self._region, offset, (void*)dst.data, (size_t)byteLen) == 0) {
+			throw "MappedFile.copyToLongArray copy failed";
+		}
+	}
+
+	public void copyToFloatArray(long long offset, Array<float> dst, int count) {
+		if (dst == null || count < 0 || count > dst.length) { throw "MappedFile.copyToFloatArray invalid target"; }
+		if (count == 0) { return; }
+		long long byteLen = (long long)count * 4LL;
+		self.checkRange(offset, byteLen);
+		if (btrcMappedFileCopy(self._region, offset, (void*)dst.data, (size_t)byteLen) == 0) {
+			throw "MappedFile.copyToFloatArray copy failed";
+		}
+	}
+
+	public bool matchesAscii(long long offset, string text) {
+		if (self._region == null || text == null) { return false; }
+		return btrcMappedFileMatches(self._region, offset, text, (size_t)text.length()) != 0;
+	}
+
+	public string readAscii(long long offset, int maxLength) {
+		if (maxLength <= 0) { return ""; }
+		Bytes raw = self.sliceBytes(offset, maxLength);
+		int actual = 0;
+		while (actual < maxLength && raw.get(actual) != 0) { actual++; }
+		if (actual == 0) { return ""; }
+		if (actual == maxLength) { return raw.toString(); }
+		Bytes trimmed = Bytes.zeros(actual);
+		for (int i = 0; i < actual; i++) { trimmed.set(i, raw.get(i)); }
+		return trimmed.toString();
+	}
+
+	public long long findPair(long long start, long long end, int b0, int b1) {
+		if (self._region == null) { throw "MappedFile is closed"; }
+		return btrcMappedFileFindPair(self._region, start, end, b0, b1);
+	}
+}

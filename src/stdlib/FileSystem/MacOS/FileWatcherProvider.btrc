@@ -1,0 +1,50 @@
+/* macOS FSEvents provider for Library.FileSystem.FileWatcher. */
+
+import Library.Bytes;
+import Library.FileSystem.FileWatcher;
+import Library.Vector;
+
+class MacOSFileWatchSession implements IFileWatchSession {
+	private BtrcMacOSFileWatcher? _handle;
+
+	public MacOSFileWatchSession(BtrcMacOSFileWatcher handle) { self._handle = handle; }
+
+	public bool isOpen() { return self._handle != null; }
+
+	public void close() { self._handle = null; }
+
+	public Vector<FileWatchEvent> poll(int timeoutMs) {
+		Vector<FileWatchEvent> out = [];
+		if (self._handle == null) { return out; }
+		int count = btrcMacOSWatcherWaitCount(self._handle, timeoutMs);
+		if (count <= 0) { return out; }
+		Bytes buf = Bytes.zeros(4096);
+		int kindCode = 0;
+		int isDir = 0;
+		size_t len = 0;
+		while (btrcMacOSWatcherPop(self._handle, &kindCode, &isDir, buf.data, 4096, &len) != 0) {
+			int actualLen = (int)len;
+			if (actualLen > 4095) { actualLen = 4095; }
+			Bytes slice = Bytes.zeros(actualLen);
+			if (actualLen > 0) { memcpy(slice.data, buf.data, (size_t)actualLen); }
+			FileWatchEventKind kind = FILE_WATCH_MODIFIED;
+			if (kindCode == 0) { kind = FILE_WATCH_CREATED; }
+			else if (kindCode == 1) { kind = FILE_WATCH_MODIFIED; }
+			else if (kindCode == 2) { kind = FILE_WATCH_REMOVED; }
+			else if (kindCode == 3) { kind = FILE_WATCH_RENAMED; }
+			else { kind = FILE_WATCH_RESCAN; }
+			out.push(FileWatchEvent(kind, slice.toString(), isDir != 0));
+		}
+		return out;
+	}
+}
+
+class FileWatcherProvider {
+	class bool supported() { return true; }
+
+	class IFileWatchSession open(string rootPath, int latencyMs) {
+		var handle = btrcMacOSWatcherOpen(rootPath, latencyMs);
+		if (handle == null) { throw "MacOS FileWatcher failed to start FSEvents stream"; }
+		return MacOSFileWatchSession(handle);
+	}
+}

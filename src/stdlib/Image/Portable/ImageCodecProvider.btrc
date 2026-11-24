@@ -1,0 +1,104 @@
+/* Portable first-party ImageCodec provider (Linux, Windows, Android). */
+
+import Library.Bytes;
+import Library.Image.EncodedImage;
+import Library.Image.FloatImage;
+import Library.Image.ImageCodec;
+import Library.Image.JPEG;
+import Library.Image.PNG;
+import Library.Image.Pixels;
+import Library.Image.PortableEncodedImageDecoder;
+
+class ImageCodecProvider {
+	class bool supportsHEIC() { return false; }
+
+	class EncodedImageDecodeLimits defaultLimits() { return EncodedImageDecodeLimits(256 * 1024 * 1024, 32768, 32768, 250000000LL); }
+
+	class Image downscaleNearest(Image src, int maxEdge) {
+		if (maxEdge <= 0 || (src.width <= maxEdge && src.height <= maxEdge)) { return src; }
+		int dstW = src.width >= src.height ? maxEdge : (int)((long long)src.width * (long long)maxEdge / (long long)src.height);
+		int dstH = src.height > src.width ? maxEdge : (int)((long long)src.height * (long long)maxEdge / (long long)src.width);
+		if (dstW < 1) { dstW = 1; }
+		if (dstH < 1) { dstH = 1; }
+		Image out = Image(dstW, dstH);
+		for (int y = 0; y < dstH; y++) {
+			int sy = (int)((long long)y * (long long)src.height / (long long)dstH);
+			for (int x = 0; x < dstW; x++) {
+				int sx = (int)((long long)x * (long long)src.width / (long long)dstW);
+				out.setPixel(x, y, src.pixel(sx, sy));
+			}
+		}
+		return out;
+	}
+
+	class Image decodeRGBA8(Bytes encoded, int maxEdge) {
+		var outcome = PortableEncodedImageDecoder().decode(encoded, ImageCodecProvider.defaultLimits());
+		if (!outcome.succeeded()) { throw "Portable ImageCodec failed to decode image"; }
+		return ImageCodecProvider.downscaleNearest(outcome.image(), maxEdge);
+	}
+
+	class DecodedPhoto decodeLinear(Bytes encoded, int maxEdge, bool linearRec2020) {
+		var outcome = PortableEncodedImageDecoder().decode(encoded, ImageCodecProvider.defaultLimits());
+		if (!outcome.succeeded()) { throw "Portable ImageCodec failed to decode image"; }
+		Image full = outcome.image();
+		int origW = full.width;
+		int origH = full.height;
+		Image scaled = ImageCodecProvider.downscaleNearest(full, maxEdge);
+		FloatImage flt = FloatImage.fromRGBA8(scaled, true);
+		return DecodedPhoto(flt, origW, origH, 1, linearRec2020, null);
+	}
+
+	class Bytes encodeUncompressedTiff16(FloatImage image) {
+		var u16 = image.toU16Linear();
+		int pixelBytes = image.width * image.height * 8;
+		int ifdOffset = 8;
+		int numEntries = 11;
+		int bpsOffset = ifdOffset + 2 + numEntries * 12 + 4;
+		int dataOffset = bpsOffset + 8;
+		Bytes out = Bytes();
+		/* Little-endian TIFF header "II", magic 42, IFD0 offset 8. */
+		out.append(0x49); out.append(0x49);
+		out.appendU16LE(42);
+		out.appendU32LE((unsigned int)ifdOffset);
+		out.appendU16LE(numEntries);
+		/* 256 ImageWidth */
+		out.appendU16LE(256); out.appendU16LE(4); out.appendU32LE(1U); out.appendU32LE((unsigned int)image.width);
+		/* 257 ImageLength */
+		out.appendU16LE(257); out.appendU16LE(4); out.appendU32LE(1U); out.appendU32LE((unsigned int)image.height);
+		/* 258 BitsPerSample = [16, 16, 16, 16] */
+		out.appendU16LE(258); out.appendU16LE(3); out.appendU32LE(4U); out.appendU32LE((unsigned int)bpsOffset);
+		/* 259 Compression = 1 (None) */
+		out.appendU16LE(259); out.appendU16LE(3); out.appendU32LE(1U); out.appendU32LE(1U);
+		/* 262 PhotometricInterpretation = 2 (RGB) */
+		out.appendU16LE(262); out.appendU16LE(3); out.appendU32LE(1U); out.appendU32LE(2U);
+		/* 273 StripOffsets */
+		out.appendU16LE(273); out.appendU16LE(4); out.appendU32LE(1U); out.appendU32LE((unsigned int)dataOffset);
+		/* 277 SamplesPerPixel = 4 */
+		out.appendU16LE(277); out.appendU16LE(3); out.appendU32LE(1U); out.appendU32LE(4U);
+		/* 278 RowsPerStrip */
+		out.appendU16LE(278); out.appendU16LE(4); out.appendU32LE(1U); out.appendU32LE((unsigned int)image.height);
+		/* 279 StripByteCounts */
+		out.appendU16LE(279); out.appendU16LE(4); out.appendU32LE(1U); out.appendU32LE((unsigned int)pixelBytes);
+		/* 284 PlanarConfiguration = 1 (Chunky) */
+		out.appendU16LE(284); out.appendU16LE(3); out.appendU32LE(1U); out.appendU32LE(1U);
+		/* 338 ExtraSamples = 2 (Unassociated alpha) */
+		out.appendU16LE(338); out.appendU16LE(3); out.appendU32LE(1U); out.appendU32LE(2U);
+		/* Next IFD = 0 */
+		out.appendU32LE(0U);
+		/* BitsPerSample values */
+		out.appendU16LE(16); out.appendU16LE(16); out.appendU16LE(16); out.appendU16LE(16);
+		int totalSamples = image.width * image.height * 4;
+		for (int i = 0; i < totalSamples; i++) {
+			out.appendU16LE((int)u16.get(i));
+		}
+		return out;
+	}
+
+	class Bytes encode(FloatImage image, ImageExportFormat format, int quality) {
+		if (image == null || image.isEmpty()) { throw "ImageCodec.encode requires a non-empty FloatImage"; }
+		if (format == IMAGE_EXPORT_JPEG) { return JPEG.encode(image.toRGBA8(true), quality); }
+		if (format == IMAGE_EXPORT_PNG) { return PNG.encode(image.toRGBA8(true)); }
+		if (format == IMAGE_EXPORT_TIFF16) { return ImageCodecProvider.encodeUncompressedTiff16(image); }
+		throw "HEIC export is only supported on Apple platforms";
+	}
+}

@@ -1,0 +1,158 @@
+/* Scene-referred linear RGBA32F image buffer and floating-point comparison oracle. */
+
+import Library.Array;
+import Library.Math;
+import Library.Image.Pixels;
+
+#include <math.h>
+
+class FloatImageDiff {
+	public bool comparable;
+	public string error;
+	public int pixelCount;
+	public double maxAbsDiff;
+	public double meanAbsError;
+	public double psnr;
+
+	public FloatImageDiff(bool comparable, string error, int pixelCount, double maxAbsDiff, double meanAbsError, double psnr) {
+		self.comparable = comparable;
+		self.error = error;
+		self.pixelCount = pixelCount;
+		self.maxAbsDiff = maxAbsDiff;
+		self.meanAbsError = meanAbsError;
+		self.psnr = psnr;
+	}
+
+	public bool matches(double tolerance) { return self.comparable && self.maxAbsDiff <= tolerance; }
+
+	class FloatImageDiff compare(FloatImage a, FloatImage b) {
+		if (a == null || b == null || a.width != b.width || a.height != b.height) {
+			return FloatImageDiff(false, "float image dimensions differ", 0, 0.0, 0.0, 0.0);
+		}
+		int count = a.width * a.height;
+		if (count == 0) { return FloatImageDiff(true, "", 0, 0.0, 0.0, 999.0); }
+		double maxDiff = 0.0;
+		double sumAbs = 0.0;
+		double sumSq = 0.0;
+		int totalChannels = count * 4;
+		for (int i = 0; i < totalChannels; i++) {
+			double d = Math.absDouble((double)a.pixels.get(i) - (double)b.pixels.get(i));
+			if (d > maxDiff) { maxDiff = d; }
+			sumAbs += d;
+			sumSq += d * d;
+		}
+		double mae = sumAbs / (double)totalChannels;
+		double mse = sumSq / (double)totalChannels;
+		double psnr = mse <= 1e-12 ? 999.0 : (10.0 * Math.log10(1.0 / mse));
+		return FloatImageDiff(true, "", count, maxDiff, mae, psnr);
+	}
+}
+
+class FloatImage {
+	public int width;
+	public int height;
+	/* Tightly packed top-to-bottom RGBA32F pixels (width * height * 4 floats). */
+	public Array<float> pixels;
+
+	public FloatImage(int width, int height) {
+		if (width < 0 || height < 0 || (width > 0 && height > 0 && !Image.validDimensions(width, height))) {
+			throw "Invalid FloatImage dimensions";
+		}
+		self.width = width;
+		self.height = height;
+		Array<float> storage = Array(width * height * 4);
+		self.pixels = storage;
+	}
+
+	class float srgbToLinear(float c) {
+		if (c <= 0.0f) { return 0.0f; }
+		if (c <= 0.04045f) { return c / 12.92f; }
+		return (float)pow(((double)c + 0.055) / 1.055, 2.4);
+	}
+
+	class float linearToSrgb(float c) {
+		if (c <= 0.0f) { return 0.0f; }
+		if (c >= 1.0f) { return 1.0f; }
+		if (c <= 0.0031308f) { return c * 12.92f; }
+		return (float)(1.055 * pow((double)c, 1.0 / 2.4) - 0.055);
+	}
+
+	class FloatImage fromRGBA8(Image image, bool decodeSRGB = true) {
+		if (image == null || image.data == null) { throw "FloatImage.fromRGBA8 requires a valid Image"; }
+		FloatImage out = FloatImage(image.width, image.height);
+		int count = image.width * image.height;
+		for (int i = 0; i < count; i++) {
+			int off = i * 4;
+			float r = (float)image.data[off] / 255.0f;
+			float g = (float)image.data[off + 1] / 255.0f;
+			float b = (float)image.data[off + 2] / 255.0f;
+			float a = (float)image.data[off + 3] / 255.0f;
+			if (decodeSRGB) {
+				r = FloatImage.srgbToLinear(r);
+				g = FloatImage.srgbToLinear(g);
+				b = FloatImage.srgbToLinear(b);
+			}
+			out.pixels.set(off, r);
+			out.pixels.set(off + 1, g);
+			out.pixels.set(off + 2, b);
+			out.pixels.set(off + 3, a);
+		}
+		return out;
+	}
+
+	public bool isEmpty() { return self.width == 0 || self.height == 0; }
+
+	public void setPixel(int x, int y, float r, float g, float b, float a = 1.0f) {
+		if (x < 0 || y < 0 || x >= self.width || y >= self.height) { throw "FloatImage pixel index out of bounds"; }
+		int off = (y * self.width + x) * 4;
+		self.pixels.set(off, r);
+		self.pixels.set(off + 1, g);
+		self.pixels.set(off + 2, b);
+		self.pixels.set(off + 3, a);
+	}
+
+	public float red(int x, int y) { return self.pixels.get((y * self.width + x) * 4); }
+
+	public float green(int x, int y) { return self.pixels.get((y * self.width + x) * 4 + 1); }
+
+	public float blue(int x, int y) { return self.pixels.get((y * self.width + x) * 4 + 2); }
+
+	public float alpha(int x, int y) { return self.pixels.get((y * self.width + x) * 4 + 3); }
+
+	public Image toRGBA8(bool encodeSRGB = true) {
+		Image out = Image(self.width, self.height);
+		int count = self.width * self.height;
+		for (int i = 0; i < count; i++) {
+			int off = i * 4;
+			float r = self.pixels.get(off);
+			float g = self.pixels.get(off + 1);
+			float b = self.pixels.get(off + 2);
+			float a = self.pixels.get(off + 3);
+			if (encodeSRGB) {
+				r = FloatImage.linearToSrgb(r);
+				g = FloatImage.linearToSrgb(g);
+				b = FloatImage.linearToSrgb(b);
+			}
+			if (r < 0.0f) { r = 0.0f; } else if (r > 1.0f) { r = 1.0f; }
+			if (g < 0.0f) { g = 0.0f; } else if (g > 1.0f) { g = 1.0f; }
+			if (b < 0.0f) { b = 0.0f; } else if (b > 1.0f) { b = 1.0f; }
+			if (a < 0.0f) { a = 0.0f; } else if (a > 1.0f) { a = 1.0f; }
+			out.data[off] = (unsigned char)(r * 255.0f + 0.5f);
+			out.data[off + 1] = (unsigned char)(g * 255.0f + 0.5f);
+			out.data[off + 2] = (unsigned char)(b * 255.0f + 0.5f);
+			out.data[off + 3] = (unsigned char)(a * 255.0f + 0.5f);
+		}
+		return out;
+	}
+
+	public Array<unsigned short> toU16Linear() {
+		int n = self.width * self.height * 4;
+		Array<unsigned short> out = Array(n);
+		for (int i = 0; i < n; i++) {
+			float v = self.pixels.get(i);
+			if (v < 0.0f) { v = 0.0f; } else if (v > 1.0f) { v = 1.0f; }
+			out.set(i, (unsigned short)(v * 65535.0f + 0.5f));
+		}
+		return out;
+	}
+}

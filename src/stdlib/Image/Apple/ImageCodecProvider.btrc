@@ -1,0 +1,69 @@
+/* Apple ImageIO provider for ImageCodec (macOS and iOS). */
+
+import Library.Bytes;
+import Library.Image.FloatImage;
+import Library.Image.ImageCodec;
+import Library.Image.Pixels;
+
+class ImageCodecProvider {
+	class bool supportsHEIC() { return true; }
+
+	class DecodedPhoto decodeLinear(Bytes encoded, int maxEdge, bool linearRec2020) {
+		if (encoded == null || encoded.length() == 0) { throw "ImageCodec.decodeLinear received empty input"; }
+		var photo = btrcApplePhotoDecodeLinear((const unsigned char*)encoded.data, (size_t)encoded.length(), maxEdge, linearRec2020 ? 1 : 0);
+		if (photo == null) { throw "Apple ImageIO failed to decode linear image"; }
+		int w = btrcApplePhotoWidth(photo);
+		int h = btrcApplePhotoHeight(photo);
+		if (w <= 0 || h <= 0) { throw "Apple ImageIO returned empty image dimensions"; }
+		FloatImage out = FloatImage(w, h);
+		int floatCount = w * h * 4;
+		if (btrcApplePhotoCopyFloats(photo, out.pixels.data, (size_t)floatCount) == 0) {
+			throw "Apple ImageIO failed to copy decoded float pixels";
+		}
+		HDRGainMap? gainMap = null;
+		if (btrcApplePhotoHasGainMap(photo) != 0) {
+			int gw = btrcApplePhotoGainMapWidth(photo);
+			int gh = btrcApplePhotoGainMapHeight(photo);
+			double headroom = btrcApplePhotoGainMapHeadroom(photo);
+			Bytes gmBytes = Bytes.zeros(gw * gh);
+			if (btrcApplePhotoCopyGainMap(photo, (unsigned char*)gmBytes.data, (size_t)(gw * gh)) != 0) {
+				gainMap = HDRGainMap(gw, gh, headroom, gmBytes);
+			}
+		}
+		return DecodedPhoto(out, btrcApplePhotoOriginalWidth(photo), btrcApplePhotoOriginalHeight(photo), btrcApplePhotoOrientation(photo), btrcApplePhotoIsWideGamut(photo) != 0, gainMap);
+	}
+
+	class Image decodeRGBA8(Bytes encoded, int maxEdge) {
+		if (encoded == null || encoded.length() == 0) { throw "ImageCodec.decodeRGBA8 received empty input"; }
+		var photo = btrcApplePhotoDecodeRGBA8((const unsigned char*)encoded.data, (size_t)encoded.length(), maxEdge);
+		if (photo == null) { throw "Apple ImageIO failed to decode RGBA8 image"; }
+		int w = btrcApplePhotoWidth(photo);
+		int h = btrcApplePhotoHeight(photo);
+		Image out = Image(w, h);
+		if (btrcApplePhotoCopyRGBA8(photo, out.data, (size_t)(w * h * 4)) == 0) {
+			throw "Apple ImageIO failed to copy decoded RGBA8 pixels";
+		}
+		return out;
+	}
+
+	class Bytes encode(FloatImage image, ImageExportFormat format, int quality) {
+		if (image == null || image.isEmpty()) { throw "ImageCodec.encode requires a non-empty FloatImage"; }
+		int formatCode = 0;
+		if (format == IMAGE_EXPORT_JPEG) { formatCode = 0; }
+		else if (format == IMAGE_EXPORT_HEIC) { formatCode = 1; }
+		else if (format == IMAGE_EXPORT_PNG) { formatCode = 2; }
+		else if (format == IMAGE_EXPORT_TIFF16) { formatCode = 3; }
+		else { throw "Unsupported ImageExportFormat"; }
+		double q = (double)quality / 100.0;
+		if (q < 0.01) { q = 0.01; }
+		if (q > 1.0) { q = 1.0; }
+		var encoded = btrcAppleEncodeLinear(image.pixels.data, image.width, image.height, formatCode, q);
+		if (encoded == null) { throw "Apple ImageIO failed to encode image"; }
+		int len = (int)btrcAppleBufferLength(encoded);
+		Bytes out = Bytes.zeros(len);
+		if (btrcAppleBufferCopy(encoded, (unsigned char*)out.data, (size_t)len) == 0) {
+			throw "Apple ImageIO failed to copy encoded bytes";
+		}
+		return out;
+	}
+}

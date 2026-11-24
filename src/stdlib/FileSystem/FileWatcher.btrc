@@ -1,0 +1,62 @@
+/* Native recursive directory change watcher (FSEvents on macOS, inotify on Linux, snapshot fallback elsewhere). */
+
+import Library.Vector;
+
+enum FileWatchEventKind {
+	FILE_WATCH_CREATED = 0,
+	FILE_WATCH_MODIFIED = 1,
+	FILE_WATCH_REMOVED = 2,
+	FILE_WATCH_RENAMED = 3,
+	FILE_WATCH_RESCAN = 4
+};
+
+class FileWatchEvent {
+	public FileWatchEventKind kind;
+	public string path;
+	public bool isDirectory;
+
+	public FileWatchEvent(FileWatchEventKind kind, string path, bool isDirectory) {
+		self.kind = kind;
+		self.path = path;
+		self.isDirectory = isDirectory;
+	}
+}
+
+interface IFileWatchSession {
+	Vector<FileWatchEvent> poll(int timeoutMs);
+	bool isOpen();
+	void close();
+}
+
+class FileWatcher {
+	private IFileWatchSession? _session;
+
+	private FileWatcher(IFileWatchSession session) { self._session = session; }
+
+	class bool supported() { return FileWatcherProvider.supported(); }
+
+	class FileWatcher open(string rootPath, int latencyMs = 100) {
+		if (rootPath == null || rootPath.length() == 0) { throw "FileWatcher.open requires a non-empty rootPath"; }
+		if (latencyMs < 10) { latencyMs = 10; }
+		return FileWatcher(FileWatcherProvider.open(rootPath, latencyMs));
+	}
+
+	public Vector<FileWatchEvent> poll(int timeoutMs = 0) {
+		if (self._session == null) { return []; }
+		return self._session.poll(timeoutMs);
+	}
+
+	public bool isOpen() {
+		if (self._session == null) { return false; }
+		return self._session.isOpen();
+	}
+
+	public void close() {
+		if (self._session != null) {
+			self._session.close();
+			self._session = null;
+		}
+	}
+
+	public void __del__() { self.close(); }
+}

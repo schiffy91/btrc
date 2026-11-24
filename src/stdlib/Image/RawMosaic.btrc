@@ -1,0 +1,83 @@
+/* Raw sensor CFA mosaic plane and colorimetry metadata ready for GPU upload. */
+
+import Library.Array;
+
+enum BayerPattern {
+	BAYER_RGGB = 0,
+	BAYER_BGGR = 1,
+	BAYER_GRBG = 2,
+	BAYER_GBRG = 3,
+	BAYER_NONE = 4
+};
+
+class RawMosaic {
+	public int width;
+	public int height;
+	public int bitDepth;
+	public BayerPattern cfaPattern;
+	/* Tightly packed 16-bit unsigned CFA samples (width * height), ready for R16Uint upload. */
+	public Array<unsigned short> samples;
+	/* Per-channel black levels (R, Gr, Gb, B) and saturation white level. */
+	public Array<float> blackLevel;
+	public float whiteLevel;
+	/* Camera as-shot neutral RGB multiplier vector (DNG AsShotNeutral). */
+	public Array<float> asShotNeutral;
+	/* Dual-illuminant 3x3 XYZ->Camera matrices (row-major 9 floats) and EXIF illuminant IDs. */
+	public Array<float> colorMatrix1;
+	public Array<float> colorMatrix2;
+	public int calibrationIlluminant1;
+	public int calibrationIlluminant2;
+	public int orientation;
+
+	public RawMosaic(int width, int height, int bitDepth = 14, BayerPattern cfaPattern = BAYER_RGGB) {
+		if (width <= 0 || height <= 0 || bitDepth < 8 || bitDepth > 16) {
+			throw "Invalid RawMosaic dimensions or bit depth";
+		}
+		self.width = width;
+		self.height = height;
+		self.bitDepth = bitDepth;
+		self.cfaPattern = cfaPattern;
+		Array<unsigned short> buf = Array(width * height);
+		self.samples = buf;
+		Array<float> black = Array(4);
+		self.blackLevel = black;
+		self.whiteLevel = (float)((1 << bitDepth) - 1);
+		Array<float> neutral = Array(3);
+		neutral.set(0, 1.0f);
+		neutral.set(1, 1.0f);
+		neutral.set(2, 1.0f);
+		self.asShotNeutral = neutral;
+		Array<float> cm1 = Array(9);
+		Array<float> cm2 = Array(9);
+		cm1.set(0, 1.0f); cm1.set(4, 1.0f); cm1.set(8, 1.0f);
+		cm2.set(0, 1.0f); cm2.set(4, 1.0f); cm2.set(8, 1.0f);
+		self.colorMatrix1 = cm1;
+		self.colorMatrix2 = cm2;
+		self.calibrationIlluminant1 = 21; /* D65 */
+		self.calibrationIlluminant2 = 17; /* StdA */
+		self.orientation = 1;
+	}
+
+	public unsigned short sampleAt(int x, int y) {
+		if (x < 0 || y < 0 || x >= self.width || y >= self.height) { throw "RawMosaic sample out of bounds"; }
+		return self.samples.get(y * self.width + x);
+	}
+
+	public void setSample(int x, int y, unsigned short value) {
+		if (x < 0 || y < 0 || x >= self.width || y >= self.height) { throw "RawMosaic sample out of bounds"; }
+		self.samples.set(y * self.width + x, value);
+	}
+
+	public void setBlackLevels(float r, float gr, float gb, float b) {
+		self.blackLevel.set(0, r);
+		self.blackLevel.set(1, gr);
+		self.blackLevel.set(2, gb);
+		self.blackLevel.set(3, b);
+	}
+
+	public void setAsShotNeutral(float r, float g, float b) {
+		self.asShotNeutral.set(0, r);
+		self.asShotNeutral.set(1, g);
+		self.asShotNeutral.set(2, b);
+	}
+}

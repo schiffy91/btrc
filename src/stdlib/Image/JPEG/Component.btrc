@@ -18,7 +18,9 @@ class JPEGComponent {
 	public JPEGHuffman dc;
 	public JPEGHuffman ac;
 	private Bytes samples;
+	private Array<unsigned short>? samples16 = null;
 	private bool lossless;
+	private bool wideLossless = false;
 	private int visibleWidth;
 	private int visibleHeight;
 	private int maxH;
@@ -53,14 +55,25 @@ class JPEGComponent {
 		return (3 * column + adjacent + 8 - (x & 1)) >> 4;
 	}
 
-	public JPEGComponent(int id, int h, int v, int table, int columns, int rows, bool lossless = false) {
+	public JPEGComponent(int id, int h, int v, int table, int columns, int rows, bool lossless = false, bool wideLossless = false) {
 		self.id = id; self.h = h; self.v = v; self.table = table;
 		self.columns = columns; self.rows = rows;
 		self.lossless = lossless;
-		if (lossless) { self.samples = JPEGComponent.sampleStore(columns * rows); }
+		self.wideLossless = lossless && wideLossless;
+		if (self.wideLossless) { self.samples16 = JPEGComponent.sampleStore16(columns * rows); }
+		else if (lossless) { self.samples = JPEGComponent.sampleStore(columns * rows); }
 		else { self.coefficients = JPEGComponent.coefficientStore(columns * rows * 64); }
 		self.precision = new Array<int>(64);
 		self.precision.fill(-1);
+	}
+
+	class Array<unsigned short> sampleStore16(int count) {
+		Array<unsigned short> store = Array(0);
+		store.free();
+		store.data = (unsigned short*)calloc((size_t)count, sizeof(unsigned short));
+		if (store.data == null) { throw "Could not allocate 16-bit JPEG samples"; }
+		store.len = count;
+		return store;
 	}
 
 	// Both planes grow with the image, so a failed allocation is thrown, not fatal.
@@ -103,9 +116,22 @@ class JPEGComponent {
 		self.coefficients = new Array<int>(0);
 	}
 
-	public void setLossless(int x, int y, int value) { self.samples.set(y * self.columns + x, value); }
+	public void setLossless(int x, int y, int value) {
+		if (self.wideLossless) {
+			var s16 = self.samples16;
+			if (s16 == null) { throw "Missing 16-bit JPEG sample store"; }
+			s16.set(y * self.columns + x, (unsigned short)value);
+			return;
+		}
+		self.samples.set(y * self.columns + x, value);
+	}
 
 	public int sample(int x, int y) {
+		if (self.wideLossless) {
+			var s16 = self.samples16;
+			if (s16 == null) { throw "Missing 16-bit JPEG sample store"; }
+			return (int)s16.get(y * self.columns + x);
+		}
 		if (self.lossless) { return self.samples.get(y * self.columns + x); }
 		var base = ((y / 8) * self.columns + x / 8) * 64;
 		return self.samples.get(base + (y % 8) * 8 + x % 8);
