@@ -1260,7 +1260,37 @@ os = ["macos"]
 [[package.providers]]
 module = "SharedFrameView"
 implementation = "Unavailable.SharedFrameViewProvider"
-os = ["windows", "ios", "android"]
+os = ["windows", "android"]
+
+[[package.providers]]
+module = "SharedFrameView"
+implementation = "IOS.SharedFrameViewProvider"
+os = ["ios"]
+
+[[native.bindings]]
+module = "IOS.IOSSharedFrameView"
+header = "IOS/SharedFrame.h"
+language = "c"
+standard = "c11"
+symbols = ["btrcUIKitFrameCreate", "btrcUIKitFrameListen", "btrcUIKitFrameDisconnect", "btrcUIKitFramePresent", "btrcUIKitFrameWidth", "btrcUIKitFrameHeight"]
+os = ["ios"]
+
+[[native.sources]]
+path = "IOS/UIKitSharedFrame.m"
+language = "objective-c"
+standard = "c11"
+modules = ["IOS.IOSSharedFrameView"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "IOSurface"
+modules = ["IOS.IOSSharedFrameView"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "CoreImage"
+modules = ["IOS.IOSSharedFrameView"]
+os = ["ios"]
 
 [[package.providers]]
 module = "SharedFrameView"

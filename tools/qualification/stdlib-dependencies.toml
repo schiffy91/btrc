@@ -82,6 +82,7 @@ headers = [
 	"TargetConditionals.h", "dispatch/dispatch.h",
 	"AudioToolbox/*", "AVFoundation/*", "CFNetwork/*", "CommonCrypto/*", "CoreAudio/*",
 	"CoreBluetooth/*", "CoreFoundation/*", "CoreGraphics/*", "CoreText/*", "Foundation/*", "ImageIO/*",
+	"CoreImage/CoreImage.h", "IOSurface/IOSurfaceObjC.h",
 	"Metal/*", "Network/*", "QuartzCore/*", "Security/*", "UIKit/*", "WebKit/*",
 	"arpa/*", "dirent.h", "dlfcn.h", "fcntl.h", "fnmatch.h", "glob.h", "grp.h", "mach-o/*", "mach/*",
 	"net/*", "netdb.h", "netinet/*", "objc/*", "poll.h", "pthread.h", "pwd.h", "regex.h", "sched.h",

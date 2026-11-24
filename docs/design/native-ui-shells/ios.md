@@ -140,3 +140,9 @@ UIView override lacks a checked lifetime route; CL-P1-14/15 own target/filter
 gaps. These are assigned prerequisites, not reproduced compiler defects. No
 private UIKit bridge is authorized as a workaround. Feasibility/parity review,
 real shell results and new-platform contract reconciliation remain pending.
+
+## Shared frames from an app extension
+
+An iOS shared frame view accepts single-plane, 32-bit BGRA IOSurfaces over the app’s existing XPC connection to its producer. Call `view.listen(producerPid)` with the process identifier from that connection. Send the returned `iosurface-xpc` endpoint address to the producer over the private control channel.
+
+The native host exports `BTRCSharedFrameService` on the connection, or forwards `deliverFrame:toEndpoint:reply:` to that service while handling the XPC call. The producer uses the `BTRCSharedFrameDelivery` interface to send its completed IOSurface and the address. Keep the surface immutable after delivery. The service checks the calling process and holds the latest accepted frame until the BTRC UI calls `presentPending()`. Disconnecting clears the picture and expires the address. [Native delivery interface](../../../src/stdlib/GUI/IOS/SharedFrameXPC.h) · [Apple’s app extension connection API](https://developer.apple.com/documentation/extensionfoundation/appextensionprocess/makexpcconnection())
