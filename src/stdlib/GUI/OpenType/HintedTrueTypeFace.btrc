@@ -68,7 +68,7 @@ class HintedTrueTypeFace implements IFontFace {
 		return found == 15;
 	}
 
-	public HintedTrueTypeFace(Bytes bytes, int pixels) {
+	public HintedTrueTypeFace(Bytes bytes, int pixels, bool byGlyphIndex = false) {
 		self.source = bytes;
 		unsigned int format = bytes.readU32BE(0);
 		Bytes sfnt = bytes;
@@ -94,7 +94,7 @@ class HintedTrueTypeFace implements IFontFace {
 		self.outlines = TrueTypeGlyphs(data, directory.required(0x676c7966LL, 0), loca, horizontal, glyphs, locaFormat != 0);
 		var cmap = directory.required(0x636d6170LL, 4);
 		self.characters = OpenTypeCharacterMap(data, cmap, glyphs);
-		if (!self.characters.unambiguousUnicodeMap(cmap)) { throw "Unsupported TrueType character map"; }
+		if (!byGlyphIndex && !self.characters.unambiguousUnicodeMap(cmap)) { throw "Unsupported TrueType character map"; }
 		var os2 = directory.required(0x4f532f32LL, 78);
 		int ascent = data.s16(hhea.offset + 4);
 		int descent = data.s16(hhea.offset + 6);
@@ -109,7 +109,7 @@ class HintedTrueTypeFace implements IFontFace {
 		var prep = directory.required(0x70726570LL, 1);
 		var functions = directory.required(0x6670676dLL, 1);
 		var grid = TrueTypeProgram(data, cvt, maxp, pixels, self.scale);
-		grid.prepare(functions, prep);
+		grid.prepare(functions, prep, byGlyphIndex);
 		self.outlines.prepare(grid);
 
 	}
