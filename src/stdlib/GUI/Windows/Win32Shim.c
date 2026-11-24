@@ -635,6 +635,8 @@ void btrcShimWindowShowMessage(BtrcShimWindow* window, const char* title, const 
 }
 
 /* Frames are presented on the content window's surface, never as pictures. */
+bool btrcShimWindowSupportsSoftware(BtrcShimWindow* window) { (void)window; return false; }
+
 bool btrcShimWindowShowsPictures(BtrcShimWindow* window) { (void)window; return false; }
 
 void btrcShimWindowShowPicture(BtrcShimWindow* window, const unsigned char* pixels, int pixelWidth, int pixelHeight) {

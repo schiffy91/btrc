@@ -465,7 +465,7 @@ class ShimApplication implements IShimApplication, IShimDialogPump {
 			var window = self._windows.get(self._windowCursor++);
 			if (!window.isOpen()) { continue; }
 			if (window.closeRequested()) { window.serviceNativeClose(); if (!window.isOpen()) { continue; } }
-			if (!window.pollDevice()) { continue; }
+			if (!window.readyForFrame()) { continue; }
 			if (window.needsFrame()) { window.render(false); }
 		}
 		for (int index = self._windows.len - 1; index >= 0; index--) {

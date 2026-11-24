@@ -88,7 +88,7 @@ class GUIProvider {
 			if (gpu == null) { throw "Capture layer belongs to another GPU provider"; }
 			if (gpu.node() != native.node() && !native.node().contains(gpu.node())) { throw "Capture layer is outside the capture root"; }
 		}
-		if (!window.pollDevice()) { throw "Capture window GPU device is not ready"; }
+		if (!window.readyForFrame()) { throw "Capture window GPU device is not ready"; }
 		var image = window.render(true);
 		if (image == null) { throw "Capture window produced no frame"; }
 		return window.pictureOf(native, image);

@@ -137,6 +137,8 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 	private CallbackScope _callbacks = CallbackScope();
 	private Vector<ShimWindowKeys> _keys = [];
 	private string _title;
+	private bool _software = false;
+	private bool _showingSoftware = false;
 	private bool _visible = false;
 	private bool _requestedVisible = false;
 	private bool _focusObserved = false;
@@ -189,10 +191,9 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 		self._host = ShimViewHost(self._window, context);
 		self._host.poller = self;  // released in destroyNative
 		try {
-			var surface = ShimGPUSurface(self._window);
-			self._surface = surface;
-			self._host.scale = surface.backingScale();
-			self._device = GPUDevice(surface.nativeInstance(), surface.nativeSurface());
+			self._software = btrcShimWindowSupportsSoftware(self._window);
+			self._host.scale = btrcShimWindowPixelDensity(self._window);
+			if (!self._software) { self.startGPU(); }
 			self._host.width = width;
 			self._host.height = height; self.refreshWindowState();
 		} catch (string error) { self.destroyNative(); throw error; }
@@ -424,9 +425,26 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 
 	public void requestNativeClose() { self._closeRequested = true; self._host.invalidation.mark(); }
 
+	private void startGPU() {
+		var surface = ShimGPUSurface(self._window);
+		var device = GPUDevice(surface.nativeInstance(), surface.nativeSurface());
+		self._surface = surface;
+		self._device = device;
+		self._host.scale = surface.backingScale();
+	}
+
+	/* Frame scheduling and capture can use the native software scene. Only a
+	 * GPU view's deviceReady path starts a driver on a software window. */
+	public bool readyForFrame() {
+		if (self._closing || self._closed) { return false; }
+		if (self._software && self._surface == null) { return true; }
+		return self.pollDevice() || self._software;
+	}
+
 	/* Advance device creation; true once frames can render. */
 	public bool pollDevice() {
 		if (self._closing || self._closed) { return false; }
+		if (self._surface == null) { self.startGPU(); }
 		var device = self._device;
 		var surface = self._surface;
 		if (device == null || surface == null) { return false; }
@@ -469,6 +487,23 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 		return created;
 	}
 
+	private Image? renderSoftware(bool capture) {
+		int width = btrcShimWindowPixelWidth(self._window);
+		int height = btrcShimWindowPixelHeight(self._window);
+		if (width <= 0 || height <= 0) { return null; }
+		self._host.scale = btrcShimWindowPixelDensity(self._window);
+		self.place(null);
+		var image = Image(width, height);
+		image.fill(self.background());
+		if (capture) {
+			if (!btrcShimWindowDrawControls(self._window, image.data, width, height)) { throw "Cannot draw the window's native controls into a capture"; }
+			return image;
+		}
+		btrcShimWindowShowPicture(self._window, image.data, width, height);
+		self._showingSoftware = true;
+		return null;
+	}
+
 	/* Paint one frame; with capture the frame is read back instead of presented. */
 	public Image? render(bool capture) {
 		var presenter = self._renderer;
@@ -476,6 +511,7 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 		var surface = self._surface;
 		var device = self._device;
 		if (self._closing || self._closed || (!capture && !self.isVisible())) { return null; }
+		if (self._software && presenter == null) { return self.renderSoftware(capture); }
 		/* Until the GPU device is ready there is nothing to draw, and the
 		 * native controls are placed all the same. */
 		if (presenter == null || painter == null || surface == null || device == null) { self.place(null); return null; }
@@ -503,7 +539,13 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 		self.place(painter);
 		self._wakeAt = self._host.wakeSeconds >= 0.0 ? ShimClock.after(self._host.wakeSeconds) : 0ULL;
 		painter.render(renderer);
-		if (!offscreen) { renderer.present(); return null; }
+		if (!offscreen) {
+			if (renderer.present() && self._showingSoftware) {
+				btrcShimWindowShowPicture(self._window, null, 0, 0);
+				self._showingSoftware = false;
+			}
+			return null;
+		}
 		renderer.finishDrawing();
 		var readback = GPUReadback.create(renderer, 268435200, null);
 		if (!readback.submit()) { throw "Cannot submit native capture: " + readback.error(); }

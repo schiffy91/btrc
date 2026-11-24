@@ -54,7 +54,12 @@ class WindowStateCase implements IConformanceCase {
 		if (Probe.windowSizing() != PROBE_WINDOW_SIZING_SCREEN_ALWAYS) {
 			int reported = log.states.length;
 			window.setContentSize(480.0, 300.0);
-			turns.settle();
+			/* The compositor acknowledges a mapped window's size asynchronously. */
+			long long resized = MonotonicClock.milliseconds();
+			while (MonotonicClock.milliseconds() - resized < 2000LL) {
+				turns.turn();
+				if (log.states.length > reported && window.contentWidth() == 480.0 && window.contentHeight() == 300.0 && log.states.get(log.states.length - 1).width == 480.0) { break; }
+			}
 			Expect.isTrue(window.contentWidth() == 480.0 && window.contentHeight() == 300.0, "a window takes the content size it is given");
 			Expect.isTrue(log.states.length > reported && log.states.get(log.states.length - 1).width == 480.0, "a new size is a state change");
 			Picture(window).expect(Palette.red(), Frame(0.0, 0.0, 480.0, 300.0), "the root after the window was given another size");

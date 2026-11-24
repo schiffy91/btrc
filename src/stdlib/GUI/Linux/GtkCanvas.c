@@ -276,10 +276,12 @@ void btrcGtkCanvasSettle(GtkWidget* canvas) {
  * `pixels` is `width` by `height` RGBA, copied. */
 void btrcGtkCanvasSetPicture(GtkWidget* widget, const unsigned char* pixels, int width, int height) {
 	BtrcGtkCanvas* canvas = BTRC_GTK_CANVAS(widget);
-	GBytes* bytes = g_bytes_new(pixels, (gsize)width * (gsize)height * 4u);
 	g_clear_object(&canvas->picture);
-	canvas->picture = gdk_memory_texture_new(width, height, GDK_MEMORY_R8G8B8A8, bytes, (gsize)width * 4u);
-	g_bytes_unref(bytes);
+	if (pixels != NULL) {
+		GBytes* bytes = g_bytes_new(pixels, (gsize)width * (gsize)height * 4u);
+		canvas->picture = gdk_memory_texture_new(width, height, GDK_MEMORY_R8G8B8A8, bytes, (gsize)width * 4u);
+		g_bytes_unref(bytes);
+	}
 	gtk_widget_queue_draw(widget);
 }
 
