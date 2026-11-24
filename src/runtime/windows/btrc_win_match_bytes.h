@@ -104,6 +104,14 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 			p = end + 2;
 		} else {
 			int c = *p++;
+			/* Each contiguous opposite-case range contributes one copied
+			   leaf. A completed range replaces its initial one-byte term. */
+			if (copy_stride && fold && !negate) {
+				int first = range ? previous : c;
+				terms += (first <= 'Z' && c >= 'A') + (first <= 'z' && c >= 'a');
+				unsigned int lower = btrc_win_fold((unsigned int)first);
+				if (range && lower >= 'a' && lower <= 'z') --terms;
+			}
 			if (range) {
 				if (previous > c && !shell) return btrc_win_list_range;
 				for (int i = previous; i < c; ++i) btrc_win_set_add(set, (unsigned int)i);
@@ -123,6 +131,7 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 			/* Negating the explicit ranges creates one extra gap per
 			   disjoint excluded run. Named exclusions filter every gap. */
 			terms = 1;
+			if (fold) btrc_win_set_finish(set, 1, 0);
 			if (exclude_newline) btrc_win_set_add(set, '\n');
 			int previous_byte = 0;
 			for (unsigned int byte = 1; byte <= 255; ++byte) {

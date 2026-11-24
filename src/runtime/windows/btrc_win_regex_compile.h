@@ -217,6 +217,8 @@ static inline int btrc_win_rx_atom(btrc_win_rx_parser *parser, int first, int de
 			}
 		}
 	}
+	unsigned int lower = btrc_win_fold(c);
+	if (fold && lower >= 'a' && lower <= 'z') node->copy_stride = 2;
 	if (c <= 255) btrc_win_set_add(&node->bytes, c);
 	btrc_win_set_finish(&node->bytes, fold, 0);
 	return n;
