@@ -1,6 +1,6 @@
 """The private Linux software window client, driven by an independent compositor."""
 
-import ctypes.util
+import ctypes
 import json
 import os
 import platform
@@ -13,11 +13,14 @@ import subprocess
 import sys
 import tempfile
 import time
-import tomllib
 from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+
+_REPO_ROOT = str(Path(__file__).resolve().parents[3])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from src.tests.gui_provider_root import GUIProviderRoot
 from src.tests.native_bindings import NativeBindingPackage
@@ -43,14 +46,56 @@ PLATFORM_SOURCES = tuple(
         "Button",
         "ControlText",
         "Tooltip",
+        "Alert",
         "Label",
         "Select",
         "TextLines",
         "EditBuffer",
         "TextField",
+        "AccessibleField",
     )
 ) + (PROVIDER.parent.parent / "Text/LineBreak.c", PROVIDER.parent.parent / "Text/Grapheme.c")
 SYSTEM_TEXT = PROVIDER.parent.parent / "Text/SystemText.c"
+
+
+def wayland_client_libdir() -> str | None:
+    """Locate the directory containing libwayland-client.so.0, if present."""
+    configured = os.environ.get("BTRC_WAYLAND_CLIENT_LIB", "")
+    if configured and (Path(configured) / "libwayland-client.so.0").exists():
+        return configured
+    if not shutil.which("pkg-config"):
+        return None
+    result = subprocess.run(["pkg-config", "--variable=libdir", "wayland-client"], capture_output=True, text=True)
+    libdir = result.stdout.strip()
+    if result.returncode == 0 and libdir and (Path(libdir) / "libwayland-client.so.0").exists():
+        return libdir
+    return None
+
+
+def can_load_wayland_client() -> bool:
+    """Whether GPUWire.c can dlopen libwayland-client.so.0 in this environment."""
+    if wayland_client_libdir() is not None:
+        return True
+    try:
+        ctypes.CDLL("libwayland-client.so.0")
+    except OSError:
+        return False
+    return True
+
+
+def wayland_session_env(*, gpu: bool = False) -> dict[str, str]:
+    """Environment for headless Wayland test scripts (PYTHONPATH and optional GPU dlopen path)."""
+    env = dict(os.environ)
+    pythonpath = env.get("PYTHONPATH", "")
+    root = str(ROOT)
+    parts = [part for part in pythonpath.split(os.pathsep) if part]
+    if root not in parts:
+        env["PYTHONPATH"] = os.pathsep.join([root, *parts])
+    if gpu and (libdir := wayland_client_libdir()):
+        ld_parts = [part for part in env.get("LD_LIBRARY_PATH", "").split(os.pathsep) if part]
+        if libdir not in ld_parts:
+            env["LD_LIBRARY_PATH"] = os.pathsep.join([libdir, *ld_parts])
+    return env
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +123,12 @@ def client(tmp_path_factory):
 
 
 def test_software_window_lifecycle(client):
-    subprocess.run([SESSION, "--wayland", "--", sys.executable, __file__, "lifecycle", client], check=True, timeout=90)
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, "lifecycle", client],
+        env=wayland_session_env(),
+        check=True,
+        timeout=90,
+    )
     subprocess.run(
         [
             sys.executable,
@@ -95,9 +145,11 @@ def test_software_window_lifecycle(client):
 
 
 def test_gpu_display_window_lifecycle(client):
-    if not ctypes.util.find_library("wayland-client"):
+    if not can_load_wayland_client():
         pytest.skip("driver-facing GPU surfaces need libwayland-client")
-    subprocess.run([SESSION, "--wayland", "--", client, "gpu"], check=True, timeout=90)
+    subprocess.run(
+        [SESSION, "--wayland", "--", client, "gpu"], env=wayland_session_env(gpu=True), check=True, timeout=90
+    )
 
 
 @contextmanager
@@ -139,7 +191,12 @@ def input_device(client):
 
 
 def test_software_window_compositor_pixels_and_input(client, input_device):
-    subprocess.run([SESSION, "--wayland", "--", sys.executable, __file__, client, input_device], check=True, timeout=50)
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, client, input_device],
+        env=wayland_session_env(),
+        check=True,
+        timeout=50,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -188,7 +245,9 @@ def portal_child(client):
 @pytest.mark.parametrize("mode", ["export-v1", "export-v2", "export-gpu-v2"])
 def test_portal_parent_export_lifetime(mode, client, portal_child):
     status = subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, mode, client, portal_child], timeout=25
+        [SESSION, "--wayland", "--", sys.executable, __file__, mode, client, portal_child],
+        env=wayland_session_env(gpu="gpu" in mode),
+        timeout=25,
     )
     if status.returncode == 77:
         pytest.skip("the compositor does not provide the selected xdg-foreign protocol")
@@ -228,7 +287,11 @@ def test_compositor_input_method_transaction(mode, client):
         ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", NATIVE / "WaylandInputMethod.c", *flags, "-o", peer],
         check=True,
     )
-    result = subprocess.run([SESSION, "--wayland", "--", sys.executable, __file__, mode, client, peer], timeout=25)
+    result = subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, mode, client, peer],
+        env=wayland_session_env(gpu="gpu" in mode),
+        timeout=25,
+    )
     if result.returncode == 77:
         pytest.skip("compositor does not advertise an input method manager")
     assert result.returncode == 0
@@ -260,7 +323,10 @@ def ime(mode, client, peer):
 @pytest.mark.parametrize("mode", ["cursor", "core-cursor"])
 def test_wayland_pointer_cursor_shapes(mode, client, input_device):
     subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, mode, client, input_device], check=True, timeout=25
+        [SESSION, "--wayland", "--", sys.executable, __file__, mode, client, input_device],
+        env=wayland_session_env(),
+        check=True,
+        timeout=25,
     )
 
 
@@ -320,15 +386,27 @@ def cursor_shapes(mode, client, probe):
 
 def test_wayland_held_key_repeats_until_release(client, input_device):
     subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, "repeat", client, input_device], check=True, timeout=20
+        [SESSION, "--wayland", "--", sys.executable, __file__, "repeat", client, input_device],
+        env=wayland_session_env(),
+        check=True,
+        timeout=20,
     )
 
 
-def key_repeat(client, probe):
-    with subprocess.Popen([client, "repeat"], stdout=subprocess.PIPE, text=True) as process:
+def test_wayland_focused_scene_receives_text_before_window_subscription(client, input_device):
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, "scene-text", client, input_device],
+        env=wayland_session_env(),
+        check=True,
+        timeout=20,
+    )
+
+
+def keyboard_input(mode, client, probe):
+    with subprocess.Popen([client, mode], stdout=subprocess.PIPE, text=True) as process:
         try:
             assert process.stdout.readline().strip() == "keyboard ready"
-            subprocess.run([probe, "repeat"], check=True, timeout=6)
+            subprocess.run([probe, mode], check=True, timeout=6)
             output = process.communicate(timeout=5)[0]
             assert process.returncode == 0, output
         finally:
@@ -380,7 +458,10 @@ def test_control_changes_submit_one_software_frame(client):
 def test_software_control_placement_and_capture(fixture, scenario, client, input_device):
     program = shim_program(fixture, client.parent)
     subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, scenario, program, input_device], check=True, timeout=45
+        [SESSION, "--wayland", "--", sys.executable, __file__, scenario, program, input_device],
+        env=wayland_session_env(),
+        check=True,
+        timeout=45,
     )
 
 
@@ -397,6 +478,7 @@ def test_clipboard_interoperability(mode, client, input_device):
     )
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, mode, program, input_device, reader],
+        env=wayland_session_env(gpu="gpu" in mode),
         check=True,
         timeout=45,
     )
@@ -795,33 +877,8 @@ def interact(client, probe):
 
 @pytest.fixture(scope="module")
 def native_wayland_root(tmp_path_factory):
-    """Qualify native control methods while the shipping Linux GUI still uses GTK."""
-    root = GUIProviderRoot.create(tmp_path_factory.mktemp("wayland-provider"))
-    manifest = root / "stdlib/GUI/btrc.toml"
-    text = manifest.read_text().replace(
-        'modules = ["Linux.Fonts.SystemTextABI"]', 'modules = ["Linux.Fonts.SystemTextABI", "Shim.Shim"]'
-    )
-    sections = re.split(r"(?=^\[\[native\.)", text, flags=re.MULTILINE)
-    preserved = []
-    for section in sections:
-        if section.startswith("[[native.sources]]"):
-            source = tomllib.loads(section)["native"]["sources"][0]
-            if source["path"].startswith("Linux/"):
-                continue
-        if section.startswith("[[native.pkg-config]]"):
-            package = tomllib.loads(section)["native"]["pkg-config"][0]
-            if package.get("os") == ["linux"] and package["name"] != "wgpu-native":
-                continue
-        preserved.append(section)
-    # Real sources and binding definitions, with the intended native platform selection.
-    for path in (*CLIENT_SOURCES, *PLATFORM_SOURCES, PROVIDER / "Surface.c"):
-        module = "Shim.ShimSurface" if path.name == "Surface.c" else "Shim.Shim"
-        preserved.append(
-            f'\n[[native.sources]]\npath = "{path.relative_to(PROVIDER.parent.parent).as_posix()}"\nlanguage = "c"\nstandard = "c11"\n'
-            f'modules = ["{module}"]\nos = ["linux"]\n'
-        )
-    manifest.write_text("".join(preserved))
-    return root
+    """Expose internal GUI Shim and Linux text ABI modules for direct provider tests."""
+    return GUIProviderRoot.create(tmp_path_factory.mktemp("wayland-provider"))
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
@@ -924,7 +981,10 @@ os = ["linux"]
     )
     assert not DependencyAudit().binary_problems(binary, f"linux-{platform.machine()}")
     subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, "gpu", binary, input_device], check=True, timeout=60
+        [SESSION, "--wayland", "--", sys.executable, __file__, "gpu", binary, input_device],
+        env=wayland_session_env(gpu=True),
+        check=True,
+        timeout=60,
     )
 
 
@@ -959,8 +1019,8 @@ if __name__ == "__main__":
         ime(*sys.argv[1:])
     elif sys.argv[1] in ("cursor", "core-cursor"):
         cursor_shapes(*sys.argv[1:])
-    elif sys.argv[1] == "repeat":
-        key_repeat(*sys.argv[2:])
+    elif sys.argv[1] in ("repeat", "scene-text"):
+        keyboard_input(*sys.argv[1:])
     elif sys.argv[1] in ("clipboard", "gpu-clipboard"):
         clipboard(*sys.argv[1:])
     elif sys.argv[1] == "indicators":

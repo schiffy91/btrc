@@ -16,13 +16,8 @@ os = ["linux", "windows", "android", "ios"]
 
 [[package.providers]]
 module = "Shim.ToolkitFeatures"
-implementation = "Linux.Fonts.GtkLayoutSetup"
-os = ["linux"]
-
-[[package.providers]]
-module = "Shim.ToolkitFeatures"
 implementation = "Shim.PlatformTextLayout"
-os = ["windows", "android", "ios"]
+os = ["linux", "windows", "android", "ios"]
 
 [[package.providers]]
 module = "WebView"
@@ -36,8 +31,13 @@ os = ["linux", "windows", "android", "ios"]
 
 [[package.providers]]
 module = "Shim.Features"
+implementation = "Linux.Wayland.WaylandFeatures"
+os = ["linux"]
+
+[[package.providers]]
+module = "Shim.Features"
 implementation = "Shim.ToolkitFeatures"
-os = ["linux", "windows", "android", "ios"]
+os = ["windows", "android", "ios"]
 
 [[package.providers]]
 module = "Shim.ShimDirectoryPicker"
@@ -55,13 +55,6 @@ header = "Linux/PortalParent.h"
 language = "c"
 standard = "c11"
 symbols = ["BtrcDialogParent", "btrcDialogParentOpen", "btrcDialogParentIdentifier", "btrcDialogParentRelease"]
-os = ["linux"]
-
-[[native.sources]]
-path = "Linux/GtkPortalParent.c"
-language = "c"
-standard = "c11"
-modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.pkg-config]]
@@ -96,7 +89,7 @@ symbols = [
 	"BTRC_SHIM_EVENT_CONTROL_SELECT_DISMISSED", "BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED", "BTRC_SHIM_EVENT_CONTROL_TEXT_ACTIVATED",
 	"BTRC_SHIM_EVENT_CONTROL_TEXT_ESCAPED", "BTRC_SHIM_EVENT_CONTROL_SCROLLBAR_CHANGED", "BTRC_SHIM_EVENT_CONTROL_WEB_MESSAGE",
 	"BTRC_SHIM_EVENT_CONTROL_WEB_NAVIGATION", "BTRC_SHIM_SLIDER_JUMP", "BTRC_SHIM_SLIDER_STEP_BACKWARD", "BTRC_SHIM_SLIDER_STEP_FORWARD",
-	"BTRC_SHIM_SLIDER_PAGE_BACKWARD", "BTRC_SHIM_SLIDER_PAGE_FORWARD", "BTRC_SHIM_SLIDER_START", "BTRC_SHIM_SLIDER_END", "BTRC_SHIM_KEY_UNKNOWN",
+	"BTRC_SHIM_SLIDER_PAGE_BACKWARD", "BTRC_SHIM_SLIDER_PAGE_FORWARD", "BTRC_SHIM_SLIDER_START", "BTRC_SHIM_SLIDER_END", "BTRC_SHIM_SLIDER_ASSISTIVE_VALUE", "BTRC_SHIM_KEY_UNKNOWN",
 	"BTRC_SHIM_KEY_ESCAPE", "BTRC_SHIM_KEY_RETURN", "BTRC_SHIM_KEY_KP_ENTER", "BTRC_SHIM_KEY_SPACE", "BTRC_SHIM_KEY_LEFT", "BTRC_SHIM_KEY_RIGHT",
 	"BTRC_SHIM_KEY_UP", "BTRC_SHIM_KEY_DOWN", "BTRC_SHIM_KEY_TAB", "BTRC_SHIM_KEY_BACKSPACE", "BTRC_SHIM_KEY_DELETE", "BTRC_SHIM_KEY_HOME",
 	"BTRC_SHIM_KEY_END", "BTRC_SHIM_KEY_LSHIFT", "BTRC_SHIM_KEY_RSHIFT", "BTRC_SHIM_KEY_LALT", "BTRC_SHIM_KEY_RALT", "BTRC_SHIM_KEY_A",
@@ -143,42 +136,182 @@ read-only-borrows = ["btrcShimWebServeDirectory.directory", "btrcShimWebServeFil
 os = ["linux", "windows", "android", "ios"]
 
 [[native.sources]]
-path = "Linux/GtkShim.c"
+path = "Linux/Wayland/Wire.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.sources]]
-path = "Linux/Viewport.c"
+path = "Linux/Wayland/Window.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.sources]]
-path = "Linux/GtkShapedText.c"
+path = "Linux/Wayland/Input.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.sources]]
-path = "Linux/GtkCanvas.c"
+path = "Linux/Wayland/Keymap.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.sources]]
-path = "Linux/GtkControls.c"
+path = "Linux/Wayland/GPUWire.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.sources]]
-path = "Linux/GtkSurface.c"
+path = "Linux/Wayland/Cursor.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/TextInput.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/Clipboard.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/Platform.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/PortalParent.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/Scene.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/SharedFrame.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/Slider.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/Button.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/ControlText.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/Tooltip.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/Alert.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/Label.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/Select.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/TextLines.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/EditBuffer.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/TextField.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/AccessibleField.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Text/LineBreak.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Text/Grapheme.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/Wayland/Surface.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.ShimSurface"]
@@ -194,31 +327,6 @@ os = ["linux"]
 [[native.include-directories]]
 path = "EmbeddedWebHost"
 modules = ["Shim.ShimWeb"]
-os = ["linux"]
-
-[[native.pkg-config]]
-name = "gtk4"
-modules = ["Shim.Shim"]
-os = ["linux"]
-
-[[native.pkg-config]]
-name = "gtk4-wayland"
-modules = ["Shim.Shim"]
-os = ["linux"]
-
-[[native.pkg-config]]
-name = "gtk4-x11"
-modules = ["Shim.Shim"]
-os = ["linux"]
-
-[[native.pkg-config]]
-name = "wayland-client"
-modules = ["Shim.Shim"]
-os = ["linux"]
-
-[[native.pkg-config]]
-name = "x11"
-modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.bindings]]
@@ -1328,7 +1436,7 @@ module = "Linux.LinuxSharedFrameView"
 header = "Linux/SharedFrame.h"
 language = "c"
 standard = "c11"
-symbols = ["BtrcDmaBufReceiver", "btrcDmaBufListen", "btrcDmaBufAddress", "btrcDmaBufDisconnect", "btrcGtkSupportsSharedFrames", "btrcGtkSharedFrameCreate", "btrcGtkSharedFrameClear", "btrcGtkPictureReceive", "btrcGtkPictureFrameWidth", "btrcGtkPictureFrameHeight"]
+symbols = ["BtrcDmaBufReceiver", "btrcDmaBufListen", "btrcDmaBufAddress", "btrcDmaBufDisconnect", "btrcLinuxSupportsSharedFrames", "btrcLinuxSharedFrameCreate", "btrcLinuxSharedFrameClear", "btrcLinuxSharedFrameReceive", "btrcLinuxSharedFrameWidth", "btrcLinuxSharedFrameHeight"]
 os = ["linux"]
 
 [[native.sources]]
@@ -1339,17 +1447,10 @@ modules = ["Shim.Shim"]
 os = ["linux"]
 
 [[native.sources]]
-path = "Linux/GtkSharedFrame.c"
-language = "c"
-standard = "c11"
-modules = ["Shim.Shim"]
-os = ["linux"]
-
-[[native.sources]]
 path = "Text/SystemText.c"
 language = "c"
 standard = "c11"
-modules = ["Linux.Fonts.SystemTextABI"]
+modules = ["Linux.Fonts.SystemTextABI", "Shim.Shim"]
 os = ["linux"]
 
 [[native.bindings]]
@@ -1357,5 +1458,14 @@ module = "Linux.Wayland.Accessibility"
 header = "Linux/Wayland/Accessibility.h"
 language = "c"
 standard = "c11"
-symbols = ["BtrcWaylandAccessible", "btrcWaylandAccessibleChild", "btrcWaylandAccessibleAction", "btrcWaylandAccessibilityRevision"]
+symbols = ["BtrcWaylandAccessible", "btrcWaylandAccessibleChild", "btrcWaylandAccessibleAction", "btrcWaylandAccessibleSetValue", "btrcWaylandAccessibleValuePending", "btrcWaylandAccessibilityRevision"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.Wayland.AccessibleText"
+header = "Linux/Wayland/Accessibility.h"
+language = "c"
+standard = "c11"
+symbols = ["btrcWaylandAccessibleSelect", "btrcWaylandAccessibleReplace"]
+read-only-borrows = ["btrcWaylandAccessibleReplace.value"]
 os = ["linux"]

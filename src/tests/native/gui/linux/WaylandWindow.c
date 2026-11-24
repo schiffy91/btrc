@@ -236,6 +236,37 @@ static void composition(BtrcWaylandDisplay *d, bool gpu) {
     btrcWaylandWindowDestroy(w);
 }
 
+/* A focused editor gets ordinary key text immediately. Declining it in this
+ * observer must still leave an unsubscribed window's public event queue empty
+ * of text, as it would be for a software-only application with no editor. */
+static unsigned letters;
+static bool observeSceneText(BtrcWaylandDisplay *display, const BtrcShimEvent *event, bool *handled) {
+    (void)display;
+    *handled = false;
+    if (event->type == BTRC_SHIM_EVENT_TEXT_INPUT) {
+        assert(letters < 5 && event->text && event->text[0] == "draft"[letters] && !event->text[1]);
+        ++letters;
+    }
+    return true;
+}
+
+static void sceneText(BtrcWaylandDisplay *display) {
+    BtrcWaylandWindow *window = btrcWaylandWindowCreate(display, "btrc input and pixels", 120, 80);
+    assert(window && btrcWaylandWindowShow(window));
+    waitFrame(display, window, 0);
+    display->routeInput = observeSceneText;
+    puts("keyboard ready");
+    fflush(stdout);
+    long long end = btrcWaylandMilliseconds() + 5000;
+    while (letters < 5 && btrcWaylandMilliseconds() < end) {
+        assert(btrcWaylandDisplayPoll(display, 50) >= 0);
+        BtrcShimEvent event;
+        while (btrcWaylandDisplayPop(display, &event)) { assert(event.type != BTRC_SHIM_EVENT_TEXT_INPUT); }
+    }
+    assert(letters == 5);
+    btrcWaylandWindowDestroy(window);
+}
+
 static void keyRepeat(BtrcWaylandDisplay *display) {
     BtrcWaylandWindow *window = btrcWaylandWindowCreate(display, "btrc input and pixels", 120, 80);
     assert(window && btrcWaylandWindowShow(window));
@@ -274,6 +305,7 @@ int main(int argc, char **argv) {
     else if (argc == 2 && !strcmp(argv[1], "popup")) { popupWindow(display); }
     else if (argc == 2 && !strncmp(argv[1], "export-", 7)) { exportParent(display, strstr(argv[1], "v1") != NULL, strstr(argv[1], "gpu") != NULL); }
     else if (argc == 2 && (!strcmp(argv[1], "ime") || !strcmp(argv[1], "gpu-ime"))) { composition(display, !strcmp(argv[1], "gpu-ime")); }
+    else if (argc == 2 && !strcmp(argv[1], "scene-text")) { sceneText(display); }
     else if (argc == 2 && !strcmp(argv[1], "repeat")) { keyRepeat(display); }
     else if (argc == 2 && !strcmp(argv[1], "disconnect")) {
         BtrcWaylandWindow *window = btrcWaylandWindowCreate(display, "btrc disconnect", 48, 48);

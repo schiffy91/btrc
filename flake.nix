@@ -56,19 +56,18 @@
             # proof (sqlite3). Both suites skip off macOS before probing them.
             pugixml sqlite.dev
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
-            bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
-            wayland.dev pkg-config            # native windowing shims
-            fontconfig.dev                    # Linux font provider
+            bubblewrap libx11.dev
+            wayland.dev pkg-config            # Wayland test probes (WaylandInput.c etc.) and GPUWire.c runtime dlopen
             openssh   # ssh-keygen: writes the key files the Library.Crypto driver reads back
-            xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests
+            xvfb-run   # tools/virtual-display.sh: CI's X display for legacy virtual-display callers
             # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
             # (labwc's headless backend) display inside its own session bus,
             # with the AT-SPI accessibility bus. The GUI conformance probe
             # sends real input in it: XTEST on X11, and on Wayland a wlroots
-            # compositor's virtual pointer and keyboard.
-            xvfb dbus (atSpiCore pkgs) libxtst labwc wlr-randr
-            # gtk4.pc: the Linux GUI provider's windows and controls.
-            gtk4.dev glib.dev
+            # compositor's virtual pointer and keyboard. fontconfig.bin,
+            # glib.bin and grim are CLI-only test observers (fc-match, gdbus,
+            # compositor screenshots), with no headers or pkg-config files.
+            xvfb dbus (atSpiCore pkgs) libxtst labwc wlr-randr fontconfig.bin glib.bin grim
           ];
       };
       files = import ./nix { inherit cfg lib; };
@@ -202,6 +201,10 @@
           # shell keeps its real GPU and CI's headless runner still gets an adapter.
           BTRC_LAVAPIPE_ICD = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.uname.processor}.json";
           BTRC_VULKAN_LOADER = "${pkgs.vulkan-loader}/lib";
+          # Linux GPU windows lazily dlopen libwayland-client.so.0 through
+          # GUI/Linux/Wayland/GPUWire.c so wgpu-native receives real wl_display
+          # and wl_surface objects on the same connection.
+          BTRC_WAYLAND_CLIENT_LIB = "${pkgs.wayland}/lib";
           # wgpu-native also probes OpenGL through EGL. On a virtual display the
           # host's own GPU vendor library has no screen to answer for.
           BTRC_MESA_EGL = "${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json";
@@ -209,10 +212,6 @@
           # family, the same on a desktop and in a container that has none, so
           # text has a size wherever the GUI tests run.
           BTRC_FONTS_CONFIG = "${pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; }}";
-          # GTK's file chooser reads its settings schema, and aborts where
-          # none is installed; a private session has no system data to find
-          # one in, so it is given GTK's own.
-          BTRC_GSETTINGS_SCHEMAS = "${pkgs.gtk4}/share/gsettings-schemas/${pkgs.gtk4.name}/glib-2.0/schemas";
           # tools/ui/headless-session.sh starts the AT-SPI bus from here; the
           # launcher is a libexec program, not on PATH.
           BTRC_ATSPI_LIBEXEC = "${atSpiCore pkgs}/libexec";
@@ -584,7 +583,7 @@
           cp ${pkgs.wgpu-native}/lib/* "$out/lib/"
           chmod u+w "$out/lib/"*
           for library in "$out"/lib/*.so; do
-            patchelf --add-rpath /run/opengl-driver/lib:${pkgs.vulkan-loader}/lib "$library"
+            patchelf --add-rpath /run/opengl-driver/lib:${pkgs.vulkan-loader}/lib:${pkgs.wayland}/lib "$library"
           done
         '';
         # JNI headers and HotSpot for the optional JavaHost package: its JNI.h
@@ -609,7 +608,7 @@
               Description: Pinned WebGPU native implementation
               Version: ${pkgs.wgpu-native.version}
               Cflags: -I${pkgs.wgpu-native.dev}/include/webgpu
-              Libs: -L${wgpuNativeLibrary}/lib -Wl,-rpath,${wgpuNativeLibrary}/lib${lib.optionalString (!isDarwin) " -Wl,-rpath,/run/opengl-driver/lib"} -lwgpu_native
+              Libs: -L${wgpuNativeLibrary}/lib -Wl,-rpath,${wgpuNativeLibrary}/lib${lib.optionalString (!isDarwin) " -Wl,-rpath,/run/opengl-driver/lib -Wl,-rpath,${pkgs.wayland}/lib"} -lwgpu_native
             '')
           ];
         };

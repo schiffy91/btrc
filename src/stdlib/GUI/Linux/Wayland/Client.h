@@ -1,6 +1,7 @@
 #ifndef BTRC_WAYLAND_CLIENT_H
 #define BTRC_WAYLAND_CLIENT_H
 #include "Window.h"
+#include <pthread.h>
 
 typedef struct BtrcClipboardTransfer BtrcClipboardTransfer;
 typedef struct BtrcWaylandOutput BtrcWaylandOutput;
@@ -15,8 +16,10 @@ struct BtrcWaylandDisplay {
     BtrcWaylandWire *wire;
     bool (*editContext)(BtrcWaylandWindow *, struct BtrcEditContext *);
     bool (*deleteAround)(BtrcWaylandWindow *, unsigned, unsigned);
-    void (*activationChanged)(void);
-    int (*accessibilityService)(int *);
+    void (*accessibilityChanged)(void);
+    int (*accessibilityService)(int *, int *);
+    /* A D-Bus Set awaits the normal GUI dispatch of the marked control event. */
+    bool accessibilityValuePending;
     bool (*routeInput)(BtrcWaylandDisplay *, const BtrcShimEvent *, bool *);
     bool (*modalFilter)(void *, const BtrcShimEvent *, bool *);
     void *modal;
@@ -41,6 +44,8 @@ struct BtrcWaylandDisplay {
     BtrcWaylandQueuedEvent *last;
     char *lastText;
     size_t queueSize;
+    pthread_mutex_t queueLock;
+    bool (*queueFilter)(const BtrcShimEvent *);
     uint32_t nextWindow;
     unsigned long arrivals;
     unsigned modifiers;
@@ -88,6 +93,10 @@ struct BtrcWaylandWindow {
 };
 
 bool btrcWaylandQueueEvent(BtrcWaylandDisplay *display, BtrcShimEvent event);
+bool btrcWaylandDisplayPushDirect(BtrcWaylandDisplay *display, const BtrcShimEvent *event, const char *text);
+int btrcWaylandDisplayQueued(BtrcWaylandDisplay *display, unsigned int firstType, unsigned int lastType);
+void btrcWaylandDisplayFlush(BtrcWaylandDisplay *display);
+void btrcWaylandDisplayFilter(BtrcWaylandDisplay *display, bool (*accept)(const BtrcShimEvent *));
 BtrcWaylandWindow *btrcWaylandSurfaceWindow(BtrcWaylandDisplay *display, uint32_t surface);
 bool btrcWaylandMenuSurface(const BtrcWaylandWindow *window, uint32_t surface);
 bool btrcWaylandMenuPointer(BtrcWaylandWindow *window, uint32_t surface, const BtrcShimEvent *event);

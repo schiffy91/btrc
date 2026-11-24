@@ -13,8 +13,8 @@ import Library.GUI.Linux.Fonts.SystemTextABI;
 
 import ./Accessibility.btrc;
 
-/* Direct Wayland clients can choose this preview while the default toolkit
- * provides the full desktop integration. */
+/* Linux's default GUI backend speaks native Wayland directly and installs
+ * first-party text layout and AT-SPI accessibility on startup. */
 extern int btrcWaylandShowAlert(BtrcShimWindow* owner, string title, string message);
 
 class ShimFeatures {

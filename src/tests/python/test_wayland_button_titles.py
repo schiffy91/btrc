@@ -23,6 +23,7 @@ from src.tests.python.test_first_party_wayland_window import (
     connected_mouse,
     input_device,  # noqa: F401
     native_wayland_root,  # noqa: F401
+    wayland_session_env,
 )
 from tools.native_plan import NativePlanBuilder
 from tools.qualification.dependencies import DependencyAudit
@@ -72,7 +73,10 @@ def test_wayland_button_title_measurement_and_pixels(frontend, native_wayland_ro
         "<alias><family>sans-serif</family><prefer><family>Test</family></prefer></alias></fontconfig>"
     )
     subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, program, input_device, config], check=True, timeout=40
+        [SESSION, "--wayland", "--", sys.executable, __file__, program, input_device, config],
+        env=wayland_session_env(),
+        check=True,
+        timeout=40,
     )
 
 

@@ -9,6 +9,9 @@
  * how it knows when to return. Neither delivers input. */
 #include "ShimProbe.h"
 #include "RealInput.h"
+#ifdef BTRC_PROBE_NATIVE_WAYLAND
+#include <dlfcn.h>
+#endif
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +42,19 @@ static const RealInput *realInput(void) {
             input = btrcShimAutomationDisplay() == DISPLAY_WIN32 ? realInputWin32() : NULL;
 #elif defined(__ANDROID__)
             input = btrcShimAutomationDisplay() == DISPLAY_ANDROID ? realInputAndroid() : NULL;
+#elif defined(BTRC_PROBE_NATIVE_WAYLAND)
+            const char *path = getenv("BTRC_TEST_WAYLAND_INPUT");
+            if (path && btrcShimAutomationDisplay() == DISPLAY_WAYLAND) {
+                /* The independent injector uses its own display connection.
+                 * Keep its observer SDK out of the application link plan. */
+                void *observer = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+                void *address = observer ? dlsym(observer, "realInputWayland") : NULL;
+                const RealInput *(*openInput)(void);
+                if (address && sizeof(openInput) == sizeof(address)) {
+                    memcpy(&openInput, &address, sizeof(openInput));
+                    input = openInput();
+                }
+            }
 #else
             int display = btrcShimAutomationDisplay();
             input = display == DISPLAY_X11 ? realInputX11() : display == DISPLAY_WAYLAND ? realInputWayland() : NULL;

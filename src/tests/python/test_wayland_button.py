@@ -11,13 +11,17 @@ from src.tests.python.test_first_party_wayland_window import (
     client,  # noqa: F401
     input_device,  # noqa: F401
     shim_program,
+    wayland_session_env,
 )
 
 
 def test_wayland_symbol_button_pixels_and_input(input_device, tmp_path):  # noqa: F811
     program = shim_program("WaylandButtons", tmp_path)
     subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, program, input_device], timeout=40, check=True
+        [SESSION, "--wayland", "--", sys.executable, __file__, program, input_device],
+        env=wayland_session_env(),
+        timeout=40,
+        check=True,
     )
 
 

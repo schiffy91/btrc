@@ -163,14 +163,14 @@ def test_sessions_never_share_a_runtime_directory(tmp_path):
     assert not (shared / "at-spi").exists()
 
 
-@pytest.mark.parametrize(("session", "server"), [(None, "Xvfb"), ("x11", "Xvfb"), ("wayland", "labwc")])
+@pytest.mark.parametrize(("session", "server"), [(None, "labwc"), ("x11", "Xvfb"), ("wayland", "labwc")])
 def test_virtual_display_delegates_to_the_session(session, server):
-    """CI sets nothing and gets X11; BTRC_VIRTUAL_DISPLAY=wayland selects labwc."""
+    """CI sets nothing and gets Wayland (labwc); BTRC_VIRTUAL_DISPLAY=x11 selects Xvfb."""
     _require_session_tools(server)
     seen = _probe(str(VIRTUAL_DISPLAY), **({"BTRC_VIRTUAL_DISPLAY": session} if session else {}))
     assert seen["display"] is None
     assert seen["atspi"] is None
-    assert seen["environ"]["GDK_BACKEND"] == (session or "x11")
+    assert seen["environ"]["GDK_BACKEND"] == (session or "wayland")
 
 
 def test_virtual_display_adds_no_bash_env_level(tmp_path):
@@ -178,7 +178,7 @@ def test_virtual_display_adds_no_bash_env_level(tmp_path):
     and each read nests another directory into TMPDIR. virtual-display.sh runs the
     session in its own process, so the command sees one level, not two: CI's
     unix-socket fixtures under TMPDIR sit close to sun_path's 108 bytes."""
-    _require_session_tools("Xvfb")
+    _require_session_tools("labwc")
     profile = tmp_path / "profile.sh"
     profile.write_text('export TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/level.XXXXXX")"\n')
     root = tmp_path / "tmp"

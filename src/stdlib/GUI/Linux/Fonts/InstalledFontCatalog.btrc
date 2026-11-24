@@ -75,6 +75,11 @@ class InstalledFontCatalog {
 		return current > requested ? current - requested : 1000 + requested - current;
 	}
 
+	private int faceScore(InstalledFont face, int weight, bool italic) {
+		int width = face.width <= 5 ? 5 - face.width : face.width;
+		return width * 10000 + (face.italic == italic ? 0 : 4000) + self.weightRank(face.weight, weight);
+	}
+
 	public InstalledFont? match(Vector<string> families, int weight, bool italic, Vector<int> scalars) {
 		if (weight < 1 || weight > 1000) { return null; }
 		for requested in families {
@@ -85,12 +90,24 @@ class InstalledFontCatalog {
 				bool named = false;
 				for alias in face.families { if (alias.toLower().equals(needle)) { named = true; break; } }
 				if (!named || face.width < 1 || face.width > 9 || face.weight < 1 || face.weight > 1000) { continue; }
-				int width = face.width <= 5 ? 5 - face.width : face.width;
-				int score = width * 10000 + (face.italic == italic ? 0 : 4000) + self.weightRank(face.weight, weight);
+				int score = self.faceScore(face, weight, italic);
 				if (score < bestScore && face.covers(scalars)) { best = face; bestScore = score; }
 			}
 			if (best != null) { return best; }
 		}
 		return null;
+	}
+
+	/* Fallback selection when no configured family name exists on disk. */
+	public InstalledFont? matchAny(int weight, bool italic, Vector<int> scalars) {
+		if (weight < 1 || weight > 1000) { return null; }
+		InstalledFont? best = null;
+		int bestScore = 2147483647;
+		for face in self.faces {
+			if (face.faceIndex != 0 || face.width < 1 || face.width > 9 || face.weight < 1 || face.weight > 1000) { continue; }
+			int score = self.faceScore(face, weight, italic);
+			if (score < bestScore && face.covers(scalars)) { best = face; bestScore = score; }
+		}
+		return best;
 	}
 }

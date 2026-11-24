@@ -6,10 +6,18 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 import pytest
 
-from src.tests.python.test_wayland_public_preview import ROOT, SESSION, build_app, empty_root_command
+from src.tests.python.test_first_party_wayland_window import wayland_session_env
+from src.tests.python.test_wayland_public_preview import (
+    ROOT,
+    SESSION,
+    build_app,
+    empty_root_command,
+    matched_sans_font,
+)
 
 
 @pytest.fixture(scope="module", params=["python", "selfhost"])
@@ -17,7 +25,11 @@ def rasters(request, tmp_path_factory):
     frontend = request.param
     tmp_path = tmp_path_factory.mktemp(f"wayland-raster-{frontend}")
     executable = build_app(frontend, ROOT / "src/tests/native/gui/linux/WaylandRaster.btrc", tmp_path, request)
-    subprocess.run([SESSION, "--wayland", "--", sys.executable, __file__, executable, tmp_path], check=True)
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, executable, tmp_path],
+        env=wayland_session_env(),
+        check=True,
+    )
     return tmp_path
 
 
@@ -58,12 +70,16 @@ def oracle(tmp_path_factory):
     )
     fonts = folder / "fonts"
     fonts.mkdir()
+    family = "Noto Sans"
     for style in ("Regular", "Bold"):
-        path = font_path(style)
+        path, matched_family = matched_sans_font(style)
+        if style == "Regular":
+            family = matched_family
         (fonts / f"{style}.ttf").symlink_to(path)
     config = folder / "fonts.conf"
     config.write_text(
-        f"<fontconfig><dir>{fonts}</dir><alias><family>sans-serif</family><prefer><family>Noto Sans</family></prefer></alias></fontconfig>"
+        f"<fontconfig><dir>{fonts}</dir><alias><family>sans-serif</family>"
+        f"<prefer><family>{xml_escape(family)}</family></prefer></alias></fontconfig>"
     )
     return program, config
 
@@ -86,9 +102,7 @@ def test_standalone_pixels_match_the_desktop(rasters, oracle):
 
 
 def font_path(style):
-    font = subprocess.check_output(["fc-match", "-f", "%{file}", f"Noto Sans:style={style}"], text=True)
-    assert Path(font).is_file()
-    return font
+    return matched_sans_font(style)[0]
 
 
 def run(executable, work):

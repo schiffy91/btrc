@@ -9,13 +9,14 @@
 #include "Label.h"
 #include "TextField.h"
 #include "Select.h"
+#include "../../EmbeddedWebHost/BtrcEmbeddedWebHost.h"
 #include <linux/input-event-codes.h>
 #include <limits.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
-enum ControlType { FILL, PICTURE, LEVEL, SPINNER, SCROLLBAR, BUTTON, SLIDER, LABEL, TEXT_FIELD, SELECT_MENU };
+enum ControlType { FILL, PICTURE, LEVEL, SPINNER, SCROLLBAR, BUTTON, SLIDER, LABEL, TEXT_FIELD, SELECT_MENU, EXTERNAL };
 enum { LEVEL_HEIGHT = 11, SPINNER_SIZE = 16, FRAME_MS = 70 };
 static bool darkTheme = true;
 static unsigned long long accessibilityRevision = 1;
@@ -39,14 +40,35 @@ struct BtrcShimControl {
     bool running, vertical;
     double viewport, content;
     unsigned char *image;
+    size_t stride;
+    void *imageOwner;
+    void (*releaseImage)(void *);
+    enum BtrcWaylandPixelLayout layout;
     int width;
     int height;
+    void *externalState;
+    const BtrcExternalControlMethods *externalMethods;
+    BtrcShimWindow *externalWindow;
+    int externalX, externalY, externalWidth, externalHeight;
+    double externalScale;
+    bool externalVisible;
 };
 
 static bool pixelSize(int width, int height, size_t *size) {
     if (width <= 0 || height <= 0 || width > INT_MAX / 4 / height) { return false; }
     *size = (size_t)width * height * 4;
     return true;
+}
+
+static void hideExternal(BtrcShimControl *control) {
+    if (!control || control->type != EXTERNAL) { return; }
+    bool wasVisible = control->externalVisible;
+    double scale = control->externalScale > 0 ? control->externalScale : 1.0;
+    control->externalVisible = false;
+    control->externalWindow = NULL;
+    if (wasVisible && control->externalMethods && control->externalMethods->place) {
+        control->externalMethods->place(control->externalState, 0, 0, 0, 0, false, scale);
+    }
 }
 
 static void release(BtrcShimControl *control) {
@@ -56,7 +78,11 @@ static void release(BtrcShimControl *control) {
         free(control->tooltip);
         if (control->label) { btrcWaylandLabelDestroy(control->label); }
         if (control->select) { btrcWaylandSelectDestroy(control->select); }
-        free(control->image);
+        if (control->externalMethods && control->externalMethods->destroy) {
+            control->externalMethods->destroy(control->externalState);
+        }
+        if (control->releaseImage) { control->releaseImage(control->imageOwner); }
+        else { free(control->image); }
         free(control);
     }
 }
@@ -69,6 +95,10 @@ static void clearPlacements(BtrcWaylandPlacements *list) {
 void btrcWaylandSceneClose(BtrcShimWindow *window) {
     btrcWaylandSelectClose(window->menu, false, false);
     btrcWaylandAccessibilityChanged();
+    for (size_t i = 0; i < window->visible.count; i++) {
+        BtrcShimControl *c = window->visible.items[i].control;
+        if (c && c->type == EXTERNAL && c->externalWindow == window) { hideExternal(c); }
+    }
     clearPlacements(&window->visible);
     clearPlacements(&window->pending);
     free(window->visible.items);
@@ -124,6 +154,7 @@ void btrcShimControlSetToolTip(BtrcShimControl *control, const char *text) {
     }
     free(control->tooltip);
     control->tooltip = copy;
+    btrcWaylandAccessibilityChanged();
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
         if (w->tooltipTarget == control) {
             dismissTooltip(w);
@@ -136,8 +167,14 @@ void btrcShimControlDestroy(BtrcShimControl *control) {
     if (control && !control->closed) {
         control->closed = true;
         btrcWaylandSelectClose(control->select, false, false);
+        hideExternal(control);
         for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
-            if (w->focused == control) { w->focused = NULL; }
+            if (w->focused == control) {
+                if (control->type == EXTERNAL && control->externalMethods && control->externalMethods->focus) {
+                    control->externalMethods->focus(control->externalState, false);
+                }
+                w->focused = NULL;
+            }
             if (w->hovered == control) { w->hovered = NULL; }
             if (w->tooltipTarget == control) { dismissTooltip(w); }
             if (w->pressed == control) { w->pressed = NULL; w->pressKey = 0; }
@@ -146,6 +183,41 @@ void btrcShimControlDestroy(BtrcShimControl *control) {
         btrcWaylandControlChanged(control);
         release(control);
     }
+}
+
+BtrcShimControl *btrcExternalControlCreate(unsigned int id, void *state, const BtrcExternalControlMethods *methods) {
+    BtrcShimControl *control = createControl(EXTERNAL, id);
+    if (!control) { return NULL; }
+    control->externalState = state;
+    control->externalMethods = methods;
+    return control;
+}
+
+void *btrcExternalControlState(BtrcShimControl *control) {
+    return control && control->type == EXTERNAL && !control->closed ? control->externalState : NULL;
+}
+
+void btrcExternalControlMarkDirty(BtrcShimControl *control) {
+    if (control && !control->closed) { btrcWaylandControlChanged(control); }
+}
+
+void btrcExternalControlPushText(BtrcShimControl *control, unsigned int type, int data, const char *text) {
+    if (!control || control->closed || control->type != EXTERNAL) { return; }
+    BtrcShimWindow *w = control->externalWindow;
+    if (!w) {
+        BtrcShimWindow *first = btrcWaylandPlatformWindows();
+        if (first && !first->next) { w = first; }
+    }
+    if (!w) { return; }
+    BtrcShimEvent event = {
+        .type = type,
+        .window = btrcShimWindowId(w),
+        .control = control->id,
+        .data1 = data,
+        .text = text,
+    };
+    btrcWaylandQueueEvent(w->native->display, event);
+    btrcWaylandDisplayWake(w->native->display);
 }
 
 BtrcShimControl *btrcWaylandAdoptButton(unsigned id, BtrcWaylandButton *state, const BtrcWaylandButtonMethods *methods) {
@@ -326,10 +398,22 @@ void btrcShimPictureSet(BtrcShimControl *picture, const unsigned char *pixels, i
         if (!copy) { return; }
         memcpy(copy, pixels, size);
     }
-    free(picture->image);
-    picture->image = copy;
-    picture->width = copy ? width : 0;
-    picture->height = copy ? height : 0;
+    btrcWaylandPictureStorage(picture, copy, copy ? (size_t)width * 4 : 0,
+                            copy ? width : 0, copy ? height : 0, BTRC_WL_RGBA, NULL, NULL);
+}
+
+void btrcWaylandPictureStorage(BtrcShimControl *picture, unsigned char *pixels, size_t stride,
+                               int width, int height, enum BtrcWaylandPixelLayout layout,
+                               void *owner, void (*release)(void *)) {
+    if (picture->releaseImage) { picture->releaseImage(picture->imageOwner); }
+    else { free(picture->image); }
+    picture->image = pixels;
+    picture->stride = stride;
+    picture->width = width;
+    picture->height = height;
+    picture->layout = layout;
+    picture->imageOwner = owner;
+    picture->releaseImage = release;
     btrcWaylandControlChanged(picture);
 }
 
@@ -385,9 +469,42 @@ void btrcShimWindowEndPlacement(BtrcShimWindow *window) {
     if (window->pressed && !placed(window, window->pressed)) { window->pressed = NULL; window->pressKey = 0; }
     if (window->hovered && !placed(window, window->hovered)) { window->hovered = NULL; }
     if (window->focused && !placed(window, window->focused)) {
+        if (window->focused->type == EXTERNAL && window->focused->externalMethods && window->focused->externalMethods->focus) {
+            window->focused->externalMethods->focus(window->focused->externalState, false);
+        }
         btrcWaylandQueueEvent(window->native->display, (BtrcShimEvent){.type = BTRC_SHIM_EVENT_CONTROL_FOCUS_LOST,
             .window = btrcShimWindowId(window), .control = window->focused->id});
         window->focused = NULL;
+    }
+    for (size_t i = 0; i < window->pending.count; i++) {
+        BtrcShimControl *c = window->pending.items[i].control;
+        if (c && c->type == EXTERNAL && c->externalWindow == window && !placed(window, c)) {
+            hideExternal(c);
+        }
+    }
+    double scale = btrcWaylandWindowScale(window->native);
+    for (size_t i = 0; i < window->visible.count; i++) {
+        const BtrcWaylandPlacement *p = &window->visible.items[i];
+        BtrcShimControl *c = p->control;
+        if (!c || c->closed || c->type != EXTERNAL) { continue; }
+        int px = (int)floor(p->frame.x + 0.5);
+        int py = (int)floor(p->frame.y + 0.5);
+        int pw = (int)floor(p->frame.width + 0.5);
+        int ph = (int)floor(p->frame.height + 0.5);
+        bool vis = pw > 0 && ph > 0 && p->clip.width > 0 && p->clip.height > 0;
+        c->externalWindow = window;
+        if (vis != c->externalVisible || px != c->externalX || py != c->externalY ||
+            pw != c->externalWidth || ph != c->externalHeight || scale != c->externalScale) {
+            c->externalVisible = vis;
+            c->externalX = px;
+            c->externalY = py;
+            c->externalWidth = pw;
+            c->externalHeight = ph;
+            c->externalScale = scale;
+            if (c->externalMethods && c->externalMethods->place) {
+                c->externalMethods->place(c->externalState, px, py, pw, ph, vis, scale);
+            }
+        }
     }
     clearPlacements(&window->pending);
     btrcWaylandScenePresent(window);
@@ -437,10 +554,16 @@ static void sample(const BtrcShimControl *c, double x, double y, unsigned char p
         double wy = j ? y - top : 1.0 - (y - top);
         for (int i = 0; i < 2; i++) {
             int sx = left + i < c->width ? left + i : left;
-            const unsigned char *p = c->image + ((size_t)sy * c->width + sx) * 4;
-            double weight = wy * (i ? x - left : 1.0 - (x - left)) * p[3];
-            alpha += weight;
-            for (int k = 0; k < 3; k++) { rgb[k] += weight * p[k]; }
+            const unsigned char *p = c->image + (size_t)sy * c->stride + (size_t)sx * 4;
+            double weight = wy * (i ? x - left : 1.0 - (x - left));
+            unsigned a = c->layout == BTRC_WL_DRM_XRGB ? 255 : p[3];
+            alpha += weight * a;
+            for (int k = 0; k < 3; k++) {
+                /* DRM channels are premultiplied BGR. The regular picture
+                 * stores straight RGB. Accumulate both before dividing. */
+                double channel = c->layout == BTRC_WL_RGBA ? (double)a * p[k] : 255.0 * (p[2-k] < a ? p[2-k] : a);
+                rgb[k] += weight * channel;
+            }
         }
     }
     for (int k = 0; k < 3; k++) { pixel[k] = alpha ? (unsigned char)(rgb[k] / alpha + 0.5) : 0; }
@@ -475,13 +598,13 @@ static bool contains(BtrcWaylandRect area, double x, double y) {
 static const BtrcWaylandPlacement *inputTarget(BtrcShimWindow *w, double x, double y) {
     for (size_t i = w->visible.count; i > 0; --i) {
         const BtrcWaylandPlacement *p = &w->visible.items[i-1];
-        if (w->pressed && w->pressed->field) {
+        if (w->pressed && (w->pressed->field || w->pressed->type == EXTERNAL)) {
             if (p->control == w->pressed) { return p; }
         } else if (w->rangeDrag) {
             if (p->control == w->rangeDrag) { return p; }
         } else if (contains(p->frame, x, y) && contains(p->clip, x, y)) {
             if (!p->control) { return NULL; }
-            if (!p->control->closed && (p->control->type == SCROLLBAR || p->control->type == BUTTON || p->control->type == SLIDER || p->control->field || p->control->select)) {
+            if (!p->control->closed && (p->control->type == SCROLLBAR || p->control->type == BUTTON || p->control->type == SLIDER || p->control->type == EXTERNAL || p->control->field || p->control->select)) {
                 return p->control->enabled && (!p->control->select || btrcWaylandSelectAvailable(p->control->select)) ? p : NULL;
             }
         }
@@ -501,6 +624,12 @@ static bool setFocus(BtrcShimWindow *w, BtrcShimControl *c) {
     w->pressed = NULL;
     w->pressKey = 0;
     w->sceneDirty = true;
+    if (previous && previous->type == EXTERNAL && previous->externalMethods && previous->externalMethods->focus) {
+        previous->externalMethods->focus(previous->externalState, false);
+    }
+    if (c && c->type == EXTERNAL && c->externalMethods && c->externalMethods->focus) {
+        c->externalMethods->focus(c->externalState, true);
+    }
     return (!previous || controlEvent(w, previous, BTRC_SHIM_EVENT_CONTROL_FOCUS_LOST)) &&
            (!c || controlEvent(w, c, BTRC_SHIM_EVENT_CONTROL_FOCUS_GAINED));
 }
@@ -515,7 +644,7 @@ static BtrcShimControl *tabControl(const BtrcShimWindow *w, bool backwards) {
         at = backwards ? (at ? at - 1 : count - 1) : (at + 1) % count;
         const BtrcWaylandPlacement *p = &w->visible.items[at];
         BtrcShimControl *c = p->control;
-        if (c && (c->button || c->field || c->type == SLIDER || btrcWaylandSelectAvailable(c->select)) && !c->closed && c->enabled &&
+        if (c && (c->button || c->field || c->type == SLIDER || c->type == EXTERNAL || btrcWaylandSelectAvailable(c->select)) && !c->closed && c->enabled &&
             fmin(p->frame.x + p->frame.width, p->clip.x + p->clip.width) > fmax(p->frame.x, p->clip.x) &&
             fmin(p->frame.y + p->frame.height, p->clip.y + p->clip.height) > fmax(p->frame.y, p->clip.y)) { return c; }
     }
@@ -554,6 +683,13 @@ static bool controlKey(BtrcShimWindow *w, const BtrcShimEvent *e, bool *handled)
     BtrcShimControl *button = w->focused;
     if (!button) { return true; }
     if (button->field) { return btrcWaylandFieldEvent(button->field, w, button->id, e, handled); }
+    if (button->type == EXTERNAL) {
+        if (button->externalMethods && button->externalMethods->key) {
+            button->externalMethods->key(button->externalState, e->type, e->key, e->scancode, e->modifiers, e->repeat != 0);
+            *handled = true;
+        }
+        return true;
+    }
     if (button->select && (e->key == BTRC_SHIM_KEY_RETURN || e->key == BTRC_SHIM_KEY_KP_ENTER ||
                            e->key == BTRC_SHIM_KEY_SPACE || e->key == BTRC_SHIM_KEY_DOWN)) {
         *handled = true;
@@ -634,6 +770,13 @@ bool btrcWaylandSceneInput(BtrcWaylandDisplay *display, const BtrcShimEvent *eve
     if (key) { return controlKey(w, event, handled); }
     if (text) {
         BtrcShimControl *c = w->focused;
+        if (c && c->type == EXTERNAL && type == BTRC_SHIM_EVENT_TEXT_INPUT) {
+            if (c->externalMethods && c->externalMethods->text && event->text) {
+                c->externalMethods->text(c->externalState, event->text);
+                *handled = true;
+            }
+            return true;
+        }
         return !c || !c->field || btrcWaylandFieldEvent(c->field, w, c->id, event, handled);
     }
     const BtrcWaylandPlacement *p = type == BTRC_SHIM_EVENT_WINDOW_MOUSE_LEAVE ? NULL : inputTarget(w, event->x, event->y);
@@ -652,6 +795,31 @@ bool btrcWaylandSceneInput(BtrcWaylandDisplay *display, const BtrcShimEvent *eve
     if (type == BTRC_SHIM_EVENT_MOUSE_MOTION || type == BTRC_SHIM_EVENT_WINDOW_MOUSE_ENTER) {
         hoverTooltip(w, p ? p->control : NULL, event->x, event->y);
     } else { dismissTooltip(w); }
+    if (p && p->control->type == EXTERNAL) {
+        BtrcShimControl *c = p->control;
+        double localX = event->x - p->frame.x;
+        double localY = event->y - p->frame.y;
+        if (type == BTRC_SHIM_EVENT_MOUSE_WHEEL) {
+            if (c->externalMethods && c->externalMethods->scroll) {
+                c->externalMethods->scroll(c->externalState, localX, localY, event->wheelX, event->wheelY, event->data1 != 0, event->modifiers);
+            }
+            *handled = true;
+            return true;
+        }
+        if (type == BTRC_SHIM_EVENT_MOUSE_BUTTON_DOWN) {
+            if (!setFocus(w, c)) { return false; }
+            w->pressed = c;
+            w->pressKey = 0;
+        } else if (type == BTRC_SHIM_EVENT_MOUSE_BUTTON_UP && w->pressed == c) {
+            w->pressed = NULL;
+        }
+        w->hovered = c;
+        if (c->externalMethods && c->externalMethods->pointer) {
+            c->externalMethods->pointer(c->externalState, type, localX, localY, event->button, event->modifiers);
+        }
+        *handled = true;
+        return true;
+    }
     if (p && p->control->field) {
         BtrcShimControl *c = p->control;
         if (type == BTRC_SHIM_EVENT_MOUSE_BUTTON_DOWN && event->button == 1) {
@@ -757,6 +925,37 @@ static void draw(BtrcShimWindow *window, const BtrcWaylandPlacement *p, unsigned
     if (c && (c->closed || (c->type == PICTURE && !c->image))) { return; }
     BtrcWaylandRect frame = p->frame;
     if (frame.width <= 0 || frame.height <= 0 || p->clip.width <= 0 || p->clip.height <= 0) { return; }
+    if (c && c->type == EXTERNAL) {
+        if (c->externalMethods && c->externalMethods->paint) {
+            int bw = (int)floor(frame.width * scale + 0.5);
+            int bh = (int)floor(frame.height * scale + 0.5);
+            size_t bytes;
+            if (pixelSize(bw, bh, &bytes)) {
+                unsigned char *buf = calloc(1, bytes);
+                if (buf) {
+                    if (c->externalMethods->paint(c->externalState, buf, (size_t)bw * 4, bw, bh)) {
+                        int left = bound(fmax(frame.x, p->clip.x), scale, width);
+                        int top = bound(fmax(frame.y, p->clip.y), scale, height);
+                        int right = bound(fmin(frame.x + frame.width, p->clip.x + p->clip.width), scale, width);
+                        int bottom = bound(fmin(frame.y + frame.height, p->clip.y + p->clip.height), scale, height);
+                        int originX = (int)floor(frame.x * scale + 0.5);
+                        int originY = (int)floor(frame.y * scale + 0.5);
+                        for (int y = top; y < bottom; y++) {
+                            int sy = y - originY;
+                            if (sy < 0 || sy >= bh) { continue; }
+                            for (int x = left; x < right; x++) {
+                                int sx = x - originX;
+                                if (sx < 0 || sx >= bw) { continue; }
+                                over(pixels + ((size_t)y * width + x) * 4, buf + ((size_t)sy * bw + sx) * 4);
+                            }
+                        }
+                    }
+                    free(buf);
+                }
+            }
+        }
+        return;
+    }
     if (c && (c->button || c->field || c->label || c->select || c->type == SLIDER)) {
         BtrcWaylandControlCanvas canvas = {.rgba=pixels, .width=width, .height=height, .scale=scale,
             .frame=frame, .clip=p->clip, .dark=darkTheme, .enabled=c->enabled, .focused=window->focused==c,
@@ -907,6 +1106,22 @@ void btrcShimWindowShowPicture(BtrcShimWindow *window, const unsigned char *rgba
 extern const char *btrcWaylandButtonAccessibleName(BtrcWaylandButton *);
 extern const char *btrcWaylandLabelAccessibleName(BtrcWaylandLabel *);
 
+void btrcWaylandDescribeField(BtrcWaylandAccessible *out, const BtrcWaylandTextField *field);
+
+/* Numeric roles and state bits are the AT-SPI wire ABI. */
+static unsigned accessibleRole(enum ControlType type) {
+    switch (type) {
+    case LABEL: return 29;
+    case BUTTON: return 43;
+    case TEXT_FIELD: return 79;
+    case LEVEL: return 103;
+    case SPINNER: return 42;
+    case SCROLLBAR: return 48;
+    case SLIDER: return 51;
+    default: return 0;
+    }
+}
+
 bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessible *out) {
     if (index < 0 || !out) { return false; }
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
@@ -925,31 +1140,81 @@ bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessibl
         for (size_t i = 0; i < w->visible.count; ++i) {
             BtrcWaylandPlacement *p = &w->visible.items[i];
             BtrcShimControl *c = p->control;
-            if (!c || c->closed || (c->type != LABEL && c->type != BUTTON)) { continue; }
+            if (!c || c->closed || !accessibleRole(c->type)) { continue; }
             if (index-- != 0) { continue; }
             if (enabled && c->enabled) { state |= (1u << 8) | (1u << 24); }
-            if (enabled && c->type == BUTTON && c->enabled) { state |= 1u << 11; }
+            if (enabled && (c->type == BUTTON || c->type == TEXT_FIELD || c->type == SLIDER) && c->enabled) { state |= 1u << 11; }
             if (enabled && w->focused == c) { state |= 1u << 12; }
-            *out = (BtrcWaylandAccessible){.window=wid, .control=c->id, .role=c->type == BUTTON ? 43u : 29u,
-                .state=state, .name=c->type == BUTTON ? btrcWaylandButtonAccessibleName(c->button) : btrcWaylandLabelAccessibleName(c->label),
+            *out = (BtrcWaylandAccessible){.window=wid, .control=c->id, .role=accessibleRole(c->type),
+                .state=state, .name=c->type == BUTTON ? btrcWaylandButtonAccessibleName(c->button) : c->label ? btrcWaylandLabelAccessibleName(c->label) : "",
                 .description=c->tooltip ? c->tooltip : "", .x=(int)p->frame.x, .y=(int)p->frame.y,
                 .width=(int)p->frame.width, .height=(int)p->frame.height};
+            if (c->type == LEVEL) {
+                out->maximum = 1.0; out->value = c->value;
+                out->state |= 1u << 14; out->stateHigh |= 1u << (43 - 32); /* horizontal, read-only */
+            } else if (c->type == SPINNER && c->running) {
+                out->state |= 1u << 3; out->stateHigh |= 1u; /* busy, indeterminate */
+            } else if (c->type == SCROLLBAR) {
+                out->maximum = fmax(0, c->content - c->viewport); out->value = c->value; out->increment = 48.0;
+                out->state |= 1u << (c->vertical ? 29 : 14);
+            } else if (c->type == SLIDER) {
+                out->minimum = c->slider.minimum; out->maximum = c->slider.maximum;
+                out->increment = c->slider.step; out->value = c->slider.value; out->state |= 1u << 14;
+            }
+            if (c->field) {
+                out->state |= 1u << 26;  /* single line */
+                if (enabled && c->enabled) { out->state |= 1u << 7; } /* editable */
+                btrcWaylandDescribeField(out, c->field);
+            }
             return true;
         }
     }
     return false;
 }
 
-bool btrcWaylandAccessibleAction(unsigned window, unsigned control, bool focusOnly) {
+BtrcShimControl *btrcWaylandAccessibleControl(unsigned window, unsigned control, bool vertical, BtrcShimWindow **owner) {
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
         if (!w->native->visible || btrcShimWindowId(w) != window) { continue; }
-        if (w->native->display->modalWindow && w->native->display->modalWindow != w->native) { return false; }
+        if (w->native->display->modalWindow && w->native->display->modalWindow != w->native) { return NULL; }
         for (size_t i = 0; i < w->visible.count; ++i) {
             BtrcShimControl *c = w->visible.items[i].control;
-            if (c && c->id == control && c->type == BUTTON && c->enabled && !c->closed) {
-                return setFocus(w, c) && (focusOnly || controlEvent(w, c, BTRC_SHIM_EVENT_CONTROL_ACTIVATED));
+            if (c && c->id == control && c->enabled && !c->closed && (c->type != SCROLLBAR || c->vertical == vertical)) {
+                *owner = w;
+                return c;
             }
         }
     }
-    return false;
+    return NULL;
+}
+
+bool btrcWaylandAccessibleAction(unsigned window, unsigned control, bool focusOnly) {
+    BtrcShimWindow *w = NULL;
+    BtrcShimControl *c = btrcWaylandAccessibleControl(window, control, false, &w);
+    if (!c || (c->type != BUTTON && !(focusOnly && (c->type == TEXT_FIELD || c->type == SLIDER)))) { return false; }
+    return setFocus(w, c) && (focusOnly || controlEvent(w, c, BTRC_SHIM_EVENT_CONTROL_ACTIVATED));
+}
+
+bool btrcWaylandAccessibleValuePending(void) {
+    BtrcShimWindow *window = btrcWaylandPlatformWindows();
+    return window && window->native->display->accessibilityValuePending;
+}
+
+bool btrcWaylandAccessibleSetValue(unsigned window, unsigned control, bool vertical, double value) {
+    BtrcShimWindow *w = NULL;
+    BtrcShimControl *c = btrcWaylandAccessibleControl(window, control, vertical, &w);
+    if (!c || !isfinite(value) || w->native->display->accessibilityValuePending) { return false; }
+    /* data2 marks this value change for completion in btrcWaylandDisplayPop. */
+    BtrcShimEvent event = {.window=window, .control=control, .value=value, .data2=1};
+    if (c->type == SLIDER) {
+        if (value < c->slider.minimum || value > c->slider.maximum) { return false; }
+        event.type = BTRC_SHIM_EVENT_CONTROL_SLIDER_CHANGED;
+        event.data1 = BTRC_SHIM_SLIDER_ASSISTIVE_VALUE;
+    } else if (c->type == SCROLLBAR) {
+        if (value < 0 || value > c->content - c->viewport) { return false; }
+        event.type = BTRC_SHIM_EVENT_CONTROL_SCROLLBAR_CHANGED;
+        event.data1 = c->vertical;
+    } else { return false; }
+    if (!btrcWaylandQueueEvent(w->native->display, event)) { return false; }
+    w->native->display->accessibilityValuePending = true;
+    return true;
 }

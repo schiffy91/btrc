@@ -410,7 +410,7 @@ coverage: generated-check gpu-required ## Line coverage of the stdlib and both c
 #   - the strict-C11 cells at -O1 and -O3 with gcc and clang, which `make
 #     test-c11` used to run beside -O0 and -O2.
 # CI's nightly is the `extended` tier (ci/tiers.toml), which adds the same C11
-# cells and the report-only Wayland GUI session to what every push runs.
+# cells to what every push runs.
 test-nightly: generated-check gpu-required ## Nightly set: the 600-second E40 loads, the bursts at 100 repetitions, strict C11 at -O1 and -O3
 	$(NIX) tools/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and nightly" \
 		--skip-report=build/skip-report-nightly-e40.json $(PYTEST_SERIAL_ARGS) -n 0
@@ -420,7 +420,7 @@ test-nightly: generated-check gpu-required ## Nightly set: the 600-second E40 lo
 
 E40_FRONTEND ?= python
 E40_VARIANT ?= plain
-E40_SESSION ?= x11
+E40_SESSION ?= wayland
 E40_CELL := $(E40_SESSION)-$(E40_FRONTEND)-$(E40_VARIANT)
 E40_BTRCC = $(if $(filter selfhost,$(E40_FRONTEND)),BTRC_TEST_BTRCC="$(abspath $(TEST_BTRCC))")
 E40_BTRCC_BUILD = $(if $(filter selfhost,$(E40_FRONTEND)),$(TEST_BTRCC_BUILD))
@@ -552,7 +552,7 @@ test-shard-gui-macos: generated-check $(TEST_BTRCC_BUILD) ## CI shard: one exact
 # tools/ui/session_evidence.py dumps the session's AT-SPI tree to
 # build/linux-gui/<session>/atspi.json, and pytest's working directories stay
 # under build/linux-gui for CI to keep.
-GUI_SESSION ?= x11
+GUI_SESSION ?= wayland
 GUI_PARTITION ?= 0
 GUI_PARTITIONS ?= 1
 # Native execution already holds one display lease. A single worker also keeps

@@ -50,9 +50,8 @@ def test_only_the_linux_gpu_bridge_can_load_the_wayland_display_library(tmp_path
     directory.mkdir(exist_ok=True)
     for filename in ("GPUWire.c", "OrdinaryWindow.c"):
         (directory / filename).write_text('void *bridge(void) { return dlopen("libwayland-client.so.0", 2); }\n')
-    # The existing GTK sources have a pending link to libwayland-client.
-    # A new runtime load outside the GPU bridge must still fail that gate.
-    ordinary = stdlib / "GUI/Linux/GtkShim.c"
+    # A runtime load outside the GPU bridge must fail the dependency gate.
+    ordinary = stdlib / "GUI/Linux/Wayland/Platform.c"
     ordinary.write_text(ordinary.read_text() + '\nvoid *direct(void) { return dlopen("libwayland-client.so.0", 2); }\n')
     audit = DependencyAudit(stdlib=stdlib, runtime=runtime)
     loads = {
@@ -63,7 +62,7 @@ def test_only_the_linux_gpu_bridge_can_load_the_wayland_display_library(tmp_path
     assert loads == {
         ("GUI/Linux/Wayland/GPUWire.c", "feature"),
         ("GUI/Linux/Wayland/OrdinaryWindow.c", "third-party"),
-        ("GUI/Linux/GtkShim.c", "third-party"),
+        ("GUI/Linux/Wayland/Platform.c", "third-party"),
     }
     assert any(
         "GUI/Shim/Shim on target linux-x86_64 requires libwayland-client.so.0" in error for error in audit.check()
@@ -84,7 +83,7 @@ def test_normative_unicode_tables_and_license_are_exact_data(tmp_path: Path) -> 
     runtime.mkdir(parents=True)
     policy = DependencyPolicy()
     pins = next(entry["sha256"] for entry in policy.standard_data if entry["name"].startswith("Unicode"))
-    for relative in pins:
+    for relative in (path for entry in policy.standard_data for path in entry["sha256"]):
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / relative, target)
@@ -101,6 +100,34 @@ def test_normative_unicode_tables_and_license_are_exact_data(tmp_path: Path) -> 
     assert any(item.name.endswith(table.name) and "differs" in item.evidence for item in findings)
     pins[table.relative_to(tmp_path).as_posix()] = hashlib.sha256(table.read_bytes()).hexdigest()
     assert any("not a generated Unicode property table" in item.evidence for item in audit._bundled())
+
+
+def test_protocol_registry_rejects_unreviewed_files_and_code(tmp_path: Path) -> None:
+    policy = DependencyPolicy()
+    runtime = tmp_path / "src/runtime"
+    runtime.mkdir(parents=True)
+    for entry in policy.standard_data:
+        for relative in entry["sha256"]:
+            target = tmp_path / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / relative, target)
+    audit = DependencyAudit(policy, tmp_path / "src/stdlib", runtime)
+    assert audit._bundled() == []
+    directory = tmp_path / "src/stdlib/GUI/Linux/Wayland"
+    table = directory / "KeysymData.h"
+    renamed = directory / "AnotherKeysymTable.h"
+    shutil.copyfile(table, renamed)
+    (directory / "KEYSYM-LICENSE.txt").unlink()
+    for name, description in (("KeysymData.h", "keysym registry"), ("KeysymCaseData.h", "Unicode case table")):
+        source = directory / name
+        source.write_text(source.read_text() + "int registry_function(void) { return 0; }\n")
+        assert any(item.name.endswith(name) and "differs" in item.evidence for item in audit._bundled())
+        key = source.relative_to(tmp_path).as_posix()
+        pins = next(entry["sha256"] for entry in policy.standard_data if key in entry["sha256"])
+        pins[key] = hashlib.sha256(source.read_bytes()).hexdigest()
+        assert any(item.name.endswith(name) and description in item.evidence for item in audit._bundled())
+    findings = {item.name.rsplit("/", 1)[-1] for item in audit._bundled()}
+    assert findings == {"KEYSYM-LICENSE.txt", "AnotherKeysymTable.h", "KeysymCaseData.h", "KeysymData.h"}
 
 
 def test_every_pending_row_is_a_live_requirement_with_a_replacement() -> None:

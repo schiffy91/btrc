@@ -6,6 +6,8 @@
 #include "WirePrivate.h"
 #include "Client.h"
 #include "Clipboard.h"
+#include "TextField.h"
+#include "../../EmbeddedWebHost/BtrcEmbeddedWebHost.h"
 #include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -18,8 +20,35 @@ static BtrcShimWindow *windows;
 static pthread_t thread;
 static int openError;
 static bool disconnected;
-static int (*accessibilityService)(int *);
-void btrcWaylandAccessibilityInstall(int (*service)(int *)) {
+static int (*accessibilityService)(int *, int *);
+typedef struct {
+    int (*poll)(void *);
+    void *context;
+} ExternalPoller;
+enum { EXTERNAL_POLLER_CAPACITY = 8 };
+static ExternalPoller externalPollers[EXTERNAL_POLLER_CAPACITY];
+static size_t externalPollerCount;
+
+void btrcExternalControlRegisterPoller(int (*poll)(void *context), void *context) {
+    if (!poll) { return; }
+    for (size_t i = 0; i < externalPollerCount; i++) {
+        if (externalPollers[i].poll == poll && externalPollers[i].context == context) { return; }
+    }
+    if (externalPollerCount < EXTERNAL_POLLER_CAPACITY) {
+        externalPollers[externalPollerCount++] = (ExternalPoller){poll, context};
+    }
+}
+
+static int runExternalPollers(void) {
+    int wait = -1;
+    for (size_t i = 0; i < externalPollerCount; i++) {
+        int next = externalPollers[i].poll(externalPollers[i].context);
+        if (next >= 0 && (wait < 0 || next < wait)) { wait = next; }
+    }
+    return wait;
+}
+
+void btrcWaylandAccessibilityInstall(int (*service)(int *, int *)) {
     accessibilityService = service;
     if (display) { display->accessibilityService = service; }
 }
@@ -31,7 +60,7 @@ bool btrcShimInit(void) {
     thread = pthread_self();
     opened->editContext = btrcWaylandSceneEditContext;
     opened->deleteAround = btrcWaylandSceneDeleteAround;
-    opened->activationChanged = btrcWaylandAccessibilityChanged;
+    opened->accessibilityChanged = btrcWaylandAccessibilityChanged;
     opened->accessibilityService = accessibilityService;
     opened->routeInput = btrcWaylandSceneInput;
     display = opened;
@@ -110,17 +139,21 @@ bool btrcShimPushWake(void) {
 
 int btrcShimWaitEvent(BtrcShimEvent *out, int timeout) {
     if (!display || !out) { return 0; }
-    long long deadline = btrcWaylandMilliseconds() + timeout;
+    long long deadline = timeout >= 0 ? btrcWaylandMilliseconds() + timeout : 0;
     int remaining = timeout;
     for (;;) {
+        int externalWait = runExternalPollers();
         if (btrcWaylandDisplayPop(display, out)) { return 1; }
         if (disconnected) { return 0; }
-        int result = btrcWaylandDisplayPoll(display, btrcWaylandSceneAdvance(remaining));
+        int wait = btrcWaylandSceneAdvance(remaining);
+        if (externalWait >= 0 && (wait < 0 || externalWait < wait)) { wait = externalWait; }
+        int result = btrcWaylandDisplayPoll(display, wait);
         if (result < 0) {
             disconnected = true;
             *out = (BtrcShimEvent){.type = BTRC_SHIM_EVENT_QUIT};
             return 1;
         }
+        (void)runExternalPollers();
         if (btrcWaylandDisplayPop(display, out)) { return 1; }
         if (timeout >= 0) {
             long long left = deadline - btrcWaylandMilliseconds();
@@ -132,11 +165,51 @@ int btrcShimWaitEvent(BtrcShimEvent *out, int timeout) {
 
 int btrcShimPollEvent(BtrcShimEvent *out) { return btrcShimWaitEvent(out, 0); }
 
+void btrcShimWindowShowMessage(BtrcShimWindow *window, const char *title, const char *message) {
+    (void)btrcWaylandShowAlert(window, title, message);
+}
+
+/* Directory selection on Linux uses org.freedesktop.portal.FileChooser via
+ * Linux.PortalDirectoryPickerProvider; no toolkit folder dialog exists here. */
+BtrcShimFolderDialog *btrcShimFolderDialogOpen(BtrcShimWindow *window, const char *initialDirectory, const char *title) {
+    (void)window;
+    (void)initialDirectory;
+    (void)title;
+    return NULL;
+}
+int btrcShimFolderDialogState(BtrcShimFolderDialog *dialog) { (void)dialog; return 3; }
+const char *btrcShimFolderDialogPath(const BtrcShimFolderDialog *dialog) { (void)dialog; return ""; }
+void btrcShimFolderDialogRelease(BtrcShimFolderDialog *dialog) { (void)dialog; }
+
+bool btrcWaylandQueuePush(const BtrcShimEvent *event, const char *text) {
+    BtrcWaylandDisplay *current = display;
+    return current && btrcWaylandDisplayPushDirect(current, event, text);
+}
+int btrcWaylandQueueCount(unsigned int firstType, unsigned int lastType) {
+    BtrcWaylandDisplay *current = display;
+    return current ? btrcWaylandDisplayQueued(current, firstType, lastType) : 0;
+}
+void btrcWaylandQueueFlush(void) {
+    BtrcWaylandDisplay *current = display;
+    if (current) { btrcWaylandDisplayFlush(current); }
+}
+void btrcWaylandQueueFilter(bool (*accept)(const BtrcShimEvent *event)) {
+    BtrcWaylandDisplay *current = display;
+    if (current) { btrcWaylandDisplayFilter(current, accept); }
+}
+
 int btrcShimAutomationDisplay(void) { return display ? BTRC_SHIM_DISPLAY_WAYLAND : BTRC_SHIM_DISPLAY_NONE; }
 
 unsigned int btrcShimWindowNamed(const char *title) {
     for (BtrcShimWindow *w = windows; w; w = w->next) {
         if (title && !strcmp(w->native->title, title)) { return btrcShimWindowId(w); }
+    }
+    return 0;
+}
+
+int btrcShimAutomationTextFocused(unsigned int window) {
+    for (BtrcShimWindow *w = windows; w; w = w->next) {
+        if (btrcShimWindowId(w) == window) { return btrcWaylandFieldState(w->focused) != NULL; }
     }
     return 0;
 }

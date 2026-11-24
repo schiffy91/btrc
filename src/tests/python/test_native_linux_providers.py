@@ -1,4 +1,4 @@
-"""The Linux stdlib providers on real SDKs: the GTK4 GUI with WebGPU,
+"""The Linux stdlib providers on real SDKs: native Wayland GUI with WebGPU,
 first-party PNG and JPEG decoding, and Linux audio duplex sessions. The GUI's portable
 contract is held by the conformance suite (test_native_ui_conformance.py);
 here are the provider's own boundaries.

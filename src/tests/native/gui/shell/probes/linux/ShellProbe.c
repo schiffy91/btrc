@@ -1,5 +1,5 @@
 /* The shell fixture's probe for Linux: real input through the display server,
- * by way of the conformance suite's probe for the GTK provider
+ * by way of the conformance suite's input probe
  * (../../../conformance/probes/shim/ShimProbe.c), and the provider shim's
  * automation hooks (GUI/Shim/Shim.h) for what it observes. */
 #include "ShellProbe.h"
@@ -7,6 +7,12 @@
 #include "../../../conformance/probes/shim/ShimProbe.h"
 #include <assert.h>
 #include <stdio.h>
+
+#ifdef BTRC_PROBE_NATIVE_WAYLAND
+#define SHELL_PROVIDER "linux-wayland-native"
+#else
+#define SHELL_PROVIDER "linux-gtk"
+#endif
 
 #define SHELL_TITLE "BTRC native shell"
 
@@ -63,6 +69,6 @@ void shellProbeDrain(void) {}
 void shellProbeObserve(void) { assert(shellProbeNativeCount() == 1); }
 
 void shellProbeDump(void) {
-    printf("{\"probe\":\"linux-gtk\",\"accessibility\":\"not observed\",\"native_windows\":%d,\"focused_editor\":%d}\n",
-           shellProbeNativeCount(), shellProbeFocus());
+    printf("{\"probe\":\"%s\",\"accessibility\":\"not observed\",\"native_windows\":%d,\"focused_editor\":%d}\n",
+           SHELL_PROVIDER, shellProbeNativeCount(), shellProbeFocus());
 }

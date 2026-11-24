@@ -83,7 +83,7 @@ def transpile(source, generated, plan, frontend, request, target):
     return result
 
 
-def build_shell(tmp_path, frontend, sanitized, request):
+def build_shell(tmp_path, frontend, sanitized, request, *, native_wayland=False):
     NativeBindingPackage.require_reader()
     system = "macos" if sys.platform == "darwin" else "linux"
     architecture = "aarch64" if platform.machine() in {"arm64", "aarch64"} else "x86_64"
@@ -103,6 +103,9 @@ def build_shell(tmp_path, frontend, sanitized, request):
     result = transpile(source, generated, plan, frontend, request, f"{system}-{architecture}")
     assert result.returncode == 0, result.stderr
     assert "warning:" not in result.stderr.lower(), result.stderr
+    if native_wayland:
+        native_units = {Path(unit["path"]).name for unit in json.loads(plan.read_text())["units"]}
+        assert {"Scene.c", "GPUWire.c"} <= native_units and "GtkShim.c" not in native_units
     flags = (
         ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer"] if sanitized else []
     )
@@ -110,24 +113,49 @@ def build_shell(tmp_path, frontend, sanitized, request):
     environment = shell_environment(sanitized)
     # The Linux probe sends real input through the conformance suite's probe for the provider.
     real_input = ROOT / "src/tests/native/gui/conformance/probes/linux"
+    input_packages = ["wayland-client"] if native_wayland else ["x11", "xtst", "wayland-client"]
     sdk_flags = (
         []
         if system == "macos"
         else subprocess.check_output(
-            ["pkg-config", "--cflags", "x11", "xtst", "wayland-client"], text=True, timeout=TOOL_TIMEOUT
+            ["pkg-config", "--cflags", *input_packages], text=True, timeout=TOOL_TIMEOUT
         ).split()
     )
     sdk_libraries = (
         []
         if system == "macos"
-        else subprocess.check_output(
-            ["pkg-config", "--libs", "x11", "xtst", "wayland-client"], text=True, timeout=TOOL_TIMEOUT
-        ).split()
+        else subprocess.check_output(["pkg-config", "--libs", *input_packages], text=True, timeout=TOOL_TIMEOUT).split()
     )
     units = [probe.with_suffix(".m" if system == "macos" else ".c"), SHELL / "ShellState.c"]
     if system == "linux":
-        units += [real_input.parent / "shim/ShimProbe.c", real_input / "X11Input.c", real_input / "WaylandInput.c"]
-        units += sorted((real_input / "wayland").glob("*.c"))
+        units.append(real_input.parent / "shim/ShimProbe.c")
+        input_units = [real_input / "WaylandInput.c", *sorted((real_input / "wayland").glob("*.c"))]
+        if native_wayland:
+            subprocess.run(
+                [
+                    compiler,
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-O2",
+                    "-shared",
+                    "-fPIC",
+                    *flags,
+                    *sdk_flags,
+                    *input_units,
+                    *sdk_libraries,
+                    "-o",
+                    tmp_path / "wayland-input.so",
+                ],
+                check=True,
+                env=environment,
+                timeout=TOOL_TIMEOUT,
+            )
+            sdk_flags.append("-DBTRC_PROBE_NATIVE_WAYLAND")
+            sdk_libraries = ["-ldl"]
+        else:
+            units += [real_input / "X11Input.c", *input_units]
     objects = []
     for unit in units:
         output = tmp_path / f"{unit.stem}.o"
@@ -167,6 +195,13 @@ def build_shell(tmp_path, frontend, sanitized, request):
         cc=compiler,
         cxx="/usr/bin/clang++" if system == "macos" else "c++",
     )
+    if native_wayland:
+        from tools.qualification.dependencies import BinaryImports, DependencyAudit
+
+        assert any(
+            name.startswith("libwayland-client.so.") for name in BinaryImports.read(tmp_path / "wayland-input.so")
+        )
+        assert not DependencyAudit().binary_problems(executable, f"linux-{architecture}")
     return executable
 
 
@@ -209,12 +244,16 @@ def write_evidence(
 
 
 def exercise_shell(tmp_path, request, frontend, sanitized, provider):
-    executable = build_shell(tmp_path, frontend, sanitized, request)
+    native_wayland = provider in {"linux-wayland", "linux-wayland-native"}
+    executable = build_shell(tmp_path, frontend, sanitized, request, native_wayland=native_wayland)
     cycles = int(os.environ.get("BTRC_UI_SHELL_CYCLES", "100"))
     assert 1 <= cycles <= 100
     state = tmp_path / "state"
     state.mkdir()
     environment = shell_environment(sanitized)
+    if native_wayland:
+        environment.pop("DISPLAY", None)
+        environment["BTRC_TEST_WAYLAND_INPUT"] = str(tmp_path / "wayland-input.so")
     command = [str(executable), str(cycles), str(state)]
     try:
         result = subprocess.run(command, capture_output=True, text=True, env=environment, timeout=1200)
@@ -254,6 +293,8 @@ def exercise_shell(tmp_path, request, frontend, sanitized, provider):
         }
     probes = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
     assert len(probes) == cycles
+    if native_wayland:
+        assert all(probe["probe"] == "linux-wayland-native" for probe in probes)
     if provider.startswith("linux"):
         assert all(probe["accessibility"] == "not observed" for probe in probes)
     else:

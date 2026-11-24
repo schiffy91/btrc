@@ -13,6 +13,7 @@ from src.tests.python.test_first_party_wayland_window import (
     SESSION,
     client,  # noqa: F401
     input_device,  # noqa: F401
+    wayland_session_env,
 )
 
 
@@ -36,7 +37,10 @@ def test_wayland_menu_popup_pointer_keys_and_outside_dismissal(tmp_path, input_d
         check=True,
     )
     subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, program, input_device], check=True, timeout=30
+        [SESSION, "--wayland", "--", sys.executable, __file__, program, input_device],
+        env=wayland_session_env(),
+        check=True,
+        timeout=30,
     )
 
 

@@ -43,6 +43,12 @@ struct BtrcShimWindow {
     double rangeAnchor;
 };
 
+/* The software painter samples immutable, premultiplied DRM XRGB/ARGB planes
+ * directly from their producer's mapping. Replacing a plane releases its owner. */
+enum BtrcWaylandPixelLayout { BTRC_WL_RGBA, BTRC_WL_DRM_XRGB, BTRC_WL_DRM_ARGB };
+void btrcWaylandPictureStorage(BtrcShimControl *picture, unsigned char *pixels, size_t stride,
+                               int width, int height, enum BtrcWaylandPixelLayout layout,
+                               void *owner, void (*release)(void *));
 BtrcShimWindow *btrcWaylandPlatformWindows(void);
 bool btrcWaylandSceneDark(void);
 void btrcWaylandSceneClose(BtrcShimWindow *window);
@@ -52,4 +58,5 @@ struct BtrcEditContext;
 bool btrcWaylandSceneEditContext(BtrcWaylandWindow *window, struct BtrcEditContext *context);
 bool btrcWaylandSceneDeleteAround(BtrcWaylandWindow *window, unsigned before, unsigned after);
 bool btrcWaylandSceneInput(BtrcWaylandDisplay *display, const BtrcShimEvent *event, bool *handled);
+int btrcWaylandShowAlert(BtrcShimWindow *parent, const char *title, const char *message);
 #endif

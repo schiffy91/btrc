@@ -2,9 +2,9 @@
 
 `import Library.GUI;` selects the native provider for the compilation target
 through the `[[package.providers]]` entries in `btrc.toml`: `MacOS.GUIProvider`
-(AppKit) for `macos`, and `Shim.GUIProvider` for `linux` (GTK4), `windows`
-(Win32 and Common Controls 6, with WebView2 for the web view), `android`
-(the system's views through JNI) and `ios` (UIKit, for iOS and iPadOS). The
+(AppKit) for `macos`, and `Shim.GUIProvider` for `linux` (native Wayland),
+`windows` (Win32 and Common Controls 6, with WebView2 for the web view),
+`android` (the system's views through JNI) and `ios` (UIKit, for iOS and iPadOS). The
 shim provider is one portable implementation over a C contract that each of
 its platforms implements once (see "The shim provider" below). Call
 `GUI.initialize()`, create a window and controls
@@ -130,8 +130,8 @@ top-left logical points. `IWindow.onKey` routes keys before the focused control.
 
 `GUI.chooseDirectory(request)` runs the provider's modal directory picker
 (see `IDirectoryPicker.btrc`). On Linux the application asks the desktop's
-`org.freedesktop.portal.FileChooser` service over the session bus. Desktops
-without directory selection in that service use the existing GTK chooser.
+`org.freedesktop.portal.FileChooser` service over the session bus and returns
+a backend-unavailable outcome if the desktop has no directory portal.
 `GUI.createImageHandle(pixels)` converts decoded
 pixels to a native image on any thread, before or after `GUI.initialize`.
 
@@ -257,108 +257,84 @@ coalesced, overflow latched and reported by `take()` after native dispatch,
 matched by `button.matches(action)`; close buttons before their queue. `MacOSScrollView` keeps AppKit's unflipped coordinates for native
 document children while its public offsets count down from the top.
 
-## Native Wayland preview on Linux
+## The shim provider, and native Wayland on Linux
 
-Applications can opt into the first-party Wayland backend at build time. The
-same source imports `Library.GUI` and uses the usual window, view, and action
-interfaces. From a checkout with the compiler and wgpu-native SDK available:
+`Shim/GUIProvider` is selected for `linux`, `windows`, `android` and `ios` targets. Everything in `Shim/` is
+portable BTRC: the application, the view tree and its layout, the windows'
+frames and captures. It reaches the platform's display layer through one C
+contract (`Shim/Shim.h`, `ShimControls.h`, `ShimSurface.h`, `ShimWeb.h`),
+which each platform implements once: first-party native Wayland on Linux
+(`Linux/Wayland/*.c`), Win32 on Windows (`Windows/Win32*.c`), Android's views
+through JNI (`Android/Android*.c`), and UIKit on iOS and iPadOS (`IOS/UIKit*.m`).
+
+On Linux the default provider speaks the Wayland protocol directly over the
+compositor's socket with no GTK4, X11, Pango, Cairo, or link-time
+`libwayland-client` dependency:
+
+- Ordinary windows, controls, tooltips, select popups, modal alerts (`IWindow.showAlert`),
+  clipboard transfers, text input (`zwp_text_input_manager_v3`), and software
+  rendering run over the first-party wire client (`Linux/Wayland/Wire.c`,
+  `Window.c`, `Scene.c`, `Platform.c`, `Input.c`, `Keymap.c`). No callback
+  enters BTRC: Wayland events become plain records in the queue that
+  `ShimApplication.run()` polls.
+- Layout stays portable. Every frame walks the view tree back to front and
+  hands `Scene.c` each control's frame and ancestor clip rectangle. Controls
+  paint in software onto the window's shared-memory surface from `show()`
+  onward, without starting a GPU driver until a GPU view requests one.
+- `IGPUView` content is drawn by the window's WebGPU device onto a subsurface
+  placed below the window, and `Scene.c` punches a transparent hole where each
+  GPU view sits so controls placed before it stay behind it and controls placed
+  after it draw over it. Only when a window creates a GPU surface does
+  `Linux/Wayland/GPUWire.c` open `libwayland-client.so.0` at runtime to supply
+  the `wl_display` and `wl_surface` pointers required by `wgpu-native`.
+- `GUI.capture` composites the window's controls directly onto the software
+  background or read-back GPU frame, preserving exact z-order and clipping.
+- Keyboard handling reads physical key types, keypad bindings, Shift, Caps
+  Lock, and Num Lock from the compositor's compiled XKB keymap, decoding named
+  and numeric keysyms with the pinned xorgproto 2024.1 registry and Unicode
+  17.0.0 case tables (including Greek, Cyrillic, Arabic, Hebrew, Armenian, and
+  Thai layouts). Locale Compose sequences are not implemented in the first-party
+  keymap reader.
+- Text controls and `GUI.rasterizeText` use first-party TrueType/OpenType
+  shaping and rasterization against the desktop's configured sans font (Noto
+  Sans Regular/Bold is verified; select a font directory with `FONTCONFIG_FILE`
+  if needed). The first-party Latin text renderer covers printable ASCII,
+  precomposed Latin-1 letters, nonbreaking space, and ellipsis.
+- Desktop accessibility (`Linux/Wayland/Accessibility.btrc`) speaks AT-SPI
+  directly over the first-party D-Bus client, exposing windows, buttons,
+  labels, editable text fields with Unicode selection/replacement, sliders,
+  scrollbars, level indicators, spinners, modal alert routing, and automatic
+  reconnect when `at-spi2-registryd` starts late or restarts.
+- `GUI.chooseDirectory` opens `org.freedesktop.portal.FileChooser` over the
+  session bus and parents the dialog via `xdg-foreign` when the compositor
+  advertises it. If no directory portal is available, it returns a
+  backend-unavailable outcome.
+- `SharedFrameView` (`Linux/Wayland/SharedFrame.c` and `Linux/DmaBufReceiver.c`)
+  presents completed single-plane linear DRM `XRGB8888` and `ARGB8888` DMA-BUFs
+  backed by `udmabuf` or the kernel `system` DMA heap (verified via
+  `/proc/self/fdinfo`), preserving z-order composition and `GUI.capture`.
+  Driver-backed GPU DMA-BUF exporters and non-linear modifiers are rejected.
+- The optional [embedded-web package](../../../packages/embedded-web/README.md)
+  supplies the WebKitGTK control outside `src/stdlib` through the toolkit-neutral
+  external-control ABI in `EmbeddedWebHost/BtrcEmbeddedWebHost.h`. Call
+  `EmbeddedWeb.install()` before the first `WebView.create()` or use
+  `EmbeddedWeb.create()`. Plain `Library.GUI` programs that do not import
+  `packages/embedded-web` never link WebKitGTK or GTK4.
+- X11 is not supported by the default Linux provider (no GTK4/X11 backend;
+  Xwayland is not required for Wayland sessions). X11-only environments require
+  a Wayland compositor such as `labwc`.
+- Every provider and application entry point except `createImageHandle`
+  requires the thread that called `GUI.initialize`.
+- To build a standalone Linux GUI example directly:
 
 ```sh
 python -m tools.ui.build_wayland_preview examples/gui/Wayland.btrc -o /tmp/btrc-wayland
 /tmp/btrc-wayland
 ```
 
-Pass `--compiler /path/to/btrcc` to use the self-hosted compiler. Run the
-executable inside a Wayland session. The example mounts a label and a button
-on a panel. Clicking Quit dispatches its registered action and closes the
-window. The preview shapes printable Latin text in supported TrueType fonts.
-Noto Sans Regular is verified for this example. If the configured desktop
-sans face cannot be opened or shaped, control creation can fail. To select
-Noto Sans for just this application, point `FONTCONFIG_FILE` to a font
-configuration such as the following, using the directory where Noto Sans is
-installed on your system.
-
-```xml
-<fontconfig>
-  <dir>/usr/share/fonts/truetype/noto</dir>
-  <alias><family>sans-serif</family><prefer><family>Noto Sans</family></prefer></alias>
-</fontconfig>
-```
-
-`GUI.chooseDirectory` opens the desktop portal’s folder chooser. A compositor with
-xdg-foreign can parent the dialog to the application window. If the desktop has
-no directory portal the preview returns a backend-unavailable error.
-
-The unchanged `examples/gui/Native.btrc` also runs through the same command.
-It uses a text field and two buttons. Editing the draft and activating Apply
-changes the real window title. Text fields support grapheme-aware selection,
-deletion and undo. The current Latin renderer has limited font and script
-coverage. The preview supports keyed selection menus through `GUI.createSelect()`.
-A click or Return opens the menu. Arrow keys move between enabled options,
-Return commits the choice, and Escape cancels. Long lists accept wheel input.
-A window can show a parented modal alert with `IWindow.showAlert()`. The call
-returns after the user dismisses the dialog. Long messages accept wheel and
-keyboard scrolling. The preview uses software rendering for these controls.
-
-`GUI.rasterizeText` returns a caller-owned, white RGBA image with the glyph
-coverage in its alpha channel. It uses the same configured regular or bold
-face as the controls. The native text renderer handles printable ASCII,
-precomposed Latin-1 letters, nonbreaking space and ellipsis. A run that needs
-another script or an unavailable glyph reports a rendering error.
-
-Applications that need embedded web views, desktop accessibility, or shared-frame
-views should use the default Linux GUI build. Embedded web views report the unavailable operation.
-Shared-frame creation returns its usual unavailable result. Runtime backend
-selection is fixed when the application is built.
-
-## The shim provider, and GTK4 on Linux
-
-`Shim/GUIProvider` is selected for `linux` targets. Everything in `Shim/` is
-portable BTRC: the application, the view tree and its layout, the windows'
-frames and captures. It reaches the platform's toolkit through one C
-contract (`Shim/Shim.h`, `ShimControls.h`, `ShimSurface.h`, `ShimWeb.h`),
-which each platform implements once: GTK4 on Linux (`Linux/Gtk*.c`), Win32
-on Windows (`Windows/Win32*.c`), Android's views through JNI
-(`Android/Android*.c`), UIKit on iOS and iPadOS (`IOS/UIKit*.m`). On Linux its windows and controls are
-GTK4's: a button is a `GtkButton`, a text field a `GtkEntry`, a select a
-`GtkDropDown`, a slider a `GtkScale`, and they look, focus, type and speak to
-assistive technology as GTK makes them. One provider runs on X11, Wayland and
-the Deck's Gamescope session.
-
-- The shim owns every GTK object (`GtkShim.c` windows and events,
-  `GtkCanvas.c` the window's content, `GtkControls.c` the controls,
-  `GtkSurface.c` the WebGPU surface, `GtkWeb.c` the web view). No GTK callback enters BTRC: a signal becomes an
-  event in a bounded queue the shim owns, and `ShimApplication.run()` polls
-  it, iterating GLib's main context between events. A control's event names
-  the view that owns it, and the window routes it there.
-- Layout stays portable. The window's content is one canvas that measures
-  nothing and puts each control exactly where the view tree says; every
-  control sits in a slot that clips it, so a scroll view clips its children
-  like any other. A frame walks the tree and hands GTK the controls back to
-  front. This happens at `show()` too, before the GPU device is ready, so
-  what a person sees they can click.
-- `IGPUView` content is drawn by the window's WebGPU device. On Wayland it
-  goes to a subsurface below the window, and the canvas leaves a hole where
-  each GPU view is. On X11 each frame is read back and handed to GTK as a
-  picture drawn at the view's place in the order. Either way a control placed
-  over a GPU view is over it, and one placed under is under.
-- `GUI.capture` is the GPU frame read back with GTK's own rendering of the
-  controls laid over it, so a capture is what the window shows, and the
-  part of it that is the view asked for. A view another one overlaps has
-  the other's pixels where they overlap, which macOS leaves out. It fails
-  at once if the window's device is not ready rather than waiting on the UI
-  thread; a program that captures straight after `show()` asks again until
-  it is, and needs no turn of the loop for the controls to be in it.
-- The optional [embedded-web package](../../../packages/embedded-web/README.md)
-  supplies the WebKitGTK control. Call `EmbeddedWeb.install()` before the
-  first `WebView.create()` or use `EmbeddedWeb.create()`. Existing clients keep
-  the same `IWebView` bundle, message, and navigation APIs.
-- Every provider and application entry point except `createImageHandle`
-  requires the thread that called `GUI.initialize`.
-- `IWindow.showAlert` is a GTK alert; `GUI.chooseDirectory` is GTK's folder
-  dialog (the desktop portal's, where there is one), pumped like a modal.
-- GTK is initialized once, by the first `GUI.initialize`, and stays
-  initialized for the process.
+Pass `--compiler /path/to/btrcc` to use the self-hosted compiler. Both
+`examples/gui/Wayland.btrc` and `examples/gui/Native.btrc` run inside a Wayland
+session.
 
 On Windows the same provider runs over `Windows/Win32*.c`:
 
@@ -518,7 +494,7 @@ destruction; there is no opaque `Surface.handle` or native surface destructor.
 | `FreeType.btrc` | First-party `FreeType.load` factory dispatching by magic bytes to `OpenType/` and `Bitmap/` readers without `libfreetype`. |
 | `MacOS/` | AppKit provider: `GUIProvider`, `MacOS*` views and application, run-loop signal, composed capture, SDK headers. |
 | `Shim/` | The provider for platforms whose toolkit is reached through a C contract: `GUIProvider`, `WebViewProvider`, `Shim*` views and application, and the contract's headers. |
-| `Linux/` | The contract in GTK4: `GtkShim`, `GtkCanvas`, `GtkControls`, `GtkSurface`, `GtkWeb`. |
+| `Linux/` | Native Wayland provider (`Wayland/`: wire protocol, windows, controls, software scene, AT-SPI accessibility, shared-frame DMA-BUF receiver, lazy GPU subsurface bridge), portal directory picker, and desktop font configuration. |
 | `Android/` | The contract over Android's views through JNI: `AndroidShim` (windows, events, controls, text), `AndroidSurface`, `AndroidWeb`, and `Java`, package `dev.btrc.shim` (`ShimActivity`, `Shim`, `ShimWeb`, `Slot`), the Java an app compiles in. |
 | `IOS/` | The contract in UIKit, for iOS and iPadOS: `UIKitShim` (the app's entry, scenes, windows, events, text), `UIKitControls` (UIKit's controls in clipping slots), `UIKitSurface` (the content's `CAMetalLayer`), `UIKitWeb` (`WKWebView`). |
 | `Windows/` | The contract in Win32: `Win32Shim` (windows, events, text), `Win32Controls` (Common Controls 6 as child windows, placed and clipped by window regions), `Win32Surface`, `Win32Web` (WebView2). |

@@ -48,6 +48,24 @@ int main(int argc, char **argv) {
             assert(activate(device, withMenu ? "Native Wayland / Second" : "Native Wayland"));
             key(device, CONFORMANCE_KEY_TAB);
             key(device, CONFORMANCE_KEY_RETURN);
+        } else if (!strcmp(argv[1], "caret")) {
+            puts("keyboard ready"); fflush(stdout);
+            assert(activate(device, "Native BTRC"));
+            key(device, CONFORMANCE_KEY_TAB);
+            key(device, CONFORMANCE_KEY_SELECT_ALL);
+            assert(device->text("office", settle));
+            puts("ligature ready"); fflush(stdout);
+            double x, y;
+            assert(scanf("%lf %lf", &x, &y) == 2);
+            assert(device->move(x, y)); settle();
+            assert(device->button(true)); settle();
+            assert(device->button(false)); settle();
+            assert(device->text("X", settle));
+            key(device, CONFORMANCE_KEY_TAB);
+            key(device, CONFORMANCE_KEY_RETURN);
+            assert(activate(device, "oXffice"));
+            key(device, CONFORMANCE_KEY_TAB);
+            key(device, CONFORMANCE_KEY_RETURN);
         } else { return 2; }
         return 0;
     }

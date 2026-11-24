@@ -7,13 +7,21 @@ import time
 
 import pytest
 
-from src.tests.python.test_first_party_wayland_window import SESSION, client, input_device  # noqa: F401
+from src.tests.python.test_first_party_wayland_window import (
+    SESSION,
+    client,  # noqa: F401
+    input_device,  # noqa: F401
+    wayland_session_env,
+)
 
 
 @pytest.mark.parametrize("scale", [1, 2])
 def test_tooltip_popup_click_through_scale_and_gpu(client, input_device, scale):  # noqa: F811
     subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, client, input_device, str(scale)], check=True, timeout=30
+        [SESSION, "--wayland", "--", sys.executable, __file__, client, input_device, str(scale)],
+        env=wayland_session_env(gpu=True),
+        check=True,
+        timeout=30,
     )
 
 

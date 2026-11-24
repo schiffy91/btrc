@@ -1,3 +1,4 @@
+#include <stdbool.h>
 /* Independent input-method process speaking the compositor's IM-side v2
  * protocol. The product uses the client-side text-input-v3 protocol. */
 #include <wayland-client.h>
@@ -62,7 +63,8 @@ int main(int argc, char **argv) {
     puts("IM ready");
     fflush(stdout);
     while (active != 2) { assert(wl_display_dispatch(d) >= 0); }
-    if (argc == 2 && !strcmp(argv[1], "field")) {
+    bool testCaret = argc == 2 && !strcmp(argv[1], "caret-field");
+    if (argc == 2 && (testCaret || !strcmp(argv[1], "field"))) {
         while (strcmp(context, "Native BTRC")) { assert(wl_display_dispatch(d) >= 0); }
         assert(cursor == strlen(context) && anchor == cursor);
         puts("surrounding confirmed"); fflush(stdout);
@@ -71,6 +73,16 @@ int main(int argc, char **argv) {
         wl_proxy_marshal_flags(im, 3, NULL, 1, 0, serial);
         assert(wl_display_roundtrip(d) >= 0);
         puts("preedit sent"); fflush(stdout);
+        if (testCaret) {
+            const int cursors[][2] = {{0, 0}, {1, 4}, {-1, -1}};
+            for (size_t i = 0; i < sizeof cursors / sizeof cursors[0]; ++i) {
+                assert(getchar() == '\n');
+                wl_proxy_marshal_flags(im, 1, NULL, 1, 0, "draft", cursors[i][0], cursors[i][1]);
+                wl_proxy_marshal_flags(im, 3, NULL, 1, 0, serial);
+                assert(wl_display_roundtrip(d) >= 0);
+                puts("cursor sent"); fflush(stdout);
+            }
+        }
         assert(getchar() == '\n');
         wl_proxy_marshal_flags(im, 2, NULL, 1, 0, 4u, 0u);
         wl_proxy_marshal_flags(im, 0, NULL, 1, 0, "Wayland");

@@ -4,6 +4,7 @@ import Library.GUI;
 import Library.GUI.IApplication;
 import Library.GUI.IWindow;
 import Library.GUI.IButton;
+import Library.GUI.ITextField;
 import Library.Image;
 
 #include <assert.h>
@@ -42,6 +43,8 @@ int main() {
 		var panel=GUI.createPanel(RGBA(37,179,125));
 		var action=ParentAction(); var button=GUI.createButton("Parent action");
 		window.attachRoot(panel); panel.attach(button); button.arrange(12,12,116,34);
+		var field = GUI.createTextField("Existing", "Owner field");
+		panel.attach(field); field.arrange(12, 64, 160, 34);
 		button.onAction(action,scope);
 		window.show(); GUI.post(DisplayAlerts(window)); GUI.run();
 		assert(action.count == 1);

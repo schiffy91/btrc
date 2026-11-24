@@ -99,7 +99,7 @@ static const struct wl_message positionerRequests[] = {
     {"set_anchor", "u", arguments}, {"set_gravity", "u", arguments},
     {"set_constraint_adjustment", "u", arguments}, {"set_offset", "ii", arguments}
 };
-static const struct wl_message popupRequests[] = {{"destroy", "", NULL}};
+static const struct wl_message popupRequests[] = {{"destroy", "", NULL}, {"grab", "ou", arguments}};
 static const struct wl_message popupEvents[] = {{"configure", "iiii", arguments}, {"popup_done", "", NULL}, {"repositioned", "u", arguments}};
 static const struct wl_message toplevelRequests[] = {
     {"destroy", "", NULL}, {"set_parent", "?o", arguments}, {"set_title", "s", arguments},
@@ -128,16 +128,20 @@ static const struct wl_message exporterRequestsV1[] = {{"destroy", "", NULL}, {"
 static const struct wl_message exporterRequestsV2[] = {{"destroy", "", NULL}, {"export_toplevel", "no", arguments}};
 static const struct wl_message exportedRequests[] = {{"destroy", "", NULL}};
 static const struct wl_message exportedEvents[] = {{"handle", "s", arguments}};
+static const struct wl_message dialogManagerRequests[] = {{"destroy", "", NULL}, {"get_xdg_dialog", "no", arguments}};
+static const struct wl_message dialogRequests[] = {{"destroy", "", NULL}, {"set_modal", "", NULL}, {"unset_modal", "", NULL}};
 static const struct wl_interface shellInterfaces[] = {
     {"zxdg_exporter_v1", 1, 2, exporterRequestsV1, 0, NULL}, {"zxdg_exporter_v2", 1, 2, exporterRequestsV2, 0, NULL},
     {"zxdg_exported_v1", 1, 1, exportedRequests, 1, exportedEvents}, {"zxdg_exported_v2", 1, 1, exportedRequests, 1, exportedEvents},
+    {"xdg_wm_dialog_v1", 1, 2, dialogManagerRequests, 0, NULL},
+    {"xdg_dialog_v1", 1, 3, dialogRequests, 0, NULL},
     {"zwp_text_input_manager_v3", 1, 2, textManagerRequests, 0, NULL},
     {"zwp_text_input_v3", 1, 8, textRequests, 6, textEvents},
     {"wp_cursor_shape_manager_v1", 1, 3, cursorManagerRequests, 0, NULL},
     {"wp_cursor_shape_device_v1", 1, 2, cursorRequests, 0, NULL},
     {"xdg_wm_base", 6, 4, shellRequests, 1, shellEvents},
     {"xdg_surface", 6, 5, surfaceRequests, 1, surfaceEvents},
-    {"xdg_positioner", 6, 7, positionerRequests, 0, NULL}, {"xdg_popup", 6, 1, popupRequests, 3, popupEvents},
+    {"xdg_positioner", 6, 7, positionerRequests, 0, NULL}, {"xdg_popup", 6, 2, popupRequests, 3, popupEvents},
     {"xdg_toplevel", 6, 14, toplevelRequests, 4, toplevelEvents}
 };
 

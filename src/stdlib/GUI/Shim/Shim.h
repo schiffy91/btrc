@@ -1,14 +1,9 @@
 #ifndef BTRC_SHIM_H
 #define BTRC_SHIM_H
-/* The GTK4 side of the Linux provider. This header names no GTK type: the
- * shim (GtkShim.c) owns every GTK object, and BTRC sees windows as opaque
- * handles and input as plain events it polls each turn. No GTK callback
- * enters BTRC.
- *
- * A window's content is drawn by the provider under the window's native
- * controls: on Wayland on a GPU surface that lies below the GTK toplevel,
- * which is transparent where no control covers it
- * (docs/design/native-ui-gtk4-gate); on X11 as pictures GTK draws.
+/* The portable C contract for the shim GUI provider (native Wayland on Linux,
+ * Win32 on Windows, JNI views on Android, UIKit on iOS). BTRC sees windows as
+ * opaque handles and input as plain events it polls each turn; no toolkit
+ * callback enters BTRC.
  *
  * Every function but btrcShimPushWake belongs to the thread that called
  * btrcShimInit. Coordinates and sizes are the content's logical points. */
@@ -115,7 +110,8 @@ enum BtrcShimSliderChange {
 	BTRC_SHIM_SLIDER_PAGE_BACKWARD,
 	BTRC_SHIM_SLIDER_PAGE_FORWARD,
 	BTRC_SHIM_SLIDER_START,
-	BTRC_SHIM_SLIDER_END
+	BTRC_SHIM_SLIDER_END,
+	BTRC_SHIM_SLIDER_ASSISTIVE_VALUE
 };
 
 /* An event's `key`: the keys the provider acts on. Letters and brackets

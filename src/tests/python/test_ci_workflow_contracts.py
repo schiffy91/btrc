@@ -709,7 +709,7 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
                     made = next(entry for entry in TIERS.jobs if entry.reference == f"{workflow}/{producer}")
                     if (workflow, name, producer) == ("ci.yml", "linux-gui-coverage", "linux-gui"):
                         assert made.key == "cell"
-                        assert {shard.row["session"] for shard in TIERS.shards_of(made)} == {"x11", "wayland"}
+                        assert {shard.row["session"] for shard in TIERS.shards_of(made)} == {"wayland"}
                         assert all(shard.condition in conditions for shard in TIERS.shards_of(made))
                         continue
                     if (workflow, name, producer) == ("macos.yml", "native-gui-coverage", "native-gui"):
@@ -2113,25 +2113,24 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     assert job["timeout-minutes"] == "90"
     assert job["runs-on"] == "ubuntu-latest"
     rows = [shard.row for shard in TIERS.shards if shard.job == "ci.yml/linux-gui"]
-    # X11 gates; Wayland reports only until its sanitized shell journey is stable.
+    # Native Wayland is Linux's shipping GUI provider and gates every GUI tier.
     assert rows == [
         {
-            "cell": f"{session}-{index}",
-            "session": session,
+            "cell": f"wayland-{index}",
+            "session": "wayland",
             "index": str(index),
             "count": "4",
-            "report_only": report_only,
+            "report_only": "false",
         }
-        for session, report_only in (("x11", "false"), ("wayland", "true"))
         for index in range(4)
     ]
     assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
-    gating = [row for row in rows if row["session"] == "x11"]
+    gating = [row for row in rows if row["session"] == "wayland"]
     assert TIERS.plan("ci.yml", "main")["matrix"]["linux-gui"]["include"] == gating
     for tier in ("extended", "release", "native-gui"):
         plan = TIERS.plan("ci.yml", tier)
         assert plan["matrix"]["linux-gui"]["include"] == rows, tier
-    # A pull request or lane that touches a GUI path runs the gating session, never the report-only one.
+    # A pull request or lane that touches a GUI path runs the gating Wayland session.
     for tier in ("pr", "lane"):
         touched = TIERS.plan("ci.yml", tier, ["src/stdlib/Audio/Linux/Alsa.btrc"])
         assert touched["matrix"]["linux-gui"]["include"] == gating, tier
@@ -2287,15 +2286,14 @@ def test_linux_e40_has_serial_cells_and_complete_artifacts() -> None:
     assert job["timeout-minutes"] == "90"
     rows = [shard.row for shard in TIERS.shards if shard.job == "ci.yml/linux-e40"]
     expected = {
-        (session, frontend, variant, f"{session}-{frontend}-{variant}")
-        for session in ("x11", "wayland")
+        ("wayland", frontend, variant, f"wayland-{frontend}-{variant}")
         for frontend in ("python", "selfhost")
         for variant in ("plain", "sanitized")
     }
-    assert len(rows) == 8
-    assert all(row["report_only"] == ("true" if row["session"] == "wayland" else "false") for row in rows)
+    assert len(rows) == 4
+    assert all(row["report_only"] == "false" for row in rows)
     assert {(row["session"], row["frontend"], row["variant"], row["cell"]) for row in rows} == expected
-    gating = [row for row in rows if row["session"] == "x11"]
+    gating = [row for row in rows if row["session"] == "wayland"]
     assert TIERS.plan("ci.yml", "main")["matrix"]["linux-e40"]["include"] == gating
     for tier in ("extended", "release", "native-gui"):
         assert TIERS.plan("ci.yml", tier)["matrix"]["linux-e40"]["include"] == rows
@@ -2584,13 +2582,13 @@ def test_unit_diagnostic_preserves_the_complete_shard_and_runner_limits() -> Non
     assert "$(SKIP_GATE) build/skip-report-unit.json" in recipe
 
 
-def test_linux_gui_union_is_required_and_keeps_wayland_report_only() -> None:
+def test_linux_gui_union_is_required_for_wayland() -> None:
     job = _parsed("ci.yml")["jobs"]["linux-gui-coverage"]
     assert job["needs"] == ["scope", "linux-gui"]
     assert "always()" in job["if"]
     assert job["continue-on-error"] == "${{ matrix.report_only == 'true' }}"
     rows = [shard.row for shard in TIERS.shards if shard.job == "ci.yml/linux-gui-coverage"]
-    assert rows == [{"session": "x11", "report_only": "false"}, {"session": "wayland", "report_only": "true"}]
+    assert rows == [{"session": "wayland", "report_only": "false"}]
     producer = _parsed("ci.yml")["jobs"]["linux-gui"]
     proof = next(step for step in producer["steps"] if step.get("name") == "Retain the exact partition proof")
     assert proof["with"]["name"] == "gui-partition-ci-linux-gui-${{ matrix.cell }}"
@@ -2604,8 +2602,8 @@ def test_linux_gui_union_is_required_and_keeps_wayland_report_only() -> None:
     verify = next(step for step in job["steps"] if "tools.ui.gui_shards aggregate" in step.get("run", ""))
     assert verify["if"] == "always()"
     assert '--count 4 --revision "$GITHUB_SHA"' in verify["run"]
-    # The gating session's union is checked on every push; the report-only session's with its rows, nightly.
-    assert TIERS.plan("ci.yml", "main")["matrix"]["linux-gui-coverage"]["include"] == rows[:1]
+    # The gating Wayland session's union is checked on every push and release tier.
+    assert TIERS.plan("ci.yml", "main")["matrix"]["linux-gui-coverage"]["include"] == rows
     for tier in ("extended", "release", "native-gui"):
         assert TIERS.plan("ci.yml", tier)["matrix"]["linux-gui-coverage"]["include"] == rows, tier
     assert "continue-on-error" not in verify
@@ -2701,7 +2699,7 @@ def test_unit_make_recipe_reuses_the_compiler_and_preserves_gui_coverage(tmp_pat
         "PYTEST_ARGS=",
         "SKIP_GATE=true",
         f"TEST_BTRCC={compiler}",
-        "GUI_SESSION=x11",
+        "GUI_SESSION=wayland",
         "test-shard-unit",
         "print-gui-selectors",
     ]
@@ -2980,7 +2978,7 @@ def _plan_output(plan: dict[str, object]) -> str:
             "",
         ),
         (
-            [[_status("local/linux-x86_64/CI / linux-gui (x11-0)"), _status("local/linux-x86_64/CI / bench")]],
+            [[_status("local/linux-x86_64/CI / linux-gui (wayland-0)"), _status("local/linux-x86_64/CI / bench")]],
             "push",
             "",
         ),

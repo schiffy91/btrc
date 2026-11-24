@@ -4,19 +4,9 @@
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
-#include <endian.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <gbm.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <unistd.h>
-
-#define REQUIRE(x) do { if (!(x)) { fprintf(stderr, "%s failed at line %d\n", #x, __LINE__); exit(1); } } while (0)
+#include "LinuxFramePacket.h"
 
 static struct gbm_device* device;
 static EGLDisplay display;
@@ -72,36 +62,12 @@ static void deliver(const char* path, unsigned width, unsigned format) {
     glFinish();
     REQUIRE(glGetError() == GL_NO_ERROR);
 
-    /* Encode one linear XRGB plane independently of the receiver. An invalid
-     * request points past the end of a real DMA-BUF of the right format. */
-    uint32_t words[16] = { 0, htole32(width), htole32(height), htole32(GBM_FORMAT_XRGB8888),
-                           0, 0, htole32(1), 0, htole32(gbm_bo_get_stride(bo)),
-                           format == 1 ? 0 : UINT32_MAX };
-    memcpy(words, "BTF1", 4);
-    struct sockaddr_un peer = { .sun_family = AF_UNIX };
-    REQUIRE(strlen(path) < sizeof peer.sun_path);
-    strcpy(peer.sun_path, path);
-    struct iovec payload = {words, sizeof words};
-    union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof backingFd)]; } control;
-    struct msghdr msg = { .msg_name = &peer, .msg_namelen = sizeof peer, .msg_iov = &payload, .msg_iovlen = 1,
-        .msg_control = control.bytes, .msg_controllen = CMSG_SPACE(sizeof backingFd) };
-    struct cmsghdr* c = CMSG_FIRSTHDR(&msg);
-    c->cmsg_level = SOL_SOCKET;
-    c->cmsg_type = SCM_RIGHTS;
-    c->cmsg_len = CMSG_LEN(sizeof backingFd);
-    memcpy(CMSG_DATA(c), &backingFd, sizeof backingFd);
-    int sock = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
-    REQUIRE(sock >= 0);
-    ssize_t size = sendmsg(sock, &msg, MSG_DONTWAIT);
-    if (size < 0 && (errno == ENOENT || errno == ECONNREFUSED)) { puts("closed"); }
-    else { REQUIRE(size == sizeof words); puts("sent"); }
-    close(sock);
+    sendFrame(path, backingFd, width, height, GBM_FORMAT_XRGB8888, gbm_bo_get_stride(bo), format == 1 ? 0 : UINT32_MAX);
     eglDestroyImage(display, backing);
     close(backingFd);
     gbm_bo_destroy(bo);
     glDeleteFramebuffers(1, &fb);
     glDeleteTextures(1, &texture);
-    fflush(stdout);
 }
 
 int main(int argc, char** argv) {

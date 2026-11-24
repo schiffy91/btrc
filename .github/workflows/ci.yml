@@ -355,9 +355,9 @@ jobs:
       # runner within its real CPU/memory envelope and allow one slow
       # self-host transpile to make progress under shared load. The init owner
       # reaps daemon-test grandchildren after process-group termination.
-      # The runner has no display or GPU: tools/virtual-display.sh starts Xvfb
-      # and selects Mesa's software Vulkan (lavapipe), so the Linux GUI and
-      # WebGPU adapter tests run here instead of skipping.
+      # The runner has no display or GPU: tools/virtual-display.sh starts labwc
+      # (headless Wayland) and selects Mesa's software Vulkan (lavapipe), so the
+      # Linux GUI and WebGPU adapter tests run here instead of skipping.
       # ThreadSanitizer cannot map its shadow at a kernel's highest address
       # randomisation and then switches it off for itself with personality().
       # The container's default seccomp profile refuses that call, and the
@@ -637,12 +637,10 @@ jobs:
           retention-days: 14
 
   # The Linux GUI and audio shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
-  # `make test-shard-gui` in four disjoint partitions per protocol, each in its own
-  # tools/ui/headless-session.sh session (Xvfb, or labwc's headless backend)
+  # `make test-shard-gui` in four disjoint partitions on Wayland, each in its own
+  # tools/ui/headless-session.sh session (labwc's headless backend)
   # with lavapipe as the GPU adapter and the null ALSA PCM as the sound card.
-  # Unlike the native-gui job its X11 rows run on every push; the report-only
-  # Wayland rows run nightly (the extended tier), in a release and in the
-  # native-gui dispatch.
+  # Unlike the native-gui job its Wayland rows run on every push.
   # Each row keeps its session's AT-SPI dump, the native-shell ledgers, the
   # shell and restore logs pytest left, and its JUnit results.
   linux-gui:
@@ -722,7 +720,7 @@ jobs:
           retention-days: 14
 
   # A green subset cannot qualify the session. Missing/failed/overlapping cells
-  # fail this check; Wayland keeps its existing report-only policy.
+  # fail this check on the gating Wayland session.
   linux-gui-coverage:
     needs: [scope, linux-gui]
     if: ${{ always() && needs.scope.result == 'success' && contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-gui-coverage') }}
@@ -755,8 +753,7 @@ jobs:
           retention-days: 14
 
   # Each row runs 16 repeated bursts and one 600-second load serially.
-  # X11 gates on every push; Wayland retains the approved carried residual
-  # and runs with the other report-only Wayland rows, nightly.
+  # Native Wayland gates on every push and GUI-touching pull request.
   linux-e40:
     needs: [scope, prepare]
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'linux-e40')

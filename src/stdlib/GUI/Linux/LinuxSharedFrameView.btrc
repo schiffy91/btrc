@@ -10,11 +10,11 @@ class LinuxSharedFrameView extends ShimNodeView implements ISharedFrameView {
 	private BtrcShimControl* _picture;
 	private BtrcDmaBufReceiver* _receiver = null;
 
-	class bool supported() { return btrcGtkSupportsSharedFrames(); }
+	class bool supported() { return btrcLinuxSupportsSharedFrames(); }
 
 	public LinuxSharedFrameView(ShimContext context) {
 		self.adoptNode(ShimViewNode(context));
-		self._picture = btrcGtkSharedFrameCreate((unsigned int)self.node().id);
+		self._picture = btrcLinuxSharedFrameCreate((unsigned int)self.node().id);
 		if (self._picture == null) { throw "Cannot create shared frame view"; }
 	}
 
@@ -29,20 +29,20 @@ class LinuxSharedFrameView extends ShimNodeView implements ISharedFrameView {
 	public void disconnect() {
 		self.node().requireOpen();
 		self.releaseReceiver();
-		btrcGtkSharedFrameClear(self._picture);
+		btrcLinuxSharedFrameClear(self._picture);
 		self.node().invalidate();
 	}
 
 	public bool presentPending() {
 		self.node().requireOpen();
-		if (self._receiver == null || !btrcGtkPictureReceive(self._picture, self._receiver)) { return false; }
+		if (self._receiver == null || !btrcLinuxSharedFrameReceive(self._picture, self._receiver)) { return false; }
 		self.node().invalidate();
 		return true;
 	}
 
-	public int frameWidth() { self.node().requireOpen(); return btrcGtkPictureFrameWidth(self._picture); }
+	public int frameWidth() { self.node().requireOpen(); return btrcLinuxSharedFrameWidth(self._picture); }
 
-	public int frameHeight() { self.node().requireOpen(); return btrcGtkPictureFrameHeight(self._picture); }
+	public int frameHeight() { self.node().requireOpen(); return btrcLinuxSharedFrameHeight(self._picture); }
 
 	public double fittingWidth() { return (double)self.frameWidth(); }
 

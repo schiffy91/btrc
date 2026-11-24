@@ -4,11 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The provider shim's queue, as its own sources see it (GtkShimPrivate.h). */
-bool btrcGtkPush(const BtrcShimEvent *event, const char *text);
-int btrcGtkQueued(unsigned int firstType, unsigned int lastType);
-void btrcGtkQueueFlush(void);
-void btrcGtkQueueFilter(bool (*accept)(const BtrcShimEvent *event));
+/* The provider shim's queue, as its Wayland platform exposes it. */
+bool btrcWaylandQueuePush(const BtrcShimEvent *event, const char *text);
+int btrcWaylandQueueCount(unsigned int firstType, unsigned int lastType);
+void btrcWaylandQueueFlush(void);
+void btrcWaylandQueueFilter(bool (*accept)(const BtrcShimEvent *event));
 
 /* A key this observer queued says so, and carries its ordinal. */
 enum { ORDINAL_MARK = 0x45343021 };
@@ -64,7 +64,7 @@ static bool accepted(const BtrcShimEvent *event) { return event->type == BTRC_SH
 
 static void push(const BtrcShimEvent *event, const char *text) {
     bool relevant = armed && testInput(event);
-    bool result = btrcGtkPush(event, text);
+    bool result = btrcWaylandQueuePush(event, text);
     if (relevant) { if (result) { admitted++; } else { rejected++; } }
 }
 
@@ -75,8 +75,8 @@ void eventBoundaryArm(unsigned int window) {
     target = window;
     admitted = rejected = 0;
     armed = true;
-    btrcGtkQueueFlush();
-    btrcGtkQueueFilter(accepted);
+    btrcWaylandQueueFlush();
+    btrcWaylandQueueFilter(accepted);
 }
 
 void eventBoundaryKey(unsigned int window, int ordinal, int down) {
@@ -103,9 +103,9 @@ void eventBoundaryText(unsigned int window, unsigned int control, const char *te
 
 int eventBoundaryQueued(void) {
     /* Count the injected classes without counting or removing permitted wakes. */
-    return btrcGtkQueued(BTRC_SHIM_EVENT_KEY_DOWN, BTRC_SHIM_EVENT_KEY_UP) +
-           btrcGtkQueued(BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED, BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED) +
-           btrcGtkQueued(BTRC_SHIM_EVENT_WINDOW_CLOSE_REQUESTED, BTRC_SHIM_EVENT_WINDOW_CLOSE_REQUESTED);
+    return btrcWaylandQueueCount(BTRC_SHIM_EVENT_KEY_DOWN, BTRC_SHIM_EVENT_KEY_UP) +
+           btrcWaylandQueueCount(BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED, BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED) +
+           btrcWaylandQueueCount(BTRC_SHIM_EVENT_WINDOW_CLOSE_REQUESTED, BTRC_SHIM_EVENT_WINDOW_CLOSE_REQUESTED);
 }
 
 void eventBoundaryClose(unsigned int window) {
@@ -118,4 +118,4 @@ void eventBoundaryClose(unsigned int window) {
     if (armed && admitted == before) { abort(); }
 }
 
-void eventBoundaryDisarm(void) { armed = false; btrcGtkQueueFilter(NULL); }
+void eventBoundaryDisarm(void) { armed = false; btrcWaylandQueueFilter(NULL); }

@@ -26,22 +26,36 @@ class DefaultTextFont {
 			DefaultTextFont.settings = config;
 		}
 		var families = config.forFace(bold, logicalSize);
-		if (families.isEmpty()) { return ""; }
 		Vector<int> latin = [32, 65];
 		int weight = bold ? 700 : 400;
+		var roots = config.roots;
+		if (roots.isEmpty()) {
+			roots = InstalledFontCatalog.dataRoots(getenv("HOME"), getenv("XDG_DATA_HOME"), getenv("XDG_DATA_DIRS"));
+		}
 		var installed = DefaultTextFont.desktop;
 		if (installed == null) {
-			installed = InstalledFontCatalog(config.roots, INSTALLED_DESKTOP_FILES);
+			installed = InstalledFontCatalog(roots, INSTALLED_DESKTOP_FILES);
 			DefaultTextFont.desktop = installed;
 		}
 		var chosen = installed.match(families, weight, false, latin);
-		if (chosen == null) {
+		if (chosen == null && !families.isEmpty()) {
 			var wrappers = DefaultTextFont.web;
 			if (wrappers == null) {
-				wrappers = InstalledFontCatalog(config.roots, INSTALLED_WEB_FILES);
+				wrappers = InstalledFontCatalog(roots, INSTALLED_WEB_FILES);
 				DefaultTextFont.web = wrappers;
 			}
 			chosen = wrappers.match(families, weight, false, latin);
+		}
+		if (chosen == null) {
+			chosen = installed.matchAny(weight, false, latin);
+		}
+		if (chosen == null) {
+			var wrappers = DefaultTextFont.web;
+			if (wrappers == null) {
+				wrappers = InstalledFontCatalog(roots, INSTALLED_WEB_FILES);
+				DefaultTextFont.web = wrappers;
+			}
+			chosen = wrappers.matchAny(weight, false, latin);
 		}
 		return chosen == null || chosen.faceIndex != 0 ? "" : chosen.path;
 	}

@@ -174,19 +174,10 @@ job = "native-gui"
 tiers = ["native-gui", "release"]
 reports = ["skip-report", "junit"]
 
-# The Linux GUI and audio shard: four deterministic rows per protocol, each in its own
-# headless session (CL-UIA-11). There were eight while every row built its
-# own image and compiler; the prepare job builds those once now, so a row's
-# fixed cost is small and four rows cover the same selection.
-# X11 gates: it runs on every push and in the focused native-gui dispatch,
-# and a lane or pull request runs it when a GUI path changes. Wayland reports
-# only (its job may fail without failing the ci.yml run; a release bundle
-# still lists its reports, so a row that never reached pytest shows there as
-# missing evidence), so it runs nightly (the extended tier), in a release and
-# in the native-gui dispatch, not on every push. The native-shell journey
-# used to assert that a native close lands within one 10 ms tick, which fails
-# under ASan on Wayland; its final step now waits within the journey's budget
-# (batch 50). Flip report_only to "false" once Wayland runs green on main.
+# The Linux GUI and audio shard: four deterministic rows on Wayland, each in its own
+# headless labwc session (CL-UIA-11). Native Wayland is Linux's shipping GUI provider
+# (GTK 4 and X11 are retired), so Wayland gates on every push and in the focused
+# native-gui dispatch, and a lane or pull request runs it when a GUI path changes.
 [[jobs]]
 workflow = "ci.yml"
 job = "linux-gui"
@@ -195,172 +186,43 @@ reports = ["skip-report", "junit"]
 
 [[shards]]
 job = "ci.yml/linux-gui"
-cell = "x11-0"
-session = "x11"
-index = "0"
-count = "4"
-report_only = "false"
-tiers = ["main", "extended", "release", "native-gui"]
-selected_tiers = { lane = "lane-linux-gui" }
-changed_tiers = ["pr"]
-changed_paths = [
-  "src/stdlib/GUI/**",
-  "packages/embedded-web/**",
-  "src/stdlib/UI/**",
-  "src/stdlib/App/**",
-  "src/stdlib/Tray/**",
-  "src/stdlib/Audio/**",
-  "src/stdlib/GPU/**",
-  "src/tests/native/**",
-  "src/tests/python/test_native_*.py",
-  "src/tests/python/test_headless_session.py",
-  "src/tests/python/test_build_safety.py",
-  "src/stdlib/Image/**",
-  "src/tests/python/native_ui_shell_fixtures.py",
-  "src/tests/python/linux_provider_fixtures.py",
-  "tools/ui/**",
-  "tools/NativeHeaderReader.cpp",
-  "tools/virtual-display.sh",
-  "src/tests/python/pulse_audio_peer.py",
-  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
-  "!**/MacOS/**",
-  "!**/*MacOS*",
-  "!**/CoreAudio*",
-  "!**/*.m",
-  "!src/tests/python/test_native_gui_appkit.py",
-  "!src/tests/python/test_native_ui_shell_macos.py",
-  "!src/tests/python/test_native_objective_c_*.py",
-  "!tools/ui/codex-setup.sh",
-]
-
-[[shards]]
-job = "ci.yml/linux-gui"
-cell = "x11-1"
-session = "x11"
-index = "1"
-count = "4"
-report_only = "false"
-tiers = ["main", "extended", "release", "native-gui"]
-selected_tiers = { lane = "lane-linux-gui" }
-changed_tiers = ["pr"]
-changed_paths = [
-  "src/stdlib/GUI/**",
-  "packages/embedded-web/**",
-  "src/stdlib/UI/**",
-  "src/stdlib/App/**",
-  "src/stdlib/Tray/**",
-  "src/stdlib/Audio/**",
-  "src/stdlib/GPU/**",
-  "src/tests/native/**",
-  "src/tests/python/test_native_*.py",
-  "src/tests/python/test_headless_session.py",
-  "src/tests/python/test_build_safety.py",
-  "src/stdlib/Image/**",
-  "src/tests/python/native_ui_shell_fixtures.py",
-  "src/tests/python/linux_provider_fixtures.py",
-  "tools/ui/**",
-  "tools/NativeHeaderReader.cpp",
-  "tools/virtual-display.sh",
-  "src/tests/python/pulse_audio_peer.py",
-  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
-  "!**/MacOS/**",
-  "!**/*MacOS*",
-  "!**/CoreAudio*",
-  "!**/*.m",
-  "!src/tests/python/test_native_gui_appkit.py",
-  "!src/tests/python/test_native_ui_shell_macos.py",
-  "!src/tests/python/test_native_objective_c_*.py",
-  "!tools/ui/codex-setup.sh",
-]
-
-[[shards]]
-job = "ci.yml/linux-gui"
-cell = "x11-2"
-session = "x11"
-index = "2"
-count = "4"
-report_only = "false"
-tiers = ["main", "extended", "release", "native-gui"]
-selected_tiers = { lane = "lane-linux-gui" }
-changed_tiers = ["pr"]
-changed_paths = [
-  "src/stdlib/GUI/**",
-  "packages/embedded-web/**",
-  "src/stdlib/UI/**",
-  "src/stdlib/App/**",
-  "src/stdlib/Tray/**",
-  "src/stdlib/Audio/**",
-  "src/stdlib/GPU/**",
-  "src/tests/native/**",
-  "src/tests/python/test_native_*.py",
-  "src/tests/python/test_headless_session.py",
-  "src/tests/python/test_build_safety.py",
-  "src/stdlib/Image/**",
-  "src/tests/python/native_ui_shell_fixtures.py",
-  "src/tests/python/linux_provider_fixtures.py",
-  "tools/ui/**",
-  "tools/NativeHeaderReader.cpp",
-  "tools/virtual-display.sh",
-  "src/tests/python/pulse_audio_peer.py",
-  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
-  "!**/MacOS/**",
-  "!**/*MacOS*",
-  "!**/CoreAudio*",
-  "!**/*.m",
-  "!src/tests/python/test_native_gui_appkit.py",
-  "!src/tests/python/test_native_ui_shell_macos.py",
-  "!src/tests/python/test_native_objective_c_*.py",
-  "!tools/ui/codex-setup.sh",
-]
-
-[[shards]]
-job = "ci.yml/linux-gui"
-cell = "x11-3"
-session = "x11"
-index = "3"
-count = "4"
-report_only = "false"
-tiers = ["main", "extended", "release", "native-gui"]
-selected_tiers = { lane = "lane-linux-gui" }
-changed_tiers = ["pr"]
-changed_paths = [
-  "src/stdlib/GUI/**",
-  "packages/embedded-web/**",
-  "src/stdlib/UI/**",
-  "src/stdlib/App/**",
-  "src/stdlib/Tray/**",
-  "src/stdlib/Audio/**",
-  "src/stdlib/GPU/**",
-  "src/tests/native/**",
-  "src/tests/python/test_native_*.py",
-  "src/tests/python/test_headless_session.py",
-  "src/tests/python/test_build_safety.py",
-  "src/stdlib/Image/**",
-  "src/tests/python/native_ui_shell_fixtures.py",
-  "src/tests/python/linux_provider_fixtures.py",
-  "tools/ui/**",
-  "tools/NativeHeaderReader.cpp",
-  "tools/virtual-display.sh",
-  "src/tests/python/pulse_audio_peer.py",
-  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
-  "!**/MacOS/**",
-  "!**/*MacOS*",
-  "!**/CoreAudio*",
-  "!**/*.m",
-  "!src/tests/python/test_native_gui_appkit.py",
-  "!src/tests/python/test_native_ui_shell_macos.py",
-  "!src/tests/python/test_native_objective_c_*.py",
-  "!tools/ui/codex-setup.sh",
-]
-
-[[shards]]
-job = "ci.yml/linux-gui"
 cell = "wayland-0"
 session = "wayland"
 index = "0"
 count = "4"
-report_only = "true"
-tiers = ["extended", "release", "native-gui"]
+report_only = "false"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui" }
+changed_tiers = ["pr"]
+changed_paths = [
+  "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
+  "src/stdlib/UI/**",
+  "src/stdlib/App/**",
+  "src/stdlib/Tray/**",
+  "src/stdlib/Audio/**",
+  "src/stdlib/GPU/**",
+  "src/tests/native/**",
+  "src/tests/python/test_native_*.py",
+  "src/tests/python/test_headless_session.py",
+  "src/tests/python/test_build_safety.py",
+  "src/stdlib/Image/**",
+  "src/tests/python/native_ui_shell_fixtures.py",
+  "src/tests/python/linux_provider_fixtures.py",
+  "tools/ui/**",
+  "tools/NativeHeaderReader.cpp",
+  "tools/virtual-display.sh",
+  "src/tests/python/pulse_audio_peer.py",
+  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
+  "!**/MacOS/**",
+  "!**/*MacOS*",
+  "!**/CoreAudio*",
+  "!**/*.m",
+  "!src/tests/python/test_native_gui_appkit.py",
+  "!src/tests/python/test_native_ui_shell_macos.py",
+  "!src/tests/python/test_native_objective_c_*.py",
+  "!tools/ui/codex-setup.sh",
+]
 
 [[shards]]
 job = "ci.yml/linux-gui"
@@ -368,8 +230,39 @@ cell = "wayland-1"
 session = "wayland"
 index = "1"
 count = "4"
-report_only = "true"
-tiers = ["extended", "release", "native-gui"]
+report_only = "false"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui" }
+changed_tiers = ["pr"]
+changed_paths = [
+  "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
+  "src/stdlib/UI/**",
+  "src/stdlib/App/**",
+  "src/stdlib/Tray/**",
+  "src/stdlib/Audio/**",
+  "src/stdlib/GPU/**",
+  "src/tests/native/**",
+  "src/tests/python/test_native_*.py",
+  "src/tests/python/test_headless_session.py",
+  "src/tests/python/test_build_safety.py",
+  "src/stdlib/Image/**",
+  "src/tests/python/native_ui_shell_fixtures.py",
+  "src/tests/python/linux_provider_fixtures.py",
+  "tools/ui/**",
+  "tools/NativeHeaderReader.cpp",
+  "tools/virtual-display.sh",
+  "src/tests/python/pulse_audio_peer.py",
+  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
+  "!**/MacOS/**",
+  "!**/*MacOS*",
+  "!**/CoreAudio*",
+  "!**/*.m",
+  "!src/tests/python/test_native_gui_appkit.py",
+  "!src/tests/python/test_native_ui_shell_macos.py",
+  "!src/tests/python/test_native_objective_c_*.py",
+  "!tools/ui/codex-setup.sh",
+]
 
 [[shards]]
 job = "ci.yml/linux-gui"
@@ -377,8 +270,39 @@ cell = "wayland-2"
 session = "wayland"
 index = "2"
 count = "4"
-report_only = "true"
-tiers = ["extended", "release", "native-gui"]
+report_only = "false"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui" }
+changed_tiers = ["pr"]
+changed_paths = [
+  "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
+  "src/stdlib/UI/**",
+  "src/stdlib/App/**",
+  "src/stdlib/Tray/**",
+  "src/stdlib/Audio/**",
+  "src/stdlib/GPU/**",
+  "src/tests/native/**",
+  "src/tests/python/test_native_*.py",
+  "src/tests/python/test_headless_session.py",
+  "src/tests/python/test_build_safety.py",
+  "src/stdlib/Image/**",
+  "src/tests/python/native_ui_shell_fixtures.py",
+  "src/tests/python/linux_provider_fixtures.py",
+  "tools/ui/**",
+  "tools/NativeHeaderReader.cpp",
+  "tools/virtual-display.sh",
+  "src/tests/python/pulse_audio_peer.py",
+  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
+  "!**/MacOS/**",
+  "!**/*MacOS*",
+  "!**/CoreAudio*",
+  "!**/*.m",
+  "!src/tests/python/test_native_gui_appkit.py",
+  "!src/tests/python/test_native_ui_shell_macos.py",
+  "!src/tests/python/test_native_objective_c_*.py",
+  "!tools/ui/codex-setup.sh",
+]
 
 [[shards]]
 job = "ci.yml/linux-gui"
@@ -386,8 +310,39 @@ cell = "wayland-3"
 session = "wayland"
 index = "3"
 count = "4"
-report_only = "true"
-tiers = ["extended", "release", "native-gui"]
+report_only = "false"
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui" }
+changed_tiers = ["pr"]
+changed_paths = [
+  "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
+  "src/stdlib/UI/**",
+  "src/stdlib/App/**",
+  "src/stdlib/Tray/**",
+  "src/stdlib/Audio/**",
+  "src/stdlib/GPU/**",
+  "src/tests/native/**",
+  "src/tests/python/test_native_*.py",
+  "src/tests/python/test_headless_session.py",
+  "src/tests/python/test_build_safety.py",
+  "src/stdlib/Image/**",
+  "src/tests/python/native_ui_shell_fixtures.py",
+  "src/tests/python/linux_provider_fixtures.py",
+  "tools/ui/**",
+  "tools/NativeHeaderReader.cpp",
+  "tools/virtual-display.sh",
+  "src/tests/python/pulse_audio_peer.py",
+  "src/tests/fixtures/expected-skips/linux-devcontainer.json",
+  "!**/MacOS/**",
+  "!**/*MacOS*",
+  "!**/CoreAudio*",
+  "!**/*.m",
+  "!src/tests/python/test_native_gui_appkit.py",
+  "!src/tests/python/test_native_ui_shell_macos.py",
+  "!src/tests/python/test_native_objective_c_*.py",
+  "!tools/ui/codex-setup.sh",
+]
 
 [[jobs]]
 workflow = "ci.yml"
@@ -396,7 +351,7 @@ key = "session"
 
 [[shards]]
 job = "ci.yml/linux-gui-coverage"
-session = "x11"
+session = "wayland"
 report_only = "false"
 tiers = ["main", "extended", "release", "native-gui"]
 selected_tiers = { lane = "lane-linux-gui" }
@@ -431,17 +386,8 @@ changed_paths = [
   "!tools/ui/codex-setup.sh",
 ]
 
-[[shards]]
-job = "ci.yml/linux-gui-coverage"
-session = "wayland"
-report_only = "true"
-tiers = ["extended", "release", "native-gui"]
-
 # E40 retains all 100-repetition bursts and the 600-second load in each row.
-# X11 gates the approved UI2 landing. Wayland retains its carried report-only
-# status until the approved residual is qualified and promoted separately,
-# and runs with the other report-only Wayland rows: nightly, in a release and
-# in the native-gui dispatch.
+# Native Wayland gates Linux E40 on every push and GUI-touching pull request.
 [[jobs]]
 workflow = "ci.yml"
 job = "linux-e40"
@@ -451,79 +397,43 @@ reports = ["skip-report", "junit"]
 
 [[shards]]
 job = "ci.yml/linux-e40"
-cell = "x11-python-plain"
-report_only = "false"
-session = "x11"
-frontend = "python"
-variant = "plain"
-tiers = ["main", "extended", "release", "native-gui"]
-selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
-
-[[shards]]
-job = "ci.yml/linux-e40"
-cell = "x11-python-sanitized"
-report_only = "false"
-session = "x11"
-frontend = "python"
-variant = "sanitized"
-tiers = ["main", "extended", "release", "native-gui"]
-selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
-
-[[shards]]
-job = "ci.yml/linux-e40"
-cell = "x11-selfhost-plain"
-report_only = "false"
-session = "x11"
-frontend = "selfhost"
-variant = "plain"
-tiers = ["main", "extended", "release", "native-gui"]
-selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
-
-[[shards]]
-job = "ci.yml/linux-e40"
-cell = "x11-selfhost-sanitized"
-report_only = "false"
-session = "x11"
-frontend = "selfhost"
-variant = "sanitized"
-tiers = ["main", "extended", "release", "native-gui"]
-selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
-
-[[shards]]
-job = "ci.yml/linux-e40"
 cell = "wayland-python-plain"
-report_only = "true"
+report_only = "false"
 session = "wayland"
 frontend = "python"
 variant = "plain"
-tiers = ["extended", "release", "native-gui"]
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
 
 [[shards]]
 job = "ci.yml/linux-e40"
 cell = "wayland-python-sanitized"
-report_only = "true"
+report_only = "false"
 session = "wayland"
 frontend = "python"
 variant = "sanitized"
-tiers = ["extended", "release", "native-gui"]
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
 
 [[shards]]
 job = "ci.yml/linux-e40"
 cell = "wayland-selfhost-plain"
-report_only = "true"
+report_only = "false"
 session = "wayland"
 frontend = "selfhost"
 variant = "plain"
-tiers = ["extended", "release", "native-gui"]
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
 
 [[shards]]
 job = "ci.yml/linux-e40"
 cell = "wayland-selfhost-sanitized"
-report_only = "true"
+report_only = "false"
 session = "wayland"
 frontend = "selfhost"
 variant = "sanitized"
-tiers = ["extended", "release", "native-gui"]
+tiers = ["main", "extended", "release", "native-gui"]
+selected_tiers = { lane = "lane-linux-gui", pr = "lane-linux-gui" }
 
 [[shards]]
 job = "ci.yml/tests"

@@ -1,4 +1,4 @@
-"""The shell journey on the GTK provider, by real input; invoke inside headless-session.sh --x11 or --wayland."""
+"""The shell journey on the native Wayland Linux provider, by real input; invoke inside headless-session.sh --wayland."""
 
 import json
 import os
@@ -21,10 +21,21 @@ from tools.qualification.skips import RunnerIdentity
 def test_linux_native_shell(tmp_path, request, frontend, sanitized):
     if sys.platform != "linux":
         pytest.skip("requires the Linux native shell")
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("the Linux GUI provider requires a native Wayland session")
     if error := linux_display_error():
         pytest.skip(error)
-    provider = "linux-wayland" if os.environ.get("GDK_BACKEND") == "wayland" else "linux-x11"
-    exercise_shell(tmp_path, request, frontend, sanitized, provider)
+    exercise_shell(tmp_path, request, frontend, sanitized, "linux-wayland")
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.linux_gui
+def test_first_party_wayland_native_shell(tmp_path, request, frontend):
+    if sys.platform != "linux" or not os.environ.get("WAYLAND_DISPLAY"):
+        pytest.skip("requires a Wayland session with virtual pointer and keyboard protocols")
+    if os.environ.get("BTRC_UI_PRIVATE_SESSION") != "1":
+        pytest.skip("the native shell input probe requires a dedicated test session")
+    exercise_shell(tmp_path, request, frontend, False, "linux-wayland-native")
 
 
 # The real-session check (CL-UIA-11 step 3) waits on a physical Linux desktop:

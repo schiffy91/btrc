@@ -1,6 +1,6 @@
 """Mount and click a public Library.GUI application on a real compositor in an empty runtime root."""
 
-import ctypes.util
+import ctypes
 import os
 import platform
 import re
@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 import pytest
 
@@ -19,6 +20,7 @@ from src.tests.python.test_first_party_wayland_window import (
     client,  # noqa: F401
     connected_mouse,
     input_device,  # noqa: F401
+    wayland_session_env,
 )
 
 SAMPLE = ROOT / "examples/gui/Wayland.btrc"
@@ -26,17 +28,56 @@ SDK_PACKAGES = {"gtk4", "gtk4-wayland", "gtk4-x11", "wayland-client", "x11", "we
 RUNTIME_FORBIDDEN = ("libgtk", "libgdk", "libX11", "libwayland", "libfontconfig", "libfreetype", "libpango")
 
 
+def load_shared_library(name):
+    try:
+        return ctypes.CDLL(name)
+    except OSError:
+        pass
+    candidates = []
+    for var in ("GI_TYPELIB_PATH", "LD_LIBRARY_PATH"):
+        for entry in os.environ.get(var, "").split(":"):
+            if not entry:
+                continue
+            path = Path(entry)
+            candidates.append(path / name)
+            candidates.append(path.parent / name)
+    for candidate in candidates:
+        if candidate.is_file():
+            return ctypes.CDLL(str(candidate))
+    raise OSError(f"cannot load {name}")
+
+
+def can_load_atspi():
+    try:
+        load_shared_library("libatspi.so.0")
+        load_shared_library("libglib-2.0.so.0")
+        return True
+    except OSError:
+        return False
+
+
+def matched_sans_font(style=""):
+    query = f"Noto Sans:style={style}" if style else "Noto Sans"
+    lines = subprocess.check_output(["fc-match", "-f", "%{file}\n%{family}", query], text=True).splitlines()
+    font = lines[0] if lines else ""
+    family = lines[1].split(",", 1)[0].strip() if len(lines) > 1 and lines[1].strip() else "Noto Sans"
+    assert Path(font).is_file(), (query, lines)
+    return font, family
+
+
 def build_app(frontend, source, tmp_path, request, *, timeout=600):
     require_linux_reader()
     for tool in ("bwrap", "fc-match"):
         if not shutil.which(tool):
             pytest.skip(f"the real GUI/empty-root observer needs {tool}")
-    sdk = subprocess.run(["pkg-config", "--path", "wgpu-native"], capture_output=True, text=True)
-    if sdk.returncode:
+    sdk = subprocess.run(["pkg-config", "--variable=pcfiledir", "wgpu-native"], capture_output=True, text=True)
+    pc_dir = sdk.stdout.strip()
+    pc_file = Path(pc_dir) / "wgpu-native.pc" if pc_dir else Path()
+    if sdk.returncode or not pc_file.is_file():
         pytest.skip("the public GPU interface needs the wgpu-native SDK")
     packages = tmp_path / "packages"
     packages.mkdir()
-    shutil.copyfile(sdk.stdout.strip(), packages / "wgpu-native.pc")
+    shutil.copyfile(pc_file, packages / "wgpu-native.pc")
     env = {**os.environ, "PKG_CONFIG_PATH": "", "PKG_CONFIG_LIBDIR": str(packages)}
     for package in SDK_PACKAGES:
         assert subprocess.run(["pkg-config", "--exists", package], env=env).returncode != 0
@@ -76,6 +117,7 @@ def test_preview(preview_app, input_device, tmp_path):  # noqa: F811
     executable = preview_app
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, executable, input_device, tmp_path],
+        env=wayland_session_env(),
         check=True,
         timeout=45,
     )
@@ -92,17 +134,46 @@ def test_preview_directory_picker(frontend, tmp_path, request):
     executable = build_app(frontend, source, tmp_path, request)
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, "--portal", executable, tmp_path],
+        env=wayland_session_env(),
         check=True,
         timeout=45,
     )
 
 
 def test_preview_accessibility(preview_app, tmp_path):
-    if not ctypes.util.find_library("atspi") or not os.environ.get("BTRC_ATSPI_LIBEXEC"):
-        pytest.skip("requires the desktop's AT-SPI client library and bus launcher")
+    if not can_load_atspi() or not os.environ.get("BTRC_ATSPI_LIBEXEC") or not shutil.which("gdbus"):
+        pytest.skip("requires the desktop's AT-SPI client library, bus launcher, and gdbus")
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, "-m", "src.tests.native.gui.wayland_atspi", preview_app, tmp_path],
         cwd=ROOT,
+        env=wayland_session_env(),
+        check=True,
+        timeout=45,
+    )
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize(
+    ("fixture", "mode"), [("WaylandAccessibleField", "--field"), ("WaylandAccessibleValues", "--values")]
+)
+def test_accessible_controls(frontend, fixture, mode, tmp_path, request):
+    if not can_load_atspi() or not os.environ.get("BTRC_ATSPI_LIBEXEC") or not shutil.which("gdbus"):
+        pytest.skip("requires the desktop's AT-SPI client library, bus launcher, and gdbus")
+    executable = build_app(frontend, ROOT / "src/tests/native/gui/linux" / f"{fixture}.btrc", tmp_path, request)
+    subprocess.run(
+        [
+            SESSION,
+            "--wayland",
+            "--",
+            sys.executable,
+            "-m",
+            "src.tests.native.gui.wayland_atspi",
+            executable,
+            tmp_path,
+            mode,
+        ],
+        cwd=ROOT,
+        env=wayland_session_env(),
         check=True,
         timeout=45,
     )
@@ -114,6 +185,31 @@ def controls_visible(pixels, width, left, top, background):
         return pixels[at : at + 3]
 
     return pixel(26, 70) != background and any(pixel(x, y) != background for x in range(16, 140) for y in range(12, 42))
+
+
+def test_preview_accessibility_reconnect(preview_app, tmp_path):
+    libexec = os.environ.get("BTRC_ATSPI_LIBEXEC")
+    if not libexec or not (Path(libexec) / "at-spi2-registryd").is_file():
+        pytest.skip("requires the desktop's AT-SPI registry")
+    if not all(shutil.which(tool) for tool in ("dbus-daemon", "gdbus", "grim")):
+        pytest.skip("requires the D-Bus tools and a compositor screenshot observer")
+    subprocess.run(
+        [
+            SESSION,
+            "--wayland",
+            "--",
+            sys.executable,
+            "-m",
+            "src.tests.native.gui.wayland_atspi_reconnect",
+            preview_app,
+            tmp_path,
+            str(Path(libexec) / "at-spi2-registryd"),
+        ],
+        cwd=ROOT,
+        env={**wayland_session_env(), "BTRC_ATSPI_LIBEXEC": ""},
+        check=True,
+        timeout=90,
+    )
 
 
 def elf_interpreter(executable):
@@ -152,12 +248,11 @@ def empty_root_command(executable, work, options=()):
     interpreter = elf_interpreter(executable)
     if interpreter not in dependencies:
         dependencies.append(interpreter)
-    font = subprocess.check_output(["fc-match", "-f", "%{file}", "Noto Sans"], text=True)
-    assert Path(font).is_file()
+    font, family = matched_sans_font()
     config = work / "preview-fonts.conf"
     config.write_text(
         "<fontconfig><dir>/fonts</dir><alias><family>sans-serif</family>"
-        "<prefer><family>Noto Sans</family></prefer></alias></fontconfig>"
+        f"<prefer><family>{xml_escape(family)}</family></prefer></alias></fontconfig>"
     )
     socket = Path(os.environ["XDG_RUNTIME_DIR"]) / os.environ["WAYLAND_DISPLAY"]
     command = [

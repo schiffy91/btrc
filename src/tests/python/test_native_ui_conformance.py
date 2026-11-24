@@ -37,7 +37,9 @@ NAMES = [case["name"] for case in CASES]
 NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
 HAS = {"web", "freetype", "modal", "wheel"}
 LINUX_ONLY = "requires Linux: the GUI conformance suite's Linux rows"
-SESSION = os.environ.get("BTRC_UI_SESSION") or ("wayland" if os.environ.get("GDK_BACKEND") == "wayland" else "x11")
+SESSION = os.environ.get("BTRC_UI_SESSION") or (
+    "wayland" if os.environ.get("WAYLAND_DISPLAY") or os.environ.get("GDK_BACKEND") == "wayland" else "x11"
+)
 # Catalog operations no case exercises yet, each with what stands in the way.
 UNCOVERED = tomllib.loads((SUITE / "cases.toml").read_text(encoding="utf-8"))["uncovered"]
 
@@ -114,8 +116,7 @@ def test_plain_linux_gui_without_webkit(tmp_path, request, frontend):
     )
     imports = BinaryImports.read(program)
     assert all("webkit" not in library.lower() for library in imports), imports
-    problems = DependencyAudit().binary_problems(program, TARGET)
-    assert all("WebKitGTK" not in problem for problem in problems), problems
+    assert DependencyAudit().binary_problems(program, TARGET) == []
     result = subprocess.run([program], env=provider_environment(False), capture_output=True, text=True, timeout=120)
     assert result.returncode == 0 and "PASS native controls" in result.stdout, result.stderr
 
@@ -143,7 +144,7 @@ def test_wayland_window_and_subtree_capture_without_gpu(programs, request, front
         pytest.skip(error)
     guard = tmp_path / "no-gpu.so"
     # Abort on actual public WebGPU instance allocation, even if a driver could
-    # have satisfied the request. GTK itself can present using its Cairo renderer.
+    # have satisfied the request. Native Wayland presents controls in software.
     subprocess.run(
         [
             "cc",
@@ -166,10 +167,10 @@ def test_wayland_window_and_subtree_capture_without_gpu(programs, request, front
     )
     preload = os.pathsep.join(filter(None, (str(guard), os.environ.get("LD_PRELOAD"))))
     for case in ("window.state", "capture.subtree"):
-        result = programs.run(request, frontend, False, case, LD_PRELOAD=preload, GSK_RENDERER="cairo")
+        result = programs.run(request, frontend, False, case, LD_PRELOAD=preload)
         assert result.returncode == 0, result.stdout + result.stderr
         assert result.stdout.splitlines()[-2:] == [f"CASE {case} PASS", "CONFORMANCE ran=1 failed=0"]
-    requested = programs.run(request, frontend, False, "gpu.frame", LD_PRELOAD=preload, GSK_RENDERER="cairo")
+    requested = programs.run(request, frontend, False, "gpu.frame", LD_PRELOAD=preload)
     assert requested.returncode == 91 and "GPU allocation intercepted" in requested.stderr, (
         requested.stdout + requested.stderr
     )

@@ -421,14 +421,14 @@ class TierManifest:
             return "native-gui-coverage" in plan["jobs"] and cls._complete_gui_partitions(
                 matrix.get("native-gui", {}).get("include", []), "macos"
             )
-        partitions = [row for row in matrix.get("linux-gui", {}).get("include", []) if row.get("session") == "x11"]
+        partitions = [row for row in matrix.get("linux-gui", {}).get("include", []) if row.get("session") == "wayland"]
         coverage = [
-            row for row in matrix.get("linux-gui-coverage", {}).get("include", []) if row.get("session") == "x11"
+            row for row in matrix.get("linux-gui-coverage", {}).get("include", []) if row.get("session") == "wayland"
         ]
         return (
             len(coverage) == 1
             and coverage[0].get("report_only") == "false"
-            and cls._complete_gui_partitions(partitions, "x11")
+            and cls._complete_gui_partitions(partitions, "wayland")
         )
 
     @staticmethod

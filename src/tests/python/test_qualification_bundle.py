@@ -181,26 +181,21 @@ def test_the_main_tier_is_the_full_matrix_and_extended_and_release_contain_it() 
         "c11-gcc",
         "c11-clang",
     ]
-    # A push runs the gating X11 session; the report-only Wayland rows are nightly.
-    assert list(_rows(ci, "linux-gui")) == [f"x11-{index}" for index in range(4)]
-    assert list(_rows(ci, "linux-gui-coverage")) == ["x11"]
+    # Native Wayland gates Linux GUI and E40 on every push and nightly tier.
+    assert list(_rows(ci, "linux-gui")) == [f"wayland-{index}" for index in range(4)]
+    assert list(_rows(ci, "linux-gui-coverage")) == ["wayland"]
     assert list(_rows(ci, "linux-e40")) == [
-        f"x11-{frontend}-{variant}" for frontend in ("python", "selfhost") for variant in ("plain", "sanitized")
+        f"wayland-{frontend}-{variant}" for frontend in ("python", "selfhost") for variant in ("plain", "sanitized")
     ]
     nightly = manifest.plan("ci.yml", "extended")
     assert [name for name in _rows(nightly, "tests") if name not in _rows(ci, "tests")] == [
         "c11-gcc-nightly",
         "c11-clang-nightly",
     ]
-    assert list(_rows(nightly, "linux-gui")) == [
-        f"{session}-{index}" for session in ("x11", "wayland") for index in range(4)
-    ]
-    assert list(_rows(nightly, "linux-gui-coverage")) == ["x11", "wayland"]
+    assert list(_rows(nightly, "linux-gui")) == [f"wayland-{index}" for index in range(4)]
+    assert list(_rows(nightly, "linux-gui-coverage")) == ["wayland"]
     assert list(_rows(nightly, "linux-e40")) == [
-        f"{session}-{frontend}-{variant}"
-        for session in ("x11", "wayland")
-        for frontend in ("python", "selfhost")
-        for variant in ("plain", "sanitized")
+        f"wayland-{frontend}-{variant}" for frontend in ("python", "selfhost") for variant in ("plain", "sanitized")
     ]
     macos = manifest.plan("macos.yml", "main")
     assert macos["jobs"] == ["native-bundle", "tests", "native-gui", "native-gui-coverage", "macos-e40"]
@@ -487,7 +482,7 @@ def test_a_lane_runs_the_heavy_jobs_only_when_its_paths_select_them(
     rows = list(_rows(ci, "tests"))
     heavy = "bench" in linux
     assert rows == (list(_rows(manifest.plan("ci.yml", "main"), "tests")) if heavy else ["unit"])
-    assert list(_rows(ci, "linux-gui")) == ([f"x11-{index}" for index in range(4)] if "linux-gui" in linux else [])
+    assert list(_rows(ci, "linux-gui")) == ([f"wayland-{index}" for index in range(4)] if "linux-gui" in linux else [])
     plan = manifest.plan("macos.yml", "lane", changed)
     assert plan["jobs"] == macos
     assert list(_rows(plan, "native-bundle")) == (["macos-arm64"] if macos else [])
@@ -524,14 +519,10 @@ def test_expected_reports_name_every_artifact_a_tier_leaves() -> None:
         f"{kind}-macos-native-gui-macos-{index}" for index in range(4) for kind in ("skip-report", "junit")
     ]
     assert expected["ci.yml/linux-gui"] == [
-        f"{kind}-ci-linux-gui-{session}-{index}"
-        for session in ("x11", "wayland")
-        for index in range(4)
-        for kind in ("skip-report", "junit")
+        f"{kind}-ci-linux-gui-wayland-{index}" for index in range(4) for kind in ("skip-report", "junit")
     ]
     assert expected["ci.yml/linux-e40"] == [
-        f"{kind}-ci-linux-e40-{session}-{frontend}-{variant}"
-        for session in ("x11", "wayland")
+        f"{kind}-ci-linux-e40-wayland-{frontend}-{variant}"
         for frontend in ("python", "selfhost")
         for variant in ("plain", "sanitized")
         for kind in ("skip-report", "junit")
@@ -822,18 +813,21 @@ def test_unit_gui_delegation_follows_required_platform_coverage(workflow, tier, 
         "wrong-cell",
         "missing-coverage",
         "optional-coverage",
-        "wayland-only",
+        "wrong-session",
     ],
 )
-def test_unit_keeps_gui_when_the_required_x11_plan_is_incomplete(damage):
+def test_unit_keeps_gui_when_the_required_wayland_plan_is_incomplete(damage):
     manifest = _manifest()
     shards = []
     for shard in manifest.shards:
         row = dict(shard.row)
-        if shard.job == "ci.yml/linux-gui" and row["session"] == "x11":
-            if damage == "wayland-only" or (damage == "missing-partition" and row["index"] == "0"):
+        if shard.job == "ci.yml/linux-gui" and row["session"] == "wayland":
+            if damage == "missing-partition" and row["index"] == "0":
                 continue
-            if row["index"] == "0":
+            if damage == "wrong-session":
+                row["session"] = "x11"
+                row["cell"] = f"x11-{row['index']}"
+            elif row["index"] == "0":
                 if damage == "optional-partition":
                     row["report_only"] = "true"
                 elif damage == "wrong-count":
@@ -842,7 +836,7 @@ def test_unit_keeps_gui_when_the_required_x11_plan_is_incomplete(damage):
                     row["index"] = "1"
                 elif damage == "wrong-cell":
                     row["cell"] = "other-0"
-        if shard.job == "ci.yml/linux-gui-coverage" and row["session"] == "x11":
+        if shard.job == "ci.yml/linux-gui-coverage" and row["session"] == "wayland":
             if damage == "missing-coverage":
                 continue
             if damage == "optional-coverage":

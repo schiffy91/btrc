@@ -16,6 +16,7 @@ from src.tests.python.test_first_party_wayland_window import (
     client,  # noqa: F401
     connected_mouse,
     input_device,  # noqa: F401
+    wayland_session_env,
 )
 from src.tests.python.test_wayland_public_preview import build_app, empty_root_command
 
@@ -24,7 +25,10 @@ from src.tests.python.test_wayland_public_preview import build_app, empty_root_c
 def test_public_wayland_select(frontend, input_device, tmp_path, request):  # noqa: F811
     program = build_app(frontend, ROOT / "src/tests/native/gui/WaylandSelect.btrc", tmp_path, request)
     subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, program, input_device, tmp_path], check=True, timeout=75
+        [SESSION, "--wayland", "--", sys.executable, __file__, program, input_device, tmp_path],
+        env=wayland_session_env(),
+        check=True,
+        timeout=75,
     )
 
 

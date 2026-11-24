@@ -145,8 +145,14 @@ static bool sendKey(BtrcWaylandSeat *s, uint32_t code, BtrcWaylandKey key, bool 
     if (!btrcWaylandQueueEvent(s->display, (BtrcShimEvent){
             .key = key.key, .scancode = key.scancode, .type = down ? BTRC_SHIM_EVENT_KEY_DOWN : BTRC_SHIM_EVENT_KEY_UP,
             .window = id, .down = down, .repeat = repeat, .data1 = (int)code, .modifiers = s->modifiers})) { return false; }
-    return !down || !key.text[0] || !s->keyboardFocus->textInput ||
-        btrcWaylandQueueEvent(s->display, (BtrcShimEvent){.type = BTRC_SHIM_EVENT_TEXT_INPUT, .window = id, .text = key.text});
+    if (!down || !key.text[0]) { return true; }
+    BtrcShimEvent text = {.type = BTRC_SHIM_EVENT_TEXT_INPUT, .window = id, .text = key.text};
+    if (s->keyboardFocus->textInput) { return btrcWaylandQueueEvent(s->display, text); }
+    /* A pointer press can focus an editor in this very dispatch batch. The
+     * public event loop enables window text input after it sees the focus
+     * event. Give the focused native editor these intervening keystrokes. */
+    bool handled = false;
+    return !s->display->routeInput || s->display->routeInput(s->display, &text, &handled);
 }
 
 int btrcWaylandRepeatTimeout(BtrcWaylandDisplay *d, int timeout) {

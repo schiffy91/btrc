@@ -1,5 +1,0 @@
-import Library.GUI.IWebView;
-
-class WebViewProvider {
-	class IWebView create() { throw "Embedded web views require the default Linux GUI backend"; }
-}

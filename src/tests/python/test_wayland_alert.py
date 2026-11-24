@@ -1,10 +1,10 @@
 """Dismiss real public window alerts and verify the owner's input stays blocked."""
 
-import ctypes.util
 import os
 import pty
 import re
 import select
+import shutil
 import socket
 import struct
 import subprocess
@@ -22,8 +22,9 @@ from src.tests.python.test_first_party_wayland_window import (
     client,  # noqa: F401
     connected_mouse,
     input_device,  # noqa: F401
+    wayland_session_env,
 )
-from src.tests.python.test_wayland_public_preview import build_app, empty_root_command
+from src.tests.python.test_wayland_public_preview import build_app, can_load_atspi, empty_root_command
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="the native Wayland client requires Linux")
@@ -82,15 +83,20 @@ def alert_app(request, tmp_path_factory):
 
 
 def test_public_alert(alert_app, input_device, tmp_path):  # noqa: F811
+    if not shutil.which("grim"):
+        pytest.skip("observing alert pixels requires grim")
     app = alert_app
     subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, app, input_device, tmp_path], check=True, timeout=90
+        [SESSION, "--wayland", "--", sys.executable, __file__, app, input_device, tmp_path],
+        env=wayland_session_env(),
+        check=True,
+        timeout=90,
     )
 
 
 def test_accessible_modal_alerts(alert_app, tmp_path):
-    if not ctypes.util.find_library("atspi") or not os.environ.get("BTRC_ATSPI_LIBEXEC"):
-        pytest.skip("requires the desktop's AT-SPI client library and bus launcher")
+    if not can_load_atspi() or not os.environ.get("BTRC_ATSPI_LIBEXEC") or not shutil.which("gdbus"):
+        pytest.skip("requires the desktop's AT-SPI client library, bus launcher, and gdbus")
     subprocess.run(
         [
             SESSION,
@@ -104,6 +110,7 @@ def test_accessible_modal_alerts(alert_app, tmp_path):
             "--alerts",
         ],
         cwd=ROOT,
+        env=wayland_session_env(),
         check=True,
         timeout=90,
     )

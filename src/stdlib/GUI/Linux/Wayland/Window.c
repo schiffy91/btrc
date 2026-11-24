@@ -61,6 +61,11 @@ struct BtrcWaylandQueuedEvent {
 static bool redraw(BtrcWaylandWindow *window);
 
 bool btrcWaylandQueueEvent(BtrcWaylandDisplay *d, BtrcShimEvent event) {
+    pthread_mutex_lock(&d->queueLock);
+    bool (*filter)(const BtrcShimEvent *) = d->queueFilter;
+    pthread_mutex_unlock(&d->queueLock);
+    if (filter && !filter(&event)) { return true; }
+    if (event.type == BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED && d->accessibilityChanged) { d->accessibilityChanged(); }
     if (event.type != BTRC_SHIM_EVENT_USER && event.type != BTRC_SHIM_EVENT_WINDOW_EXPOSED) { ++d->arrivals; }
     if (d->modalFilter) {
         bool consumed = false;
@@ -72,31 +77,123 @@ bool btrcWaylandQueueEvent(BtrcWaylandDisplay *d, BtrcShimEvent event) {
         if (!d->routeInput(d, &event, &handled)) { d->failed = true; return false; }
         if (handled) { return true; }
     }
+    char *copy = NULL;
+    if (event.text) {
+        copy = strdup(event.text);
+        if (!copy) { d->failed = true; return false; }
+    }
+    pthread_mutex_lock(&d->queueLock);
     if (event.type == BTRC_SHIM_EVENT_MOUSE_MOTION && d->last && d->last->value.type == event.type && d->last->value.window == event.window) {
         d->last->value.x = event.x;
         d->last->value.y = event.y;
+        pthread_mutex_unlock(&d->queueLock);
+        free(copy);
         return true;
     }
-    if (d->queueSize >= 65536) { d->failed = true; return false; }
+    if (d->queueSize >= 65536) {
+        pthread_mutex_unlock(&d->queueLock);
+        free(copy);
+        d->failed = true;
+        return false;
+    }
     BtrcWaylandQueuedEvent *item = calloc(1, sizeof(*item));
-    if (!item) { d->failed = true; return false; }
+    if (!item) {
+        pthread_mutex_unlock(&d->queueLock);
+        free(copy);
+        d->failed = true;
+        return false;
+    }
     item->value = event;
-    if (event.text && !(item->value.text = strdup(event.text))) { free(item); d->failed = true; return false; }
+    item->value.text = copy;
     if (d->last) { d->last->next = item; } else { d->first = item; }
     d->last = item;
     ++d->queueSize;
+    pthread_mutex_unlock(&d->queueLock);
     return true;
 }
 
-bool btrcWaylandDisplayPop(BtrcWaylandDisplay *d, BtrcShimEvent *event) {
-    if (!d->first || !event) { return false; }
+bool btrcWaylandDisplayPushDirect(BtrcWaylandDisplay *d, const BtrcShimEvent *event, const char *text) {
+    if (!d || !event) { return false; }
+    pthread_mutex_lock(&d->queueLock);
+    bool (*filter)(const BtrcShimEvent *) = d->queueFilter;
+    pthread_mutex_unlock(&d->queueLock);
+    if (filter && !filter(event)) { return false; }
+    char *copy = NULL;
+    if (text) {
+        copy = strdup(text);
+        if (!copy) { return false; }
+    }
+    pthread_mutex_lock(&d->queueLock);
+    if (d->queueSize >= 16384) {
+        pthread_mutex_unlock(&d->queueLock);
+        free(copy);
+        return false;
+    }
+    BtrcWaylandQueuedEvent *item = calloc(1, sizeof(*item));
+    if (!item) {
+        pthread_mutex_unlock(&d->queueLock);
+        free(copy);
+        return false;
+    }
+    item->value = *event;
+    item->value.text = copy;
+    if (d->last) { d->last->next = item; } else { d->first = item; }
+    d->last = item;
+    ++d->queueSize;
+    pthread_mutex_unlock(&d->queueLock);
+    btrcWaylandDisplayWake(d);
+    return true;
+}
+
+int btrcWaylandDisplayQueued(BtrcWaylandDisplay *d, unsigned int firstType, unsigned int lastType) {
+    if (!d) { return 0; }
+    int count = 0;
+    pthread_mutex_lock(&d->queueLock);
+    for (BtrcWaylandQueuedEvent *item = d->first; item; item = item->next) {
+        if (item->value.type >= firstType && item->value.type <= lastType) { ++count; }
+    }
+    pthread_mutex_unlock(&d->queueLock);
+    return count;
+}
+
+void btrcWaylandDisplayFlush(BtrcWaylandDisplay *d) {
+    if (!d) { return; }
+    pthread_mutex_lock(&d->queueLock);
     BtrcWaylandQueuedEvent *item = d->first;
+    d->first = d->last = NULL;
+    d->queueSize = 0;
+    pthread_mutex_unlock(&d->queueLock);
+    while (item) {
+        BtrcWaylandQueuedEvent *next = item->next;
+        free((char *)item->value.text);
+        free(item);
+        item = next;
+    }
+}
+
+void btrcWaylandDisplayFilter(BtrcWaylandDisplay *d, bool (*accept)(const BtrcShimEvent *)) {
+    if (!d) { return; }
+    pthread_mutex_lock(&d->queueLock);
+    d->queueFilter = accept;
+    pthread_mutex_unlock(&d->queueLock);
+}
+
+bool btrcWaylandDisplayPop(BtrcWaylandDisplay *d, BtrcShimEvent *event) {
+    if (!event) { return false; }
+    pthread_mutex_lock(&d->queueLock);
+    BtrcWaylandQueuedEvent *item = d->first;
+    if (!item) { pthread_mutex_unlock(&d->queueLock); return false; }
     d->first = item->next;
     if (!d->first) { d->last = NULL; }
     --d->queueSize;
+    pthread_mutex_unlock(&d->queueLock);
     free(d->lastText);
     d->lastText = (char *)item->value.text;
     *event = item->value;
+    if (event->data2 == 1 && (event->type == BTRC_SHIM_EVENT_CONTROL_SCROLLBAR_CHANGED ||
+        (event->type == BTRC_SHIM_EVENT_CONTROL_SLIDER_CHANGED && event->data1 == BTRC_SHIM_SLIDER_ASSISTIVE_VALUE))) {
+        d->accessibilityValuePending = false;
+    }
     free(item);
     return true;
 }
@@ -337,8 +434,9 @@ static bool registryEvent(void *owner, uint32_t id, unsigned opcode, BtrcWayland
 BtrcWaylandDisplay *btrcWaylandDisplayOpen(void) {
     BtrcWaylandDisplay *d = calloc(1, sizeof(*d));
     if (!d) { return NULL; }
+    if (pthread_mutex_init(&d->queueLock, NULL) != 0) { free(d); return NULL; }
     d->wire = btrcWaylandConnect();
-    if (!d->wire) { free(d); return NULL; }
+    if (!d->wire) { pthread_mutex_destroy(&d->queueLock); free(d); return NULL; }
     d->registry = btrcWaylandObject(d->wire, "wl_registry", d, registryEvent, 0);
     if (!d->registry || !btrcWaylandSend(d->wire, 1, 1, "u", d->registry) || !btrcWaylandRoundtrip(d->wire, 5000) ||
         !d->compositor || !d->shm || !d->shell || !btrcWaylandRoundtrip(d->wire, 5000)) {
@@ -354,7 +452,7 @@ int btrcWaylandDisplayPoll(BtrcWaylandDisplay *d, int timeout) {
     /* Modal, clipboard and normal event loops all poll this display. An
      * assistive action can complete the caller's wait without a queued event. */
     int dispatched = 0;
-    if (d->accessibilityService) { d->wire->accessibility = d->accessibilityService(&dispatched); }
+    if (d->accessibilityService) { d->wire->accessibility = d->accessibilityService(&dispatched, &timeout); }
     int result = btrcWaylandPoll(d->wire, btrcWaylandRepeatTimeout(d, dispatched ? 0 : timeout));
     if (result < 0) { return -1; }
     if (result == 2 && !btrcWaylandQueueEvent(d, (BtrcShimEvent){.type = BTRC_SHIM_EVENT_USER})) { return -1; }
@@ -465,7 +563,7 @@ static bool xdgEvent(void *owner, uint32_t id, unsigned opcode, BtrcWaylandEvent
     w->configured = true;
     if (w->activated != w->configuredActivated) {
         w->activated = w->configuredActivated;
-        if (w->display->activationChanged) { w->display->activationChanged(); }
+        if (w->display->accessibilityChanged) { w->display->accessibilityChanged(); }
     }
     if (w->suspended != w->configuredSuspended) {
         w->suspended = w->configuredSuspended;
@@ -933,5 +1031,6 @@ void btrcWaylandDisplayClose(BtrcWaylandDisplay *d) {
     while (btrcWaylandDisplayPop(d, &event)) { }
     free(d->lastText);
     btrcWaylandDisconnect(d->wire);
+    pthread_mutex_destroy(&d->queueLock);
     free(d);
 }

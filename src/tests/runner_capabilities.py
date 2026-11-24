@@ -263,20 +263,14 @@ def linux_tray_backend_error() -> str | None:
 
 @CapabilityGateLog.gate("native-display")
 def linux_display_error() -> str | None:
-    """Return why a Wayland or X11 window cannot be opened from this session."""
-    if error := PkgConfig.missing("gtk4"):
-        return f"native GUI backend is unavailable: {error}"
-    if not os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("DISPLAY"):
-        return "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY"
-    return None
+    """Return why a native Wayland window cannot be opened from this session."""
+    return linux_wayland_display_error()
 
 
 @CapabilityGateLog.gate("native-display-wayland")
 def linux_wayland_display_error() -> str | None:
     """Return why a Wayland window cannot be opened from this session, such as
     `tools/ui/headless-session.sh --wayland` provides."""
-    if error := PkgConfig.missing("gtk4"):
-        return f"native Wayland backend is unavailable: {error}"
     display = os.environ.get("WAYLAND_DISPLAY")
     if not display:
         return "native Wayland backend is unavailable: no WAYLAND_DISPLAY"

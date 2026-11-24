@@ -112,13 +112,14 @@ def test_gui_routes_parented_directory_picker_to_portal(frontend, tmp_path, requ
     require_linux_reader()
     if not all(shutil.which(tool) for tool in ("pkg-config", "labwc", "wlr-randr", "dbus-daemon")):
         pytest.skip("requires a private Wayland desktop")
-    if subprocess.run(["pkg-config", "--exists", "gtk4", "wgpu-native"]).returncode:
-        pytest.skip("the shipping Linux GUI provider needs its GTK and WebGPU SDKs")
+    if subprocess.run(["pkg-config", "--exists", "wgpu-native"]).returncode:
+        pytest.skip("the Linux GUI provider's GPU surface needs the wgpu-native SDK")
     if subprocess.run([sys.executable, "-c", "from gi.repository import Gio, GLib"], capture_output=True).returncode:
         pytest.skip("the independent portal service needs PyGObject Gio")
     generated, plan, program = [tmp_path / name for name in ("program.c", "plan.json", "program")]
     transpile_provider_program(NATIVE / "PortalGUI.btrc", generated, plan, frontend, request)
     NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=program, optimization=0)
+    assert not DependencyAudit().binary_problems(program, f"linux-{platform.machine()}")
     subprocess.run(
         [
             ROOT / "tools/ui/headless-session.sh",

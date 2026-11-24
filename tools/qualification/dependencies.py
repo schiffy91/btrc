@@ -63,6 +63,27 @@ UNICODE_PROPERTY_TABLE = re.compile(
     rb"static const struct \{ uint32_t first; uint(?:8|16)_t properties; \} [A-Za-z]+\[\] = \{\s*"
     rb"(?:\{0x[0-9a-f]+, (?:0x[0-9a-f]+|[0-9]+)\},\s*)+\};\s*"
 )
+# Protocol registries contain only literal names, codes and Unicode scalars.
+# Constrain each data declaration separately, including when a pin is updated.
+WAYLAND_DATA = "src/stdlib/GUI/Linux/Wayland/"
+DATA_LICENSE_PREFIXES = {
+    "src/stdlib/GUI/Text/UNICODE-LICENSE.txt": b"UNICODE LICENSE V3\n",
+    WAYLAND_DATA + "KEYSYM-LICENSE.txt": b"Copyright 1987, 1994, 1998  The Open Group\n",
+}
+REGISTRY_COMMENT = rb"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/\s+"
+NUMERIC_ROWS = rb"(?:\{0x[0-9a-f]+, 0x[0-9a-f]+\},\s*)+\};\s*"
+KEYSYM_TABLE = re.compile(
+    REGISTRY_COMMENT
+    + rb"static const struct \{ const char \*name; uint32_t symbol; \} keysymNames\[\] = \{\s*"
+    + rb'(?:\{"[A-Za-z0-9_]+", 0x[0-9a-f]+\},\s*)+\};\s*'
+    + rb"static const struct \{ uint32_t symbol, scalar; \} legacyKeysyms\[\] = \{\s*"
+    + NUMERIC_ROWS
+)
+KEYSYM_CASE_TABLE = re.compile(
+    REGISTRY_COMMENT
+    + rb"static const struct \{ uint32_t scalar, upper; uint8_t kind; \} symbolCases\[\] = \{\s*"
+    + rb"(?:\{0x[0-9a-f]+, 0x[0-9a-f]+, [012]\},\s*)+\};\s*"
+)
 # A directory named for an operating system holds that system's code.
 DIRECTORY_SYSTEMS = {
     "linux": ("linux",),
@@ -491,8 +512,14 @@ class DependencyAudit:
                     data = path.read_bytes()
                     if path.is_symlink() or hashlib.sha256(data).hexdigest() != expected:
                         found.extend(self._data_problems(path, "differs from the reviewed property table or license"))
-                    elif path.name == "UNICODE-LICENSE.txt" and data.startswith(b"UNICODE LICENSE V3\n"):
+                    elif relative in DATA_LICENSE_PREFIXES and data.startswith(DATA_LICENSE_PREFIXES[relative]):
                         pass
+                    elif relative == WAYLAND_DATA + "KeysymData.h":
+                        if not KEYSYM_TABLE.fullmatch(data):
+                            found.extend(self._data_problems(path, "is not a generated keysym registry"))
+                    elif relative == WAYLAND_DATA + "KeysymCaseData.h":
+                        if not KEYSYM_CASE_TABLE.fullmatch(data):
+                            found.extend(self._data_problems(path, "is not a generated Unicode case table"))
                     elif path.suffix != ".h" or not UNICODE_PROPERTY_TABLE.fullmatch(data):
                         found.extend(self._data_problems(path, "is not a generated Unicode property table"))
                     continue

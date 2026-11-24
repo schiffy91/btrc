@@ -6,10 +6,10 @@ typedef struct BtrcDmaBufReceiver BtrcDmaBufReceiver;
 BtrcDmaBufReceiver* btrcDmaBufListen(int producerPid);
 const char* btrcDmaBufAddress(BtrcDmaBufReceiver* receiver);
 void btrcDmaBufDisconnect(BtrcDmaBufReceiver* receiver);
-BtrcShimControl* btrcGtkSharedFrameCreate(unsigned int id);
-void btrcGtkSharedFrameClear(BtrcShimControl* picture);
-bool btrcGtkSupportsSharedFrames(void);
-bool btrcGtkPictureReceive(BtrcShimControl* picture, BtrcDmaBufReceiver* receiver);
-int btrcGtkPictureFrameWidth(BtrcShimControl* picture);
-int btrcGtkPictureFrameHeight(BtrcShimControl* picture);
+BtrcShimControl* btrcLinuxSharedFrameCreate(unsigned int id);
+void btrcLinuxSharedFrameClear(BtrcShimControl* picture);
+bool btrcLinuxSupportsSharedFrames(void);
+bool btrcLinuxSharedFrameReceive(BtrcShimControl* picture, BtrcDmaBufReceiver* receiver);
+int btrcLinuxSharedFrameWidth(BtrcShimControl* picture);
+int btrcLinuxSharedFrameHeight(BtrcShimControl* picture);
 #endif

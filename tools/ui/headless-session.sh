@@ -209,6 +209,9 @@ if [[ -n "${BTRC_LAVAPIPE_ICD:-}" && -f "$BTRC_LAVAPIPE_ICD" && -z "${VK_DRIVER_
     export __EGL_VENDOR_LIBRARY_FILENAMES="$BTRC_MESA_EGL"
   fi
 fi
+if [[ "$mode" == wayland && -n "${BTRC_WAYLAND_CLIENT_LIB:-}" && -d "$BTRC_WAYLAND_CLIENT_LIB" ]]; then
+  export LD_LIBRARY_PATH="${BTRC_WAYLAND_CLIENT_LIB}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 
 # The command runs in the background so a signal interrupts `wait` and is passed
 # on at once. Without job control bash would give it /dev/null as its input and

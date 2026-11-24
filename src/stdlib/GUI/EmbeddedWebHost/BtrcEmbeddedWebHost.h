@@ -4,6 +4,7 @@
  * embedded engine creates one such control and serves the IWebView operations.
  * Install a process-lifetime table before creating a web view. */
 #include "../Shim/ShimWeb.h"
+#include <stddef.h>
 
 typedef struct BtrcEmbeddedWebBackend {
 	BtrcShimControl* (*create)(unsigned int id);
@@ -15,10 +16,22 @@ typedef struct BtrcEmbeddedWebBackend {
 	void (*post)(BtrcShimControl*, const char*);
 } BtrcEmbeddedWebBackend;
 
+typedef struct BtrcExternalControlMethods {
+	void (*destroy)(void* state);
+	void (*place)(void* state, int x, int y, int width, int height, bool visible, double scale);
+	bool (*paint)(void* state, unsigned char* rgba, size_t stride, int width, int height);
+	void (*pointer)(void* state, unsigned int type, double x, double y, unsigned int button, unsigned int modifiers);
+	void (*scroll)(void* state, double x, double y, double dx, double dy, bool precise, unsigned int modifiers);
+	void (*key)(void* state, unsigned int type, unsigned int key, unsigned int scancode, unsigned int modifiers, bool repeat);
+	void (*text)(void* state, const char* utf8);
+	void (*focus)(void* state, bool focused);
+} BtrcExternalControlMethods;
+
 void btrcShimRegisterWebBackend(const BtrcEmbeddedWebBackend* backend);
 
-struct _GtkWidget;
-BtrcShimControl* btrcGtkControlNew(unsigned int id, struct _GtkWidget* widget);
-struct _GtkWidget* btrcGtkControlWidget(BtrcShimControl* control);
-void btrcGtkControlPushText(BtrcShimControl* control, unsigned int type, int data, const char* text);
+BtrcShimControl* btrcExternalControlCreate(unsigned int id, void* state, const BtrcExternalControlMethods* methods);
+void* btrcExternalControlState(BtrcShimControl* control);
+void btrcExternalControlMarkDirty(BtrcShimControl* control);
+void btrcExternalControlPushText(BtrcShimControl* control, unsigned int type, int data, const char* text);
+void btrcExternalControlRegisterPoller(int (*poll)(void* context), void* context);
 #endif

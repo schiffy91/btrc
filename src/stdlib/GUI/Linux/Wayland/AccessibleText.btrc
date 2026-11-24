@@ -1,0 +1,117 @@
+import Library.DBus;
+import Library.Strings;
+
+/* AT-SPI positions count Unicode scalars. The field owns its UTF-8 edit
+ * buffer, whose caret and selection operations accept grapheme boundaries. */
+class WaylandAccessibleText {
+	public string value; public int bytes; public int count;
+	public int caret; public int anchor;
+	private unsigned window; private unsigned id;
+
+	public WaylandAccessibleText(unsigned window, unsigned id, string value, int anchorByte, int caretByte) {
+		self.window = window; self.id = id; self.value = value; self.bytes = value.len();
+		for (int byte = 0; byte < self.bytes; byte = UTF8.next(value, self.bytes, byte)) {
+			if (byte < anchorByte) { self.anchor++; }
+			if (byte < caretByte) { self.caret++; }
+			self.count++;
+		}
+	}
+
+	public int byteAt(int offset) {
+		if (offset < 0 || offset > self.count) { return -1; }
+		int byte = 0;
+		for (int i = 0; i < offset; i++) { byte = UTF8.next(self.value, self.bytes, byte); }
+		return byte;
+	}
+
+	public string range(int start, int end) {
+		int first = self.byteAt(start); int last = self.byteAt(end);
+		return first >= 0 && last >= first ? self.value.substring(first, last - first) : "";
+	}
+
+	public bool dispatch(DBusMessage call, DBusWriter out) {
+		string member = call.member(); string signature = call.signature(); var args = call.reader();
+		if (call.interfaceName() == "org.a11y.atspi.EditableText") {
+			if (member == "SetTextContents" && signature == "s") {
+				out.appendBool(btrcWaylandAccessibleReplace(self.window, self.id, 0, self.bytes, args.readString()));
+			} else if (member == "InsertText" && signature == "isi") {
+				int at = self.byteAt(args.readInt32()); args.next(); string inserted = args.readString(); args.next();
+				int bytes = args.readInt32(); int length = inserted.len();
+				bool ok = bytes >= 0 && at >= 0;
+				if (ok && bytes < length) {
+					ok = !UTF8.continuation((int)(unsigned char)inserted[bytes]);
+					if (ok) { inserted = inserted.substring(0, bytes); }
+				}
+				out.appendBool(ok && btrcWaylandAccessibleReplace(self.window, self.id, at, at, inserted));
+			} else if (member == "DeleteText" && signature == "ii") {
+				int first = self.byteAt(args.readInt32()); args.next(); int last = self.byteAt(args.readInt32());
+				out.appendBool(btrcWaylandAccessibleReplace(self.window, self.id, first, last, ""));
+			} else { return false; }
+			return true;
+		}
+		if (call.interfaceName() != "org.a11y.atspi.Text") { return false; }
+		bool selected = self.caret != self.anchor;
+		if (member == "GetText" && signature == "ii") {
+			int first = args.readInt32(); args.next(); int last = args.readInt32();
+			out.appendString(self.range(first, last == -1 ? self.count : last));
+		} else if (member == "GetCharacterAtOffset" && signature == "i") {
+			int at = self.byteAt(args.readInt32());
+			out.appendInt32(at >= 0 && at < self.bytes ? UTF8.decode(self.value, self.bytes, &at) : 0);
+		} else if (member == "GetStringAtOffset" && signature == "iu") {
+			int at = args.readInt32(); args.next(); uint granularity = args.readUInt32();
+			int start = at; int end = at >= 0 && at < self.count ? at + 1 : -1;
+			if (at < 0 || at >= self.count) { start = -1; end = -1; }
+			else if (granularity == 3u || granularity == 4u) { start = 0; end = self.count; }
+			else if (granularity != 0u) { return false; }
+			out.appendString(self.range(start, end)); out.appendInt32(start); out.appendInt32(end);
+		} else if (member == "SetCaretOffset" && signature == "i") {
+			int at = self.byteAt(args.readInt32()); out.appendBool(btrcWaylandAccessibleSelect(self.window, self.id, at, at));
+		} else if (member == "GetNSelections" && signature.isEmpty()) {
+			out.appendInt32(selected ? 1 : 0);
+		} else if (member == "GetSelection" && signature == "i") {
+			bool valid = selected && args.readInt32() == 0;
+			out.appendInt32(!valid ? -1 : self.anchor < self.caret ? self.anchor : self.caret);
+			out.appendInt32(!valid ? -1 : self.anchor < self.caret ? self.caret : self.anchor);
+		} else if ((member == "SetSelection" && signature == "iii") || (member == "AddSelection" && signature == "ii")) {
+			bool valid = !selected;
+			if (member == "SetSelection") { valid = selected && args.readInt32() == 0; args.next(); }
+			int first = self.byteAt(args.readInt32()); args.next(); int last = self.byteAt(args.readInt32());
+			out.appendBool(valid && btrcWaylandAccessibleSelect(self.window, self.id, first, last));
+		} else if (member == "RemoveSelection" && signature == "i") {
+			int at = self.byteAt(self.caret);
+			out.appendBool(selected && args.readInt32() == 0 && btrcWaylandAccessibleSelect(self.window, self.id, at, at));
+		} else { return false; }
+		return true;
+	}
+
+	class void signal(DBusConnection bus, string path, string member, string kind, int position, int length, string text) {
+		var message = DBusMessage.signal(path, "org.a11y.atspi.Event.Object", member);
+		var out = message.writer(); out.appendString(kind); out.appendInt32(position); out.appendInt32(length);
+		if (member == "TextChanged") { out.variantString(text); } else { out.variantInt32(0); }
+		out.openArray("{sv}").close(); bus.send(message);
+	}
+
+	public void changes(DBusConnection bus, string path, WaylandAccessibleText old) {
+		if (old.value != self.value) {
+			int prefix = 0; int before = 0; int after = 0;
+			while (before < old.bytes && after < self.bytes) {
+				int left = before; int right = after;
+				if (UTF8.decode(old.value, old.bytes, &left) != UTF8.decode(self.value, self.bytes, &right)) { break; }
+				before = left; after = right; prefix++;
+			}
+			int endOld = old.bytes; int endNew = self.bytes; int suffix = 0;
+			while (endOld > before && endNew > after) {
+				int left = UTF8.previous(old.value, old.bytes, endOld); int right = UTF8.previous(self.value, self.bytes, endNew);
+				int oldScalar = left; int newScalar = right;
+				if (UTF8.decode(old.value, old.bytes, &oldScalar) != UTF8.decode(self.value, self.bytes, &newScalar)) { break; }
+				endOld = left; endNew = right; suffix++;
+			}
+			if (endOld > before) { WaylandAccessibleText.signal(bus, path, "TextChanged", "delete", prefix, old.count - prefix - suffix, old.value.substring(before, endOld - before)); }
+			if (endNew > after) { WaylandAccessibleText.signal(bus, path, "TextChanged", "insert", prefix, self.count - prefix - suffix, self.value.substring(after, endNew - after)); }
+		}
+		if (self.caret != old.caret) { WaylandAccessibleText.signal(bus, path, "TextCaretMoved", "", self.caret, 0, ""); }
+		if ((self.anchor != self.caret || old.anchor != old.caret) && (self.anchor != old.anchor || self.caret != old.caret)) {
+			WaylandAccessibleText.signal(bus, path, "TextSelectionChanged", "", 0, 0, "");
+		}
+	}
+}

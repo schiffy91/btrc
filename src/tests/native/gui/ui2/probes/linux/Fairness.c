@@ -19,9 +19,9 @@
 /* A key this observer queued says so, and carries its sequence. */
 #define SEQUENCE_MARK 0x45343022
 
-/* The provider shim's queue, as its own sources see it (GtkShimPrivate.h). */
-bool btrcGtkPush(const BtrcShimEvent *event, const char *text);
-int btrcGtkQueued(unsigned int firstType, unsigned int lastType);
+/* The provider shim's queue, as its Wayland platform exposes it. */
+bool btrcWaylandQueuePush(const BtrcShimEvent *event, const char *text);
+int btrcWaylandQueueCount(unsigned int firstType, unsigned int lastType);
 struct Receipt { long long sequence; uint64_t admitted, due; int bytes; };
 struct Metrics {
     struct Receipt receipts[SLOTS];
@@ -198,16 +198,16 @@ int e40PushInput(int window) {
     BtrcShimEvent event; memset(&event, 0, sizeof event); event.type = BTRC_SHIM_EVENT_KEY_DOWN;
     event.window = windows[window]; event.scancode = BTRC_SHIM_SCANCODE_A;
     event.data1 = (int)sequence; event.data2 = SEQUENCE_MARK; event.down = 1;
-    if (!btrcGtkPush(&event, NULL)) { e40Reject(0, sequence); return 0; }
+    if (!btrcWaylandQueuePush(&event, NULL)) { e40Reject(0, sequence); return 0; }
     inputSequence = sequence;
-    int queued = btrcGtkQueued(0u, ~0u);
+    int queued = btrcWaylandQueueCount(0u, ~0u);
     pthread_mutex_lock(&mutex); if (queued > nativePeakDepth) { nativePeakDepth = queued; } pthread_mutex_unlock(&mutex);
     return 1;
 }
 int e40PushClose(void) {
     e40Begin(7, 1, 0, (int)sizeof(BtrcShimEvent));
     BtrcShimEvent event; memset(&event, 0, sizeof event); event.type = BTRC_SHIM_EVENT_WINDOW_CLOSE_REQUESTED; event.window = windows[0];
-    if (!btrcGtkPush(&event, NULL)) { e40Reject(7, 1); return 0; } return 1;
+    if (!btrcWaylandQueuePush(&event, NULL)) { e40Reject(7, 1); return 0; } return 1;
 }
 void e40Frame(int window) {
     assert(window == 0 || window == 1); assert(e40Pending(5 + window) == 0);

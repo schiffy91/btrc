@@ -13,18 +13,18 @@ failure names the module, the target and the dependency.
 
 ## Third-party requirements awaiting removal
 
-| Dependency | Module | Targets | How it is required | Replacement |
-| --- | --- | --- | --- | --- |
-| GTK 4 | `GUI/Shim/Shim` | linux | headers `cairo-ft.h`; headers `gdk/gdkkeysyms.h`; headers `gdk/wayland/gdkwayland.h`; headers `gdk/x11/gdkx.h`; headers `gtk/gtk.h`; headers `pango/pangocairo.h`; pkg-config `gtk4-wayland`; pkg-config `gtk4-x11`; pkg-config `gtk4` | First-party windows and controls over the display server's protocol. |
-| libX11 | `GUI/Shim/Shim` | linux | headers `X11/Xlib.h`; pkg-config `x11` | Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend. |
-| libwayland-client | `GUI/Shim/Shim` | linux | headers `wayland-client.h`; pkg-config `wayland-client` | The Wayland wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects. |
+None.
 
 ## Standards data used by first-party implementations
 
-- Unicode Character Database 17.0.0. The line-break and grapheme tables contain character properties. First-party code implements both algorithms. The audit checks the tables and their license by SHA-256. [Upstream data](https://github.com/unicode-org/unicodetools/tree/725fb6055cd42915c74bcf77b91aa8fb8ef18669/unicodetools/data/ucd/17.0.0)
+- Unicode Character Database 17.0.0. The line-break, grapheme and keyboard case tables contain character properties. First-party code implements the algorithms. The audit checks the tables and their license by SHA-256. [Upstream data](https://github.com/unicode-org/unicodetools/tree/725fb6055cd42915c74bcf77b91aa8fb8ef18669/unicodetools/data/ucd/17.0.0)
+  - `src/stdlib/GUI/Linux/Wayland/KeysymCaseData.h`
   - `src/stdlib/GUI/Text/GraphemeData.h`
   - `src/stdlib/GUI/Text/LineBreakData.h`
   - `src/stdlib/GUI/Text/UNICODE-LICENSE.txt`
+- X.Org protocol keysym registry 2024.1. Native Wayland keyboards use XKB protocol names, numeric symbols and Unicode assignments. The audit checks literal data declarations and the upstream permission notice by SHA-256. [Upstream data](https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/blob/xorgproto-2024.1/include/X11/keysymdef.h)
+  - `src/stdlib/GUI/Linux/Wayland/KEYSYM-LICENSE.txt`
+  - `src/stdlib/GUI/Linux/Wayland/KeysymData.h`
 
 ## Owner decisions
 
@@ -61,7 +61,6 @@ DoS bounds are hardened per independent security review (docs/design/linux-tls-s
 | Dependency | Module | Targets | How it is required |
 | --- | --- | --- | --- |
 | wgpu-native | `GPU/WebGPU` | android, ios, linux, macos, windows | headers `webgpu.h`; libraries `wgpu_native`; pkg-config `wgpu-native-windows-aarch64`; pkg-config `wgpu-native-windows-x86_64`; pkg-config `wgpu-native` |
-| wgpu-native | `GUI/Linux/Wayland/Surface.c` | linux | headers `webgpu.h` |
 | wgpu-native | `GUI/MacOS/WebGPUSurface` | macos | headers `webgpu.h`; pkg-config `wgpu-native` |
 | wgpu-native | `GUI/Shim/ShimSurface` | android, ios, linux, windows | headers `webgpu.h`; headers `wgpu.h`; pkg-config `wgpu-native-windows-aarch64`; pkg-config `wgpu-native-windows-x86_64`; pkg-config `wgpu-native` |
 | wgpu-native | `runtime/gpu/btrc_gpu.c` | android, ios, linux, macos, windows | headers `webgpu.h` |
@@ -71,7 +70,7 @@ DoS bounds are hardened per independent security review (docs/design/linux-tls-s
 
 | Dependency | Module | Targets | How it is required |
 | --- | --- | --- | --- |
-| libwayland-client | `GUI/Linux/Wayland/GPUWire.c` | linux | loads `libwayland-client.so.0` |
+| libwayland-client | `GUI/Shim/Shim` | linux | loads `libwayland-client.so.0` |
 
 ## What each operating system supplies, as the stdlib uses it
 
