@@ -1,5 +1,6 @@
 import Library.Array;
 import Library.Bytes;
+import Library.Digest.CRC32;
 import Library.Vector;
 import Library.Image.Pixels;
 
@@ -9,7 +10,7 @@ import ./Checksum.btrc;
 // the smallest sum of absolute differences, and the zlib stream is one block
 // of the fixed Huffman codes with greedy back-references.
 class PNGWriter {
-	private PNGChecksum checksum;
+	private CRC32 checksum;
 	private Bytes stream;
 	private unsigned int hold = 0u;
 	private int held = 0;
@@ -22,7 +23,7 @@ class PNGWriter {
 	private Vector<int> distanceExtra;
 
 	public PNGWriter() {
-		self.checksum = PNGChecksum();
+		self.checksum = CRC32();
 		self.stream = Bytes();
 		self.codes = new Array<int>(288);
 		self.sizes = new Array<int>(288);

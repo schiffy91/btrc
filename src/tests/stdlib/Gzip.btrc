@@ -1,0 +1,24 @@
+import Library.Bytes;
+import Library.Compression.Gzip;
+import Library.Digest.CRC32;
+
+int main() {
+	var source = Bytes.fromHex("1f8b081e0000000000ff0300616263666f6e74006669787475726500c2e7cb48cdc9c9570000f6f981ed060000001f8b08000000000002032bcf2fca4901004311773a05000000");
+	if (source == null) { throw "Invalid gzip fixture"; }
+	var decoded = Gzip.decode(source, 11);
+	if (!decoded.toString().equals("hello world")) { throw "Wrong gzip data"; }
+	if (CRC32().crc(decoded, 0, decoded.length()) != 0x0d4a1185u) { throw "Wrong CRC-32"; }
+	for (int i = 0; i < 6; i++) {
+		var input = source.slice(0, source.length());
+		if (i == 0) { input.set(28, input.get(28) ^ 1); }
+		if (i == 1) { input.set(38, input.get(38) ^ 1); }
+		if (i == 2) { input.set(input.length() - 1, 1); }
+		if (i == 3) { input.append(0); }
+		if (i == 4) { input = input.slice(0, 7); }
+		bool refused = false;
+		try { Gzip.decode(input, i == 5 ? 10 : 11); } catch (string error) { refused = true; }
+		if (!refused) { throw "Invalid gzip stream was accepted"; }
+	}
+	print("PASS Gzip");
+	return 0;
+}
