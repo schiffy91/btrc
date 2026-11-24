@@ -48,8 +48,6 @@ def main(executable, directory, orca_trace=None):
     perform = function(library, "atspi_action_do_action", integer, pointer, integer, pointer)
     iterate = function(ctypes.CDLL("libglib-2.0.so.0"), "g_main_context_iteration", integer, pointer, integer)
 
-    command = empty_root_command(executable, directory)
-    assert command.pop() == "/app"
     assert not DependencyAudit().binary_problems(Path(executable), f"linux-{platform.machine()}")
     assert not any("atspi" in item or "dbus" in item for item in BinaryImports.read(Path(executable)))
     # The accessibility bus is itself an OS service outside the app namespace.
@@ -69,11 +67,12 @@ def main(executable, directory, orca_trace=None):
     )
     value = ast.literal_eval(address)[0]
     socket = unquote(value.split("unix:path=", 1)[1].split(",", 1)[0])
-    command.extend(["--ro-bind", socket, "/run/gui/a11y", "--setenv", "AT_SPI_BUS_ADDRESS", "unix:path=/run/gui/a11y"])
+    options = ["--ro-bind", socket, "/run/gui/a11y", "--setenv", "AT_SPI_BUS_ADDRESS", "unix:path=/run/gui/a11y"]
+    command = empty_root_command(executable, directory, options)
     assert init() == 0
     root = desktop(0)
     assert root
-    with subprocess.Popen([*command, "/app"], stdout=subprocess.PIPE, text=True) as app:
+    with subprocess.Popen(command, stdout=subprocess.PIPE, text=True) as app:
         try:
             end = time.monotonic() + 15
             button = None
