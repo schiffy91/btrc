@@ -1,4 +1,5 @@
 import Library.Vector;
+import Library.GUI.IFontFace;
 
 import ./CoverageRasterizer.btrc;
 import ./OpenTypeData.btrc;
@@ -67,6 +68,23 @@ class GlyphOutline {
 	}
 
 	public bool isEmpty() { return self.ends.size() == 0; }
+
+	public FontGlyph rasterize(long long advance, bool fixedCrossings = false) {
+		if (self.isEmpty()) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_GRAY, 256, new Bytes()); }
+		var box = self.controlBox();
+		int left = (int)OpenTypeFixed.floorDiv((long long)box.get(0), 64LL);
+		int bottom = (int)OpenTypeFixed.floorDiv((long long)box.get(1), 64LL);
+		int width = (int)OpenTypeFixed.floorDiv((long long)box.get(2) + 63LL, 64LL) - left;
+		int rows = (int)OpenTypeFixed.floorDiv((long long)box.get(3) + 63LL, 64LL) - bottom;
+		if (width < 1 || rows < 1) { return new FontGlyph(advance, left, bottom + rows, width, rows, width, FONT_PIXEL_GRAY, 256, new Bytes()); }
+		var raster = CoverageRasterizer(width, rows, fixedCrossings);
+		for (int band = 0; band < raster.bands(); band++) {
+			raster.begin(band);
+			self.replay(raster, left, bottom);
+			raster.finish();
+		}
+		return new FontGlyph(advance, left, bottom + rows, width, rows, width, FONT_PIXEL_GRAY, 256, raster.coverage());
+	}
 
 	/* The control box: the extent of every point, control points included,
 	 * which bounds the curves. Order: xMin, yMin, xMax, yMax. */

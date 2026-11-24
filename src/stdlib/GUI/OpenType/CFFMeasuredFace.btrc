@@ -9,12 +9,12 @@ import ./OpenTypeHorizontalMetrics.btrc;
 import ./OpenTypeLineMetrics.btrc;
 import ./SFNTDirectory.btrc;
 
-/* The CFF charstring verifies the glyph and determines whether it has ink.
- * The SFNT horizontal metrics give its advance. Visible outlines require
- * the native PostScript hinter and use the retained file for rendering. */
+/* SFNT supplies the advance. Integral, stem-free Type 2 paths can be
+ * rendered in device space. Other visible glyphs use the retained face. */
 class CFFMeasuredFace implements IFontFace {
 	public Bytes source;
 	private long long scale;
+	private bool visibleSize;
 	private FontMetrics lineMetrics;
 	private OpenTypeHorizontalMetrics horizontal;
 	private OpenTypeCharacterMap characters;
@@ -63,6 +63,7 @@ class CFFMeasuredFace implements IFontFace {
 		int full = data.u16(hhea.offset + 34);
 		if (full < 1 || full > count) { throw "Invalid CFF horizontal metrics"; }
 		self.horizontal = OpenTypeHorizontalMetrics(data, dir.required(0x686d7478LL, 4 * full + 2 * (count - full)), full);
+		self.visibleSize = units == 1000 && pixels <= 128;
 		self.scale = OpenTypeFixed.div((long long)pixels * 64LL, (long long)units);
 		self.lineMetrics = OpenTypeLineMetrics.scaled(data, dir, hhea, self.scale);
 		var map = dir.required(0x636d6170LL, 4);
@@ -79,9 +80,19 @@ class CFFMeasuredFace implements IFontFace {
 		try {
 			int glyph = self.characters.glyphIndex(scalar);
 			var path = GlyphOutline();
-			self.outlines.load(glyph, self.scale, path);
+			bool visible = self.outlines.load(glyph, self.scale, path, render);
 			long long advance = OpenTypeFixed.pixelRound(OpenTypeFixed.mul((long long)self.horizontal.advance(glyph), self.scale));
-			if (render && !path.isEmpty()) { return null; }
+			if (render && !visible) { return null; }
+			if (render && !path.isEmpty()) {
+				if (!self.visibleSize) { return null; }
+				int first = 0;
+				for (int contour = 0; contour < path.contourCount(); contour++) {
+					int last = path.contourEnd(contour);
+					if (last - first < 2) { return null; }
+					first = last + 1;
+				}
+				return path.rasterize(advance, true);
+			}
 			return new FontGlyph(advance, 0, 0, 0, 0, 0, render ? FONT_PIXEL_GRAY : FONT_PIXEL_UNSUPPORTED, render ? 256 : 0, new Bytes());
 		} catch (string error) { return null; }
 	}
