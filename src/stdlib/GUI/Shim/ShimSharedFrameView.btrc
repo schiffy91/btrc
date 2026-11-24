@@ -6,39 +6,39 @@ import Library.GUI.Shim.ShimContext;
 import Library.GUI.Shim.ShimPainter;
 import Library.GUI.Shim.ShimControls;
 
-class IOSSharedFrameView extends ShimNodeView implements ISharedFrameView {
+class ShimSharedFrameView extends ShimNodeView implements ISharedFrameView {
 	private BtrcShimControl* _picture;
 
-	public IOSSharedFrameView(ShimContext context) {
+	public ShimSharedFrameView(ShimContext context) {
 		self.adoptNode(ShimViewNode(context));
-		self._picture = btrcUIKitFrameCreate((unsigned int)self.node().id);
-		if (self._picture == null) { throw "Cannot create iOS shared frame view"; }
+		self._picture = btrcShimFrameCreate((unsigned int)self.node().id);
+		if (self._picture == null) { throw "Cannot create native shared frame view"; }
 	}
 
 	public SharedFrameEndpoint listen(int producerPid) {
 		self.node().requireOpen();
-		var address = btrcUIKitFrameListen(self._picture, producerPid);
-		if (address == null) { throw "Cannot listen for IOSurface frames from that process"; }
+		var address = btrcShimFrameListen(self._picture, producerPid);
+		if (address == null) { throw "Cannot listen for shared frames from that process"; }
 		self.node().invalidate();
-		return SharedFrameEndpoint("iosurface-xpc", Strings.copy((char*)address));
+		return SharedFrameEndpoint(Strings.copy((char*)btrcShimFrameTransport()), Strings.copy((char*)address));
 	}
 
 	public void disconnect() {
 		self.node().requireOpen();
-		btrcUIKitFrameDisconnect(self._picture);
+		btrcShimFrameDisconnect(self._picture);
 		self.node().invalidate();
 	}
 
 	public bool presentPending() {
 		self.node().requireOpen();
-		if (!btrcUIKitFramePresent(self._picture)) { return false; }
+		if (!btrcShimFramePresent(self._picture)) { return false; }
 		self.node().invalidate();
 		return true;
 	}
 
-	public int frameWidth() { self.node().requireOpen(); return btrcUIKitFrameWidth(self._picture); }
+	public int frameWidth() { self.node().requireOpen(); return btrcShimFrameWidth(self._picture); }
 
-	public int frameHeight() { self.node().requireOpen(); return btrcUIKitFrameHeight(self._picture); }
+	public int frameHeight() { self.node().requireOpen(); return btrcShimFrameHeight(self._picture); }
 
 	public double fittingWidth() { return (double)self.frameWidth(); }
 
@@ -48,7 +48,7 @@ class IOSSharedFrameView extends ShimNodeView implements ISharedFrameView {
 
 	private void releaseNative() {
 		if (self._picture != null) {
-			btrcUIKitFrameDisconnect(self._picture);
+			btrcShimFrameDisconnect(self._picture);
 			btrcShimControlDestroy(self._picture);
 			self._picture = null;
 		}
