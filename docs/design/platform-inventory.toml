@@ -5132,3 +5132,16 @@ ios-device = { parity = "equivalent", implementation = "implemented", owner = "P
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC's PNG and JPEG codecs behind the encoded-image contract; no native codec." }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC's PNG and JPEG codecs behind the encoded-image contract; no native codec." }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "BTRC's PNG and JPEG codecs behind the encoded-image contract; no native codec." }
+
+[[rows]]
+kind = "operation"
+id = "Library.Compression.ZlibReader"
+group = "stdlib/Compression"
+title = "Compression ZlibReader"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE and zlib decoding uses the same byte streams on all targets" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE and zlib decoding uses the same byte streams on all targets" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE and zlib decoding uses the same byte streams on all targets" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE and zlib decoding uses the same byte streams on all targets" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE and zlib decoding uses the same byte streams on all targets" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE and zlib decoding uses the same byte streams on all targets" }

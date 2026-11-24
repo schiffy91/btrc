@@ -626,6 +626,7 @@ The current groups are:
 | `Crypto` | Base64; Ed25519 identities in OpenSSH's formats, a trusted-key file and an encrypted, mutually authenticated channel over a TCP stream (first-party btrc: Ed25519, X25519, BLAKE2b, XChaCha20-Poly1305) |
 | `Steam` | A profile's non-Steam shortcuts: read, change and write `shortcuts.vdf` with every other byte kept, the number and picture names Steam uses |
 | `DBus` | A first-party D-Bus client: addresses, message marshalling and a bus connection over a Unix socket (Linux) |
+| `Compression` | Streaming RFC 1950 zlib and RFC 1951 DEFLATE decoding. |
 
 The everyday surfaces are intentionally practical:
 
@@ -1896,7 +1897,7 @@ src/
     IO.btrc Console.btrc CLI.btrc Process.btrc Platform.btrc
     Result.btrc Callback.btrc OwnedBuffer.btrc SPSC.btrc
     App/ Audio/ BackgroundJobs/ Bluetooth/ Crypto/ Daemon/ Digest/ FileSystem/ GPU/ GUI/
-    DBus/ Graph/ HID/ HTTP/ Image/ LocalApplicationChannel/ Network/ Realtime/ Steam/ Terminal/ Tray/ UI/ USB/
+    Compression/ DBus/ Graph/ HID/ HTTP/ Image/ LocalApplicationChannel/ Network/ Realtime/ Steam/ Terminal/ Tray/ UI/ USB/
 
   tests/                       # One framework for both compilers
     runner.py                  # Unified runner: each .btrc test through BOTH compilers

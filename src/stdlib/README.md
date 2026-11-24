@@ -102,7 +102,7 @@ the API surface, so the layout follows a few fixed rules.
   would claim a root symbol every importer sees.
 
 Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
-(`Linux/`, `MacOS/`, `Unix/`), `Bluetooth` (`Linux/`, `MacOS/`, `Unix/`), `Crypto` (`Apple/`, `Primitives/`, `Unix/`, `Windows/`), `DBus` (`Linux/`), `Daemon`, `Digest` (`MacOS/`), `FileSystem`,
+(`Linux/`, `MacOS/`, `Unix/`), `Bluetooth` (`Linux/`, `MacOS/`, `Unix/`), `Compression`, `Crypto` (`Apple/`, `Primitives/`, `Unix/`, `Windows/`), `DBus` (`Linux/`), `Daemon`, `Digest` (`MacOS/`), `FileSystem`,
 `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`, `Windows/`), `HID`, `HTTP`, `Image`
 (`Apple/`, `Linux/`, `Portable/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`), `Network`
 (`Unix/`), `Realtime`, `Steam`, `Terminal` (`Unix/`, `Windows/`), `Testing`, `Tray` (`Linux/`, `MacOS/`), `UI`,
