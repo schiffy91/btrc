@@ -27,7 +27,7 @@ RUNTIME_FORBIDDEN = ("libgtk", "libgdk", "libX11", "libwayland", "libfontconfig"
 
 def build_app(frontend, source, tmp_path, request):
     require_linux_reader()
-    for tool in ("bwrap", "grim", "fc-match"):
+    for tool in ("bwrap", "fc-match"):
         if not shutil.which(tool):
             pytest.skip(f"the real GUI/empty-root observer needs {tool}")
     sdk = subprocess.run(["pkg-config", "--path", "wgpu-native"], capture_output=True, text=True)
@@ -66,6 +66,8 @@ def build_app(frontend, source, tmp_path, request):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 def test_preview(frontend, input_device, tmp_path, request):  # noqa: F811
+    if not shutil.which("grim"):
+        pytest.skip("observing the window pixels requires grim")
     executable = build_app(frontend, SAMPLE, tmp_path, request)
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, executable, input_device, tmp_path],
