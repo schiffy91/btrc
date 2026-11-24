@@ -1619,7 +1619,9 @@ class NativeDeclarationImporter:
                     None,
                 )
                 if runtime is None:
-                    raise NativeImportError("Java bindings require import Library.Java.JavaVirtualMachine on Android or JavaHost.JavaVirtualMachine on desktop")
+                    raise NativeImportError(
+                        "Java bindings require import Library.Java.JavaVirtualMachine on Android or JavaHost.JavaVirtualMachine on desktop"
+                    )
                 arguments = (
                     reader,
                     f"--target={target}",
