@@ -298,8 +298,16 @@ def unavailable_freetype(tmp_path, env):
 @pytest.mark.parametrize(
     ("consumer", "fixture", "expected"),
     [
-        ("MonochromeFontConformance", "fixture.pcf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
-        ("MonochromeFontConformance", "mono-strike.bdf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
+        (
+            "MonochromeFontConformance",
+            "fixture.pcf",
+            "PASS: monochrome strike metrics, default glyph and packed pixels",
+        ),
+        (
+            "MonochromeFontConformance",
+            "mono-strike.bdf",
+            "PASS: monochrome strike metrics, default glyph and packed pixels",
+        ),
         ("LegacyBDFFontConformance", "legacy-strike.bdf", "PASS: BDF glyph indices and short rows"),
         ("ColorBitmapFontConformance", "color-bitmap.ttf", "PASS: color bitmap native metrics and coverage"),
     ],
@@ -347,9 +355,13 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
         # to prove which provider the existing public factory actually used.
         blocked = unavailable_freetype(tmp_path, env)
         for path in first_party:
-            good = subprocess.run([executable, path, *arguments], capture_output=True, text=True, timeout=60, env=blocked)
+            good = subprocess.run(
+                [executable, path, *arguments], capture_output=True, text=True, timeout=60, env=blocked
+            )
             assert good.returncode == 0, good.stdout + good.stderr
-        fallback = subprocess.run([executable, reference, *arguments], capture_output=True, text=True, timeout=60, env=blocked)
+        fallback = subprocess.run(
+            [executable, reference, *arguments], capture_output=True, text=True, timeout=60, env=blocked
+        )
         assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr
 
 
@@ -382,6 +394,11 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
         )
 
     blocked = None if sanitized else unavailable_freetype(tmp_path, env)
+    unicode_maps = (tests / "fixtures/hinted-full-cmap.ttf").read_bytes()
+    for environment in [env] if blocked is None else [env, blocked]:
+        result = run("ttf", "unicode", environment, unicode_maps)
+        assert result.returncode == 0, result.stdout + result.stderr
+
     for extension in ("ttf", "woff", "woff2"):
         mixed = (tests / f"fixtures/hinted-mixed.{extension}").read_bytes()
         for suffix in (extension, "raw"):
@@ -393,12 +410,95 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
             assert supported.returncode == 0, supported.stdout + supported.stderr
             fallback = run(extension, 6, blocked, mixed)
             assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr
+    legacy = (tests / "fixtures/hinted-legacy-bmp.ttf").read_bytes()
+    for suffix in ("ttf", "raw"):
+        rendered = run(suffix, "render", env, legacy)
+        assert rendered.returncode == 0, rendered.stdout + rendered.stderr
+    if blocked is not None:
+        measured = run("ttf", "measure", blocked, legacy)
+        assert measured.returncode == 0, measured.stdout + measured.stderr
+        native_ink = run("ttf", "render", blocked, legacy)
+        assert native_ink.returncode != 0 and "Cannot initialize FreeType library" in native_ink.stderr
+    composite = (tests / "fixtures/hinted-composite-offset.ttf").read_bytes()
+    for size in (8, 13):
+        for extension, environment in (("raw", env), ("ttf", blocked or env)):
+            result = run(extension, f"composite{size}", environment, composite)
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "PASS: size-specific composite component placement" in result.stdout
     general = (tests / "fixtures/hinted-general.woff2").read_bytes()
     result = run("woff2", 6, env, general)
     assert result.returncode == 0, result.stdout + result.stderr
     if blocked is not None:
         early = run("woff2", 5, blocked, general)
         assert early.returncode != 0 and "Cannot initialize FreeType library" in early.stderr
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
+
+    require_linux_reader()
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
+    ):
+        pytest.skip("requires the optional FreeType SDK for the native fallback")
+    fixtures = REPO / "src/tests/native/gui"
+    source = tmp_path / "CFFMeasurementConformance.btrc"
+    source.write_bytes((fixtures / source.name).read_bytes())
+    executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
+    data = (fixtures / "fixtures/measured-cff.otf").read_bytes()
+    env = provider_environment(sanitized)
+
+    def run(suffix, mode, environment, input_bytes=data):
+        path = tmp_path / f"input.{suffix}"
+        path.write_bytes(input_bytes)
+        return subprocess.run([executable, path, mode], capture_output=True, text=True, env=environment, timeout=60)
+
+    for suffix in ("otf", "raw"):
+        visible = run(suffix, "render", env)
+        assert visible.returncode == 0, visible.stdout + visible.stderr
+        assert "PASS: CFF font measurement and retained fallback" in visible.stdout
+    # The final glyph's Type 2 program begins with a reserved operator.
+    # FreeType tolerates it, so the public probe must switch to the saved
+    # bytes after unlink before returning its advance.
+    curve = bytes.fromhex("f9508b16f75cf8eceff75cf72a27f72afd50190e")
+    assert data.count(curve) == 2
+    at = data.rindex(curve)
+    unusual = data[:at] + b"\x00\x0e" + data[at + 2 :]
+    # Give B a 0..100 horizontal stem and a 100-unit square. Its device
+    # coverage at 10 px is 248, as independently rendered by FreeType.
+    square = bytes.fromhex("f9508bef018b16efef27060e").ljust(len(curve), b"\x0e")
+    hinted = data[:at] + square + data[at + len(curve) :]
+    # Straight edges in the triangle (0,0), (90,347), (167,622) cross a
+    # subpixel rounding boundary at 65 px. Compare both providers.
+    triangle = bytes.fromhex("f9508b16e5f7efd8f7a7050e").ljust(len(curve), b"\x0e")
+    long_edge = data[:at] + triangle + data[at + len(curve) :]
+    for suffix in ("otf", "raw"):
+        visible_edge = run(suffix, "edge", env, long_edge)
+        assert visible_edge.returncode == 0, visible_edge.stdout + visible_edge.stderr
+    visible_hint = run("otf", "hint", env, hinted)
+    assert visible_hint.returncode == 0, visible_hint.stdout + visible_hint.stderr
+    fallback = run("otf", "render", env, unusual)
+    assert fallback.returncode == 0, fallback.stdout + fallback.stderr
+    if not sanitized:
+        blocked = unavailable_freetype(tmp_path, env)
+        rejected = run("otf", "measure", blocked, unusual)
+        assert rejected.returncode != 0 and "Cannot initialize FreeType library" in rejected.stderr
+        measured = run("otf", "measure", blocked)
+        assert measured.returncode == 0, measured.stdout + measured.stderr
+        portable_curve = run("otf", "render", blocked)
+        assert portable_curve.returncode == 0, portable_curve.stdout + portable_curve.stderr
+        portable_edge = run("otf", "edge", blocked, long_edge)
+        assert portable_edge.returncode == 0, portable_edge.stdout + portable_edge.stderr
+        for suffix, mode, font_data in (("raw", "measure", data), ("otf", "hint", hinted)):
+            native = run(suffix, mode, blocked, font_data)
+            assert native.returncode != 0 and "Cannot initialize FreeType library" in native.stderr
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])

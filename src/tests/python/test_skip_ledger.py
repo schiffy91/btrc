@@ -46,8 +46,8 @@ MACOS_SKIPS = [
         "needs macOS developer mode for lldb to launch an inferior (sudo /usr/sbin/DevToolsSecurity -enable)",
     ),
     (
-        "src/tests/python/test_native_macro_constants.py::test_freetype_macro_constants_build_and_run[python]",
-        "the FreeType proof builds against the Linux SDK",
+        "src/tests/python/test_native_macro_constants.py::test_poll_macro_constants_build_and_run[python]",
+        "the poll proof builds against the Linux SDK",
     ),
     (
         "src/tests/python/test_emitted_units.py::test_split_units_link_and_run_like_one[btrcpy]",

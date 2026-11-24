@@ -9,7 +9,7 @@
               "os": "all",
               "sha1": "dda632745023567113d9954101709c6526a3c250",
               "size": 1875087037,
-              "url": "https://dl.google.com/android/repository/sys-img/page_size_16kb/arm64-v8a-ps16k-36_r07.zip"
+              "url": "https://dl.google.com/android/repository/sys-img/google_apis/arm64-v8a-ps16k-36_r07.zip"
             }
           ],
           "dependencies": {

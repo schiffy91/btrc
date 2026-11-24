@@ -1,0 +1,47 @@
+import Library.Bytes;
+import Library.GUI.FreeType;
+import Library.GUI.IFontFace;
+
+/* Exercise metrics, a stem-free cubic, and a hinted glyph through the
+ * public face after its source file has been removed. */
+int main(int argc, char** argv) {
+	if (argc != 3) { return 2; }
+	bool edge = argv[2][0] == 'e';
+	var font = FreeType.load(argv[1], edge ? 65 : 10);
+	if (remove(argv[1]) != 0) { return 3; }
+	if (edge) {
+		var triangle = font.glyph(66, true);
+		if (triangle == null || triangle.advanceFixed() != 2944LL || triangle.bitmapLeft() != 0 || triangle.bitmapTop() != 41 || triangle.width() != 11 || triangle.rows() != 41 || triangle.pitch() != 11 || triangle.coverage(4, 9) != 11) { return 10; }
+		long long sum = 0LL;
+		long long weighted = 0LL;
+		for (int i = 0; i < 451; i++) {
+			int alpha = triangle.coverage(i / 11, i % 11);
+			sum += (long long)alpha;
+			weighted += (long long)(i + 1) * (long long)alpha;
+		}
+		return sum == 1039LL && weighted == 229471LL ? 0 : 11;
+	}
+	var metrics = font.metrics();
+	if (metrics.ascenderFixed() != 512LL || metrics.heightFixed() != 704LL) { return 4; }
+	for (int i = 0; i < 3; i++) {
+		int code = i == 0 ? 32 : 64 + i;
+		var measured = font.glyph(code, false);
+		if (measured == null || measured.advanceFixed() != (i == 0 ? 192LL : 448LL) || measured.bitmapLeft() != 0 || measured.bitmapTop() != 0 || measured.width() != 0 || measured.rows() != 0 || measured.pitch() != 0 || measured.pixelMode() != FONT_PIXEL_UNSUPPORTED || measured.numGrays() != 0) { return 5; }
+	}
+	var space = font.glyph(32, true);
+	if (space == null || space.advanceFixed() != 192LL || space.bitmapLeft() != 0 || space.bitmapTop() != 0 || space.width() != 0 || space.rows() != 0 || space.pitch() != 0 || space.pixelMode() != FONT_PIXEL_GRAY || space.numGrays() != 256) { return 6; }
+	if (argv[2][0] == 'r') {
+		var curve = font.glyph(65, true);
+		var expected = Bytes.fromHex("000000000000000096930000002dffff4a000082ffffb90000d7fffffc142cffffffff5e81ffffffff9fd6ffffffffdd");
+		if (expected == null || curve == null || curve.advanceFixed() != 448LL || curve.bitmapLeft() != 0 || curve.bitmapTop() != 8 || curve.width() != 6 || curve.rows() != 8 || curve.pitch() != 6 || curve.pixelMode() != FONT_PIXEL_GRAY || curve.numGrays() != 256) { return 7; }
+		for (int i = 0; i < expected.length(); i++) {
+			if (curve.coverage(i / 6, i % 6) != expected.get(i)) { return 8; }
+		}
+	}
+	if (argv[2][0] == 'h') {
+		var hinted = font.glyph(66, true);
+		if (hinted == null || hinted.advanceFixed() != 448LL || hinted.bitmapLeft() != 0 || hinted.bitmapTop() != 1 || hinted.width() != 1 || hinted.rows() != 1 || hinted.pitch() != 1 || hinted.pixelMode() != FONT_PIXEL_GRAY || hinted.numGrays() != 256 || hinted.coverage(0, 0) != 248) { return 9; }
+	}
+	print("PASS: CFF font measurement and retained fallback");
+	return 0;
+}
