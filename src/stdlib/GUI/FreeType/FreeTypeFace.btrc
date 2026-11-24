@@ -40,9 +40,15 @@ class FreeTypeFace implements IFontFace {
 		var loaded = FT_New_Face(self.library, path, 0L);
 		self.face = loaded.value;
 		if (loaded.status != 0 || self.face == null) { throw "Cannot load FreeType face"; }
-		if (FT_Set_Pixel_Sizes(self.face, 0U, (unsigned int)pixelSize) != 0) { throw "Cannot set FreeType pixel size"; }
+		if (FT_Set_Pixel_Sizes(self.face, 0U, (unsigned int)pixelSize) != 0) {
+			self.closeHandles();
+			throw "Cannot set FreeType pixel size";
+		}
 		var metrics = copyFreeTypeMetrics(self.face);
-		if (metrics == null) { throw "Cannot copy FreeType face metrics"; }
+		if (metrics == null) {
+			self.closeHandles();
+			throw "Cannot copy FreeType face metrics";
+		}
 		self.faceMetrics = new FontMetrics((long long)metrics.ascender, (long long)metrics.height);
 	}
 
@@ -81,8 +87,12 @@ class FreeTypeFace implements IFontFace {
 
 	/* Valid library and face claims are private, so no consumer can reference,
 	 * close or mutate their native handles independently of this dependency. */
-	public void __del__() {
+	/* Constructor failures also unwind the unique owners. Keep the library
+	 * alive until its face has been released on those paths. */
+	private void closeHandles() {
 		if (self.face != null) { self.face.close(); }
 		if (self.library != null) { self.library.close(); }
 	}
+
+	public void __del__() { self.closeHandles(); }
 }

@@ -522,9 +522,11 @@ import Library.GUI.FreeType;
 surface.setFont(FreeType.load("/path/to/font.ttf", 18));
 ```
 
+Uncompressed `.pcf` files at their stored pixel size use BTRC's PCF reader. It preserves the fixed strike's native bearings, widths, bitmap row padding, bit order and default glyph. Other font formats continue through the native FreeType provider.
+
 `FreeType.load(path, pixelSize)` throws on a missing path, an unloadable face
 or a nonpositive size instead of silently selecting the bitmap fallback. Face
-metrics are copied at load. Each glyph call admits one `FT_Load_Char` at a
+metrics are copied at load. The native provider admits one `FT_Load_Char` at a
 time per face (an overlapping call throws) and copies the glyph, including its
 signed-pitch bitmap, into owned storage before the next load can reuse
 FreeType's glyph slot; each bitmap has an explicit 64 MiB allocation limit.
