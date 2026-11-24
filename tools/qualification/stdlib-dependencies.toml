@@ -58,6 +58,7 @@ frameworks = [
 ]
 headers = [
 	"IOSurface/IOSurface.h", "bsm/libbsm.h", "servers/bootstrap.h",
+	"TargetConditionals.h", "dispatch/dispatch.h",
 	"AppKit/*", "AudioToolbox/*", "AVFoundation/*", "Carbon/*", "CFNetwork/*", "CommonCrypto/*",
 	"CoreAudio/*", "CoreBluetooth/*", "CoreFoundation/*", "CoreGraphics/*", "CoreServices/*",
 	"CoreText/*", "Foundation/*", "ImageIO/*", "IOBluetooth/*", "IOKit/*", "Metal/*", "Network/*",
@@ -78,6 +79,7 @@ frameworks = [
 	"UIKit", "UniformTypeIdentifiers", "WebKit",
 ]
 headers = [
+	"TargetConditionals.h", "dispatch/dispatch.h",
 	"AudioToolbox/*", "AVFoundation/*", "CFNetwork/*", "CommonCrypto/*", "CoreAudio/*",
 	"CoreBluetooth/*", "CoreFoundation/*", "CoreGraphics/*", "CoreText/*", "Foundation/*", "ImageIO/*",
 	"Metal/*", "Network/*", "QuartzCore/*", "Security/*", "UIKit/*", "WebKit/*",
@@ -296,7 +298,7 @@ resolution = "Only a legacy X11 session without a reachable XDG bus socket or sa
 dependency = "curl"
 module = "HTTP/HTTPCurlTransport"
 os = ["android", "linux", "macos"]
-resolution = "On Android, Linux and macOS, plain HTTP and HTTP forward proxies use first-party code. On Linux, plain HTTP also supports SOCKS4/4a/5/5h without curl. An installed curl still handles explicit Proxy-Authorization fields on SOCKS routes and optional SOCKS5 GSSAPI authentication. HTTPS, including standalone Android clients without a VM and caller-configured trust, and remaining proxy paths retain curl until their target transports are qualified. Windows uses WinHTTP."
+resolution = "Android, Linux and macOS use first-party code for plain HTTP and HTTP forward proxies. Linux also supports SOCKS4/4a/5/5h for plain HTTP. An installed curl handles explicit Proxy-Authorization fields on Linux SOCKS routes and optional SOCKS5 GSSAPI. iOS uses NSURLSession. macOS uses NSURLSession for direct HTTPS and ordinary HTTP CONNECT proxies, with installed curl preserving its configured trust store and unsupported proxy or request options. Android and Linux retain curl for HTTPS and remaining proxy paths. Windows uses WinHTTP."
 
 [[pending]]
 dependency = "FreeType"
