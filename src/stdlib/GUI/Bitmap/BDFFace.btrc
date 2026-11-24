@@ -51,7 +51,7 @@ class BDFFace implements IFontFace {
 	private FontMetrics lineMetrics;
 
 	class BDFFace? tryOpen(string path, int pixelSize) {
-		if (!path.toLower().endsWith(".bdf")) { return null; }
+		if (path == null || pixelSize < 1 || !path.toLower().endsWith(".bdf")) { return null; }
 		FILE* file = fopen(path, "rb");
 		if (file == null) { return null; }
 		try {
