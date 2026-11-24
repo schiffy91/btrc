@@ -351,6 +351,11 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 	parsed.split_newline_dot = 1;
 	btrc_win_rx_parser parser = {&parsed, (const unsigned char *)pattern, 0, 0, 0, 0};
 	int root = btrc_win_rx_expression(&parser, 0);
+	/* A backreference needs the captured bytes even for a boolean query. */
+	if (parsed.references) {
+		free(parsed.nodes);
+		return NULL;
+	}
 	btrc_win_pos_program *p = NULL;
 	if (!parser.error && root && parser.groups) {
 		btrc_win_boundary_blocks boundary = {0};

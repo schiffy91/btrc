@@ -127,9 +127,10 @@ static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *re
 			}
 		}
 	}
-	if ((flags & ~(REG_NEWLINE | REG_NOSUB | REG_ICASE)) == REG_EXTENDED && strchr(pattern, '(')) {
+	if (!(flags & ~(REG_EXTENDED | REG_NEWLINE | REG_NOSUB | REG_ICASE)) && strchr(pattern, '(')) {
 		size_t groups = 1;
-		btrc_win_regex_suffix *suffix = !(flags & (REG_NEWLINE | REG_ICASE)) && *pattern == '(' ? btrc_win_regex_compile_suffix(pattern) : NULL;
+		btrc_win_regex_suffix *suffix = (flags & (REG_EXTENDED | REG_NEWLINE | REG_ICASE)) == REG_EXTENDED &&
+		                                *pattern == '(' ? btrc_win_regex_compile_suffix(pattern) : NULL;
 		btrc_win_group_header *group = suffix ? &suffix->header : NULL;
 		if (!group) {
 			btrc_win_pos_program *positions = btrc_win_pos_compile(pattern, &groups, flags);

@@ -79,3 +79,5 @@ A fixed number of copies of a positive-width literal or bracket group also has f
 Grouped extended expressions honor raw multiline and no-submatch flags. With `REG_NEWLINE`, line anchors also match adjacent to interior line feeds. Dot and negated brackets exclude line feeds, including inside counted groups. With `REG_NOSUB`, callers can pass a match array and its contents remain untouched. With `REG_ICASE`, counted groups preserve the consuming positions of both literal case variants and the opposite-case spans of a bracket range.
 
 Grouped extended expressions also accept the Windows literal, hex, digit, whitespace and word escapes. A hex escape retains its exact byte in a case-insensitive pattern.
+
+Basic regular expressions use the same position matcher, with escaped grouping, bounds, alternation and repetition operators. An unescaped question mark stays literal in basic mode. Backreferences still use the capture-aware path.
