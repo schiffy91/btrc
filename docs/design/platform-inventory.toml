@@ -588,6 +588,19 @@ android-x86_64 = { parity = "equivalent", implementation = "implemented", owner 
 
 [[rows]]
 kind = "operation"
+id = "Library.Digest.CRC32"
+group = "stdlib/Digest"
+title = "CRC-32 checksum"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party CRC-32 over Bytes" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party CRC-32 over Bytes" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party CRC-32 over Bytes" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party CRC-32 over Bytes" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party CRC-32 over Bytes" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party CRC-32 over Bytes" }
+
+[[rows]]
+kind = "operation"
 id = "Library.Digest.Fnv1a32"
 group = "stdlib/Digest"
 title = "FNV-1a 32-bit hash"
@@ -5145,3 +5158,16 @@ ios-device = { parity = "equivalent", implementation = "implemented", owner = "P
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE and zlib decoding uses the same byte streams on all targets" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE and zlib decoding uses the same byte streams on all targets" }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE and zlib decoding uses the same byte streams on all targets" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Compression.Gzip"
+group = "stdlib/Compression"
+title = "Compression Gzip"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE over bounded byte ranges" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE over bounded byte ranges" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE over bounded byte ranges" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE over bounded byte ranges" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE over bounded byte ranges" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE over bounded byte ranges" }

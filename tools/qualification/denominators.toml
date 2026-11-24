@@ -57,9 +57,9 @@ release = "p0-inventory-2026-11-23-compression"
 platforms = ["windows", "ios", "android"]
 slices = ["windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"]
 frontends = []
-ids = 384
-slots = 2304
-sha256 = "bcf11574968c2d523d648f36cf5142b33949b65e062f58380eae005e2e35e3c1"
+ids = 386
+slots = 2316
+sha256 = "f82b4ab244c3a0908f0b6c4a0c1933975e09be78f7ea2d3527bfe54d786cfd78"
 source = { ledger = "docs/design/platform-inventory.toml" }
 
 [[denominators]]
