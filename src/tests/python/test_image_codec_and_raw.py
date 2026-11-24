@@ -229,6 +229,22 @@ int main() {
 \t\tExpect.isTrue(decodedRec2020.isWideGamut, "Rec.2020 decode marks wide gamut");
 \t}
 
+\t/* 5. Foreground segmentation mask (Apple Vision + portable fallback) returns valid R8 matte. */
+\tImage fgScene = Image(128, 128);
+\tfor (int y = 0; y < 128; y++) {
+\t\tfor (int x = 0; x < 128; x++) {
+\t\t\tint dx = x - 64;
+\t\t\tint dy = y - 64;
+\t\t\tbool inside = (dx * dx + dy * dy) < 28 * 28;
+\t\t\tfgScene.setPixel(x, y, inside ? RGBA(230, 80, 40, 255) : RGBA(24, 34, 48, 255));
+\t\t}
+\t}
+\tBytes fgMask = ImageCodec.segmentForegroundMask(fgScene, 64, 64);
+\tExpect.intEq(fgMask.length(), 64 * 64, "foreground mask has requested dimensions");
+\tint centerVal = fgMask.get(32 * 64 + 32);
+\tint cornerVal = fgMask.get(2 * 64 + 2);
+\tExpect.isTrue(centerVal > cornerVal, "foreground mask highlights center subject over background");
+
 \tprint("PASS_IMAGE_CODEC_ROUNDTRIPS\\n");
 \treturn 0;
 }

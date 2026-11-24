@@ -19,6 +19,7 @@ import Library.GPU.GPUSurfaceRenderer;
 import Library.GPU.GPUTexture;
 import Library.GPU.GPUUniformBuffer;
 import Library.GPU.WebGPU;
+import Library.GUI.FilmstripScrubber;
 import Library.GUI.ImageTileCache;
 import Library.GUI.MediaPagerInteraction;
 import Library.Math;
@@ -95,9 +96,13 @@ class ImageGrid {
 	private GPUUniformBuffer _previewUniformsNext;
 	private GPUUniformBuffer _viewerGridUniforms;
 	private GPUStorageBuffer _viewerFallbackBuffer;
+	private GPUUniformBuffer _scrubberBgUniforms;
+	private GPUUniformBuffer _scrubberGridUniforms;
+	private GPUStorageBuffer _scrubberInstanceBuffer;
 	private GPUTexture _backdropDummyTex;
 
 	private int _maxVisibleInstances;
+	private int _maxScrubberInstances = 256;
 	private Array<float> _stagingFloats;
 
 	/* Cached document-space layout columns (rebuilt only on resize, zoom, style change, or source update). */
@@ -135,6 +140,12 @@ class ImageGrid {
 	/* Screen-space rects of tiles drawn in the last frame (for O(visible) hit-testing). */
 	public Vector<ImageGridTileRect> lastVisibleRects = [];
 
+	/* Screen-space rect of the active photo drawn in viewer mode (for overlays & interactive tools). */
+	public float lastViewerPhotoX = 0.0f;
+	public float lastViewerPhotoY = 0.0f;
+	public float lastViewerPhotoW = 0.0f;
+	public float lastViewerPhotoH = 0.0f;
+
 	class ImageGrid createForFormat(GPUDevice device, GPUTextureFormat targetFormat, int maxVisibleInstances = 2048) {
 		return ImageGrid(device, GPUTexture.toNativeFormat(targetFormat), maxVisibleInstances);
 	}
@@ -165,6 +176,9 @@ class ImageGrid {
 		self._previewUniformsNext = GPUUniformBuffer(device, 12);
 		self._viewerGridUniforms = GPUUniformBuffer(device, 16);
 		self._viewerFallbackBuffer = GPUStorageBuffer.create(device, 4 * 48, false, false);
+		self._scrubberBgUniforms = GPUUniformBuffer(device, 12);
+		self._scrubberGridUniforms = GPUUniformBuffer(device, 16);
+		self._scrubberInstanceBuffer = GPUStorageBuffer.create(device, self._maxScrubberInstances * 48, false, false);
 		self._backdropDummyTex = GPUTexture.create2D(device, 1, 1, GPU_FORMAT_RGBA8_UNORM, false, false, true, true);
 
 		GPUBindLayout gridLayout = GPUBindLayout()
@@ -340,8 +354,8 @@ fn sampleAtlasCell(
 		string previewWGSL = """
 struct PreviewParams {
     dstRect: vec4f,   // (x0, y0, x1, y1) in NDC
-    uvRect: vec4f,    // (u0, v0, u1, v1)
-    extra: vec4f,     // (zoom, exposureScale, alpha, solidBackdropFlag)
+    uvRect: vec4f,    // (u0, v0, u1, v1) or (widthPx, heightPx, radiusPx, borderAlpha) for rounded glass pill
+    extra: vec4f,     // (zoom/tintR, exposureScale/tintG, alpha, modeFlag: 0=photo, 1=backdrop, 2=roundedGlass)
 };
 @group(0) @binding(0) var<uniform> params: PreviewParams;
 @group(0) @binding(1) var photoTex: texture_2d<f32>;
@@ -350,6 +364,7 @@ struct PreviewParams {
 struct VSOut {
     @builtin(position) pos: vec4f,
     @location(0) uv: vec2f,
+    @location(1) localUV: vec2f,
 };
 
 @vertex fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
@@ -363,10 +378,25 @@ struct VSOut {
     var out: VSOut;
     out.pos = vec4f(x, y, 0.0, 1.0);
     out.uv = vec2f(mix(params.uvRect.x, params.uvRect.z, q.x), mix(params.uvRect.y, params.uvRect.w, q.y));
+    out.localUV = q;
     return out;
 }
 
 @fragment fn fs_main(in: VSOut) -> @location(0) vec4f {
+    if (params.extra.w > 1.5) {
+        let sz = max(params.uvRect.xy, vec2f(2.0, 2.0));
+        let halfSz = sz * 0.5;
+        let r = min(params.uvRect.z, min(halfSz.x, halfSz.y));
+        let p = (in.localUV - vec2f(0.5, 0.5)) * sz;
+        let q = abs(p) - (halfSz - vec2f(r, r));
+        let sdf = length(max(q, vec2f(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
+        let edgeA = 1.0 - smoothstep(-0.75, 0.75, sdf);
+        if (edgeA <= 0.002) { discard; }
+        let borderMix = smoothstep(-1.75, -0.4, sdf) * params.uvRect.w;
+        let baseRgb = vec3f(params.extra.x, params.extra.y, params.extra.y + 0.015);
+        let rimRgb = mix(baseRgb, vec3f(0.88, 0.90, 0.96), borderMix);
+        return vec4f(rimRgb, params.extra.z * edgeA);
+    }
     if (params.extra.w > 0.5) {
         return vec4f(0.05, 0.05, 0.06, params.extra.z);
     }
@@ -822,7 +852,10 @@ struct VSOut {
 		return count;
 	}
 
-	private float aspectForItem(IImageGridSource source, int itemIdx, ImagePreviewCache previewCache) {
+	private float aspectForItem(IImageGridSource source, int itemIdx, ImagePreviewCache previewCache, int overrideItemIdx = -1, GPUTexture? overrideTex = null) {
+		if (overrideTex != null && itemIdx == overrideItemIdx && overrideTex.width() > 0 && overrideTex.height() > 0) {
+			return (float)overrideTex.width() / (float)overrideTex.height();
+		}
 		GPUTexture? tex = previewCache.getTexture(itemIdx);
 		if (tex != null && tex.width() > 0 && tex.height() > 0) {
 			return (float)tex.width() / (float)tex.height();
@@ -844,9 +877,11 @@ struct VSOut {
 		float viewportW,
 		float viewportH,
 		Array<float> fallbackFloats,
-		int fallbackSlot
+		int fallbackSlot,
+		int overrideItemIdx = -1,
+		GPUTexture? overrideTex = null
 	) {
-		GPUTexture? previewTex = previewCache.getTexture(itemIdx);
+		GPUTexture? previewTex = (overrideTex != null && itemIdx == overrideItemIdx) ? overrideTex : previewCache.getTexture(itemIdx);
 		if (previewTex != null) {
 			float ndcX0 = (x0 / viewportW) * 2.0f - 1.0f;
 			float ndcX1 = ((x0 + drawW) / viewportW) * 2.0f - 1.0f;
@@ -898,7 +933,9 @@ struct VSOut {
 		ImageThumbnailAtlas thumbnailAtlas,
 		ImagePreviewCache previewCache,
 		float viewportW,
-		float viewportH
+		float viewportH,
+		int overrideItemIdx = -1,
+		GPUTexture? overrideTex = null
 	) {
 		int total = visibleOrder.length;
 		if (total <= 0) { return IMAGE_TILE_MICRO; }
@@ -939,37 +976,37 @@ struct VSOut {
 		Array<float> fbFloats = Array(36);
 		int fbCount = 0;
 
-		if (total > 1 && pagePx > 1.0f) {
+		if (total > 1 && pagePx > 0.1f) {
 			int prevItem = visibleOrder.get((curPos - 1 + total) % total);
-			float pAr = self.aspectForItem(source, prevItem, previewCache);
+			float pAr = self.aspectForItem(source, prevItem, previewCache, overrideItemIdx, overrideTex);
 			float pw = viewportW;
 			float ph = pw / pAr;
 			if (ph > viewportH) { ph = viewportH; pw = ph * pAr; }
 			float px0 = (viewportW - pw) * 0.5f + pagePx - viewportW;
 			float py0 = (viewportH - ph) * 0.5f;
-			int added = self.drawViewerPanel(surface, self._previewUniformsPrev, source, prevItem, previewCache, px0, py0, pw, ph, viewportW, viewportH, fbFloats, fbCount);
+			int added = self.drawViewerPanel(surface, self._previewUniformsPrev, source, prevItem, previewCache, px0, py0, pw, ph, viewportW, viewportH, fbFloats, fbCount, overrideItemIdx, overrideTex);
 			if (added > 0) {
 				fbFloats.set(fbCount * 12 + 5, (float)thumbnailAtlas.lookupSlot(prevItem));
 				fbCount++;
 			}
 		}
 
-		if (total > 1 && pagePx < -1.0f) {
+		if (total > 1 && pagePx < -0.1f) {
 			int nextItem = visibleOrder.get((curPos + 1) % total);
-			float nAr = self.aspectForItem(source, nextItem, previewCache);
+			float nAr = self.aspectForItem(source, nextItem, previewCache, overrideItemIdx, overrideTex);
 			float nw = viewportW;
 			float nh = nw / nAr;
 			if (nh > viewportH) { nh = viewportH; nw = nh * nAr; }
 			float nx0 = (viewportW - nw) * 0.5f + pagePx + viewportW;
 			float ny0 = (viewportH - nh) * 0.5f;
-			int added = self.drawViewerPanel(surface, self._previewUniformsNext, source, nextItem, previewCache, nx0, ny0, nw, nh, viewportW, viewportH, fbFloats, fbCount);
+			int added = self.drawViewerPanel(surface, self._previewUniformsNext, source, nextItem, previewCache, nx0, ny0, nw, nh, viewportW, viewportH, fbFloats, fbCount, overrideItemIdx, overrideTex);
 			if (added > 0) {
 				fbFloats.set(fbCount * 12 + 5, (float)thumbnailAtlas.lookupSlot(nextItem));
 				fbCount++;
 			}
 		}
 
-		float cAr = self.aspectForItem(source, curItem, previewCache);
+		float cAr = self.aspectForItem(source, curItem, previewCache, overrideItemIdx, overrideTex);
 		float baseW = viewportW;
 		float baseH = baseW / cAr;
 		if (baseH > viewportH) { baseH = viewportH; baseW = baseH * cAr; }
@@ -977,7 +1014,11 @@ struct VSOut {
 		float ch = baseH * zoom;
 		float cx0 = (viewportW - cw) * 0.5f + panX + pagePx;
 		float cy0 = (viewportH - ch) * 0.5f + panY + pullPx;
-		int curFb = self.drawViewerPanel(surface, self._previewUniforms, source, curItem, previewCache, cx0, cy0, cw, ch, viewportW, viewportH, fbFloats, fbCount);
+		self.lastViewerPhotoX = cx0;
+		self.lastViewerPhotoY = cy0;
+		self.lastViewerPhotoW = cw;
+		self.lastViewerPhotoH = ch;
+		int curFb = self.drawViewerPanel(surface, self._previewUniforms, source, curItem, previewCache, cx0, cy0, cw, ch, viewportW, viewportH, fbFloats, fbCount, overrideItemIdx, overrideTex);
 		if (curFb > 0) {
 			fbFloats.set(fbCount * 12 + 5, (float)thumbnailAtlas.lookupSlot(curItem));
 			fbCount++;
@@ -998,6 +1039,90 @@ struct VSOut {
 			self._gridProgram.drawInstanced(surface, fbRes, 6, fbCount);
 		}
 		return curFb == 0 ? IMAGE_TILE_PREVIEW : (thumbnailAtlas.lookupSlot(curItem) >= 0 ? IMAGE_TILE_THUMBNAIL : IMAGE_TILE_MICRO);
+	}
+
+	/* Render the auto-hiding Dock-style bottom filmstrip scrubber (frosted pill/bar + 1-draw-call thumbnails). */
+	public void renderScrubberToSurface(
+		GPUSurfaceRenderer surface,
+		IImageGridSource source,
+		Vector<int> visibleOrder,
+		FilmstripScrubber scrubber,
+		ImageMicroAtlas microAtlas,
+		ImageThumbnailAtlas thumbnailAtlas,
+		float viewportW,
+		float viewportH,
+		double scale
+	) {
+		if (!scrubber.enabled || visibleOrder.length <= 1 || viewportW <= 1.0f || viewportH <= 1.0f) { return; }
+		double s = scale > 0.5 ? scale : 1.0;
+		var bar = scrubber.currentBarRect((double)viewportW, (double)viewportH, s);
+		if (bar.width < 2.0f || bar.height < 2.0f) { return; }
+
+		float ndcX0 = (bar.x / viewportW) * 2.0f - 1.0f;
+		float ndcX1 = ((bar.x + bar.width) / viewportW) * 2.0f - 1.0f;
+		float ndcY0 = 1.0f - (bar.y / viewportH) * 2.0f;
+		float ndcY1 = 1.0f - ((bar.y + bar.height) / viewportH) * 2.0f;
+		float t = (float)scrubber.openProgress;
+		/* Collapsed pill is a subtle bright translucent handle; expanded Dock is a frosted dark glass bar. */
+		float tintR = 0.72f * (1.0f - t) + 0.09f * t;
+		float tintG = 0.75f * (1.0f - t) + 0.10f * t;
+		float alpha = 0.48f * (1.0f - t) + 0.86f * t;
+		float borderA = 0.35f * (1.0f - t) + 0.24f * t;
+
+		self._scrubberBgUniforms.set(0, ndcX0);
+		self._scrubberBgUniforms.set(1, ndcY0);
+		self._scrubberBgUniforms.set(2, ndcX1);
+		self._scrubberBgUniforms.set(3, ndcY1);
+		self._scrubberBgUniforms.set(4, bar.width);
+		self._scrubberBgUniforms.set(5, bar.height);
+		self._scrubberBgUniforms.set(6, bar.cornerRadius);
+		self._scrubberBgUniforms.set(7, borderA);
+		self._scrubberBgUniforms.set(8, tintR);
+		self._scrubberBgUniforms.set(9, tintG);
+		self._scrubberBgUniforms.set(10, alpha);
+		self._scrubberBgUniforms.set(11, 2.0f);
+		self._scrubberBgUniforms.uploadNow();
+
+		GPUBindResources bgRes = GPUBindResources()
+			.bindUniform(0, self._scrubberBgUniforms)
+			.bindTexture(1, self._backdropDummyTex)
+			.bindSampler(2, self._backdropDummyTex);
+		self._previewProgram.drawInstanced(surface, bgRes, 6, 1);
+
+		var slots = scrubber.layoutVisibleTiles((double)viewportW, (double)viewportH, s);
+		int count = slots.length;
+		if (count <= 0) { return; }
+		if (count > self._maxScrubberInstances) { count = self._maxScrubberInstances; }
+
+		Array<float> tileFloats = Array(count * 12);
+		for (int i = 0; i < count; i++) {
+			var slot = slots.get(i);
+			int itemIdx = visibleOrder.get(slot.visiblePos);
+			int thumbSlot = thumbnailAtlas.lookupSlot(itemIdx);
+			float stateFlag = source.itemDimmed(itemIdx) ? 2.0f : (source.itemFlagged(itemIdx) ? 1.0f : 0.0f);
+			int base = i * 12;
+			tileFloats.set(base + 0, slot.x);
+			tileFloats.set(base + 1, slot.y);
+			tileFloats.set(base + 2, slot.width);
+			tileFloats.set(base + 3, slot.height);
+			tileFloats.set(base + 4, (float)itemIdx);
+			tileFloats.set(base + 5, (float)thumbSlot);
+			tileFloats.set(base + 6, slot.isActive ? 1.0f : 0.0f);
+			tileFloats.set(base + 7, stateFlag);
+			tileFloats.set(base + 8, 0.0f);
+			tileFloats.set(base + 9, 0.0f);
+			tileFloats.set(base + 10, slot.isHovered && !slot.isActive ? 1.0f : 0.0f);
+			tileFloats.set(base + 11, source.itemAspectRatio(itemIdx));
+		}
+		self._scrubberInstanceBuffer.writeFloats(tileFloats, 0);
+		self.updateGridUniforms(self._scrubberGridUniforms, viewportW, viewportH, microAtlas, thumbnailAtlas, 0.0f, 0.0f, (float)(5.0 * s));
+		GPUBindResources tileRes = GPUBindResources()
+			.bindUniform(0, self._scrubberGridUniforms)
+			.bindStorage(1, self._scrubberInstanceBuffer)
+			.bindTexture(2, microAtlas.texture)
+			.bindTexture(3, thumbnailAtlas.texture)
+			.bindSampler(4, thumbnailAtlas.texture);
+		self._gridProgram.drawInstanced(surface, tileRes, 6, count);
 	}
 
 	public ImageTileTier renderSinglePreviewToSurface(
@@ -1121,6 +1246,9 @@ struct VSOut {
 		self._previewUniformsNext.close();
 		self._viewerGridUniforms.close();
 		self._viewerFallbackBuffer.close();
+		self._scrubberBgUniforms.close();
+		self._scrubberGridUniforms.close();
+		self._scrubberInstanceBuffer.close();
 		self._backdropDummyTex.close();
 	}
 }

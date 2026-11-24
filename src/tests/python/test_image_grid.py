@@ -213,3 +213,117 @@ int main() {
     res = _run_btrc(native_project, native_compile, program)
     assert res.returncode == 0, (res.stdout, res.stderr)
     assert "PASS_IMAGE_GRID_STDLIB" in res.stdout
+
+
+def test_pager_settle_animation_and_dock_scrubber(native_project, native_compile):
+    program = """import Library.App;
+import Library.GUI.FilmstripScrubber;
+import Library.GUI.MediaPagerInteraction;
+import Library.IO;
+import Library.Math;
+import Library.Testing;
+
+int main() {
+\t/* 1. Regression oracle for drag-to-next-photo settle animation bug:
+\t * Calling setAspectRatio() and onResize() every frame during settle MUST NOT reset page to 0. */
+\tMediaPagerInteraction pager = MediaPagerInteraction();
+\tpager.open(2, 20, 1.5);
+\tdouble stageW = 1200.0;
+\tdouble stageH = 800.0;
+\tpager.pointerDown(800.0, 400.0, stageW, stageH, 0.0);
+\tpager.pointerMove(600.0, 400.0, stageW, stageH, 20.0);
+\tpager.pointerMove(300.0, 400.0, stageW, stageH, 40.0);
+\tExpect.isTrue(pager.page < -400.0, "drag left moves page negative");
+\tbool wasTap = pager.pointerUp(stageW, stageH, 45.0, false);
+\tExpect.isTrue(!wasTap, "drag release is not a tap");
+\tExpect.isTrue(pager.animating, "release starts settle animation to next photo");
+
+\t/* Simulate 120fps render loop calling setAspectRatio every frame (even with refined ratio). */
+\tdouble prevPage = pager.page;
+\tint animatedFrames = 0;
+\tbool committed = false;
+\tfor (int step = 1; step <= 40; step++) {
+\t\tdouble tMs = 45.0 + (double)step * 8.0;
+\t\t/* Even if preview finishes decoding mid-animation with slightly different ratio: */
+\t\tpager.setAspectRatio(1.501, stageW, stageH);
+\t\tpager.onResize(stageW, stageH);
+\t\tvar out = pager.tick(tMs, stageW, stageH);
+\t\tif (out.kind == PAGER_EVENT_INDEX_CHANGED) {
+\t\t\tExpect.intEq(out.index, 3, "commits to next photo after sliding into place");
+\t\t\tExpect.isTrue(Math.fabs(pager.page) < 0.01, "resets page to 0 upon commit");
+\t\t\tcommitted = true;
+\t\t\tbreak;
+\t\t}
+\t\t/* During settle animation, page MUST progress monotonically toward -stageW (never reset to 0!). */
+\t\tExpect.isTrue(pager.page < -400.0, "page must never snap back to 0 during settle animation");
+\t\tExpect.isTrue(pager.page <= prevPage + 0.01, "page slides monotonically left toward -stageW");
+\t\tprevPage = pager.page;
+\t\tanimatedFrames++;
+\t}
+\tExpect.isTrue(committed, "settle animation committed index change");
+\tExpect.isTrue(animatedFrames >= 15, "smooth multi-frame slide animation before commit");
+
+\t/* 2. Dock-style FilmstripScrubber interaction oracle:
+\t * Auto-hidden pill -> tap expands & pins -> two-finger scroll -> click-drag scrub -> tap selects -> tap outside collapses. */
+\tFilmstripScrubber scrubber = FilmstripScrubber();
+\tscrubber.reset(50, 0);
+\tExpect.isTrue(!scrubber.isExpanded(), "starts auto-hidden as tiny pill");
+\tvar pill = scrubber.collapsedPillRect(stageW, stageH, 1.0);
+\tExpect.isTrue(pill.height <= 10.0f && pill.width <= 120.0f, "collapsed pill is compact");
+
+\t/* Tap on collapsed pill expands and pins open. */
+\tAppKeyModifiers noMod = AppKeyModifiers(false, false, false, false);
+\tAppPointerEvent tapDown = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, stageW * 0.5, stageH - 12.0, noMod, 1);
+\tvar o1 = scrubber.onPointer(tapDown, stageW * 0.5, stageH - 12.0, stageW, stageH, 1.0, 100.0);
+\tExpect.isTrue(o1.consumed, "tapping collapsed pill consumes press");
+\tExpect.isTrue(scrubber.isPinnedOpen(), "tapping collapsed pill pins Dock open");
+\tfor (int f = 1; f <= 30; f++) {
+\t\tscrubber.tick(100.0 + (double)f * 10.0, stageW, stageH, 1.0);
+\t}
+\tExpect.isTrue(scrubber.openProgress > 0.95, "Dock smoothly animates to expanded");
+\tvar tiles = scrubber.layoutVisibleTiles(stageW, stageH, 1.0);
+\tExpect.isTrue(tiles.length > 5, "expanded Dock lays out visible thumbnails");
+
+\t/* Two-finger horizontal scroll over expanded Dock scrolls scrubber and consumes event. */
+\tdouble scrollBefore = scrubber.scrollX;
+\tAppScrollEvent hScroll = AppScrollEvent(-120.0, 0.0, stageW * 0.5, stageH - 40.0, true, APP_SCROLL_CHANGED, APP_SCROLL_NONE, noMod);
+\tbool scrollHandled = scrubber.onScroll(hScroll, 1.0, stageW, stageH, 450.0);
+\tExpect.isTrue(scrollHandled, "two-finger scroll over expanded Dock is consumed");
+\tExpect.isTrue(scrubber.scrollX > scrollBefore + 50.0, "two-finger horizontal scroll advances filmstrip");
+
+\t/* Click-and-drag scrubbing inside expanded Dock moves scrollX with momentum. */
+\tdouble beforeDrag = scrubber.scrollX;
+\tAppPointerEvent dDown = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, 700.0, stageH - 40.0, noMod, 1);
+\tAppPointerEvent dMove = AppPointerEvent(APP_POINTER_DRAGGED, APP_POINTER_BUTTON_PRIMARY, 520.0, stageH - 40.0, noMod, 1);
+\tAppPointerEvent dUp = AppPointerEvent(APP_POINTER_RELEASED, APP_POINTER_BUTTON_PRIMARY, 520.0, stageH - 40.0, noMod, 1);
+\tscrubber.onPointer(dDown, 700.0, stageH - 40.0, stageW, stageH, 1.0, 500.0);
+\tscrubber.onPointer(dMove, 520.0, stageH - 40.0, stageW, stageH, 1.0, 520.0);
+\tvar dragOut = scrubber.onPointer(dUp, 520.0, stageH - 40.0, stageW, stageH, 1.0, 530.0);
+\tExpect.isTrue(dragOut.consumed && dragOut.kind == SCRUBBER_EVENT_NONE, "drag scrub does not accidentally fire tap select");
+\tExpect.isTrue(scrubber.scrollX > beforeDrag + 150.0, "drag scrub translates filmstrip");
+
+\t/* Tap on a visible thumbnail jumps directly to that photo. */
+\tvar afterTiles = scrubber.layoutVisibleTiles(stageW, stageH, 1.0);
+\tvar targetSlot = afterTiles.get(afterTiles.length / 2);
+\tdouble tapX = (double)(targetSlot.x + targetSlot.width * 0.5f);
+\tdouble tapY = (double)(targetSlot.y + targetSlot.height * 0.5f);
+\tscrubber.onPointer(AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, tapX, tapY, noMod, 1), tapX, tapY, stageW, stageH, 1.0, 600.0);
+\tvar selOut = scrubber.onPointer(AppPointerEvent(APP_POINTER_RELEASED, APP_POINTER_BUTTON_PRIMARY, tapX, tapY, noMod, 1), tapX, tapY, stageW, stageH, 1.0, 615.0);
+\tExpect.isTrue(selOut.kind == SCRUBBER_EVENT_SELECT_POS, "tapping scrubber thumbnail selects photo");
+\tExpect.intEq(selOut.position, targetSlot.visiblePos, "selected position matches tapped thumbnail");
+
+\t/* Tapping outside expanded Dock collapses it back to tiny pill. */
+\tvar outTap = scrubber.onPointer(AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, 600.0, 200.0, noMod, 1), 600.0, 200.0, stageW, stageH, 1.0, 700.0);
+\tExpect.isTrue(!outTap.consumed, "tap outside Dock passes through to viewer");
+\tfor (int f = 1; f <= 40; f++) {
+\t\tscrubber.tick(700.0 + (double)f * 12.0, stageW, stageH, 1.0);
+\t}
+\tExpect.isTrue(scrubber.openProgress < 0.05, "Dock smoothly auto-hides back to collapsed pill");
+
+\tprint("PASS_PAGER_AND_SCRUBBER\\n");
+\treturn 0;
+}
+"""
+    res = _run_btrc(native_project, native_compile, program)
+    assert res.returncode == 0, (res.stdout, res.stderr)
+    assert "PASS_PAGER_AND_SCRUBBER" in res.stdout

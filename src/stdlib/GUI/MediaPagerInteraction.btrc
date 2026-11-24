@@ -183,8 +183,9 @@ class MediaPagerInteraction {
 
 	public void setAspectRatio(double aspectRatio, double stageW = 0.0, double stageH = 0.0) {
 		if (aspectRatio <= 0.05) { return; }
+		if (Math.fabs(self.ratio - aspectRatio) < 0.0001) { return; }
 		self.ratio = aspectRatio;
-		if (!self.isGestureActive() && !self.closing && stageW > 1.0 && stageH > 1.0) {
+		if (!self.isGestureActive() && !self.closing && !self.animating && stageW > 1.0 && stageH > 1.0) {
 			self.clampWithinPhoto(stageW, stageH);
 		}
 	}
@@ -236,7 +237,7 @@ class MediaPagerInteraction {
 	}
 
 	public void onResize(double stageW, double stageH) {
-		if (self.closing || self.isGestureActive()) { return; }
+		if (self.closing || self.isGestureActive() || self.animating) { return; }
 		self.clampWithinPhoto(stageW, stageH);
 	}
 
@@ -380,7 +381,13 @@ class MediaPagerInteraction {
 		self._pointerActive = true;
 		self._swipeActive = false;
 		self._isTap = true;
-		self._axis = PAGER_AXIS_NONE;
+		if (Math.fabs(self.page) > 1.0) {
+			self._axis = PAGER_AXIS_HORIZONTAL;
+		} else if (Math.fabs(self.pull) > 1.0) {
+			self._axis = PAGER_AXIS_VERTICAL;
+		} else {
+			self._axis = PAGER_AXIS_NONE;
+		}
 		self._startX = stageX;
 		self._startY = stageY;
 		self._lastX = stageX;
@@ -412,10 +419,11 @@ class MediaPagerInteraction {
 		if (!self._pointerActive) { return false; }
 		self._pointerActive = false;
 		bool wasTap = self._isTap && !cancelled;
-		if (!wasTap) {
+		bool midFlight = Math.fabs(self.page) > 0.5 || Math.fabs(self.pull) > 0.5;
+		if (!wasTap || midFlight) {
 			self.settleAfterRelease(stageW, stageH, nowMs, cancelled);
 		}
-		return wasTap;
+		return wasTap && !midFlight;
 	}
 
 	/* Two-finger trackpad swipe handler (horizontal swipe paginates, downward swipe minimizes). */
@@ -490,6 +498,14 @@ class MediaPagerInteraction {
 	public void animateToFitted(double nowMs) {
 		if (self.closing) { return; }
 		self.startSettle(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, nowMs, 0);
+	}
+
+	/* Smooth animated pagination step (e.g. single click next/prev). */
+	public void stepAnimated(int delta, double stageW, double nowMs) {
+		if (self.itemCount <= 1 || delta == 0 || self.closing) { return; }
+		int stepDir = delta > 0 ? 1 : -1;
+		double targetPage = stepDir > 0 ? -stageW : stageW;
+		self.startSettle(1.0, 0.0, 0.0, targetPage, 0.0, 0.0, nowMs, stepDir);
 	}
 
 	/* Instant keyboard pagination step (supports hold-to-repeat cleanly). */

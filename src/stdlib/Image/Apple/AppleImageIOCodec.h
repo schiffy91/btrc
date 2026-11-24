@@ -32,6 +32,11 @@ int btrcApplePhotoCopyGainMap(const BtrcApplePhoto *photo, unsigned char *dst, s
 /* Encode straight linear RGBA32F into JPEG (0), HEIC (1), PNG (2), or 16-bit linear TIFF (3). */
 BtrcAppleBuffer *btrcAppleEncodeLinear(const float *rgba, int width, int height, int formatCode, double quality);
 
+/* Run OS-supplied Apple Vision foreground instance segmentation on straight RGBA8 pixels,
+ * returning an outWidth * outHeight single-channel alpha matte (0..255), or NULL if unavailable. */
+BtrcAppleBuffer *btrcAppleSegmentForegroundMask(const unsigned char *rgba, int width, int height, int outWidth, int outHeight);
+
+BtrcAppleBuffer *btrcAppleBufferCreateCopy(const unsigned char *data, size_t length);
 void btrcAppleBufferRelease(BtrcAppleBuffer *buffer);
 size_t btrcAppleBufferLength(const BtrcAppleBuffer *buffer);
 int btrcAppleBufferCopy(const BtrcAppleBuffer *buffer, unsigned char *dst, size_t length);

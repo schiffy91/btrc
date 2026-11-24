@@ -134,9 +134,9 @@ symbols = [
 	"btrcApplePhotoCopyFloats", "btrcApplePhotoCopyRGBA8",
 	"btrcApplePhotoHasGainMap", "btrcApplePhotoGainMapWidth", "btrcApplePhotoGainMapHeight",
 	"btrcApplePhotoGainMapHeadroom", "btrcApplePhotoCopyGainMap",
-	"btrcAppleEncodeLinear", "btrcAppleBufferRelease", "btrcAppleBufferLength", "btrcAppleBufferCopy"
+	"btrcAppleEncodeLinear", "btrcAppleSegmentForegroundMask", "btrcAppleBufferRelease", "btrcAppleBufferLength", "btrcAppleBufferCopy"
 ]
-owned-results = ["btrcApplePhotoDecodeLinear", "btrcApplePhotoDecodeRGBA8", "btrcAppleEncodeLinear"]
+owned-results = ["btrcApplePhotoDecodeLinear", "btrcApplePhotoDecodeRGBA8", "btrcAppleEncodeLinear", "btrcAppleSegmentForegroundMask"]
 borrowed-parameters = [
 	"btrcApplePhotoWidth.photo", "btrcApplePhotoHeight.photo",
 	"btrcApplePhotoOriginalWidth.photo", "btrcApplePhotoOriginalHeight.photo",
@@ -146,7 +146,7 @@ borrowed-parameters = [
 	"btrcApplePhotoGainMapHeadroom.photo", "btrcApplePhotoCopyGainMap.photo",
 	"btrcAppleBufferLength.buffer", "btrcAppleBufferCopy.buffer"
 ]
-read-only-borrows = ["btrcApplePhotoDecodeLinear.data", "btrcApplePhotoDecodeRGBA8.data", "btrcAppleEncodeLinear.rgba"]
+read-only-borrows = ["btrcApplePhotoDecodeLinear.data", "btrcApplePhotoDecodeRGBA8.data", "btrcAppleEncodeLinear.rgba", "btrcAppleSegmentForegroundMask.rgba"]
 os = ["macos", "ios"]
 
 [native.bindings.resources.BtrcApplePhoto]
@@ -164,6 +164,13 @@ standard = "c11"
 modules = ["Apple.ImageCodecProvider"]
 os = ["macos", "ios"]
 
+[[native.sources]]
+path = "Apple/AppleVisionMask.m"
+language = "objective-c"
+standard = "c11"
+modules = ["Apple.ImageCodecProvider"]
+os = ["macos", "ios"]
+
 [[native.frameworks]]
 name = "CoreFoundation"
 modules = ["Apple.AppleEncodedImageDecoder", "Apple.ImageCodecProvider"]
@@ -175,6 +182,21 @@ modules = ["Apple.AppleEncodedImageDecoder", "Apple.ImageCodecProvider"]
 os = ["macos", "ios"]
 
 [[native.frameworks]]
+name = "CoreVideo"
+modules = ["Apple.ImageCodecProvider"]
+os = ["macos", "ios"]
+
+[[native.frameworks]]
+name = "Foundation"
+modules = ["Apple.ImageCodecProvider"]
+os = ["macos", "ios"]
+
+[[native.frameworks]]
 name = "ImageIO"
 modules = ["Apple.AppleEncodedImageDecoder", "Apple.ImageCodecProvider"]
+os = ["macos", "ios"]
+
+[[native.frameworks]]
+name = "Vision"
+modules = ["Apple.ImageCodecProvider"]
 os = ["macos", "ios"]

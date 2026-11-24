@@ -11,7 +11,9 @@ import Library.Callback;
 import Library.GPU.GPUDevice;
 import Library.GPU.GPUReadback;
 import Library.GPU.GPUSurfaceRenderer;
+import Library.GPU.GPUTexture;
 import Library.GUI;
+import Library.GUI.FilmstripScrubber;
 import Library.GUI.IApplication;
 import Library.GUI.IGPUView;
 import Library.GUI.IView;
@@ -38,6 +40,22 @@ interface IImageGalleryKeyHandler {
 /* Optional hook invoked once GPU resources are created (e.g. to pre-seed micro-atlas cells). */
 interface IImageGallerySetupHook {
 	void onGalleryGPUReady(ImageGallery gallery, GPUDevice device, ImageMicroAtlas microAtlas, ImageThumbnailAtlas thumbnailAtlas, ImagePreviewCache previewCache);
+}
+
+/* Optional observer notified when the active item or Grid/Viewer mode changes. */
+interface IImageGallerySelectionHandler {
+	void onActiveItemChanged(ImageGallery gallery, int itemIndex);
+	void onModeChanged(ImageGallery gallery, ImageGalleryMode mode);
+}
+
+/* Optional viewer overlay renderer (e.g. interactive crop guides, mask brush, eyedropper). */
+interface IImageGalleryOverlayRenderer {
+	void renderViewerOverlay(ImageGallery gallery, GPUSurfaceRenderer surface, float photoX, float photoY, float photoW, float photoH, float viewportW, float viewportH, double scale);
+}
+
+/* Optional viewer pointer interceptor evaluated before pager drag (e.g. crop handles, mask painting). */
+interface IImageGalleryPointerInterceptor {
+	bool handleViewerPointer(ImageGallery gallery, AppPointerEvent event, float photoX, float photoY, float photoW, float photoH, float viewportW, float viewportH, double scale);
 }
 
 class ImageGalleryPointerAdapter implements IViewPointerHandler {
@@ -82,6 +100,11 @@ class ImageGallery implements IApplicationWork {
 	private Map<int, int> _itemToVisiblePos = {};
 	private IImageGalleryKeyHandler? _customKeyHandler = null;
 	private IImageGallerySetupHook? _setupHook = null;
+	private IImageGallerySelectionHandler? _selectionHandler = null;
+	private IImageGalleryOverlayRenderer? _overlayRenderer = null;
+	private IImageGalleryPointerInterceptor? _pointerInterceptor = null;
+	private int _viewerOverrideItem = -1;
+	private GPUTexture? _viewerOverrideTex = null;
 	private bool _enableStreaming = true;
 	private bool _verifyCapture = false;
 
@@ -94,6 +117,7 @@ class ImageGallery implements IApplicationWork {
 
 	private MediaPagerInteraction _pager;
 	private ZoomGridInteraction _zoomGrid;
+	private FilmstripScrubber _scrubber;
 
 	public ImageGalleryMode mode = GALLERY_MODE_GRID;
 	public int activeItemIndex = 0;
@@ -129,6 +153,7 @@ class ImageGallery implements IApplicationWork {
 		self._verifyCapture = verifyCapture;
 		self._pager = MediaPagerInteraction();
 		self._zoomGrid = ZoomGridInteraction(180.0, 56.0, 0.56, 1.18);
+		self._scrubber = FilmstripScrubber();
 		self._clock = Timer();
 		self._clock.start();
 
@@ -158,15 +183,32 @@ class ImageGallery implements IApplicationWork {
 
 	public ImageGridOptions options() { return self._options; }
 
+	public FilmstripScrubber scrubber() { return self._scrubber; }
+
 	public bool isViewerOpen() { return self.mode == GALLERY_MODE_VIEWER; }
 
 	public void setKeyHandler(IImageGalleryKeyHandler? handler) { self._customKeyHandler = handler; }
 
 	public void setSetupHook(IImageGallerySetupHook? hook) { self._setupHook = hook; }
 
+	public void setSelectionHandler(IImageGallerySelectionHandler? handler) { self._selectionHandler = handler; }
+
+	public void setOverlayRenderer(IImageGalleryOverlayRenderer? renderer) { self._overlayRenderer = renderer; }
+
+	public void setPointerInterceptor(IImageGalleryPointerInterceptor? interceptor) { self._pointerInterceptor = interceptor; }
+
+	public void setActiveViewerTextureOverride(int itemIndex, GPUTexture? texture) {
+		self._viewerOverrideItem = texture != null ? itemIndex : -1;
+		self._viewerOverrideTex = texture;
+		self.markInteractive(200.0);
+	}
+
+	public void requestRedraw(double durationMs = 200.0) { self.markInteractive(durationMs); }
+
 	public void setVisibleOrder(Vector<int> order) {
 		self._visibleOrder = order;
 		self.rebuildVisiblePosIndex();
+		self._scrubber.setItemCount(order.length);
 		if (self._grid != null) { self._grid.invalidateLayout(); }
 		self.markInteractive(200.0);
 	}
@@ -358,6 +400,10 @@ class ImageGallery implements IApplicationWork {
 	}
 
 	private double aspectForItem(int itemIdx) {
+		var ov = self._viewerOverrideTex;
+		if (ov != null && itemIdx == self._viewerOverrideItem && ov.width() > 0 && ov.height() > 0) {
+			return (double)ov.width() / (double)ov.height();
+		}
 		var previews = self._previewCache;
 		if (previews != null) {
 			var tex = previews.getTexture(itemIdx);
@@ -377,14 +423,18 @@ class ImageGallery implements IApplicationWork {
 		if (streamer == null || self._visibleOrder.length <= 1) { return; }
 		int n = self._visibleOrder.length;
 		int pos = self.visiblePositionOf(itemIndex);
-		int nextIdx = self._visibleOrder.get((pos + 1) % n);
-		int prevIdx = self._visibleOrder.get((pos + n - 1) % n);
 		int edge = self._options.previewMaxEdge;
-		if (nextIdx != itemIndex) { streamer.requestPreview(nextIdx, edge); }
-		if (prevIdx != itemIndex && prevIdx != nextIdx) { streamer.requestPreview(prevIdx, edge); }
+		/* Prefetch +-2 neighbors so continuous swiping has sharp previews resident immediately. */
+		int offsets = 2;
+		for (int d = 1; d <= offsets; d++) {
+			int nextIdx = self._visibleOrder.get((pos + d) % n);
+			int prevIdx = self._visibleOrder.get((pos + n - (d % n)) % n);
+			if (nextIdx != itemIndex) { streamer.requestPreview(nextIdx, edge); }
+			if (prevIdx != itemIndex && prevIdx != nextIdx) { streamer.requestPreview(prevIdx, edge); }
+		}
 	}
 
-	private void syncActiveViewerItem(int itemIndex) {
+	private void syncActiveViewerItem(int itemIndex, bool syncScrubberImmediate = false) {
 		self.activeItemIndex = itemIndex;
 		var g = self._grid;
 		if (g != null) {
@@ -396,6 +446,33 @@ class ImageGallery implements IApplicationWork {
 			self.prefetchViewerNeighbors(itemIndex);
 			self._streamer.requestActivePreview(itemIndex, self._options.previewMaxEdge);
 		}
+		int vPos = self.visiblePositionOf(itemIndex);
+		self._scrubber.setItemCount(self._visibleOrder.length);
+		self._scrubber.syncActivePosition(vPos, (double)self._lastVw, (double)self._lastVh, self._lastScale, syncScrubberImmediate);
+		if (self._selectionHandler != null) {
+			self._selectionHandler.onActiveItemChanged(self, itemIndex);
+		}
+	}
+
+	public void jumpToVisiblePosition(int pos) {
+		int n = self._visibleOrder.length;
+		if (n <= 0) { return; }
+		int normPos = ((pos % n) + n) % n;
+		int itemIdx = self._visibleOrder.get(normPos);
+		if (self.mode == GALLERY_MODE_VIEWER) {
+			self._pager.open(normPos, n, self.aspectForItem(itemIdx));
+			self.syncActiveViewerItem(itemIdx, false);
+		} else {
+			self.activeItemIndex = itemIdx;
+			if (self._grid != null) {
+				self._grid.selectedItemIndex = itemIdx;
+				self._grid.scrollItemIntoView(itemIdx, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+			}
+			if (self._selectionHandler != null) {
+				self._selectionHandler.onActiveItemChanged(self, itemIdx);
+			}
+		}
+		self.markInteractive(280.0);
 	}
 
 	public void openViewer(int itemIndex) {
@@ -404,12 +481,17 @@ class ImageGallery implements IApplicationWork {
 		self.mode = GALLERY_MODE_VIEWER;
 		int pos = self.visiblePositionOf(itemIndex);
 		self._pager.open(pos, self._visibleOrder.length, self.aspectForItem(itemIndex));
-		self.syncActiveViewerItem(itemIndex);
+		self._scrubber.reset(self._visibleOrder.length, pos);
+		self.syncActiveViewerItem(itemIndex, true);
+		if (self._selectionHandler != null) {
+			self._selectionHandler.onModeChanged(self, GALLERY_MODE_VIEWER);
+		}
 		self.markInteractive(300.0);
 		self.frame0OpenMs = (double)t.elapsedMillis();
 	}
 
 	public void dismissViewer() {
+		self._scrubber.collapseNow();
 		var g = self._grid;
 		if (g != null) {
 			g.scrollItemIntoView(self.activeItemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
@@ -425,9 +507,13 @@ class ImageGallery implements IApplicationWork {
 	public void closeViewer() {
 		self.mode = GALLERY_MODE_GRID;
 		self._pager.resetToFitted();
+		self._scrubber.collapseNow();
 		if (self._previewCache != null) { self._previewCache.setActiveItem(-1); }
 		if (self._grid != null) {
 			self._grid.scrollItemIntoView(self.activeItemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+		}
+		if (self._selectionHandler != null) {
+			self._selectionHandler.onModeChanged(self, GALLERY_MODE_GRID);
 		}
 		self.markInteractive(200.0);
 	}
@@ -456,17 +542,45 @@ class ImageGallery implements IApplicationWork {
 			if (ev.action == APP_POINTER_PRESSED && ev.button == APP_POINTER_BUTTON_PRIMARY) {
 				if (hit >= 0) {
 					g.selectedItemIndex = hit;
+					self.activeItemIndex = hit;
 					if (self._previewCache != null) { self._previewCache.noteMouseDown(hit); }
 					if (ev.clickCount >= 2) {
 						self.openViewer(hit);
-					} else if (self._streamer != null) {
-						self._streamer.requestPreview(hit, self._options.previewMaxEdge);
+					} else {
+						if (self._streamer != null) {
+							self._streamer.requestPreview(hit, self._options.previewMaxEdge);
+						}
+						if (self._selectionHandler != null) {
+							self._selectionHandler.onActiveItemChanged(self, hit);
+						}
 					}
 					self.markInteractive(200.0);
 				}
 				return true;
 			}
 			return false;
+		}
+
+		/* Bottom Dock-style scrubber intercepts taps/drags over its pill or expanded bar. */
+		if (!self._verifyCapture && !self._pager.isGestureActive() && !self._pager.closing) {
+			var scrubOutcome = self._scrubber.onPointer(ev, (double)px, (double)py, (double)self._lastVw, (double)self._lastVh, scale, now);
+			if (self._scrubber.needsFrame(now)) { self.markInteractive(300.0); }
+			if (scrubOutcome.kind == SCRUBBER_EVENT_SELECT_POS) {
+				self.jumpToVisiblePosition(scrubOutcome.position);
+				return true;
+			}
+			if (scrubOutcome.consumed) {
+				self.markInteractive(300.0);
+				return true;
+			}
+		}
+
+		/* Optional interactive tool interceptor (Crop handles, Mask brush/gradients, Eyedropper). */
+		if (self._pointerInterceptor != null) {
+			if (self._pointerInterceptor.handleViewerPointer(self, ev, g.lastViewerPhotoX, g.lastViewerPhotoY, g.lastViewerPhotoW, g.lastViewerPhotoH, self._lastVw, self._lastVh, scale)) {
+				self.markInteractive(250.0);
+				return true;
+			}
 		}
 
 		/* Direct-manipulation viewer drag pagination & pull-down dismiss. */
@@ -506,6 +620,9 @@ class ImageGallery implements IApplicationWork {
 		self.markInteractive(280.0);
 
 		if (self.mode == GALLERY_MODE_VIEWER) {
+			if (!self._verifyCapture && self._scrubber.onScroll(ev, scale, (double)self._lastVw, (double)self._lastVh, now)) {
+				return true;
+			}
 			bool handled = self._pager.scroll(ev, scale, (double)self._lastVw, (double)self._lastVh, now);
 			if (self._pager.isDismissPending()) { self.dismissViewer(); }
 			return handled;
@@ -584,6 +701,9 @@ class ImageGallery implements IApplicationWork {
 			self._grid.scrollItemIntoView(nextItem, self._source, self._visibleOrder, self._lastVw, self._lastVh);
 		}
 		if (self._streamer != null) { self._streamer.requestPreview(nextItem, self._options.previewMaxEdge); }
+		if (self._selectionHandler != null) {
+			self._selectionHandler.onActiveItemChanged(self, nextItem);
+		}
 	}
 
 	public bool onKey(AppKeyboardEvent ev) {
@@ -719,8 +839,11 @@ class ImageGallery implements IApplicationWork {
 								self.closeViewer();
 							} else if (outcome.kind == PAGER_EVENT_INDEX_CHANGED && self._visibleOrder.length > 0) {
 								int newItem = self._visibleOrder.get(outcome.index);
-								self.syncActiveViewerItem(newItem);
+								self.syncActiveViewerItem(newItem, false);
 								self._pager.setAspectRatio(self.aspectForItem(newItem), (double)vw, (double)vh);
+							}
+							if (!self._verifyCapture && self.mode == GALLERY_MODE_VIEWER) {
+								self._scrubber.tick(now, (double)vw, (double)vh, self._lastScale);
 							}
 						}
 
@@ -759,7 +882,24 @@ class ImageGallery implements IApplicationWork {
 							if (self._verifyCapture) {
 								g.renderSinglePreviewToSurface(surface, self._source, self.activeItemIndex, micro, thumbs, previews, vw, vh);
 							} else {
-								g.renderViewerPagerToSurface(surface, self._source, self._visibleOrder, self._pager, micro, thumbs, previews, vw, vh);
+								g.renderViewerPagerToSurface(surface, self._source, self._visibleOrder, self._pager, micro, thumbs, previews, vw, vh, self._viewerOverrideItem, self._viewerOverrideTex);
+								if (self._overlayRenderer != null && !self._pager.closing) {
+									self._overlayRenderer.renderViewerOverlay(self, surface, g.lastViewerPhotoX, g.lastViewerPhotoY, g.lastViewerPhotoW, g.lastViewerPhotoH, vw, vh, self._lastScale);
+								}
+								if (!self._pager.closing) {
+									g.renderScrubberToSurface(surface, self._source, self._visibleOrder, self._scrubber, micro, thumbs, vw, vh, self._lastScale);
+									if (activeStreamer != null && self._scrubber.visibleTiles.length > 0) {
+										for (int si = 0; si < self._scrubber.visibleTiles.length; si++) {
+											int sPos = self._scrubber.visibleTiles.get(si).visiblePos;
+											if (sPos >= 0 && sPos < self._visibleOrder.length) {
+												int sItem = self._visibleOrder.get(sPos);
+												if (thumbs.lookupSlot(sItem) < 0) {
+													activeStreamer.requestThumbnail(sItem, true);
+												}
+											}
+										}
+									}
+								}
 							}
 						}
 
@@ -778,7 +918,8 @@ class ImageGallery implements IApplicationWork {
 			}
 		}
 
-		bool highRate = self._verifyCapture || self._pager.needsFrame() || self._zoomGrid.active || hasStreamingWork || self.nowMs() < self._activeUntilMs;
+		double nowCheck = self.nowMs();
+		bool highRate = self._verifyCapture || self._pager.needsFrame() || self._zoomGrid.active || (self.mode == GALLERY_MODE_VIEWER && self._scrubber.needsFrame(nowCheck)) || hasStreamingWork || nowCheck < self._activeUntilMs;
 		double targetPeriod = highRate ? (1.0 / 120.0) : (1.0 / 60.0);
 		double elapsedSec = (double)frameTimer.elapsedMillis() / 1000.0;
 		double delay = targetPeriod - elapsedSec - 0.001;

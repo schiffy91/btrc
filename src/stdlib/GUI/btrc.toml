@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["ActionMailbox", "ControlEvents", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageHandle", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISharedFrameView", "ISlider", "IStack", "ITextField", "IView", "IWebView", "IWindow", "ImageGallery", "ImageGrid", "ImageTileCache", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "MediaPagerInteraction", "Raster", "SharedFrameView", "TextRun", "WebView", "ZoomGridInteraction"]
+exports = ["ActionMailbox", "ControlEvents", "FilmstripScrubber", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageHandle", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISharedFrameView", "ISlider", "IStack", "ITextField", "IView", "IWebView", "IWindow", "ImageGallery", "ImageGrid", "ImageTileCache", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "MediaPagerInteraction", "Raster", "SharedFrameView", "TextRun", "WebView", "ZoomGridInteraction"]
 
 [[package.providers]]
 module = "GUI"

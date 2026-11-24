@@ -101,4 +101,53 @@ class ImageCodecProvider {
 		if (format == IMAGE_EXPORT_TIFF16) { return ImageCodecProvider.encodeUncompressedTiff16(image); }
 		throw "HEIC export is only supported on Apple platforms";
 	}
+
+	class Bytes segmentForegroundMask(Image image, int dstW, int dstH) {
+		Bytes out = Bytes.zeros(dstW * dstH);
+		if (image == null || image.isEmpty() || dstW <= 0 || dstH <= 0) { return out; }
+		double br = 0.0;
+		double bg = 0.0;
+		double bb = 0.0;
+		int bCount = 0;
+		int stepX = image.width > 16 ? image.width / 16 : 1;
+		int stepY = image.height > 16 ? image.height / 16 : 1;
+		for (int x = 0; x < image.width; x += stepX) {
+			var t = image.pixel(x, 0);
+			var b = image.pixel(x, image.height - 1);
+			br += (double)t.red + (double)b.red;
+			bg += (double)t.green + (double)b.green;
+			bb += (double)t.blue + (double)b.blue;
+			bCount += 2;
+		}
+		for (int y = 0; y < image.height; y += stepY) {
+			var l = image.pixel(0, y);
+			var r = image.pixel(image.width - 1, y);
+			br += (double)l.red + (double)r.red;
+			bg += (double)l.green + (double)r.green;
+			bb += (double)l.blue + (double)r.blue;
+			bCount += 2;
+		}
+		if (bCount > 0) { br /= (double)bCount; bg /= (double)bCount; bb /= (double)bCount; }
+		for (int y = 0; y < dstH; y++) {
+			int sy = (int)((long long)y * (long long)image.height / (long long)dstH);
+			double ny = ((double)y + 0.5) / (double)dstH - 0.5;
+			for (int x = 0; x < dstW; x++) {
+				int sx = (int)((long long)x * (long long)image.width / (long long)dstW);
+				double nx = ((double)x + 0.5) / (double)dstW - 0.5;
+				var p = image.pixel(sx, sy);
+				double dr = ((double)p.red - br) / 255.0;
+				double dg = ((double)p.green - bg) / 255.0;
+				double db = ((double)p.blue - bb) / 255.0;
+				double dist = dr * dr + dg * dg + db * db;
+				double center = 1.0 - (nx * nx * 2.2 + ny * ny * 2.2);
+				if (center < 0.0) { center = 0.0; }
+				double score = (dist * 3.8 + center * 0.45);
+				double m = (score - 0.25) * 2.4;
+				if (m < 0.0) { m = 0.0; }
+				if (m > 1.0) { m = 1.0; }
+				out.set(y * dstW + x, (int)(m * 255.0 + 0.5));
+			}
+		}
+		return out;
+	}
 }

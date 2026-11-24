@@ -80,14 +80,35 @@ static void btrcExtractGainMap(CGImageSourceRef source, BtrcApplePhoto *photo) {
 	CFRelease(aux);
 }
 
-static CGImageRef btrcCreateOrientedOrScaledImage(CGImageSourceRef source, int maxEdge, int *outAppliedTransform) {
+static int btrcIsRawSourceType(CGImageSourceRef source) {
+	CFStringRef uti = CGImageSourceGetType(source);
+	if (!uti) { return 0; }
+	char buf[128];
+	if (!CFStringGetCString(uti, buf, (CFIndex)sizeof(buf), kCFStringEncodingUTF8)) { return 0; }
+	for (size_t i = 0; buf[i]; i++) {
+		if (buf[i] >= 'A' && buf[i] <= 'Z') { buf[i] = (char)(buf[i] - 'A' + 'a'); }
+	}
+	return strstr(buf, "raw") != NULL || strstr(buf, "dng") != NULL ||
+		strstr(buf, "cr2") != NULL || strstr(buf, "cr3") != NULL ||
+		strstr(buf, "nef") != NULL || strstr(buf, "arw") != NULL ||
+		strstr(buf, "raf") != NULL || strstr(buf, "orf") != NULL ||
+		strstr(buf, "rw2") != NULL || strstr(buf, "pef") != NULL;
+}
+
+static CGImageRef btrcCreateOrientedOrScaledImage(CGImageSourceRef source, int maxEdge, int allowFloatRaw, int *outAppliedTransform) {
 	*outAppliedTransform = 0;
 	CFMutableDictionaryRef opts = CFDictionaryCreateMutable(
-		kCFAllocatorDefault, 4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		kCFAllocatorDefault, 6, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 	if (!opts) { return NULL; }
 	CFDictionarySetValue(opts, kCGImageSourceShouldCache, kCFBooleanFalse);
+	if (allowFloatRaw) {
+		CFDictionarySetValue(opts, kCGImageSourceShouldAllowFloat, kCFBooleanTrue);
+	}
 	CGImageRef img = NULL;
-	if (maxEdge > 0) {
+	/* For linear RAW decoding, avoid CreateThumbnailAtIndex (which often yields an 8-bit preview);
+	 * decode the full high-bit-depth sensor image via CreateImageAtIndex and scale in linear float. */
+	int isRaw = allowFloatRaw && btrcIsRawSourceType(source);
+	if (maxEdge > 0 && !isRaw) {
 		CFNumberRef maxNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &maxEdge);
 		if (maxNum) {
 			CFDictionarySetValue(opts, kCGImageSourceCreateThumbnailFromImageAlways, kCFBooleanTrue);
@@ -164,7 +185,7 @@ BtrcApplePhoto *btrcApplePhotoDecodeLinear(const unsigned char *data, size_t len
 	if (props) { CFRelease(props); }
 
 	int appliedTransform = 0;
-	CGImageRef image = btrcCreateOrientedOrScaledImage(source, maxEdge, &appliedTransform);
+	CGImageRef image = btrcCreateOrientedOrScaledImage(source, maxEdge, 1, &appliedTransform);
 	if (!image) {
 		CFRelease(source);
 		CFRelease(cfData);
@@ -175,9 +196,26 @@ BtrcApplePhoto *btrcApplePhotoDecodeLinear(const unsigned char *data, size_t len
 	int srcH = (int)CGImageGetHeight(image);
 	if (origW <= 0) { origW = srcW; }
 	if (origH <= 0) { origH = srcH; }
+	if (!appliedTransform && orientation >= 5 && origW != origH && srcW == origH && srcH == origW) {
+		/* RAW decoder already baked EXIF rotation into the returned CGImage. */
+		appliedTransform = 1;
+	}
 	int swapWH = (!appliedTransform && orientation >= 5);
-	int outW = swapWH ? srcH : srcW;
-	int outH = swapWH ? srcW : srcH;
+	int orientW = swapWH ? srcH : srcW;
+	int orientH = swapWH ? srcW : srcH;
+	int outW = orientW;
+	int outH = orientH;
+	if (maxEdge > 0 && (outW > maxEdge || outH > maxEdge)) {
+		if (outW >= outH) {
+			outW = maxEdge;
+			outH = (int)((long long)orientH * (long long)maxEdge / (long long)orientW);
+		} else {
+			outH = maxEdge;
+			outW = (int)((long long)orientW * (long long)maxEdge / (long long)orientH);
+		}
+		if (outW < 1) { outW = 1; }
+		if (outH < 1) { outH = 1; }
+	}
 	if (outW <= 0 || outH <= 0) {
 		CGImageRelease(image);
 		CFRelease(source);
@@ -219,10 +257,13 @@ BtrcApplePhoto *btrcApplePhotoDecodeLinear(const unsigned char *data, size_t len
 	}
 
 	CGContextSetBlendMode(ctx, kCGBlendModeCopy);
+	CGContextSetInterpolationQuality(ctx, kCGInterpolationHigh);
 	if (!appliedTransform && orientation != 1) {
 		btrcApplyOrientationTransform(ctx, orientation, outW, outH);
 	}
-	CGContextDrawImage(ctx, CGRectMake(0.0, 0.0, (CGFloat)srcW, (CGFloat)srcH), image);
+	CGFloat drawW = (CGFloat)(swapWH ? outH : outW);
+	CGFloat drawH = (CGFloat)(swapWH ? outW : outH);
+	CGContextDrawImage(ctx, CGRectMake(0.0, 0.0, drawW, drawH), image);
 	CGContextRelease(ctx);
 	CGImageRelease(image);
 
@@ -283,7 +324,7 @@ BtrcApplePhoto *btrcApplePhotoDecodeRGBA8(const unsigned char *data, size_t leng
 	if (props) { CFRelease(props); }
 
 	int appliedTransform = 0;
-	CGImageRef image = btrcCreateOrientedOrScaledImage(source, maxEdge, &appliedTransform);
+	CGImageRef image = btrcCreateOrientedOrScaledImage(source, maxEdge, 0, &appliedTransform);
 	CFRelease(source);
 	CFRelease(cfData);
 	if (!image) { return NULL; }
@@ -324,10 +365,13 @@ BtrcApplePhoto *btrcApplePhotoDecodeRGBA8(const unsigned char *data, size_t leng
 		return NULL;
 	}
 	CGContextSetBlendMode(ctx, kCGBlendModeCopy);
+	CGContextSetInterpolationQuality(ctx, kCGInterpolationHigh);
 	if (!appliedTransform && orientation != 1) {
 		btrcApplyOrientationTransform(ctx, orientation, outW, outH);
 	}
-	CGContextDrawImage(ctx, CGRectMake(0.0, 0.0, (CGFloat)srcW, (CGFloat)srcH), image);
+	CGFloat drawW = (CGFloat)(swapWH ? outH : outW);
+	CGFloat drawH = (CGFloat)(swapWH ? outW : outH);
+	CGContextDrawImage(ctx, CGRectMake(0.0, 0.0, drawW, drawH), image);
 	CGContextRelease(ctx);
 	CGImageRelease(image);
 
@@ -544,6 +588,21 @@ BtrcAppleBuffer *btrcAppleEncodeLinear(const float *rgba, int width, int height,
 	}
 	buf->data = copied;
 	buf->length = (size_t)outLen;
+	return buf;
+}
+
+BtrcAppleBuffer *btrcAppleBufferCreateCopy(const unsigned char *data, size_t length) {
+	if (!data || length == 0) { return NULL; }
+	unsigned char *copied = (unsigned char *)malloc(length);
+	if (!copied) { return NULL; }
+	memcpy(copied, data, length);
+	BtrcAppleBuffer *buf = (BtrcAppleBuffer *)calloc(1, sizeof(BtrcAppleBuffer));
+	if (!buf) {
+		free(copied);
+		return NULL;
+	}
+	buf->data = copied;
+	buf->length = length;
 	return buf;
 }
 

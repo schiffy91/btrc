@@ -55,4 +55,13 @@ class ImageCodec {
 
 	/* Encode a linear RGBA32F FloatImage to JPEG, HEIC, PNG, or 16-bit linear TIFF. */
 	class Bytes encode(FloatImage image, ImageExportFormat format, int quality = 90) { return ImageCodecProvider.encode(image, format, quality); }
+
+	/* Segment foreground subject into an 8-bit single-channel alpha matte (0..255).
+	 * Uses OS-supplied Apple Vision neural foreground segmentation on macOS/iOS and a
+	 * portable center-surround saliency fallback on other platforms (or when no instance matches). */
+	class Bytes segmentForegroundMask(Image image, int outWidth = 0, int outHeight = 0) {
+		int dstW = outWidth > 0 ? outWidth : image.width;
+		int dstH = outHeight > 0 ? outHeight : image.height;
+		return ImageCodecProvider.segmentForegroundMask(image, dstW, dstH);
+	}
 }

@@ -1,0 +1,569 @@
+/* Auto-hiding Dock-style bottom filmstrip scrubber for ImageGallery.
+ *
+ * Behavior matches macOS Dock + direct-manipulation filmstrip conventions:
+ *   - Auto-hides into a compact translucent pill handle at the bottom edge.
+ *   - Expands smoothly when the pointer hovers near the bottom edge or when a mouse/finger
+ *     clicks/taps the pill handle (locking open on tap for touch & click browsing).
+ *   - Supports horizontal two-finger trackpad scroll, click/touch-and-drag scrubbing with
+ *     momentum coasting, parabolic Dock-style hover magnification, and tap-to-jump selection. */
+
+import Library.App;
+import Library.Math;
+import Library.Vector;
+
+enum ScrubberEventKind {
+	SCRUBBER_EVENT_NONE = 0,
+	SCRUBBER_EVENT_SELECT_POS = 1
+};
+
+class ScrubberOutcome {
+	public ScrubberEventKind kind;
+	public int position;
+	public bool consumed;
+
+	public ScrubberOutcome(ScrubberEventKind kind = SCRUBBER_EVENT_NONE, int position = -1, bool consumed = false) {
+		self.kind = kind;
+		self.position = position;
+		self.consumed = consumed;
+	}
+}
+
+class ScrubberTileSlot {
+	public int visiblePos;
+	public float x;
+	public float y;
+	public float width;
+	public float height;
+	public bool isActive;
+	public bool isHovered;
+
+	public ScrubberTileSlot(int visiblePos, float x, float y, float width, float height, bool isActive, bool isHovered) {
+		self.visiblePos = visiblePos;
+		self.x = x;
+		self.y = y;
+		self.width = width;
+		self.height = height;
+		self.isActive = isActive;
+		self.isHovered = isHovered;
+	}
+}
+
+class ScrubberRect {
+	public float x;
+	public float y;
+	public float width;
+	public float height;
+	public float cornerRadius;
+
+	public ScrubberRect(float x, float y, float width, float height, float cornerRadius) {
+		self.x = x;
+		self.y = y;
+		self.width = width;
+		self.height = height;
+		self.cornerRadius = cornerRadius;
+	}
+}
+
+class FilmstripScrubber {
+	/* Configurable logical-point dimensions (scaled by backingScale at runtime). */
+	public double pillWidthPt = 92.0;
+	public double pillHeightPt = 6.0;
+	public double pillBottomMarginPt = 10.0;
+	public double dockHeightPt = 74.0;
+	public double dockBottomMarginPt = 12.0;
+	public double dockHorizontalMarginPt = 16.0;
+	public double dockPaddingXPt = 12.0;
+	public double dockPaddingYPt = 10.0;
+	public double dockCornerRadiusPt = 16.0;
+	public double tileWidthPt = 64.0;
+	public double tileHeightPt = 52.0;
+	public double tileGapPt = 6.0;
+	public double hoverTriggerHeightPt = 22.0;
+	public double autoHideDelayMs = 420.0;
+	public bool enabled = true;
+
+	/* Live animation and scroll state (in stage pixels). */
+	public double openProgress = 0.0;    /* 0.0 = collapsed pill, 1.0 = expanded Dock bar */
+	public double scrollX = 0.0;
+	public int itemCount = 0;
+	public int activePos = 0;
+
+	private bool _hoverInside = false;
+	private bool _pinnedOpen = false;
+	private bool _hoverActive = false;
+	private double _hoverX = 0.0;
+	private double _hoverLeftMs = -10000.0;
+	private double _lastTickMs = 0.0;
+	private bool _hasLastTick = false;
+
+	/* Click/touch-and-drag scrub & coasting velocity state. */
+	private bool _pointerDown = false;
+	private bool _didDrag = false;
+	private double _dragStartX = 0.0;
+	private double _dragLastX = 0.0;
+	private double _dragLastMs = 0.0;
+	private double _dragStartScrollX = 0.0;
+	private double _velocityPxPerMs = 0.0;
+	private bool _coasting = false;
+
+	/* Smooth centering target when active photo changes externally. */
+	private bool _hasTargetScroll = false;
+	private double _targetScrollX = 0.0;
+
+	/* Cached rects of visible thumbnails from the latest layout pass (for hit-testing). */
+	public Vector<ScrubberTileSlot> visibleTiles = [];
+
+	public FilmstripScrubber() {}
+
+	class double clampDouble(double v, double lo, double hi) {
+		if (v < lo) { return lo; }
+		if (v > hi) { return hi; }
+		return v;
+	}
+
+	public bool isExpanded() { return self.openProgress > 0.35; }
+
+	public bool isPinnedOpen() { return self._pinnedOpen; }
+
+	public bool isDragging() { return self._pointerDown && self._didDrag; }
+
+	public void reset(int count, int currentPos) {
+		self.itemCount = count > 0 ? count : 0;
+		self.activePos = self.itemCount > 0 ? ((currentPos % self.itemCount) + self.itemCount) % self.itemCount : 0;
+		self.openProgress = 0.0;
+		self._hoverInside = false;
+		self._pinnedOpen = false;
+		self._hoverActive = false;
+		self._pointerDown = false;
+		self._didDrag = false;
+		self._coasting = false;
+		self._velocityPxPerMs = 0.0;
+		self._hasTargetScroll = false;
+		self.scrollX = 0.0;
+		self.visibleTiles = [];
+	}
+
+	public void collapseNow() {
+		self._pinnedOpen = false;
+		self._hoverInside = false;
+		self._hoverActive = false;
+		self._pointerDown = false;
+		self._didDrag = false;
+		self._hoverLeftMs = -10000.0;
+	}
+
+	public void expandPinned() {
+		self._pinnedOpen = true;
+		self._hoverInside = true;
+	}
+
+	public void setItemCount(int count) {
+		self.itemCount = count > 0 ? count : 0;
+		if (self.itemCount > 0) {
+			self.activePos = ((self.activePos % self.itemCount) + self.itemCount) % self.itemCount;
+		} else {
+			self.activePos = 0;
+		}
+	}
+
+	public double stridePx(double scale) {
+		return (self.tileWidthPt + self.tileGapPt) * scale;
+	}
+
+	public double contentWidthPx(double scale) {
+		if (self.itemCount <= 0) { return 0.0; }
+		return (double)self.itemCount * self.tileWidthPt * scale + (double)(self.itemCount - 1) * self.tileGapPt * scale;
+	}
+
+	/* Expanded Dock geometry (independent of openProgress). */
+	public ScrubberRect expandedDockRect(double stageW, double stageH, double scale) {
+		double s = scale > 0.5 ? scale : 1.0;
+		double maxW = stageW - 2.0 * self.dockHorizontalMarginPt * s;
+		if (maxW < 120.0 * s) { maxW = stageW * 0.92; }
+		double desiredW = self.contentWidthPx(s) + 2.0 * self.dockPaddingXPt * s;
+		double minW = 220.0 * s;
+		if (desiredW < minW) { desiredW = minW; }
+		double dockW = desiredW < maxW ? desiredW : maxW;
+		double dockH = self.dockHeightPt * s;
+		double x = (stageW - dockW) * 0.5;
+		double y = stageH - self.dockBottomMarginPt * s - dockH;
+		return ScrubberRect((float)x, (float)y, (float)dockW, (float)dockH, (float)(self.dockCornerRadiusPt * s));
+	}
+
+	/* Collapsed pill handle geometry at bottom center. */
+	public ScrubberRect collapsedPillRect(double stageW, double stageH, double scale) {
+		double s = scale > 0.5 ? scale : 1.0;
+		double w = self.pillWidthPt * s;
+		double h = self.pillHeightPt * s;
+		double x = (stageW - w) * 0.5;
+		double y = stageH - self.pillBottomMarginPt * s - h;
+		return ScrubberRect((float)x, (float)y, (float)w, (float)h, (float)(h * 0.5));
+	}
+
+	/* Current animated Dock container rect interpolated between pill and expanded bar. */
+	public ScrubberRect currentBarRect(double stageW, double stageH, double scale) {
+		var pill = self.collapsedPillRect(stageW, stageH, scale);
+		var dock = self.expandedDockRect(stageW, stageH, scale);
+		double t = FilmstripScrubber.clampDouble(self.openProgress, 0.0, 1.0);
+		/* Smooth ease-out curve for crisp Dock expansion. */
+		double inv = 1.0 - t;
+		double e = 1.0 - inv * inv * inv;
+		float x = pill.x + (dock.x - pill.x) * (float)e;
+		float y = pill.y + (dock.y - pill.y) * (float)e;
+		float w = pill.width + (dock.width - pill.width) * (float)e;
+		float h = pill.height + (dock.height - pill.height) * (float)e;
+		float r = pill.cornerRadius + (dock.cornerRadius - pill.cornerRadius) * (float)e;
+		return ScrubberRect(x, y, w, h, r);
+	}
+
+	public double maxScrollXPx(double stageW, double stageH, double scale) {
+		double s = scale > 0.5 ? scale : 1.0;
+		var dock = self.expandedDockRect(stageW, stageH, s);
+		double innerW = (double)dock.width - 2.0 * self.dockPaddingXPt * s;
+		double maxS = self.contentWidthPx(s) - innerW;
+		return maxS > 0.0 ? maxS : 0.0;
+	}
+
+	public void syncActivePosition(int pos, double stageW, double stageH, double scale, bool immediate = false) {
+		if (self.itemCount <= 0) { return; }
+		self.activePos = ((pos % self.itemCount) + self.itemCount) % self.itemCount;
+		double s = scale > 0.5 ? scale : 1.0;
+		var dock = self.expandedDockRect(stageW, stageH, s);
+		double innerW = (double)dock.width - 2.0 * self.dockPaddingXPt * s;
+		double tileW = self.tileWidthPt * s;
+		double stride = self.stridePx(s);
+		double centerDocX = (double)self.activePos * stride + tileW * 0.5;
+		double desired = centerDocX - innerW * 0.5;
+		double maxS = self.maxScrollXPx(stageW, stageH, s);
+		desired = FilmstripScrubber.clampDouble(desired, 0.0, maxS);
+		if (immediate) {
+			self.scrollX = desired;
+			self._hasTargetScroll = false;
+			self._coasting = false;
+		} else {
+			self._targetScrollX = desired;
+			self._hasTargetScroll = true;
+			self._coasting = false;
+		}
+	}
+
+	private bool pointInExpandedDock(double px, double py, double stageW, double stageH, double scale, double topGracePt = 12.0) {
+		double s = scale > 0.5 ? scale : 1.0;
+		var dock = self.expandedDockRect(stageW, stageH, s);
+		return px >= (double)dock.x - 8.0 * s &&
+			px <= (double)(dock.x + dock.width) + 8.0 * s &&
+			py >= (double)dock.y - topGracePt * s &&
+			py <= stageH;
+	}
+
+	private bool pointInCollapsedPillTapZone(double px, double py, double stageW, double stageH, double scale) {
+		double s = scale > 0.5 ? scale : 1.0;
+		double halfTapW = (self.pillWidthPt * 0.5 + 42.0) * s;
+		double tapTop = stageH - 34.0 * s;
+		return Math.fabs(px - stageW * 0.5) <= halfTapW && py >= tapTop;
+	}
+
+	private bool pointInBottomHoverTrigger(double px, double py, double stageW, double stageH, double scale) {
+		double s = scale > 0.5 ? scale : 1.0;
+		var dock = self.expandedDockRect(stageW, stageH, s);
+		return py >= stageH - self.hoverTriggerHeightPt * s &&
+			px >= (double)dock.x - 24.0 * s &&
+			px <= (double)(dock.x + dock.width) + 24.0 * s;
+	}
+
+	private bool wantOpen(double nowMs) {
+		if (!self.enabled || self.itemCount <= 1) { return false; }
+		if (self._pinnedOpen || self._hoverInside || self._pointerDown) { return true; }
+		if ((nowMs - self._hoverLeftMs) < self.autoHideDelayMs) { return true; }
+		return false;
+	}
+
+	public bool needsFrame(double nowMs) {
+		if (!self.enabled || self.itemCount <= 1) { return false; }
+		double target = self.wantOpen(nowMs) ? 1.0 : 0.0;
+		if (Math.fabs(self.openProgress - target) > 0.004) { return true; }
+		if (self._coasting || self._hasTargetScroll || self._pointerDown) { return true; }
+		if (!self._hoverInside && !self._pinnedOpen && self.openProgress > 0.01 && (nowMs - self._hoverLeftMs) < self.autoHideDelayMs + 50.0) {
+			return true;
+		}
+		return false;
+	}
+
+	public void tick(double nowMs, double stageW, double stageH, double scale) {
+		double s = scale > 0.5 ? scale : 1.0;
+		double dtMs = self._hasLastTick ? (nowMs - self._lastTickMs) : 8.0;
+		self._lastTickMs = nowMs;
+		self._hasLastTick = true;
+		if (dtMs < 0.0) { dtMs = 0.0; }
+		if (dtMs > 50.0) { dtMs = 50.0; }
+		double dtSec = dtMs * 0.001;
+
+		/* Smooth macOS Dock open/close animation. */
+		double target = self.wantOpen(nowMs) ? 1.0 : 0.0;
+		double speed = target > self.openProgress ? 18.0 : 12.0;
+		double alpha = 1.0 - Math.exp(-speed * dtSec);
+		self.openProgress = self.openProgress + (target - self.openProgress) * alpha;
+		if (Math.fabs(self.openProgress - target) < 0.003) {
+			self.openProgress = target;
+		}
+
+		double maxS = self.maxScrollXPx(stageW, stageH, s);
+
+		/* Momentum coasting after drag-scrub release. */
+		if (self._coasting && !self._pointerDown) {
+			self.scrollX += self._velocityPxPerMs * dtMs;
+			double decay = Math.exp(-6.5 * dtSec);
+			self._velocityPxPerMs *= decay;
+			if (self.scrollX < 0.0) {
+				self.scrollX = 0.0;
+				self._velocityPxPerMs = 0.0;
+				self._coasting = false;
+			} else if (self.scrollX > maxS) {
+				self.scrollX = maxS;
+				self._velocityPxPerMs = 0.0;
+				self._coasting = false;
+			}
+			if (Math.fabs(self._velocityPxPerMs) < 0.02 * s) {
+				self._velocityPxPerMs = 0.0;
+				self._coasting = false;
+			}
+		}
+
+		/* Smooth centering scroll when active item changes. */
+		if (self._hasTargetScroll && !self._pointerDown && !self._coasting) {
+			double clampedTarget = FilmstripScrubber.clampDouble(self._targetScrollX, 0.0, maxS);
+			double scrollAlpha = 1.0 - Math.exp(-14.0 * dtSec);
+			self.scrollX = self.scrollX + (clampedTarget - self.scrollX) * scrollAlpha;
+			if (Math.fabs(self.scrollX - clampedTarget) < 0.5) {
+				self.scrollX = clampedTarget;
+				self._hasTargetScroll = false;
+			}
+		}
+
+		self.scrollX = FilmstripScrubber.clampDouble(self.scrollX, 0.0, maxS);
+	}
+
+	/* Compute visible thumbnail slots inside the Dock (O(visible) even for 50k+ items). */
+	public Vector<ScrubberTileSlot> layoutVisibleTiles(double stageW, double stageH, double scale) {
+		self.visibleTiles = [];
+		if (!self.enabled || self.itemCount <= 1 || self.openProgress < 0.08) {
+			return self.visibleTiles;
+		}
+		double s = scale > 0.5 ? scale : 1.0;
+		var bar = self.currentBarRect(stageW, stageH, s);
+		double padX = self.dockPaddingXPt * s;
+		double padY = self.dockPaddingYPt * s;
+		double innerLeft = (double)bar.x + padX;
+		double innerRight = (double)(bar.x + bar.width) - padX;
+		double innerW = innerRight - innerLeft;
+		if (innerW <= 4.0) { return self.visibleTiles; }
+
+		double tileW = self.tileWidthPt * s;
+		double tileH = self.tileHeightPt * s;
+		double stride = self.stridePx(s);
+		double totalW = self.contentWidthPx(s);
+		double baseOffsetX = totalW < innerW ? ((innerW - totalW) * 0.5) : (-self.scrollX);
+
+		int firstPos = 0;
+		int lastPos = self.itemCount - 1;
+		if (totalW >= innerW && stride > 1.0) {
+			firstPos = (int)((self.scrollX - tileW) / stride);
+			if (firstPos < 0) { firstPos = 0; }
+			lastPos = (int)((self.scrollX + innerW + tileW) / stride) + 1;
+			if (lastPos >= self.itemCount) { lastPos = self.itemCount - 1; }
+		}
+
+		double openScale = FilmstripScrubber.clampDouble((self.openProgress - 0.08) / 0.92, 0.0, 1.0);
+		double baselineBottom = (double)(bar.y + bar.height) - padY;
+		double magRadius = 128.0 * s;
+
+		for (int pos = firstPos; pos <= lastPos; pos++) {
+			double rawX = innerLeft + baseOffsetX + (double)pos * stride;
+			double rawRight = rawX + tileW;
+			if (rawRight < innerLeft - 2.0 || rawX > innerRight + 2.0) { continue; }
+
+			double cx = rawX + tileW * 0.5;
+			double mag = 1.0;
+			bool isHovered = false;
+			if (self._hoverActive && self.openProgress > 0.65) {
+				double dist = Math.fabs(cx - self._hoverX);
+				if (dist < magRadius) {
+					double wave = 0.5 * (1.0 + Math.cos(3.14159265358979323846 * dist / magRadius));
+					mag = 1.0 + 0.22 * wave;
+				}
+				if (dist <= tileW * 0.52) {
+					isHovered = true;
+				}
+			}
+			bool isActive = (pos == self.activePos);
+			if (isActive && mag < 1.08) { mag = 1.08; }
+
+			double drawW = tileW * mag * openScale;
+			double drawH = tileH * mag * openScale;
+			double drawX = cx - drawW * 0.5;
+			double drawY = baselineBottom - drawH;
+			/* Clip cleanly inside the Dock's left/right padding edges. */
+			if (drawX < innerLeft) {
+				double cut = innerLeft - drawX;
+				drawX = innerLeft;
+				drawW -= cut;
+			}
+			if (drawX + drawW > innerRight) {
+				drawW = innerRight - drawX;
+			}
+			if (drawW <= 2.0 || drawH <= 2.0) { continue; }
+
+			self.visibleTiles.push(ScrubberTileSlot(pos, (float)drawX, (float)drawY, (float)drawW, (float)drawH, isActive, isHovered));
+		}
+		return self.visibleTiles;
+	}
+
+	public int hitTestPosition(double px, double py) {
+		for (int i = 0; i < self.visibleTiles.length; i++) {
+			var t = self.visibleTiles.get(i);
+			if ((float)px >= t.x - 3.0f && (float)px <= t.x + t.width + 3.0f &&
+			    (float)py >= t.y - 6.0f && (float)py <= t.y + t.height + 6.0f) {
+				return t.visiblePos;
+			}
+		}
+		return -1;
+	}
+
+	/* Handle pointer events in viewer mode; returns ScrubberOutcome indicating whether consumed and any selected position. */
+	public ScrubberOutcome onPointer(AppPointerEvent ev, double px, double py, double stageW, double stageH, double scale, double nowMs) {
+		if (!self.enabled || self.itemCount <= 1) {
+			return ScrubberOutcome(SCRUBBER_EVENT_NONE, -1, false);
+		}
+		double s = scale > 0.5 ? scale : 1.0;
+
+		if (ev.action == APP_POINTER_MOVED) {
+			if (self.openProgress < 0.25) {
+				if (self.pointInBottomHoverTrigger(px, py, stageW, stageH, s)) {
+					self._hoverInside = true;
+					self._hoverActive = true;
+					self._hoverX = px;
+				}
+			} else {
+				bool inDock = self.pointInExpandedDock(px, py, stageW, stageH, s, 14.0);
+				if (inDock) {
+					self._hoverInside = true;
+					self._hoverActive = true;
+					self._hoverX = px;
+				} else {
+					if (self._hoverInside) {
+						self._hoverInside = false;
+						self._hoverLeftMs = nowMs;
+					}
+					self._hoverActive = false;
+				}
+			}
+			return ScrubberOutcome(SCRUBBER_EVENT_NONE, -1, false);
+		}
+
+		if (ev.action == APP_POINTER_PRESSED && ev.button == APP_POINTER_BUTTON_PRIMARY) {
+			if (self.openProgress < 0.40) {
+				if (self.pointInCollapsedPillTapZone(px, py, stageW, stageH, s)) {
+					self._pinnedOpen = true;
+					self._hoverInside = true;
+					self._hoverActive = true;
+					self._hoverX = px;
+					self.syncActivePosition(self.activePos, stageW, stageH, s, false);
+					return ScrubberOutcome(SCRUBBER_EVENT_NONE, -1, true);
+				}
+				return ScrubberOutcome(SCRUBBER_EVENT_NONE, -1, false);
+			}
+			if (self.pointInExpandedDock(px, py, stageW, stageH, s, 8.0)) {
+				self._pointerDown = true;
+				self._didDrag = false;
+				self._coasting = false;
+				self._hasTargetScroll = false;
+				self._dragStartX = px;
+				self._dragLastX = px;
+				self._dragLastMs = nowMs;
+				self._dragStartScrollX = self.scrollX;
+				self._velocityPxPerMs = 0.0;
+				self._hoverInside = true;
+				self._hoverActive = true;
+				self._hoverX = px;
+				return ScrubberOutcome(SCRUBBER_EVENT_NONE, -1, true);
+			}
+			/* Clicked/tapped outside expanded Dock: auto-hide it cleanly and pass event to main viewer. */
+			if (self._pinnedOpen || self._hoverInside) {
+				self._pinnedOpen = false;
+				self._hoverInside = false;
+				self._hoverActive = false;
+				self._hoverLeftMs = nowMs - self.autoHideDelayMs - 10.0;
+			}
+			return ScrubberOutcome(SCRUBBER_EVENT_NONE, -1, false);
+		}
+
+		if (ev.action == APP_POINTER_DRAGGED && self._pointerDown) {
+			double totalDx = px - self._dragStartX;
+			if (!self._didDrag && Math.fabs(totalDx) >= 4.0 * s) {
+				self._didDrag = true;
+			}
+			if (self._didDrag) {
+				double maxS = self.maxScrollXPx(stageW, stageH, s);
+				double nextScroll = self._dragStartScrollX - totalDx;
+				self.scrollX = FilmstripScrubber.clampDouble(nextScroll, 0.0, maxS);
+				double dt = nowMs - self._dragLastMs;
+				if (dt > 0.5) {
+					double instVel = -(px - self._dragLastX) / dt;
+					self._velocityPxPerMs = self._velocityPxPerMs * 0.45 + instVel * 0.55;
+				}
+				self._dragLastX = px;
+				self._dragLastMs = nowMs;
+			}
+			self._hoverX = px;
+			return ScrubberOutcome(SCRUBBER_EVENT_NONE, -1, true);
+		}
+
+		if ((ev.action == APP_POINTER_RELEASED || ev.action == APP_POINTER_CANCELLED) && self._pointerDown) {
+			bool cancelled = (ev.action == APP_POINTER_CANCELLED);
+			bool dragged = self._didDrag;
+			self._pointerDown = false;
+			self._didDrag = false;
+			if (dragged && !cancelled) {
+				if (Math.fabs(self._velocityPxPerMs) > 0.08 * s) {
+					self._coasting = true;
+				}
+				return ScrubberOutcome(SCRUBBER_EVENT_NONE, -1, true);
+			}
+			if (!cancelled) {
+				int hitPos = self.hitTestPosition(px, py);
+				if (hitPos >= 0 && hitPos < self.itemCount) {
+					self.syncActivePosition(hitPos, stageW, stageH, s, false);
+					return ScrubberOutcome(SCRUBBER_EVENT_SELECT_POS, hitPos, true);
+				}
+			}
+			return ScrubberOutcome(SCRUBBER_EVENT_NONE, -1, true);
+		}
+
+		return ScrubberOutcome(SCRUBBER_EVENT_NONE, -1, false);
+	}
+
+	/* Handle two-finger horizontal scroll (or wheel) when cursor is over the expanded Dock. */
+	public bool onScroll(AppScrollEvent ev, double scale, double stageW, double stageH, double nowMs) {
+		if (!self.enabled || self.itemCount <= 1 || self.openProgress < 0.25) { return false; }
+		double s = scale > 0.5 ? scale : 1.0;
+		double px = ev.logicalX * s;
+		double py = ev.logicalY * s;
+		if (!self.pointInExpandedDock(px, py, stageW, stageH, s, 18.0)) {
+			return false;
+		}
+		if (ev.phase == APP_SCROLL_MAY_BEGIN || ev.phase == APP_SCROLL_STATIONARY) {
+			return true;
+		}
+		double primary = Math.fabs(ev.deltaX) >= Math.fabs(ev.deltaY) ? ev.deltaX : ev.deltaY;
+		double mult = ev.precise ? (1.4 * s) : (32.0 * s);
+		double maxS = self.maxScrollXPx(stageW, stageH, s);
+		self.scrollX = FilmstripScrubber.clampDouble(self.scrollX - primary * mult, 0.0, maxS);
+		self._hasTargetScroll = false;
+		self._coasting = false;
+		self._hoverInside = true;
+		self._hoverActive = true;
+		self._hoverX = px;
+		self._hoverLeftMs = nowMs;
+		return true;
+	}
+}
