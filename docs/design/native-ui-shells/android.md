@@ -141,3 +141,9 @@ entry lifetimes or main-Looper release support. CL-P1-14/15 own provider/cache
 gaps. These are known assigned prerequisites, not new compiler defect claims;
 file a minimal targeted REQUEST if implementation finds another need. The
 notes unblock planning and review only, not the gated provider implementation.
+
+## Shared GPU frames
+
+Call `SharedFrameView.listen(producerPid)` and give its `ahardwarebuffer` address to the producer over the private control channel. For each completed frame, open an Android abstract Unix `SOCK_SEQPACKET` connection to that name, send the buffer with `AHardwareBuffer_sendHandleToUnixSocket`, and close the connection. The abstract socket address starts with a zero byte followed by the name, with no trailing terminator. The receiver checks the process ID reported by the kernel.
+
+Send an immutable, single-layer `R8G8B8A8_UNORM` buffer with GPU sampling enabled. Finish the producer's writes before sending. The view wraps the buffer in a hardware bitmap and fits it to an Android ImageView. The system retains the displayed frame after the producer exits. A software window capture takes a separate pixel copy.

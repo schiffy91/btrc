@@ -666,6 +666,7 @@ void btrcShimControlDestroy(BtrcShimControl* control) {
 	free(control->items);
 	free(control->itemEnabled);
 	free(control->shapes);
+	if (control->release) { control->release(control->extension); }
 	free(control);
 }
 
