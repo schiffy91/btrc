@@ -30,6 +30,8 @@ struct BtrcShimWindow {
 };
 
 struct BtrcShimControl {
+	void* extension;
+	void (*release)(void* extension);
 	/* The Java side's name for the control, and the id its events carry. */
 	int handle;
 	unsigned int id;

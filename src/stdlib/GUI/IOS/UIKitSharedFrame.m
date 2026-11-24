@@ -1,4 +1,4 @@
-#import "SharedFrame.h"
+#import "../Shim/SharedFrame.h"
 #import "SharedFrameXPC.h"
 #import "UIKitShimPrivate.h"
 #import <CoreImage/CoreImage.h>
@@ -86,7 +86,9 @@ static BTRCFramePicture *picture(BtrcShimControl *control) {
 	return (BTRCFramePicture *)btrcUIKitControl(control)->view;
 }
 
-BtrcShimControl *btrcUIKitFrameCreate(unsigned int identifier) {
+const char *btrcShimFrameTransport(void) { return "iosurface-xpc"; }
+
+BtrcShimControl *btrcShimFrameCreate(unsigned int identifier) {
 	__block BtrcShimControl *control = NULL;
 	btrcUIKitOnMain(^{
 		BTRCFramePicture *view = [[[BTRCFramePicture alloc] initWithFrame:CGRectZero] autorelease];
@@ -96,17 +98,17 @@ BtrcShimControl *btrcUIKitFrameCreate(unsigned int identifier) {
 	return control;
 }
 
-const char *btrcUIKitFrameListen(BtrcShimControl *control, int producerPid) {
+const char *btrcShimFrameListen(BtrcShimControl *control, int producerPid) {
 	__block const char *result = NULL;
 	btrcUIKitOnMain(^{ result = [picture(control) listen:producerPid]; });
 	return result;
 }
 
-void btrcUIKitFrameDisconnect(BtrcShimControl *control) {
+void btrcShimFrameDisconnect(BtrcShimControl *control) {
 	btrcUIKitOnMain(^{ [picture(control) disconnect]; });
 }
 
-bool btrcUIKitFramePresent(BtrcShimControl *control) {
+bool btrcShimFramePresent(BtrcShimControl *control) {
 	__block bool accepted = false;
 	btrcUIKitOnMain(^{
 		BTRCFramePicture *view = picture(control);
@@ -131,13 +133,13 @@ bool btrcUIKitFramePresent(BtrcShimControl *control) {
 	return accepted;
 }
 
-int btrcUIKitFrameWidth(BtrcShimControl *control) {
+int btrcShimFrameWidth(BtrcShimControl *control) {
 	__block int width;
 	btrcUIKitOnMain(^{ width = picture(control).frameWidth; });
 	return width;
 }
 
-int btrcUIKitFrameHeight(BtrcShimControl *control) {
+int btrcShimFrameHeight(BtrcShimControl *control) {
 	__block int height;
 	btrcUIKitOnMain(^{ height = picture(control).frameHeight; });
 	return height;
