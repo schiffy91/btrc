@@ -11,7 +11,7 @@
 #ifdef GDK_WINDOWING_WAYLAND
 #include <gdk/wayland/gdkwayland.h>
 #include <wayland-client.h>
-#include "Wayland/viewporter-client-protocol.h"
+#include "Viewport.h"
 #endif
 #ifdef GDK_WINDOWING_X11
 #include <gdk/x11/gdkx.h>
@@ -41,7 +41,7 @@ struct BtrcShimWindow {
 	struct wl_display* display;
 	struct wl_surface* child;
 	struct wl_subsurface* subsurface;
-	struct wp_viewport* viewport;
+	struct wl_proxy* viewport;
 #endif
 #ifdef GDK_WINDOWING_X11
 	Display* xDisplay;
@@ -182,7 +182,7 @@ static void btrcGtkPlaceSurface(BtrcShimWindow* window) {
 #ifdef GDK_WINDOWING_WAYLAND
 	if (window->subsurface != NULL) {
 		wl_subsurface_set_position(window->subsurface, (int)x, (int)y);
-		wp_viewport_set_destination(window->viewport, width, height);
+		btrcViewportResize(window->viewport, width, height);
 		gtk_widget_queue_draw(window->window);
 	}
 #endif
@@ -193,7 +193,7 @@ typedef struct BtrcGtkWaylandGlobals {
 	struct wl_display* display;
 	struct wl_compositor* compositor;
 	struct wl_subcompositor* subcompositor;
-	struct wp_viewporter* viewporter;
+	struct wl_proxy* viewporter;
 } BtrcGtkWaylandGlobals;
 
 static BtrcGtkWaylandGlobals btrcGtkWayland;
@@ -203,7 +203,7 @@ static void btrcGtkRegistryGlobal(void* data, struct wl_registry* registry, uint
 	(void)version;
 	if (strcmp(interface, wl_compositor_interface.name) == 0) { globals->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 4); }
 	else if (strcmp(interface, wl_subcompositor_interface.name) == 0) { globals->subcompositor = wl_registry_bind(registry, name, &wl_subcompositor_interface, 1); }
-	else if (strcmp(interface, wp_viewporter_interface.name) == 0) { globals->viewporter = wl_registry_bind(registry, name, &wp_viewporter_interface, 1); }
+	else if (strcmp(interface, btrcViewporterInterface.name) == 0) { globals->viewporter = wl_registry_bind(registry, name, &btrcViewporterInterface, 1); }
 }
 
 static void btrcGtkRegistryRemove(void* data, struct wl_registry* registry, uint32_t name) {
@@ -255,8 +255,8 @@ static bool btrcGtkCreateSurface(BtrcShimWindow* window) {
 		window->subsurface = wl_subcompositor_get_subsurface(btrcGtkWayland.subcompositor, window->child, parent);
 		wl_subsurface_place_below(window->subsurface, parent);
 		wl_subsurface_set_desync(window->subsurface);
-		window->viewport = wp_viewporter_get_viewport(btrcGtkWayland.viewporter, window->child);
-		wp_viewport_set_destination(window->viewport, window->width, window->height);
+		window->viewport = btrcViewportCreate(btrcGtkWayland.viewporter, window->child);
+		btrcViewportResize(window->viewport, window->width, window->height);
 		struct wl_region* none = wl_compositor_create_region(btrcGtkWayland.compositor);
 		wl_surface_set_input_region(window->child, none);
 		wl_region_destroy(none);
@@ -285,7 +285,7 @@ static bool btrcGtkCreateSurface(BtrcShimWindow* window) {
 
 static void btrcGtkDestroySurface(BtrcShimWindow* window) {
 #ifdef GDK_WINDOWING_WAYLAND
-	if (window->viewport != NULL) { wp_viewport_destroy(window->viewport); window->viewport = NULL; }
+	if (window->viewport != NULL) { btrcViewportDestroy(window->viewport); window->viewport = NULL; }
 	if (window->subsurface != NULL) { wl_subsurface_destroy(window->subsurface); window->subsurface = NULL; }
 	if (window->child != NULL) { wl_surface_destroy(window->child); window->child = NULL; }
 #endif
