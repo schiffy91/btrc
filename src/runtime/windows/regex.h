@@ -163,7 +163,10 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 		if (group->kind == btrc_win_group_suffix)
 			return btrc_win_regex_match_suffix((const btrc_win_regex_suffix *)group, subject, count, matches);
 		const btrc_win_pos_program *p = (const btrc_win_pos_program *)group;
-		if (count <= 1) return btrc_win_pos_match(p, subject, count, matches);
+		if (count <= 1) {
+			int status = btrc_win_pos_match(p, subject, count, matches);
+			if (status != btrc_win_pos_competing_starts) return status;
+		}
 		return btrc_win_regex_retry(p->pattern, subject, count, matches, flags);
 	}
 	if ((pointer & (uintptr_t)3) == 2) {

@@ -1,5 +1,4 @@
-/* A position automaton for Windows EREs whose outer group can always match
-   empty. Their public match starts at zero. Counted repetitions inside
+/* A position automaton for unasserted grouped Windows EREs. Counted repetitions inside
    another repetition can share consuming positions with their suffix,
    which changes the byte language of the historical Windows provider. */
 #pragma once
@@ -16,7 +15,7 @@ typedef struct {
 typedef struct {
 	btrc_win_group_header header;
 	uint64_t initial;
-	int edges;
+	int edges, nullable;
 	btrc_win_pos_edge edge[btrc_win_pos_limit];
 	char pattern[];
 } btrc_win_pos_program;
@@ -210,10 +209,11 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 			int offset = 0;
 			int tree = btrc_win_pos_sequence(&builder, root, &offset, 0);
 			btrc_win_pos_span span = btrc_win_pos_span_for(&builder, tree);
-			if (builder.failed || !span.nullable) { free(p); p = NULL; }
+			if (builder.failed) { free(p); p = NULL; }
 			else {
 				p->header.kind = btrc_win_group_positions;
 				p->initial = span.first;
+				p->nullable = span.nullable;
 				btrc_win_pos_follow(p, span.last, BTRC_WIN_POS_ACCEPT);
 				strcpy(p->pattern, pattern);
 				*groups = (size_t)parser.groups;
@@ -224,22 +224,44 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 	return p;
 }
 
+static inline uint64_t btrc_win_pos_step(const btrc_win_pos_program *p, uint64_t live, unsigned char byte)
+{
+	uint64_t next = 0;
+	for (int i = 0; i < p->edges; ++i) {
+		const btrc_win_pos_edge *edge = &p->edge[i];
+		if ((edge->source & live) && btrc_win_set_has(&edge->bytes, byte)) next |= edge->target;
+	}
+	return next;
+}
+
+enum { btrc_win_pos_competing_starts = -2 };
 static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *subject,
                                      size_t count, regmatch_t *matches)
 {
-	if (!count) return 0;
-	uint64_t live = p->initial;
-	regoff_t end = 0;
-	for (regoff_t i = 0; live && subject[i]; ++i) {
-		uint64_t next = 0;
-		for (int j = 0; j < p->edges; ++j) {
-			const btrc_win_pos_edge *edge = &p->edge[j];
-			if ((edge->source & live) && btrc_win_set_has(&edge->bytes, (unsigned char)subject[i])) next |= edge->target;
+	uint64_t live = p->nullable ? p->initial : 0;
+	regoff_t start = 0, end = p->nullable ? 0 : -1;
+	if (!count && p->nullable) return 0;
+	for (regoff_t i = 0; subject[i]; ++i) {
+		unsigned char byte = (unsigned char)subject[i];
+		uint64_t next = btrc_win_pos_step(p, live, byte);
+		if (end < 0) {
+			/* A start at this byte is admitted only at positions unused
+			   by the earlier path. If both origins can advance, the
+			   winning whole span may depend on historical capture ranking. */
+			uint64_t added = btrc_win_pos_step(p, p->initial & ~live, byte);
+			if (count && next && added) return btrc_win_pos_competing_starts;
+			if (!next && added) start = i;
+			next |= added;
 		}
-		if (next & BTRC_WIN_POS_ACCEPT) end = i + 1;
+		if (next & BTRC_WIN_POS_ACCEPT) {
+			if (!count) return 0;
+			end = i + 1;
+		}
 		live = next & ~BTRC_WIN_POS_ACCEPT;
+		if (!live && end >= 0) break;
 	}
-	matches[0] = (regmatch_t){0, end};
+	if (end < 0) return REG_NOMATCH;
+	matches[0] = (regmatch_t){start, end};
 	return 0;
 }
 

@@ -59,6 +59,15 @@ int main(void)
 	if (overlay_helper_compile(&compiled, "((((b){0,3})+|((.){2,4}))){2}") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
 	if (regexec(&compiled, "x", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 1) return 1;
 	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "((a|ab)b+)") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
+	if (regexec(&compiled, "aabbb", 1, span, 0) || span[0].rm_so != 1 || span[0].rm_eo != 5 ||
+	    regexec(&compiled, "aaaa", 0, NULL, 0) != REG_NOMATCH) return 1;
+	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "((a){2})") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
+	const btrc_win_pos_program *positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
+	if (btrc_win_pos_match(positions, "aaaa", 1, span) != btrc_win_pos_competing_starts ||
+	    regexec(&compiled, "aaaa", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 2) return 1;
+	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;
 	int globbed = glob("no-such-directory-*/x", 0, NULL, &found);
