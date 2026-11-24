@@ -17,6 +17,9 @@ from src.tests.python.btrcc_binary_fixtures import binary_payload, bundle_fixtur
 
 def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path) -> None:
     source_root, binary = bundle_fixture(tmp_path / "source")
+    host = source_root / "src/optional/JavaHost"
+    host.mkdir(parents=True)
+    (host / "JavaVirtualMachine.btrc").write_text("class JavaVirtualMachine {}\n", encoding="utf-8")
     result = SelfhostBundleBuilder().build(
         binary=binary,
         target="linux-x64",
@@ -32,6 +35,7 @@ def test_bundle_has_relocatable_layout_modes_and_hashed_manifest(tmp_path: Path)
     assert executable.read_bytes() == expected_binary
     assert (result.bundle / "LICENSE").read_text(encoding="utf-8") == "fixture license\n"
     assert grammar.is_file() and nested.is_file()
+    assert (result.bundle / "share/btrc/optional/JavaHost/JavaVirtualMachine.btrc").is_file()
     assert (result.bundle / "share/btrc/runtime/c/btrc_rt.h").is_file()
     assert (result.bundle / "share/btrc/runtime/c/manifest.toml").is_file()
     readme = (result.bundle / "README.md").read_text(encoding="utf-8")

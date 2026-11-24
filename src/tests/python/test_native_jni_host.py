@@ -8,18 +8,20 @@ the JDK's headers and libjvm.
 """
 
 import os
-import shutil
 import subprocess
+import sys
 
 import pytest
 
 from src.tests.process_limits import TOOL_TIMEOUT
+from src.tests.python.jni_host_fixtures import desktop_compiler, desktop_dependency, require_desktop_jdk
+from src.tests.python.jni_host_fixtures import desktop_jni_source as desktop_jni_source
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
-from src.tests.python.native_import_fixtures import native_project as native_project
 from tools.native_plan import NativePlanBuilder
+from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
-LIFECYCLE = """import Library.Java.JavaVirtualMachine;
+LIFECYCLE = """import JavaHost.JavaVirtualMachine;
 import Library.Vector;
 #include <assert.h>
 #include <stdlib.h>
@@ -49,22 +51,15 @@ int main(int argc, char** argv) {
 """
 
 
-def jni_environment():
-    if (
-        not shutil.which("pkg-config")
-        or subprocess.run(["pkg-config", "--exists", "btrc-jni"], check=False, timeout=TOOL_TIMEOUT).returncode
-    ):
-        pytest.skip("requires the btrc-jni pkg-config package (the flake's dev shell provides JDK 17)")
-    return apple_environment()
-
-
 @pytest.fixture
-def jvm_project(native_project):
-    environment = jni_environment()
-    source, _, _ = native_project
+def jvm_project(desktop_jni_source):
+    require_desktop_jdk()
+    environment = apple_environment()
+    source = desktop_jni_source
     root = source.parent.parent
-    (root / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "jvmHost"\n', encoding="utf-8")
-    (source.parent / "Foundation.btrc").unlink()
+    (root / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "jvmHost"\n' + desktop_dependency(root), encoding="utf-8"
+    )
     return source, environment
 
 
@@ -83,7 +78,7 @@ def build(source, native_compile, environment):
         return subprocess.run(command, env=environment, **kwargs)
 
     NativePlanBuilder(runner=run).build(
-        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+        plan_path=plan, generated_c=generated, output=executable, cc=desktop_compiler(), cxx=desktop_compiler(cxx=True)
     )
     return executable
 
@@ -92,6 +87,7 @@ def test_host_jvm_lifecycle(jvm_project, native_compile):
     source, environment = jvm_project
     source.write_text(LIFECYCLE, encoding="utf-8")
     executable = build(source, native_compile, environment)
+    assert any(name.rsplit("/", 1)[-1] in {"libjvm.so", "libjvm.dylib"} for name in BinaryImports.read(executable))
     for mode, returncode, stdout, message in (
         (0, 0, "jvm-ok\n", ""),
         (1, -6, "", "a process runs at most one Java VM"),
@@ -112,3 +108,25 @@ def test_host_jvm_lifecycle(jvm_project, native_compile):
         assert "WARNING" not in completed.stdout + completed.stderr, (mode, completed.stderr)
         assert "FATAL ERROR" not in completed.stdout + completed.stderr, (mode, completed.stderr)
     assert os.environ.get("BTRC_JAVA_CLASS_READER"), "the dev shell exports the Java class reader"
+
+
+def test_desktop_stdlib_without_jdk(desktop_jni_source, native_compile, monkeypatch):
+    source = desktop_jni_source
+    root = source.parent.parent
+    (root / "btrc.toml").write_text('manifest-version = 1\n[package]\nname = "standalone"\n', encoding="utf-8")
+    for key in ("JAVA_HOME", "BTRC_JAVA_CLASS_READER", "BTRC_JAVA_CLASSPATH", "JAVA_TOOL_OPTIONS"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("PKG_CONFIG_PATH", "")
+    monkeypatch.setenv("PKG_CONFIG_LIBDIR", str(root / "no-packages"))
+    source.write_text(
+        "import Library.Vector;\nint main() { Vector<int> values = [41, 1]; return values.get(0) + values.get(1) - 42; }\n"
+    )
+    executable = build(source, native_compile, dict(os.environ))
+    subprocess.run([str(executable)], check=True, timeout=TOOL_TIMEOUT)
+    assert "btrc-jni" not in (root / "Program.link.json").read_text()
+    target = "macos" if sys.platform == "darwin" else "linux"
+    assert not DependencyAudit().binary_problems(executable, target)
+    source.write_text("import Library.Java.JavaVirtualMachine;\nint main() { return 0; }\n")
+    result = native_compile(source)
+    assert not result.successful
+    assert "has no provider for target" in str(result.failure) + str(result.diagnostics)

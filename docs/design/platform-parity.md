@@ -139,8 +139,8 @@ been ingested, so no row is `passed`.
 
 | Slice | Slots | Equivalent | Adapted | OS-restricted | Missing |
 | --- | --- | --- | --- | --- | --- |
-| `windows-x64` | 414 | 313 | 76 | 15 | 10 |
-| `windows-arm64` | 414 | 313 | 76 | 15 | 10 |
+| `windows-x64` | 414 | 313 | 75 | 16 | 10 |
+| `windows-arm64` | 414 | 313 | 75 | 16 | 10 |
 | `ios-device` | 414 | 359 | 16 | 38 | 1 |
 | `ios-simulator` | 414 | 359 | 16 | 38 | 1 |
 | `android-arm64` | 414 | 369 | 20 | 21 | 4 |

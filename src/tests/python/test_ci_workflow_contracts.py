@@ -1397,9 +1397,14 @@ def test_macos_test_shards_run_the_native_suite_with_clang() -> None:
     debugger = _step_containing(job, "sudo /usr/sbin/DevToolsSecurity -enable")
     assert "if: matrix.shard == 'unit'" in debugger
     assert _code(debugger).rstrip().endswith('/usr/sbin/DevToolsSecurity -status | grep -q "currently enabled"')
+    default_shell = _step_containing(job, "if pkg-config --exists btrc-jni")
+    assert "if: matrix.shard == 'unit'" in default_shell and "without_jdk and reference" in default_shell
     suite = _step_containing(job, "make NIX=")
     assert _code(suite).strip() == (
-        "- run: nix develop --command make NIX= PYTEST_WORKERS=3 "
+        "- run: |\n"
+        "          shell=.\n"
+        '          if [ "${{ matrix.shard }}" = unit ]; then shell=.#jni; fi\n'
+        '          nix develop "$shell" --command make NIX= PYTEST_WORKERS=3 '
         "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}\n"
         "        env:\n"
         "          UNIT_GUI_DELEGATED: ${{ matrix.unit_gui_delegated }}\n"
