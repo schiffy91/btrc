@@ -7,14 +7,18 @@ import Library.Vector;
 
 import ./InstalledFont.btrc;
 
+enum InstalledFontFiles { INSTALLED_ALL_FILES, INSTALLED_DESKTOP_FILES, INSTALLED_WEB_FILES };
+
 /* Linux font files in the XDG data roots and the historical ~/.fonts
  * directory. Callers supply family preference order; this catalog selects
  * a face whose cmap covers the entire requested character group. */
 class InstalledFontCatalog {
 	public Vector<InstalledFont> faces = [];
 	private Map<string, bool> visited = {};
+	private InstalledFontFiles files;
 
-	public InstalledFontCatalog(Vector<string> roots) {
+	public InstalledFontCatalog(Vector<string> roots, InstalledFontFiles files = INSTALLED_ALL_FILES) {
+		self.files = files;
 		for root in roots { self.scan(root, 0); }
 	}
 
@@ -35,16 +39,19 @@ class InstalledFontCatalog {
 		if (depth > 32) { return; }
 		string real = FileSystem.realPath(path);
 		if (real.isEmpty() || self.visited.contains(real)) { return; }
-		self.visited.set(real, true);
 		var status = FileSystem.stat(real);
 		if (status.isDir()) {
+			self.visited.set(real, true);
 			var names = FileSystem.listDir(real);
 			names.sortBy(Strings.lessThan);
 			for name in names { self.scan(PathTools.join(real, name), depth + 1); }
 			return;
 		}
 		string lower = path.toLower();
-		if (!status.isFile() || !(lower.endsWith(".ttf") || lower.endsWith(".otf") || lower.endsWith(".ttc") || lower.endsWith(".otc") || lower.endsWith(".woff") || lower.endsWith(".woff2"))) { return; }
+		bool web = lower.endsWith(".woff") || lower.endsWith(".woff2");
+		bool desktop = lower.endsWith(".ttf") || lower.endsWith(".otf") || lower.endsWith(".ttc") || lower.endsWith(".otc");
+		if (!status.isFile() || (!web && !desktop) || (web && self.files == INSTALLED_DESKTOP_FILES) || (desktop && self.files == INSTALLED_WEB_FILES)) { return; }
+		self.visited.set(real, true);
 		var opened = RegularFileSnapshot.open(real, 67108864LL);
 		if (!opened.ok()) { return; }
 		var file = opened.value();
@@ -70,14 +77,13 @@ class InstalledFontCatalog {
 		return current > requested ? current - requested : 1000 + requested - current;
 	}
 
-	public InstalledFont? match(Vector<string> families, int weight, bool italic, Vector<int> scalars, bool desktopFiles = false) {
+	public InstalledFont? match(Vector<string> families, int weight, bool italic, Vector<int> scalars) {
 		if (weight < 1 || weight > 1000) { return null; }
 		for requested in families {
 			string needle = requested.toLower();
 			InstalledFont? best = null;
 			int bestScore = 2147483647;
 			for face in self.faces {
-				if (desktopFiles && (face.path.toLower().endsWith(".woff") || face.path.toLower().endsWith(".woff2"))) { continue; }
 				bool named = false;
 				for alias in face.families { if (alias.toLower().equals(needle)) { named = true; break; } }
 				if (!named || face.width < 1 || face.width > 9 || face.weight < 1 || face.weight > 1000) { continue; }

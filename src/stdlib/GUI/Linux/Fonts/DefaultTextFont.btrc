@@ -10,11 +10,13 @@ import ./InstalledFontCatalog.btrc;
  * through SystemTextFont accepts every supported container directly. */
 class DefaultTextFont {
 	class DesktopFontSettings? settings = null;
-	class InstalledFontCatalog? catalog = null;
+	class InstalledFontCatalog? desktop = null;
+	class InstalledFontCatalog? web = null;
 
 	class void invalidate() {
 		DefaultTextFont.settings = null;
-		DefaultTextFont.catalog = null;
+		DefaultTextFont.desktop = null;
+		DefaultTextFont.web = null;
 	}
 
 	class string path(bool bold, double logicalSize = 16.0) {
@@ -23,16 +25,24 @@ class DefaultTextFont {
 			config = DesktopFontSettings.system();
 			DefaultTextFont.settings = config;
 		}
-		var installed = DefaultTextFont.catalog;
-		if (installed == null) {
-			installed = InstalledFontCatalog(config.roots);
-			DefaultTextFont.catalog = installed;
-		}
 		var families = config.forFace(bold, logicalSize);
+		if (families.isEmpty()) { return ""; }
 		Vector<int> latin = [32, 65];
 		int weight = bold ? 700 : 400;
-		var chosen = installed.match(families, weight, false, latin, true);
-		if (chosen == null) { chosen = installed.match(families, weight, false, latin); }
+		var installed = DefaultTextFont.desktop;
+		if (installed == null) {
+			installed = InstalledFontCatalog(config.roots, INSTALLED_DESKTOP_FILES);
+			DefaultTextFont.desktop = installed;
+		}
+		var chosen = installed.match(families, weight, false, latin);
+		if (chosen == null) {
+			var wrappers = DefaultTextFont.web;
+			if (wrappers == null) {
+				wrappers = InstalledFontCatalog(config.roots, INSTALLED_WEB_FILES);
+				DefaultTextFont.web = wrappers;
+			}
+			chosen = wrappers.match(families, weight, false, latin);
+		}
 		return chosen == null || chosen.faceIndex != 0 ? "" : chosen.path;
 	}
 }

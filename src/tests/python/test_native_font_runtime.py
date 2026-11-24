@@ -443,8 +443,6 @@ def test_linux_system_text_runs(tmp_path, request, gui_provider_root, frontend, 
     program = build_provider_program(
         tests / "SystemTextConformance.btrc", tmp_path, frontend, sanitized, request, data_root=gui_provider_root
     )
-    path = tmp_path / "widgets.ttf"
-    path.write_bytes((tests / "fixtures/shaping-fixture.ttf").read_bytes())
     configs = tmp_path / "font settings"
     configs.mkdir()
     (configs / "35-primary.conf").write_text(
@@ -454,12 +452,17 @@ def test_linux_system_text_runs(tmp_path, request, gui_provider_root, frontend, 
     config.write_text(
         f'<fontconfig><dir>{tmp_path}</dir><include prefix="relative">font settings</include></fontconfig>'
     )
-    result = subprocess.run(
-        [program, path],
-        capture_output=True,
-        text=True,
-        env=provider_environment(sanitized, FONTCONFIG_FILE=str(config)),
-        timeout=60,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "PASS: native text ligatures, kerning, ellipsis and owned pixels" in result.stdout
+    # The program unlinks each font after opening it. The second lookup
+    # therefore exercises a desktop configured with only a web-format face.
+    for extension in ("ttf", "woff2"):
+        path = tmp_path / f"widgets.{extension}"
+        path.write_bytes((tests / f"fixtures/shaping-fixture.{extension}").read_bytes())
+        result = subprocess.run(
+            [program, path],
+            capture_output=True,
+            text=True,
+            env=provider_environment(sanitized, FONTCONFIG_FILE=str(config)),
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "PASS: native text ligatures, kerning, ellipsis and owned pixels" in result.stdout
