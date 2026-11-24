@@ -398,6 +398,15 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
             assert supported.returncode == 0, supported.stdout + supported.stderr
             fallback = run(extension, 6, blocked, mixed)
             assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr
+    legacy = (tests / "fixtures/hinted-legacy-bmp.ttf").read_bytes()
+    for suffix in ("ttf", "raw"):
+        rendered = run(suffix, "render", env, legacy)
+        assert rendered.returncode == 0, rendered.stdout + rendered.stderr
+    if blocked is not None:
+        measured = run("ttf", "measure", blocked, legacy)
+        assert measured.returncode == 0, measured.stdout + measured.stderr
+        native_ink = run("ttf", "render", blocked, legacy)
+        assert native_ink.returncode != 0 and "Cannot initialize FreeType library" in native_ink.stderr
     general = (tests / "fixtures/hinted-general.woff2").read_bytes()
     result = run("woff2", 6, env, general)
     assert result.returncode == 0, result.stdout + result.stderr

@@ -2,12 +2,41 @@ import Library.Bytes;
 import Library.GUI.Font;
 import Library.GUI.FreeType;
 import Library.GUI.IFontFace;
+import Library.Strings;
 import Library.Vector;
+
+/* The legacy Macintosh record maps A to C; the Unicode record has
+ * distinct advances for both letters. Only visible vector ink needs the
+ * retained native face. */
+int legacyBMP(const char* path, bool render) {
+	var font = FreeType.load(Strings.copy((char*)path), 10);
+	if (remove(path) != 0) { return 6; }
+	if (font.metrics().ascenderFixed() != 448LL || font.metrics().heightFixed() != 640LL) { return 7; }
+	Vector<int> codes = [65, 67, 0xc1];
+	Vector<int> advances = [512, 768, 640];
+	for (int i = 0; i < codes.size(); i++) {
+		var measured = font.glyph(codes.get(i), false);
+		if (measured == null || measured.advanceFixed() != advances.get(i) || measured.bitmapLeft() != 0 || measured.bitmapTop() != 0 || measured.rows() != 0 || measured.width() != 0 || measured.pitch() != 0 || measured.pixelMode() != FONT_PIXEL_UNSUPPORTED || measured.numGrays() != 0) { return 8; }
+	}
+	var space = font.glyph(32, true);
+	if (space == null || space.advanceFixed() != 320LL || space.width() != 0 || space.rows() != 0 || space.pixelMode() != FONT_PIXEL_GRAY || space.numGrays() != 256) { return 9; }
+	if (render) {
+		var glyph = font.glyph(65, true);
+		var mask = Bytes.fromHex("000759c05800000fecffffd4010043ffa5f7ff530079b5002fdbcf009d1900000fad4d3c00000000003c");
+		if (mask == null || glyph == null || glyph.advanceFixed() != 512LL || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != 6 || glyph.width() != 7 || glyph.rows() != 6 || glyph.pitch() != 7) { return 10; }
+		for (int i = 0; i < mask.length(); i++) {
+			if (glyph.coverage(i / 7, i % 7) != mask.get(i)) { return 11; }
+		}
+	}
+	print("PASS: legacy BMP font measurement and retained vector outline");
+	return 0;
+}
 
 /* The final glyph uses FLIPON, a native fallback instruction. It is reached
  * after loading the supported triangle variants and unlinking the font. */
 int main(int argc, char** argv) {
 	if (argc != 3) { return 2; }
+	if (strcmp(argv[2], "measure") == 0 || strcmp(argv[2], "render") == 0) { return legacyBMP(argv[1], argv[2][0] == 'r'); }
 	var font = FreeType.load(argv[1], 8);
 	if (remove(argv[1]) != 0) { return 3; }
 	string interpolated = "5e2d04000000fffff8ca982dffffef912900cb630a000000";
