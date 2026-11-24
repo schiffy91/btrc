@@ -2,6 +2,8 @@
  * operation crosses threads, as permitted by the wire transport. */
 #define _POSIX_C_SOURCE 200809L
 #include "Platform.h"
+#include "Accessibility.h"
+#include "WirePrivate.h"
 #include "Client.h"
 #include "Clipboard.h"
 #include <errno.h>
@@ -16,6 +18,8 @@ static BtrcShimWindow *windows;
 static pthread_t thread;
 static int openError;
 static bool disconnected;
+static int (*accessibilityService)(void);
+void btrcWaylandAccessibilityInstall(int (*service)(void)) { accessibilityService = service; }
 
 bool btrcShimInit(void) {
     if (display) { return !disconnected; }
@@ -65,12 +69,12 @@ void btrcShimWindowDestroy(BtrcShimWindow *w) {
 }
 
 unsigned int btrcShimWindowId(BtrcShimWindow *w) { return btrcWaylandWindowId(w->native); }
-bool btrcShimWindowShow(BtrcShimWindow *w) { return btrcWaylandWindowShow(w->native); }
-bool btrcShimWindowHide(BtrcShimWindow *w) { return btrcWaylandWindowHide(w->native); }
+bool btrcShimWindowShow(BtrcShimWindow *w) { btrcWaylandAccessibilityChanged(); return btrcWaylandWindowShow(w->native); }
+bool btrcShimWindowHide(BtrcShimWindow *w) { btrcWaylandAccessibilityChanged(); return btrcWaylandWindowHide(w->native); }
 bool btrcShimWindowIsHidden(BtrcShimWindow *w) { return !w->native->visible; }
 bool btrcShimWindowIsMinimized(BtrcShimWindow *w) { return w->native->suspended; }
 void btrcShimWindowSetCursor(BtrcShimWindow *w, int kind) { btrcWaylandWindowCursor(w->native, kind); }
-void btrcShimWindowSetTitle(BtrcShimWindow *w, const char *title) { btrcWaylandWindowTitle(w->native, title); }
+void btrcShimWindowSetTitle(BtrcShimWindow *w, const char *title) { btrcWaylandAccessibilityChanged(); btrcWaylandWindowTitle(w->native, title); }
 void btrcShimWindowSetSize(BtrcShimWindow *w, int width, int height) { btrcWaylandWindowResize(w->native, width, height); }
 void btrcShimWindowSetMinimumSize(BtrcShimWindow *w, int width, int height) { btrcWaylandWindowMinimum(w->native, width, height); }
 int btrcShimWindowWidth(BtrcShimWindow *w) { return btrcWaylandWindowWidth(w->native); }
@@ -99,12 +103,27 @@ bool btrcShimPushWake(void) {
     return current && btrcWaylandDisplayWake(current);
 }
 
+static bool popEvent(BtrcShimEvent *out) {
+    if (!btrcWaylandDisplayPop(display, out)) { return false; }
+    if (out->type == BTRC_SHIM_EVENT_WINDOW_FOCUS_GAINED || out->type == BTRC_SHIM_EVENT_WINDOW_FOCUS_LOST) {
+        for (BtrcShimWindow *window = windows; window; window = window->next) {
+            if (btrcShimWindowId(window) == out->window) {
+                window->accessibilityActive = out->type == BTRC_SHIM_EVENT_WINDOW_FOCUS_GAINED;
+                btrcWaylandAccessibilityChanged();
+                break;
+            }
+        }
+    }
+    return true;
+}
+
 int btrcShimWaitEvent(BtrcShimEvent *out, int timeout) {
     if (!display || !out) { return 0; }
     long long deadline = btrcWaylandMilliseconds() + timeout;
     int remaining = timeout;
     for (;;) {
-        if (btrcWaylandDisplayPop(display, out)) { return 1; }
+        if (accessibilityService) { display->wire->accessibility = accessibilityService(); }
+        if (popEvent(out)) { return 1; }
         if (disconnected) { return 0; }
         int result = btrcWaylandDisplayPoll(display, btrcWaylandSceneAdvance(remaining));
         if (result < 0) {
@@ -112,7 +131,7 @@ int btrcShimWaitEvent(BtrcShimEvent *out, int timeout) {
             *out = (BtrcShimEvent){.type = BTRC_SHIM_EVENT_QUIT};
             return 1;
         }
-        if (btrcWaylandDisplayPop(display, out)) { return 1; }
+        if (popEvent(out)) { return 1; }
         if (timeout >= 0) {
             long long left = deadline - btrcWaylandMilliseconds();
             if (left <= 0) { return 0; }

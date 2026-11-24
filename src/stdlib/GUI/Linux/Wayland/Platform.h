@@ -27,6 +27,7 @@ struct BtrcShimWindow {
     BtrcWaylandPlacements pending;
     bool placementFailed;
     bool sceneDirty;
+    bool accessibilityActive;
     unsigned char *background;
     int backgroundWidth;
     int backgroundHeight;

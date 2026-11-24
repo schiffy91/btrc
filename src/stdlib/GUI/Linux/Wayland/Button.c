@@ -266,3 +266,5 @@ void btrcShimButtonSetTransparent(BtrcShimControl *c, bool value) {
     BtrcWaylandButton *b = btrcWaylandButtonState(c);
     if (b && b->transparent != value) { b->transparent = value; btrcWaylandControlChanged(c); }
 }
+
+const char *btrcWaylandButtonAccessibleName(BtrcWaylandButton *item) { return item->title.value; }

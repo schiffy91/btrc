@@ -13,12 +13,14 @@ import Library.Image;
 import Library.App;
 import Library.GUI.Linux.Fonts.SystemTextABI;
 
+import ./Accessibility.btrc;
+
 /* Direct Wayland clients can choose this preview while the default toolkit
  * supplies native alerts. */
 class ShimFeatures {
 	class bool fieldUsesWindowInput() { return true; }
 
-	class void initialize() { SystemTextABI.install(); }
+	class void initialize() { SystemTextABI.install(); WaylandAccessibility.install(); }
 
 	class ITextField createTextField(ShimContext context, string text, string placeholder) { return ShimTextField(context, text, placeholder); }
 

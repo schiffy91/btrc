@@ -407,8 +407,8 @@ int btrcWaylandGPUPoll(BtrcWaylandGPUWire *gpu, int timeout) {
     if (gpu->prepare(gpu->display, gpu->queue) < 0) { return gpu->error(gpu->display) ? -1 : 1; }
     int flushed = gpu->flush(gpu->display);
     if (flushed < 0 && errno != EAGAIN) { gpu->cancel(gpu->display); return -1; }
-    struct pollfd fds[] = {{w->socket, POLLIN | (flushed < 0 ? POLLOUT : 0), 0}, {w->wake, POLLIN, 0}, {w->auxiliary, POLLIN, 0}};
-    int ready = poll(fds, 3, timeout);
+    struct pollfd fds[] = {{w->socket, POLLIN | (flushed < 0 ? POLLOUT : 0), 0}, {w->wake, POLLIN, 0}, {w->auxiliary, POLLIN, 0}, {w->accessibility, POLLIN, 0}};
+    int ready = poll(fds, 4, timeout);
     int saved = errno;
     if (ready > 0 && (fds[0].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL))) {
         if (gpu->read(gpu->display) < 0) { return -1; }

@@ -125,3 +125,5 @@ void btrcWaylandLabelPaint(BtrcWaylandLabel *label, const BtrcWaylandControlCanv
     double y = frame.y + (label->wrapping ? 0 : (frame.height - lines->height) / 2);
     btrcWaylandPaintLines(canvas, lines, frame.x, y, frame.width, label->centered, color);
 }
+
+const char *btrcWaylandLabelAccessibleName(BtrcWaylandLabel *item) { return item->text; }

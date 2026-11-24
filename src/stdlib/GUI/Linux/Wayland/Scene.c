@@ -2,6 +2,7 @@
  * input, captures and GPU children. A hole clears all earlier placements
  * in that rectangle and exposes the underlying GPU scene. */
 #include "ButtonHost.h"
+#include "Accessibility.h"
 #include "Client.h"
 #include "Slider.h"
 #include "Tooltip.h"
@@ -17,6 +18,9 @@
 enum ControlType { FILL, PICTURE, LEVEL, SPINNER, SCROLLBAR, BUTTON, SLIDER, LABEL, TEXT_FIELD, SELECT_MENU };
 enum { LEVEL_HEIGHT = 11, SPINNER_SIZE = 16, FRAME_MS = 70 };
 static bool darkTheme = true;
+static unsigned long long accessibilityRevision = 1;
+void btrcWaylandAccessibilityChanged(void) { ++accessibilityRevision; }
+unsigned long long btrcWaylandAccessibilityRevision(void) { return accessibilityRevision; }
 struct BtrcShimControl {
     enum ControlType type;
     unsigned id;
@@ -64,6 +68,7 @@ static void clearPlacements(BtrcWaylandPlacements *list) {
 
 void btrcWaylandSceneClose(BtrcShimWindow *window) {
     btrcWaylandSelectClose(window->menu, false, false);
+    btrcWaylandAccessibilityChanged();
     clearPlacements(&window->visible);
     clearPlacements(&window->pending);
     free(window->visible.items);
@@ -72,6 +77,7 @@ void btrcWaylandSceneClose(BtrcShimWindow *window) {
 }
 
 void btrcWaylandControlChanged(BtrcShimControl *control) {
+    btrcWaylandAccessibilityChanged();
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
         for (size_t i = 0; i < w->visible.count; i++) {
             if (w->visible.items[i].control == control) { w->sceneDirty = true; break; }
@@ -364,6 +370,7 @@ void btrcShimWindowEndPlacement(BtrcShimWindow *window) {
     if (window->placementFailed) { clearPlacements(&window->pending); return; }
     BtrcWaylandPlacements previous = window->visible;
     window->visible = window->pending;
+    btrcWaylandAccessibilityChanged();
     window->pending = previous;
     if (window->tooltipTarget) {
         const BtrcWaylandPlacement *p = inputTarget(window, window->tooltipX, window->tooltipY);
@@ -488,6 +495,7 @@ static bool setFocus(BtrcShimWindow *w, BtrcShimControl *c) {
     BtrcShimControl *previous = w->focused;
     if (previous == c) { return true; }
     w->focused = c;
+    btrcWaylandAccessibilityChanged();
     w->pressed = NULL;
     w->pressKey = 0;
     w->sceneDirty = true;
@@ -891,4 +899,52 @@ void btrcShimWindowShowPicture(BtrcShimWindow *window, const unsigned char *rgba
     window->backgroundHeight = height;
     memcpy(background, rgba, size);
     btrcWaylandScenePresent(window);
+}
+
+/* Ordered scene placements contain decorative paint as well as semantic controls. */
+extern const char *btrcWaylandButtonAccessibleName(BtrcWaylandButton *);
+extern const char *btrcWaylandLabelAccessibleName(BtrcWaylandLabel *);
+
+bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessible *out) {
+    if (index < 0 || !out) { return false; }
+    for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
+        if (!w->native->visible) { continue; }
+        unsigned wid = btrcShimWindowId(w);
+        unsigned state = (1u << 25) | (1u << 30); // AT-SPI showing, visible
+        if (!window) {
+            if (index-- != 0) { continue; }
+            *out = (BtrcWaylandAccessible){.window=wid, .role=23, .state=state | (w->accessibilityActive ? (1u << 1) : 0u) | (1u<<8) | (1u<<24),
+                .name=w->native->title, .description="", .width=btrcShimWindowWidth(w), .height=btrcShimWindowHeight(w)};
+            return true;
+        }
+        if (window != wid) { continue; }
+        for (size_t i = 0; i < w->visible.count; ++i) {
+            BtrcWaylandPlacement *p = &w->visible.items[i];
+            BtrcShimControl *c = p->control;
+            if (!c || c->closed || (c->type != LABEL && c->type != BUTTON)) { continue; }
+            if (index-- != 0) { continue; }
+            if (c->enabled) { state |= (1u << 8) | (1u << 24); }
+            if (c->type == BUTTON && c->enabled) { state |= 1u << 11; }
+            if (w->focused == c) { state |= 1u << 12; }
+            *out = (BtrcWaylandAccessible){.window=wid, .control=c->id, .role=c->type == BUTTON ? 43u : 29u,
+                .state=state, .name=c->type == BUTTON ? btrcWaylandButtonAccessibleName(c->button) : btrcWaylandLabelAccessibleName(c->label),
+                .description=c->tooltip ? c->tooltip : "", .x=(int)p->frame.x, .y=(int)p->frame.y,
+                .width=(int)p->frame.width, .height=(int)p->frame.height};
+            return true;
+        }
+    }
+    return false;
+}
+
+bool btrcWaylandAccessibleAction(unsigned window, unsigned control, bool focusOnly) {
+    for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
+        if (!w->native->visible || btrcShimWindowId(w) != window) { continue; }
+        for (size_t i = 0; i < w->visible.count; ++i) {
+            BtrcShimControl *c = w->visible.items[i].control;
+            if (c && c->id == control && c->type == BUTTON && c->enabled && !c->closed) {
+                return setFocus(w, c) && (focusOnly || controlEvent(w, c, BTRC_SHIM_EVENT_CONTROL_ACTIVATED));
+            }
+        }
+    }
+    return false;
 }
