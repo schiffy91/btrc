@@ -24,6 +24,31 @@ module = "WebView"
 implementation = "Shim.WebViewProvider"
 os = ["linux", "windows", "android", "ios"]
 
+[[package.providers]]
+module = "Shim.ShimDirectoryPicker"
+implementation = "Linux.PortalDirectoryPickerProvider"
+os = ["linux"]
+
+[[package.providers]]
+module = "Shim.ShimDirectoryPicker"
+implementation = "Shim.NativeDirectoryPickerProvider"
+os = ["windows", "android", "ios"]
+
+[[native.bindings]]
+module = "Linux.PortalDirectoryPickerProvider"
+header = "Linux/PortalParent.h"
+language = "c"
+standard = "c11"
+symbols = ["BtrcDialogParent", "btrcDialogParentOpen", "btrcDialogParentIdentifier", "btrcDialogParentRelease"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/GtkPortalParent.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
 [[native.pkg-config]]
 name = "wgpu-native"
 modules = ["Shim.ShimSurface"]

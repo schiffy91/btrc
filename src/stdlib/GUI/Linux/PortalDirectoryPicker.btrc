@@ -1,0 +1,225 @@
+/* The desktop portal owns the dialog. Its unique bus name and the request
+ * object it returns identify the response, even when two applications open
+ * a chooser at once. Each modal owns its connection, so a token is unique
+ * without a process-global counter. */
+import Library.App;
+import Library.Bytes;
+import Library.DBus.DBusConnection;
+import Library.DBus.DBusMessage;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.Shim.DialogPump;
+import Library.Platform;
+import Library.Timer;
+
+class PortalDirectoryPicker implements IDirectoryPicker {
+	private string _parent;
+	private IShimDialogPump _host;
+	private IDirectoryPicker? _fallback;
+
+	public PortalDirectoryPicker(string parent, IShimDialogPump host, IDirectoryPicker? fallback = null) {
+		self._parent = parent;
+		self._host = host;
+		self._fallback = fallback;
+	}
+
+	class string desktop() { return "org.freedesktop.portal.Desktop"; }
+	class string path() { return "/org/freedesktop/portal/desktop"; }
+	class string chooser() { return "org.freedesktop.portal.FileChooser"; }
+	class string requestInterface() { return "org.freedesktop.portal.Request"; }
+
+	private DirectoryPickerOutcome unavailable(DirectoryPickerRequest request) {
+		var fallback = self._fallback;
+		if (fallback != null) { return fallback.chooseDirectory(request); }
+		return DirectoryPickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, "the desktop has no directory chooser"));
+	}
+
+	class DirectoryPickerOutcome failed(string message) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_INTERNAL, message)); }
+
+	/* Local file URIs can carry arbitrary Unix filename bytes. Escaped
+	 * separators cannot add a path component and '+' is a literal plus. */
+	class string? filePath(string uri) {
+		if (uri.len() < 6 || !uri.substring(0, 5).toLower().equals("file:")) { return null; }
+		int start = 5;
+		if (uri.len() >= 7 && uri[5] == '/' && uri[6] == '/') {
+			start += 2;
+			int stop = start;
+			while (stop < uri.len() && uri[stop] != '/') { stop++; }
+			if (stop != start && !uri.substring(start, stop - start).toLower().equals("localhost")) { return null; }
+			start = stop;
+		}
+		if (start >= uri.len() || uri[start] != '/') { return null; }
+		Bytes path = Bytes();
+		for (int at = start; at < uri.len(); at++) {
+			int code = (int)(unsigned char)uri[at];
+			if (code == (int)'?' || code == (int)'#') { break; }
+			if (code == (int)'%') {
+				if (uri.len() - at < 3) { return null; }
+				int high = Bytes.hexValue(uri[at + 1]);
+				int low = Bytes.hexValue(uri[at + 2]);
+				if (high < 0 || low < 0) { return null; }
+				code = high * 16 + low;
+				if (code == 0 || code == (int)'/') { return null; }
+				at += 2;
+			}
+			path.append(code);
+		}
+		return path.toString();
+	}
+
+	class DirectoryPickerOutcome response(DBusMessage signal) {
+		if (!signal.signature().equals("ua{sv}")) { return PortalDirectoryPicker.failed("malformed desktop chooser response"); }
+		DBusReader result = signal.reader();
+		unsigned int status = result.readUInt32();
+		if (status == 1u) { return DirectoryPickerOutcome.cancelled(); }
+		if (status != 0u) { return PortalDirectoryPicker.failed("the desktop chooser failed"); }
+		result.next();
+		DBusReader entries = result.recurse();
+		while (entries.type() == DBUS_TYPE_DICT_ENTRY) {
+			DBusReader item = entries.recurse();
+			if (item.readString().equals("uris")) {
+				item.next();
+				DBusReader variant = item.recurse();
+				if (variant.signature().equals("as")) {
+					DBusReader uris = variant.recurse();
+					string? path = PortalDirectoryPicker.filePath(uris.readString());
+					if (path != null && !uris.next()) { return DirectoryPickerOutcome.selected(path); }
+				}
+				break;
+			}
+			entries.next();
+		}
+		return PortalDirectoryPicker.failed("the desktop chooser returned no local directory");
+	}
+
+	private DBusMessage openRequest(string owner, DirectoryPickerRequest request) {
+		DBusMessage open = DBusMessage.methodCall(owner, PortalDirectoryPicker.path(), PortalDirectoryPicker.chooser(), "OpenFile");
+		DBusWriter arguments = open.writer();
+		arguments.appendString(self._parent);
+		arguments.appendString(request.title);
+		DBusWriter options = arguments.openArray("{sv}");
+		options.dictString("handle_token", "btrc");
+		options.dictBool("directory", true);
+		options.dictBool("multiple", false);
+		options.dictBool("modal", true);
+		if (request.initialDirectory != null && !request.initialDirectory.isEmpty()) {
+			string initial = request.initialDirectory;
+			if (!initial.startsWith("/")) { initial = Platform.currentDirectory() + "/" + initial; }
+			DBusWriter entry = options.openEntry("current_folder");
+			DBusWriter variant = entry.openVariant("ay");
+			DBusWriter bytes = variant.openArray("y");
+			for (int i = 0; i < initial.len(); i++) { bytes.appendByte((int)(unsigned char)initial[i]); }
+			bytes.appendByte(0);
+			bytes.close();
+			variant.close();
+			entry.close();
+		}
+		options.close();
+		return open;
+	}
+
+	private bool lostOwner(DBusMessage message, string owner) {
+		if (!message.sender().equals("org.freedesktop.DBus") || !message.isSignal("org.freedesktop.DBus", "NameOwnerChanged")) { return false; }
+		DBusReader name = message.reader();
+		if (!name.readString().equals(PortalDirectoryPicker.desktop())) { return false; }
+		name.next();
+		return name.readString().equals(owner);
+	}
+
+	/* Get activates the system service and checks the directory option
+	 * introduced in v3. The bus daemon confirms who owns the well-known
+	 * name before any paths, user-facing titles or responses are trusted. */
+	private string chooserOwner(DBusConnection bus) {
+		DBusMessage version = DBusMessage.methodCall(PortalDirectoryPicker.desktop(), PortalDirectoryPicker.path(), "org.freedesktop.DBus.Properties", "Get");
+		DBusWriter property = version.writer();
+		property.appendString(PortalDirectoryPicker.chooser());
+		property.appendString("version");
+		if (!bus.send(version)) { return ""; }
+		long long deadline = MonotonicClock.deadlineAfter((long long)DBusConnection.defaultTimeout());
+		string owner = "";
+		while (owner.isEmpty()) {
+			if (self._host.quitRequested()) { return ""; }
+			if (!bus.readWrite(0) || !MonotonicClock.before(deadline)) { return ""; }
+			DBusMessage? arrived = bus.popMessage();
+			if (arrived == null) { self._host.pumpOnce(25); continue; }
+			DBusMessage message = arrived;
+			if (message.replySerial() != version.serial()) { continue; }
+			if (message.type() != DBUS_MESSAGE_TYPE_METHOD_RETURN || !message.signature().equals("v")) { return ""; }
+			DBusReader value = message.reader().recurse();
+			if (!value.signature().equals("u") || value.readUInt32() < 3u || !message.sender().startsWith(":")) { return ""; }
+			owner = message.sender();
+		}
+		DBusMessage lookup = DBusMessage.methodCall(DBusConnection.busName(), DBusConnection.busPath(), DBusConnection.busName(), "GetNameOwner");
+		lookup.writer().appendString(PortalDirectoryPicker.desktop());
+		DBusMessage? reply = bus.call(lookup, 1000);
+		if (reply == null || !reply.sender().equals(DBusConnection.busName()) || !reply.reader().readString().equals(owner)) { return ""; }
+		return owner;
+	}
+
+	private DirectoryPickerOutcome choose(DBusConnection bus, DirectoryPickerRequest request) {
+		if (!bus.addMatch("type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.freedesktop.portal.Desktop'")) { return self.unavailable(request); }
+		string owner = self.chooserOwner(bus);
+		if (self._host.quitRequested()) { return DirectoryPickerOutcome.cancelled(); }
+		if (owner.isEmpty()) { return self.unavailable(request); }
+		/* Older portals broadcast Response; current ones unicast it. */
+		if (!bus.addMatch("type='signal',sender='" + owner + "',interface='org.freedesktop.portal.Request',member='Response'")) { return self.unavailable(request); }
+		DBusMessage open = self.openRequest(owner, request);
+		if (!bus.send(open)) { return self.unavailable(request); }
+		string unique = bus.uniqueName();
+		string prefix = PortalDirectoryPicker.path() + "/request/" + unique.substring(1, unique.len() - 1).replace(".", "_") + "/";
+		string path = prefix + "btrc";
+		bool acknowledged = false;
+		bool finished = false;
+		DBusMessage? early = null;
+		long long deadline = MonotonicClock.deadlineAfter((long long)DBusConnection.defaultTimeout());
+		try {
+			while (true) {
+				if (self._host.quitRequested()) { return DirectoryPickerOutcome.cancelled(); }
+				if (!bus.readWrite(0)) { return PortalDirectoryPicker.failed("lost the desktop chooser connection"); }
+				if (!acknowledged && !MonotonicClock.before(deadline)) { return PortalDirectoryPicker.failed("the desktop chooser did not acknowledge the request"); }
+				DBusMessage? arrived = bus.popMessage();
+				if (arrived == null) { self._host.pumpOnce(25); continue; }
+				DBusMessage message = arrived;
+				if (self.lostOwner(message, owner)) { return PortalDirectoryPicker.failed("the desktop chooser exited"); }
+				if (!message.sender().equals(owner)) { continue; }
+				if (!acknowledged && message.replySerial() == open.serial()) {
+					if (message.isError("org.freedesktop.DBus.Error.UnknownMethod") || message.isError("org.freedesktop.DBus.Error.UnknownInterface")) {
+						finished = true;
+						return self.unavailable(request);
+					}
+					if (message.type() != DBUS_MESSAGE_TYPE_METHOD_RETURN || !message.signature().equals("o")) {
+						return PortalDirectoryPicker.failed("the desktop chooser rejected the request");
+					}
+					string actual = message.reader().readObjectPath();
+					if (!actual.startsWith(PortalDirectoryPicker.path() + "/request/")) { return PortalDirectoryPicker.failed("invalid desktop chooser request path"); }
+					path = actual;
+					acknowledged = true;
+					if (early == null || !early.path().equals(path)) { continue; }
+					message = early;
+				}
+				if (message.isSignal(PortalDirectoryPicker.requestInterface(), "Response")) {
+					if (!acknowledged) {
+						if (message.path().equals(path) || (early == null && message.path().startsWith(prefix))) { early = message; }
+						continue;
+					}
+					if (message.path().equals(path)) { finished = true; return PortalDirectoryPicker.response(message); }
+				}
+			}
+		} finally {
+			if (!finished && bus.isConnected()) {
+				DBusMessage close = DBusMessage.methodCall(owner, path, PortalDirectoryPicker.requestInterface(), "Close");
+				close.setNoReply(true);
+				bus.send(close);
+			}
+		}
+		return PortalDirectoryPicker.failed("the desktop chooser ended unexpectedly");
+	}
+
+	public DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) {
+		if (request == null || !request.isValid()) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request")); }
+		if (self._host.isDispatching()) { throw "Native event dispatch is already active"; }
+		if (self._host.quitRequested()) { return DirectoryPickerOutcome.cancelled(); }
+		DBusConnection? bus = DBusConnection.session();
+		if (bus == null) { return self.unavailable(request); }
+		try { return self.choose(bus, request); } finally { bus.close(); }
+	}
+}

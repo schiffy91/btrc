@@ -129,7 +129,10 @@ release, focus loss, detach, cancellation or close. Coordinates are view-local,
 top-left logical points. `IWindow.onKey` routes keys before the focused control.
 
 `GUI.chooseDirectory(request)` runs the provider's modal directory picker
-(see `IDirectoryPicker.btrc`). `GUI.createImageHandle(pixels)` converts decoded
+(see `IDirectoryPicker.btrc`). On Linux the application asks the desktop's
+`org.freedesktop.portal.FileChooser` service over the session bus. Desktops
+without directory selection in that service use the existing GTK chooser.
+`GUI.createImageHandle(pixels)` converts decoded
 pixels to a native image on any thread, before or after `GUI.initialize`.
 
 ## GPU views and capture
