@@ -8,8 +8,6 @@ import Library.GUI.Shim.DialogPump;
 import Library.GUI.Shim.ShimWindow;
 import Library.GUI.IDirectoryPicker;
 import Library.GUI.Linux.PortalDirectoryPickerProvider;
-import Library.GUI.TextRun;
-import Library.Image;
 import Library.App;
 import Library.GUI.Linux.Fonts.SystemTextABI;
 
@@ -31,6 +29,4 @@ class ShimFeatures {
 	}
 
 	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) { return DirectoryPickerProvider.choose(window, pump, request); }
-
-	class Image rasterized(TextRun run) { throw "Standalone text rasterization requires the default Linux GUI backend"; }
 }
