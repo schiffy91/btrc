@@ -293,8 +293,10 @@ The unchanged `examples/gui/Native.btrc` also runs through the same command.
 It uses a text field and two buttons. Editing the draft and activating Apply
 changes the real window title. Text fields support grapheme-aware selection,
 deletion and undo. The preview reads keypad, Shift, Caps Lock and numeric-lock
-bindings from the compositor's compiled XKB keymap. Some international keysym
-names and Compose sequences still require the default Linux backend.
+bindings from the compositor's compiled XKB keymap. It decodes named and
+numeric protocol keysyms and applies Unicode case properties for Caps Lock.
+Greek, Cyrillic, Arabic, Hebrew, Armenian and Thai layouts can enter text in
+the public field. Locale Compose sequences still require the default Linux backend.
 The current Latin renderer has limited font and script
 coverage. The preview supports keyed selection menus through `GUI.createSelect()`.
 A click or Return opens the menu. Arrow keys move between enabled options,

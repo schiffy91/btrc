@@ -27,10 +27,14 @@ failure names the module, the target and the dependency.
 
 ## Standards data used by first-party implementations
 
-- Unicode Character Database 17.0.0. The line-break and grapheme tables contain character properties. First-party code implements both algorithms. The audit checks the tables and their license by SHA-256. [Upstream data](https://github.com/unicode-org/unicodetools/tree/725fb6055cd42915c74bcf77b91aa8fb8ef18669/unicodetools/data/ucd/17.0.0)
+- Unicode Character Database 17.0.0. The line-break, grapheme and keyboard case tables contain character properties. First-party code implements the algorithms. The audit checks the tables and their license by SHA-256. [Upstream data](https://github.com/unicode-org/unicodetools/tree/725fb6055cd42915c74bcf77b91aa8fb8ef18669/unicodetools/data/ucd/17.0.0)
+  - `src/stdlib/GUI/Linux/Wayland/KeysymCaseData.h`
   - `src/stdlib/GUI/Text/GraphemeData.h`
   - `src/stdlib/GUI/Text/LineBreakData.h`
   - `src/stdlib/GUI/Text/UNICODE-LICENSE.txt`
+- X.Org protocol keysym registry 2024.1. Native Wayland keyboards use XKB protocol names, numeric symbols and Unicode assignments. The audit checks literal data declarations and the upstream permission notice by SHA-256. [Upstream data](https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/blob/xorgproto-2024.1/include/X11/keysymdef.h)
+  - `src/stdlib/GUI/Linux/Wayland/KEYSYM-LICENSE.txt`
+  - `src/stdlib/GUI/Linux/Wayland/KeysymData.h`
 
 ## Owner decisions
 

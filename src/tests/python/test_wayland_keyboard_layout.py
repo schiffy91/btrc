@@ -52,7 +52,12 @@ def layout_tools(tmp_path_factory):
 
 @pytest.mark.parametrize(
     "layout,mode",
-    [("us", "all"), ("us", "relocate"), *((layout, "keypad") for layout in ("de", "fr", "es", "gr", "ru", "ara"))],
+    [
+        ("us", "all"),
+        ("us", "relocate"),
+        *((layout, "all") for layout in ("ru", "ara", "il", "am", "th", "bg", "vn")),
+        *((layout, "unicode") for layout in ("de", "fr", "es", "gr", "lt", "az")),
+    ],
 )
 def test_compiled_keyboard(layout_tools, tmp_path, layout, mode):
     oracle, _ = layout_tools
@@ -70,12 +75,26 @@ def test_public_field_uses_physical_keypad(layout_tools, edit_app, tmp_path):  #
     )
 
 
+@pytest.mark.parametrize(
+    "layout,title", [("gr", "αΣδ"), ("ru", "фЫв"), ("ara", "شٍي"), ("il", "שSג"), ("am", "ջՎգ"), ("th", "ฟฆก")]
+)
+def test_public_field_accepts_named_symbols(layout_tools, edit_app, tmp_path, layout, title):  # noqa: F811
+    oracle, driver = layout_tools
+    keymap = tmp_path / "keymap"
+    subprocess.run([oracle, layout, "unicode", keymap], check=True)
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, edit_app, driver, keymap, tmp_path, title],
+        check=True,
+        timeout=40,
+    )
+
+
 if __name__ == "__main__":
-    _, app, driver, keymap, folder = sys.argv
+    _, app, driver, keymap, folder, *title = sys.argv
     assert not os.environ.get("DISPLAY")
     with subprocess.Popen(empty_root_command(app, folder)) as program:
         try:
-            subprocess.run([driver, keymap], check=True, timeout=20)
+            subprocess.run([driver, keymap, *title], check=True, timeout=20)
             assert program.wait(timeout=7) == 0
         finally:
             if program.poll() is None:

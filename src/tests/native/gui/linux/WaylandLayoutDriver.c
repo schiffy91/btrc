@@ -32,7 +32,7 @@ static void tap(unsigned code, unsigned depressed, unsigned locked) {
 }
 
 int main(int argc, char **argv) {
-    assert(argc == 2 && getenv("BTRC_UI_PRIVATE_SESSION") && !strcmp(getenv("BTRC_UI_PRIVATE_SESSION"), "1"));
+    assert((argc == 2 || argc == 3) && getenv("BTRC_UI_PRIVATE_SESSION") && !strcmp(getenv("BTRC_UI_PRIVATE_SESSION"), "1"));
     const RealInput *input = realInputWayland();
     assert(input);
     requireTitle(input, "Native BTRC");
@@ -45,17 +45,23 @@ int main(int argc, char **argv) {
     assert(fd >= 0 && fstat(fd, &st) == 0 && st.st_size > 0 && st.st_size < (1 << 20));
     assert(realInputWaylandUseKeymap(fd, (unsigned)st.st_size));
     close(fd);
-    tap(KEY_KP2, 0, 16);
-    tap(KEY_KPPLUS, 0, 0);
-    tap(KEY_KP3, 0, 16);
-    tap(KEY_KPDOT, 0, 16);
-    tap(KEY_KP0, 0, 16);
-    tap(KEY_1, 1 | 128, 0);
-    tap(KEY_A, 0, 2);
-    tap(KEY_B, 1, 2);
+    if (argc == 3) {
+        tap(KEY_A, 0, 0);
+        tap(KEY_S, 1, 0);
+        tap(KEY_D, 0, 0);
+    } else {
+        tap(KEY_KP2, 0, 16);
+        tap(KEY_KPPLUS, 0, 0);
+        tap(KEY_KP3, 0, 16);
+        tap(KEY_KPDOT, 0, 16);
+        tap(KEY_KP0, 0, 16);
+        tap(KEY_1, 1 | 128, 0);
+        tap(KEY_A, 0, 2);
+        tap(KEY_B, 1, 2);
+    }
     tap(KEY_TAB, 0, 0);
     tap(KEY_ENTER, 0, 0);
-    requireTitle(input, "2+3.0!Ab");
+    requireTitle(input, argc == 3 ? argv[2] : "2+3.0!Ab");
     tap(KEY_TAB, 0, 0);
     tap(KEY_ENTER, 0, 0);
     return 0;

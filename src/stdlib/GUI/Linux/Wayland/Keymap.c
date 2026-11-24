@@ -90,59 +90,44 @@ static bool number(Token t, unsigned base, uint32_t *value) {
     return true;
 }
 
-typedef struct { const char *name; uint32_t symbol; } Named;
+#include "KeysymData.h"
+#include "KeysymCaseData.h"
 
-/* These names and values are the XKB wire keysyms. Printable Unicode can
- * also be spelled Uxxxx or as the hexadecimal keysym 0x0100xxxx. */
-static const Named names[] = {
-    {"space",' '},{"exclam",'!'},{"quotedbl",'"'},{"numbersign",'#'},{"dollar",'$'},{"percent",'%'},
-    {"ampersand",'&'},{"apostrophe",'\''},{"quoteright",'\''},{"parenleft",'('},{"parenright",')'},{"asterisk",'*'},
-    {"plus",'+'},{"comma",','},{"minus",'-'},{"period",'.'},{"slash",'/'},{"colon",':'},{"semicolon",';'},
-    {"less",'<'},{"equal",'='},{"greater",'>'},{"question",'?'},{"at",'@'},{"bracketleft",'['},
-    {"backslash",'\\'},{"bracketright",']'},{"asciicircum",'^'},{"underscore",'_'},{"grave",'`'},
-    {"braceleft",'{'},{"bar",'|'},{"braceright",'}'},{"asciitilde",'~'},{"nobreakspace",0xa0},
-    {"EuroSign",0x20ac},{"Ooblique",0xd8},{"ooblique",0xf8},
-    {"Num_Lock",0xff7f},{"ISO_Level3_Shift",0xfe03},{"ISO_Level3_Latch",0xfe04},{"ISO_Level3_Lock",0xfe05},
-    {"ISO_Level5_Shift",0xfe11},{"ISO_Level5_Latch",0xfe12},{"ISO_Level5_Lock",0xfe13},
-    {"KP_Space",0xff80},{"KP_Tab",0xff89},{"KP_Home",0xff95},{"KP_Left",0xff96},{"KP_Up",0xff97},
-    {"KP_Right",0xff98},{"KP_Down",0xff99},{"KP_Prior",0xff9a},{"KP_Page_Up",0xff9a},
-    {"KP_Next",0xff9b},{"KP_Page_Down",0xff9b},{"KP_End",0xff9c},{"KP_Begin",0xff9d},
-    {"KP_Insert",0xff9e},{"KP_Delete",0xff9f},{"KP_Multiply",0xffaa},{"KP_Add",0xffab},
-    {"KP_Separator",0xffac},{"KP_Subtract",0xffad},{"KP_Decimal",0xffae},{"KP_Divide",0xffaf},{"KP_Equal",0xffbd},
-    {"Escape",0xff1b},{"Return",0xff0d},{"KP_Enter",0xff8d},{"Left",0xff51},{"Up",0xff52},
-    {"Right",0xff53},{"Down",0xff54},{"Tab",0xff09},{"ISO_Left_Tab",0xfe20},{"BackSpace",0xff08},
-    {"Delete",0xffff},{"Home",0xff50},{"End",0xff57},{"Shift_L",0xffe1},{"Shift_R",0xffe2},
-    {"Alt_L",0xffe9},{"Alt_R",0xffea}
-};
+static uint32_t unicodeSymbol(uint32_t scalar) {
+    return scalar < 256 ? scalar : 0x01000000u | scalar;
+}
 
-/* The printable Latin-1 keysyms are named in ISO 8859-1 code-point order. */
-static const char *const latin1[] = {
-    "nobreakspace","exclamdown","cent","sterling","currency","yen","brokenbar","section",
-    "diaeresis","copyright","ordfeminine","guillemotleft","notsign","hyphen","registered","macron",
-    "degree","plusminus","twosuperior","threesuperior","acute","mu","paragraph","periodcentered",
-    "cedilla","onesuperior","masculine","guillemotright","onequarter","onehalf","threequarters","questiondown",
-    "Agrave","Aacute","Acircumflex","Atilde","Adiaeresis","Aring","AE","Ccedilla",
-    "Egrave","Eacute","Ecircumflex","Ediaeresis","Igrave","Iacute","Icircumflex","Idiaeresis",
-    "ETH","Ntilde","Ograve","Oacute","Ocircumflex","Otilde","Odiaeresis","multiply",
-    "Oslash","Ugrave","Uacute","Ucircumflex","Udiaeresis","Yacute","THORN","ssharp",
-    "agrave","aacute","acircumflex","atilde","adiaeresis","aring","ae","ccedilla",
-    "egrave","eacute","ecircumflex","ediaeresis","igrave","iacute","icircumflex","idiaeresis",
-    "eth","ntilde","ograve","oacute","ocircumflex","otilde","odiaeresis","division",
-    "oslash","ugrave","uacute","ucircumflex","udiaeresis","yacute","thorn","ydiaeresis"
-};
+/* Normalize legacy printable symbols at keymap load. Keep keypad, control and
+ * modifier symbols distinct so callers still receive their public key codes. */
+static uint32_t normalizedSymbol(uint32_t symbol) {
+    if (symbol < 0x100 || symbol >= 0xfe00) { return symbol; }
+    size_t first = 0, end = sizeof(legacyKeysyms) / sizeof(legacyKeysyms[0]);
+    while (first < end) {
+        size_t mid = first + (end - first) / 2;
+        if (symbol == legacyKeysyms[mid].symbol) { return unicodeSymbol(legacyKeysyms[mid].scalar); }
+        if (symbol < legacyKeysyms[mid].symbol) { end = mid; } else { first = mid + 1; }
+    }
+    return symbol;
+}
 
 static uint32_t symbol(Token t) {
-    if (t.size == 4 && !memcmp(t.start, "KP_", 3) && t.start[3] >= '0' && t.start[3] <= '9') {
-        return 0xffb0u + (unsigned)(t.start[3] - '0');
-    }
     if (t.size == 1 && (unsigned char)t.start[0] < 128) { return (unsigned char)t.start[0]; }
     uint32_t value;
-    if (t.size >= 3 && t.start[0] == '0' && t.start[1] == 'x' && number((Token){t.start+2,t.size-2},16,&value)) { return value; }
-    if (t.size >= 5 && t.start[0] == 'U' && number((Token){t.start+1,t.size-1},16,&value) && value <= 0x10ffff) {
-        return value < 256 ? value : 0x01000000u | value;
+    if (t.size >= 3 && t.start[0] == '0' && t.start[1] == 'x' && number((Token){t.start+2,t.size-2},16,&value)) {
+        return normalizedSymbol(value);
     }
-    for (size_t i = 0; i < sizeof(latin1)/sizeof(*latin1); ++i) { if (is(t, latin1[i])) { return 0xa0u + (unsigned)i; } }
-    for (size_t i = 0; i < sizeof(names)/sizeof(names[0]); i++) { if (is(t,names[i].name)) { return names[i].symbol; } }
+    if (t.size >= 5 && t.start[0] == 'U' && number((Token){t.start+1,t.size-1},16,&value) && value <= 0x10ffff) {
+        return unicodeSymbol(value);
+    }
+    size_t first = 0, end = sizeof(keysymNames) / sizeof(keysymNames[0]);
+    while (first < end) {
+        size_t mid = first + (end - first) / 2;
+        const char *name = keysymNames[mid].name;
+        size_t length = strlen(name);
+        int order = memcmp(t.start, name, t.size < length ? t.size : length);
+        if (!order && t.size == length) { return normalizedSymbol(keysymNames[mid].symbol); }
+        if (order < 0 || (!order && t.size < length)) { end = mid; } else { first = mid + 1; }
+    }
     return 0;
 }
 
@@ -254,8 +239,8 @@ static bool readType(BtrcWaylandKeymap *map, Lexer *l) {
 }
 
 static unsigned selectedGroup(Token token) {
-    return token.size == 6 && !memcmp(token.start, "Group", 5) && token.start[5] >= '1' && token.start[5] <= '4'
-        ? (unsigned)(token.start[5] - '1') : 4;
+    if (token.size == 6 && !memcmp(token.start, "Group", 5)) { token.start += 5; token.size = 1; }
+    return token.size == 1 && token.start[0] >= '1' && token.start[0] <= '4' ? (unsigned)(token.start[0] - '1') : 4;
 }
 
 static void readModifierMap(BtrcWaylandKeymap *map, Lexer *l) {
@@ -304,8 +289,8 @@ static void readSymbols(BtrcWaylandKeymap *map, Lexer *l, Key *key) {
         if (!is(t,"[")) { continue; }
         Lexer look = *l;
         Token first = next(&look);
-        if (selectedGroup(first) < 4) {
-            /* A group selector in type[GroupN] or symbols[GroupN]. */
+        if (selectedGroup(first) < 4 && is(next(&look), "]") && is(next(&look), "=")) {
+            /* Numeric group selectors are distinct from a one-symbol digit array. */
             group = selectedGroup(first);
             while ((t = next(l)).size && !is(t,"]")) { }
             continue;
@@ -323,13 +308,28 @@ static void readSymbols(BtrcWaylandKeymap *map, Lexer *l, Key *key) {
     }
 }
 
-static uint32_t upperLatin(uint32_t lower) {
-    bool latin = (lower >= 'a' && lower <= 'z') || (lower >= 0xe0 && lower <= 0xf6) || (lower >= 0xf8 && lower <= 0xfe);
-    return latin ? lower - 32 : lower;
+static size_t symbolCase(uint32_t symbol) {
+    size_t count = sizeof(symbolCases) / sizeof(symbolCases[0]);
+    if (symbol > 255 && (symbol >> 24) != 1) { return count; }
+    uint32_t scalar = symbol & 0xffffffu;
+    size_t first = 0, end = count;
+    while (first < end) {
+        size_t mid = first + (end - first) / 2;
+        if (scalar == symbolCases[mid].scalar) { return mid; }
+        if (scalar < symbolCases[mid].scalar) { end = mid; } else { first = mid + 1; }
+    }
+    return count;
+}
+
+static uint32_t uppercase(uint32_t symbol) {
+    size_t index = symbolCase(symbol);
+    return index < sizeof(symbolCases) / sizeof(symbolCases[0]) ? unicodeSymbol(symbolCases[index].upper) : symbol;
 }
 
 static bool alphabeticPair(uint32_t lower, uint32_t upper) {
-    return lower != upper && upperLatin(lower) == upper;
+    size_t lowerCase = symbolCase(lower), upperCase = symbolCase(upper);
+    size_t count = sizeof(symbolCases) / sizeof(symbolCases[0]);
+    return lowerCase < count && upperCase < count && symbolCases[lowerCase].kind == 1 && symbolCases[upperCase].kind == 2;
 }
 
 /* XKB supplies the type by name for unusual bindings. A shorthand symbol
@@ -465,7 +465,7 @@ static uint32_t symbolForModifiers(const BtrcWaylandKeymap *map, const Key *key,
         break;
     }
     uint32_t sym = levels[level];
-    return (mods & 2u) && !(consumed & 2u) ? upperLatin(sym) : sym;
+    return (mods & 2u) && !(consumed & 2u) ? uppercase(sym) : sym;
 }
 
 BtrcWaylandKey btrcWaylandKey(BtrcWaylandKeymap *map, uint32_t evdev, uint32_t mods, uint32_t group) {

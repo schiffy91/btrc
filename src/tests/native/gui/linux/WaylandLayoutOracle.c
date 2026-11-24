@@ -10,7 +10,10 @@
 int main(int argc, char **argv) {
     assert(argc == 4);
     const char *layout = argv[1];
-    bool allKeys = !strcmp(argv[2], "all") || !strcmp(argv[2], "relocate");
+    bool allKeys = strcmp(argv[2], "keypad") != 0;
+    /* Early XKB releases used historical case rules for legacy symbols, e.g.
+     * Greek final sigma. Compare Caps Lock against the Unicode-aware oracle. */
+    bool oldCase = xkb_keysym_to_upper(XKB_KEY_Greek_finalsmallsigma) == XKB_KEY_Greek_finalsmallsigma;
     struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     struct xkb_rule_names names = {.model = "pc105", .layout = layout};
     struct xkb_keymap *map = xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
@@ -39,6 +42,7 @@ int main(int argc, char **argv) {
     for (unsigned mods = 0; mods < 256; ++mods) {
         /* Control, Alt and Super carry application shortcuts. */
         if (mods & (4u | 8u | 64u)) { continue; }
+        if ((mods & 2u) && oldCase && !strcmp(argv[2], "unicode")) { continue; }
         xkb_state_update_mask(state, mods & ~2u, 0, mods & 2u, 0, 0, 0);
         for (xkb_keycode_t key = xkb_keymap_min_keycode(map); key <= xkb_keymap_max_keycode(map); ++key) {
             const char *name = xkb_keymap_key_get_name(map, key);
