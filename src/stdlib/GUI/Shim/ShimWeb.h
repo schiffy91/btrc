@@ -1,9 +1,7 @@
 #ifndef BTRC_SHIM_WEB_H
 #define BTRC_SHIM_WEB_H
-/* The provider's web view: a WebKitGTK view the shim owns, placed among the
- * window's other controls like any of them (GtkControls.h). It is bound and
- * linked only by programs that import the web view, which is why it is a
- * module of its own: WebKitGTK is a large library.
+/* The provider places each web view among the window's native controls.
+ * Linux applications install the optional WebKitGTK engine before creating a view.
  *
  * A web view serves one bundle of files under the private origin
  * app://bundle/ and loads nothing from anywhere else, unless the program
@@ -22,6 +20,12 @@ enum BtrcShimWebNavigation {
 	 * address (a browser) was asked to open it. */
 	BTRC_SHIM_WEB_NAVIGATION_HANDED_TO_SYSTEM = 2
 };
+
+#if defined(__linux__) && !defined(__ANDROID__)
+bool btrcShimWebInstalled(void);
+#else
+static inline bool btrcShimWebInstalled(void) { return true; }
+#endif
 
 /* A new web view showing nothing, or NULL. BTRC_SHIM_EVENT_CONTROL_WEB_MESSAGE
  * carries, as `text`, the JSON of a value the page passed to

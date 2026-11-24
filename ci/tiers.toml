@@ -76,6 +76,7 @@ lane-linux = [
 # and the null PCM. A macOS-only change does not select it.
 lane-linux-gui = [
   "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
   "src/stdlib/UI/**",
   "src/stdlib/App/**",
   "src/stdlib/Tray/**",
@@ -107,6 +108,7 @@ lane-macos = [
   "**/MacOS/**",
   "**/*.m",
   "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
   "src/stdlib/UI/**",
   "src/stdlib/App/**",
   "src/stdlib/Tray/**",
@@ -203,6 +205,7 @@ selected_tiers = { lane = "lane-linux-gui" }
 changed_tiers = ["pr"]
 changed_paths = [
   "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
   "src/stdlib/UI/**",
   "src/stdlib/App/**",
   "src/stdlib/Tray/**",
@@ -242,6 +245,7 @@ selected_tiers = { lane = "lane-linux-gui" }
 changed_tiers = ["pr"]
 changed_paths = [
   "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
   "src/stdlib/UI/**",
   "src/stdlib/App/**",
   "src/stdlib/Tray/**",
@@ -281,6 +285,7 @@ selected_tiers = { lane = "lane-linux-gui" }
 changed_tiers = ["pr"]
 changed_paths = [
   "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
   "src/stdlib/UI/**",
   "src/stdlib/App/**",
   "src/stdlib/Tray/**",
@@ -320,6 +325,7 @@ selected_tiers = { lane = "lane-linux-gui" }
 changed_tiers = ["pr"]
 changed_paths = [
   "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
   "src/stdlib/UI/**",
   "src/stdlib/App/**",
   "src/stdlib/Tray/**",
@@ -397,6 +403,7 @@ selected_tiers = { lane = "lane-linux-gui" }
 changed_tiers = ["pr"]
 changed_paths = [
   "src/stdlib/GUI/**",
+  "packages/embedded-web/**",
   "src/stdlib/UI/**",
   "src/stdlib/App/**",
   "src/stdlib/Tray/**",

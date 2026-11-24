@@ -1,0 +1,3 @@
+class EmbeddedWebProvider {
+	class void install() { btrcInstallEmbeddedWeb(); }
+}

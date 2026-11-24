@@ -454,7 +454,7 @@ def test_devcontainer_image_build_survives_a_flaky_binary_cache():
     evaluation = containerfile[containerfile.index("RUN cd /tmp/flake") :]
     evaluation = evaluation[: evaluation.index("rm -rf /tmp/flake")]
     assert "for attempt in 1 2 3; do" in evaluation
-    assert "nix print-dev-env . > ${home}/.nix-devshell.sh && break;" in evaluation
+    assert 'nix print-dev-env ${cfg.devShell or "."} > ${home}/.nix-devshell.sh && break;' in evaluation
     # The last failure still fails the build rather than leaving an empty shell file.
     assert '[ "$attempt" -lt 3 ] || exit 1;' in evaluation
 
@@ -552,6 +552,9 @@ def test_ci_devcontainer_omits_claude_code():
     assert "claudeCode = cfg.claudeCode // { enable = false; };" in flake
     assert "share = cfg.share // { claude = false; };" in flake
     assert 'devcontainer-ci = devcontainerFiles "${cfg.name}-devcontainer-ci" ciFiles;' in flake
+    assert 'devShell = ".#embedded-web";' in flake
+    assert "packages/embedded-web/shell.nix /tmp/flake/packages/embedded-web/shell.nix" in containerfile
+    assert "!packages/embedded-web/shell.nix" in (REPO_ROOT / ".dockerignore").read_text().splitlines()
     assert "lib.optionalString cfg.claudeCode.enable" in containerfile
     assert "nix build .#devcontainer-ci" in _make_dry_run("devcontainer", "CI=true")
     assert "nix build .#devcontainer " in _make_dry_run("devcontainer", "CI=")

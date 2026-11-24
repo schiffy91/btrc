@@ -22,7 +22,7 @@ class ShimWebInbox {
 	public Vector<WebNavigationEvent> navigations = [];
 }
 
-/* A WebKitGTK view among the window's controls. The engine draws the page,
+/* An embedded web view among the window's controls. The engine draws the page,
  * serves the bundle and decides navigations; what it reports is queued for
  * the receivers here. */
 class ShimWebView extends ShimNodeView implements IWebView {
@@ -32,6 +32,7 @@ class ShimWebView extends ShimNodeView implements IWebView {
 	private ShimWebInbox _inbox = ShimWebInbox();
 
 	public ShimWebView(ShimContext context) {
+		if (!btrcShimWebInstalled()) { throw "Add the embedded-web package and call EmbeddedWeb.install() before creating a web view"; }
 		self.adoptNode(ShimViewNode(context));
 		self.node().focusable = true;
 		self._control = btrcShimWebCreate((unsigned int)self.node().id);

@@ -27,6 +27,7 @@ in
         chown -R ${uid}:${uid} /nix
     COPY --chown=${uid}:${uid} flake.nix flake.lock /tmp/flake/
     COPY --chown=${uid}:${uid} nix/ /tmp/flake/nix/
+    COPY --chown=${uid}:${uid} packages/embedded-web/shell.nix /tmp/flake/packages/embedded-web/shell.nix
     COPY --chown=${uid}:${uid} src/compiler/python/ /tmp/flake/src/compiler/python/
     COPY --chown=${uid}:${uid} src/devex/lsp/ /tmp/flake/src/devex/lsp/
     COPY --chown=${uid}:${uid} src/language/ /tmp/flake/src/language/
@@ -53,7 +54,7 @@ in
     # paths an earlier attempt copied are kept.
     RUN cd /tmp/flake && git init -q && git add -A && \
         for attempt in 1 2 3; do \
-          nix print-dev-env . > ${home}/.nix-devshell.sh && break; \
+          nix print-dev-env ${cfg.devShell or "."} > ${home}/.nix-devshell.sh && break; \
           [ "$attempt" -lt 3 ] || exit 1; \
           echo "nix print-dev-env failed (attempt $attempt of 3); retrying" >&2; sleep 20; \
         done && \

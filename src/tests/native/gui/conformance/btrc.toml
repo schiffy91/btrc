@@ -4,6 +4,9 @@ manifest-version = 1
 name = "guiConformance"
 exports = ["Main"]
 
+[dependencies]
+embedded = { path = "../../../../../packages/embedded-web" }
+
 # The font cases need FreeType, which not every platform's SDK has.
 [[package.providers]]
 module = "Main"
