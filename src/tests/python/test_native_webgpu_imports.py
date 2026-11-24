@@ -217,6 +217,32 @@ int main() {
     assert "ERROR: AddressSanitizer" not in completed.stderr
 
 
+@pytest.mark.macos_gui
+def test_metal_shared_frame_crosses_processes_and_reaches_a_drawable(native_project, native_compile):
+    source, _sdk, _triple = native_project
+    root = source.parent.parent / "shared-frame"
+    shutil.copytree(REPO / "src/tests/native/gui/shared_frame/macos", root)
+    plan = root / "Program.link.json"
+    compiled = native_compile(root / "Main.btrc", plan_path=plan)
+    assert compiled.successful, str(compiled.failure) + "\n" + "\n".join(str(item) for item in compiled.diagnostics)
+    generated = root / "Program.c"
+    generated.write_text(compiled.c_source)
+    executable = root / "Program"
+
+    def runner(command, **kwargs):
+        return subprocess.run(command, env=apple_environment(), **kwargs)
+
+    NativePlanBuilder(runner=runner).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    result = subprocess.run(
+        [str(executable)], cwd=root, env={**apple_environment(), "BTRC_GUI_BACKGROUND": "1"},
+        capture_output=True, text=True, timeout=45,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Presented 64 cross-process Metal frames" in result.stdout
+
+
 @pytest.mark.parametrize("sanitize", [False, True])
 @pytest.mark.parametrize("consumer", ["Main", "Portable"])
 @pytest.mark.macos_gui

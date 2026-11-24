@@ -1,0 +1,40 @@
+import Library.GUI;
+import Library.Vector;
+
+class SharedFrameVisit implements IApplicationWork {
+	private IWindow window;
+	private SharedFrameProbe? probe;
+	public int status = 1;
+
+	public SharedFrameVisit(IWindow window) { self.window = window; }
+
+	public void run() {
+		if (self.probe == null) { self.probe = SharedFrameProbe.open(); }
+		var probe = self.probe;
+		if (probe == null) { GUI.requestQuit(); return; }
+		var result = probe.nextFrame();
+		if (result == 2) { self.window.setContentSize(800.0, 450.0); }
+		if (result < 0 || result == 1) {
+			self.status = result == 1 ? 0 : 1;
+			GUI.requestQuit();
+		} else { GUI.postAfter(0.001, self); }
+	}
+
+	public void close() {
+		if (self.probe != null) { self.probe.close(); self.probe = null; }
+	}
+}
+
+int main(Vector<string> args) {
+	if (args.length == 1 && args.get(0) == "produce") { return SharedFrameProbe.produce(); }
+	if (!args.isEmpty()) { return 1; }
+	GUI.initialize();
+	try {
+		var window = GUI.createWindow("Shared GPU frame probe", 640.0, 360.0);
+		window.attachRoot(GUI.createContainer());
+		window.show();
+		var visit = SharedFrameVisit(window);
+		try { GUI.post(visit); GUI.run(); } finally { visit.close(); }
+		return visit.status;
+	} finally { GUI.close(); }
+}

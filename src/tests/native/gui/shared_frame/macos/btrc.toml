@@ -1,0 +1,29 @@
+manifest-version = 1
+[package]
+name = "sharedFrameProbe"
+exports = []
+
+[[native.bindings]]
+module = "Main"
+header = "SurfaceProbe.h"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+symbols = ["+[SharedFrameProbe open]", "-[SharedFrameProbe nextFrame]", "-[SharedFrameProbe close]", "+[SharedFrameProbe produce]"]
+
+[[native.sources]]
+path = "SurfaceProbe.m"
+modules = ["Main"]
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+
+[[native.frameworks]]
+name = "Metal"
+os = ["macos"]
+[[native.frameworks]]
+name = "IOSurface"
+os = ["macos"]
+[[native.frameworks]]
+name = "QuartzCore"
+os = ["macos"]
