@@ -101,7 +101,7 @@ def test_linux_audio_session(tmp_path, request, frontend, sanitized):
                 capture_output=True,
                 text=True,
                 timeout=30,
-                env=provider_environment(sanitized, **server.environment, **extra),
+                env=provider_environment(sanitized, ALSA_CONFIG_PATH=os.devnull, **server.environment, **extra),
             )
             assert result.returncode == 0, result.stderr
             assert "PASS: linux audio session" in result.stdout
@@ -120,7 +120,9 @@ def test_linux_pulse_faults(tmp_path, request, frontend, sanitized):
         directory = tmp_path / fault
         directory.mkdir()
         with PulseTestServer(directory, fault) as server:
-            environment = provider_environment(sanitized, **server.environment, BTRC_TEST_PULSE_FAULT=fault)
+            environment = provider_environment(
+                sanitized, ALSA_CONFIG_PATH=os.devnull, **server.environment, BTRC_TEST_PULSE_FAULT=fault
+            )
             result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30, env=environment)
             assert result.returncode == 0, f"{fault}: {result.stdout}{result.stderr}"
             assert "PASS: Pulse stream fault" in result.stdout
@@ -168,12 +170,12 @@ def test_linux_audio_loopback(tmp_path, request, frontend, backend):
     if backend == "alsa-loopback":
         if not os.environ.get("BTRC_TEST_AUDIO_HARDWARE") or not list(Path("/dev/snd").glob("pcmC*D*p")):
             pytest.skip("requires BTRC_TEST_AUDIO_HARDWARE=1 and snd-aloop")
-        environment = provider_environment(False)
+        environment = provider_environment(False, ALSA_CONFIG_PATH=os.devnull)
         environment.pop("BTRC_TEST_PULSE_MONITOR", None)
     else:
         if not os.environ.get("BTRC_TEST_PULSE_MONITOR"):
             pytest.skip("requires BTRC_TEST_PULSE_MONITOR=1 with a default sink and its monitor source")
-        environment = provider_environment(False)
+        environment = provider_environment(False, ALSA_CONFIG_PATH=os.devnull)
     executable = build_provider_program(
         ROOT / "src/tests/native/audio/linux/LinuxAudioLoopback.btrc", tmp_path, frontend, False, request
     )
@@ -218,7 +220,13 @@ def test_linux_audio_resampling(tmp_path, request, frontend):
         check=True,
         timeout=60,
     )
-    result = subprocess.run([str(peer), card, str(client)], capture_output=True, text=True, timeout=30)
+    result = subprocess.run(
+        [str(peer), card, str(client)],
+        env=provider_environment(False, ALSA_CONFIG_PATH=os.devnull),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS: Linux audio sample-rate conversion" in result.stdout
 
@@ -244,7 +252,7 @@ def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
         faults=faults,
     )
     assert DependencyAudit().binary_problems(executable, TARGET) == []
-    environment = provider_environment(sanitized, PULSE_SERVER=f"unix:{tmp_path}/absent")
+    environment = provider_environment(sanitized, ALSA_CONFIG_PATH=os.devnull, PULSE_SERVER=f"unix:{tmp_path}/absent")
     result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=120, env=environment)
     assert result.returncode == 0, result.stderr
     assert "PASS: linux audio faults" in result.stdout

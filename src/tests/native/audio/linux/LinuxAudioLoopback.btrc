@@ -1,6 +1,6 @@
 /* snd-aloop connects device 0 playback to device 1 capture. Signs and
  * amplitudes differ by channel so silence and channel swaps both fail. */
-import Library.Audio.Audio;
+import Library.Audio;
 import Library.Audio.AudioDevice;
 import Library.Audio.RealtimeAudio;
 import Library.Console;

@@ -27,7 +27,8 @@ int main() {
 	assert(result.succeeded());
 	var inventory = result.inventory();
 	string saved = "plughw:CARD=SavedRoute,DEV=7";
-	assert(inventory.defaultOutput() != null && inventory.defaultOutput().id() == "default");
+	var fallback = inventory.defaultOutput();
+	assert(fallback != null && fallback.id() == "default");
 	assert(inventory.find(saved) != null && inventory.find("unlisted") == null);
 	Atomic<uint> blocks;
 	blocks.store(0u, MemoryOrder.RELAXED);
