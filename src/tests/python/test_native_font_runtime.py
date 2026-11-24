@@ -482,6 +482,15 @@ def test_linux_system_text_runs(tmp_path, request, gui_provider_root, frontend, 
         timeout=60,
     )
     assert vectors.returncode == 0, vectors.stdout + vectors.stderr
+    for fixture, caret in (("shaping-fixture.ttf", "5"), ("shaping-carets.ttf", "3")):
+        result = subprocess.run(
+            [program, "--carets", tests / "fixtures" / fixture, caret],
+            capture_output=True,
+            text=True,
+            env=provider_environment(sanitized),
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])

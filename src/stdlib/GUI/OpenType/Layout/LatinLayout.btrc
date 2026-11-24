@@ -56,6 +56,29 @@ class LatinLayout {
 		return new LayoutTable(OpenTypeData(data.slice(table.offset, table.length)), active, 0x6c61746eLL, self.requireDefaultEnglish); // latn
 	}
 
+	/* Horizontal GDEF caret coordinates for a single substituted ligature.
+	 * Missing caret data permits even division of its shaped advance. */
+	public Vector<int> ligatureCarets(int glyph, int components) {
+		Vector<int> result = [];
+		var data = self.gdef;
+		if (data == null) { return result; }
+		int list = data.u16(8);
+		if (list == 0) { return result; }
+		int index = LayoutTable.coverageAt(data, list + data.u16(list), glyph);
+		if (index < 0) { return result; }
+		if (index >= data.u16(list + 2)) { throw "Invalid ligature caret index"; }
+		int table = list + data.u16(list + 4 + 2 * index);
+		int count = data.u16(table);
+		if (count == 0) { return result; }
+		if (count != components - 1) { throw "Ligature caret count does not match the text cluster"; }
+		for (int i = 0; i < count; i++) {
+			int caret = table + data.u16(table + 2 + i * 2);
+			if (data.u16(caret) != 1) { throw "Ligature caret requires outline or device adjustment"; }
+			result.push(data.s16(caret + 2));
+		}
+		return result;
+	}
+
 	private void requireBase(int id) {
 		var definitions = self.gdef;
 		if (definitions != null && self.classes != 0 && LayoutTable.glyphClass(definitions, self.classes, id) == 3) { throw "Latin run contains a mark glyph"; }
