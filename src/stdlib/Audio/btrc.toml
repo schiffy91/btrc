@@ -14,6 +14,22 @@ module = "Audio"
 implementation = "Linux.AudioProvider"
 os = ["linux"]
 
+[[native.bindings]]
+module = "Linux.KernelPcm"
+header = "Linux/KernelPcm.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"btrcPcmConstraintBytes", "BTRC_PCM_ACCESS", "BTRC_PCM_FORMAT", "BTRC_PCM_SUBFORMAT",
+	"BTRC_PCM_CHANNELS", "BTRC_PCM_RATE", "BTRC_PCM_PERIOD", "BTRC_PCM_PERIODS", "BTRC_PCM_BUFFER",
+	"BTRC_PCM_INTERLEAVED", "BTRC_PCM_STANDARD", "BTRC_PCM_FLOAT", "BTRC_PCM_S32",
+	"BTRC_PCM_S24_PACKED", "BTRC_PCM_S24", "BTRC_PCM_S16",
+	"btrcPcmAny", "btrcPcmMask", "btrcPcmRange", "btrcPcmMinimum", "btrcPcmMaximum",
+	"btrcPcmRefine", "btrcPcmInstall", "btrcPcmSoftware", "btrcPcmState", "btrcPcmPrepare",
+	"btrcPcmStart", "btrcPcmDrop", "btrcPcmResume", "btrcPcmPoll", "btrcPcmTransfer"
+]
+os = ["linux"]
+
 [[native.pkg-config]]
 name = "alsa"
 modules = ["Linux.LinuxAudioDevice"]

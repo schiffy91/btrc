@@ -1,0 +1,71 @@
+import Library.OwnedBuffer;
+
+/* Kernel ALSA PCM negotiation. Rate and period stay exact because the
+ * session exposes one frame clock and one period to its realtime program. */
+class KernelPcm {
+	class void constraints(void* params) {
+		btrcPcmAny(params);
+		btrcPcmMask(params, BTRC_PCM_ACCESS, BTRC_PCM_INTERLEAVED);
+		btrcPcmMask(params, BTRC_PCM_SUBFORMAT, BTRC_PCM_STANDARD);
+	}
+
+	class int probe(int descriptor, int* channels, int* rateMin, int* rateMax, int* periodMin, int* periodMax) {
+		var storage = new OwnedBuffer<unsigned char>(btrcPcmConstraintBytes());
+		if (!storage.opened()) { return -ENOMEM; }
+		var params = storage.borrow();
+		KernelPcm.constraints(params);
+		int error = btrcPcmRefine(descriptor, params);
+		if (error < 0) { return error; }
+		unsigned int count = btrcPcmMaximum(params, BTRC_PCM_CHANNELS);
+		unsigned int lowRate = btrcPcmMinimum(params, BTRC_PCM_RATE);
+		unsigned int highRate = btrcPcmMaximum(params, BTRC_PCM_RATE);
+		unsigned int lowPeriod = btrcPcmMinimum(params, BTRC_PCM_PERIOD);
+		unsigned int highPeriod = btrcPcmMaximum(params, BTRC_PCM_PERIOD);
+		if (count == 0u || lowRate > 768000u || lowPeriod > 65536u) { return -EINVAL; }
+		*channels = (int)(count > 256u ? 256u : count);
+		*rateMin = (int)lowRate;
+		*rateMax = (int)(highRate > 768000u ? 768000u : highRate);
+		*periodMin = (int)lowPeriod;
+		*periodMax = (int)(highPeriod > 65536u ? 65536u : highPeriod);
+		return 0;
+	}
+
+	class int configure(int descriptor, bool adapt, int channels, int rate, int period, int* actualChannels, int* actualFormat) {
+		if (channels < 1 || channels > 256 || rate < 1 || period < 1 || period > 65536) { return -EINVAL; }
+		int formats[5] = {BTRC_PCM_FLOAT, BTRC_PCM_S32, BTRC_PCM_S24_PACKED, BTRC_PCM_S24, BTRC_PCM_S16};
+		var storage = new OwnedBuffer<unsigned char>(btrcPcmConstraintBytes());
+		if (!storage.opened()) { return -ENOMEM; }
+		var params = storage.borrow();
+		for (int index = 0; index < (adapt ? 5 : 1); index++) {
+			KernelPcm.constraints(params);
+			btrcPcmMask(params, BTRC_PCM_FORMAT, (unsigned int)formats[index]);
+			btrcPcmRange(params, BTRC_PCM_RATE, (unsigned int)rate, (unsigned int)rate);
+			btrcPcmRange(params, BTRC_PCM_CHANNELS, (unsigned int)channels, 256u);
+			btrcPcmRange(params, BTRC_PCM_PERIOD, (unsigned int)period, (unsigned int)period);
+			int error = btrcPcmRefine(descriptor, params);
+			if (error == -EINVAL) { continue; }
+			if (error < 0) { return error; }
+			unsigned int count = btrcPcmMinimum(params, BTRC_PCM_CHANNELS);
+			btrcPcmRange(params, BTRC_PCM_CHANNELS, count, count);
+			error = btrcPcmRefine(descriptor, params);
+			if (error < 0) { return error; }
+			unsigned int periods = btrcPcmMinimum(params, BTRC_PCM_PERIODS);
+			unsigned int maxPeriods = btrcPcmMaximum(params, BTRC_PCM_PERIODS);
+			if (periods < 2u && maxPeriods >= 2u) { periods = 2u; }
+			btrcPcmRange(params, BTRC_PCM_PERIODS, periods, maxPeriods);
+			error = btrcPcmRefine(descriptor, params);
+			if (error < 0) { return error; }
+			periods = btrcPcmMinimum(params, BTRC_PCM_PERIODS);
+			btrcPcmRange(params, BTRC_PCM_PERIODS, periods, periods);
+			error = btrcPcmInstall(descriptor, params);
+			if (error < 0) { return error; }
+			unsigned int buffer = btrcPcmMinimum(params, BTRC_PCM_BUFFER);
+			error = btrcPcmSoftware(descriptor, (unsigned int)period, buffer);
+			if (error < 0) { return error; }
+			*actualFormat = formats[index];
+			*actualChannels = (int)count;
+			return 0;
+		}
+		return -EINVAL;
+	}
+}
