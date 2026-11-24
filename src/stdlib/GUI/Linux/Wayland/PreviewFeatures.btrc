@@ -6,13 +6,14 @@ import Library.GUI.Shim.Shim;
 import Library.GUI.Shim.DialogPump;
 import Library.GUI.Shim.ShimWindow;
 import Library.GUI.IDirectoryPicker;
+import Library.GUI.Linux.PortalDirectoryPickerProvider;
 import Library.GUI.TextRun;
 import Library.Image;
 import Library.App;
 import Library.GUI.Linux.Fonts.SystemTextABI;
 
 /* Direct Wayland clients can choose this preview while the default toolkit
- * supplies editable fields, selects and desktop dialogs. */
+ * supplies select controls and native alerts. */
 class ShimFeatures {
 	class bool fieldUsesWindowInput() { return true; }
 
@@ -24,7 +25,7 @@ class ShimFeatures {
 
 	class void showAlert(BtrcShimWindow* window, string title, string message) { throw "Modal alerts require the default Linux GUI backend"; }
 
-	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, "Directory selection requires the default Linux GUI backend")); }
+	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) { return DirectoryPickerProvider.choose(window, pump, request); }
 
 	class Image rasterized(TextRun run) { throw "Standalone text rasterization requires the default Linux GUI backend"; }
 }
