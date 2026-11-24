@@ -1,0 +1,73 @@
+import Library.Bytes;
+import Library.Vector;
+
+import ./Tables.btrc;
+
+class BrotliDictionary {
+	private Bytes words;
+	private Bytes transforms;
+	private Vector<int> transformOffsets;
+	private Vector<int> wordOffsets;
+	private Vector<int> depth;
+
+	public BrotliDictionary() {
+		self.words = BrotliTables.dictionary();
+		self.transforms = BrotliTables.transforms();
+		self.depth = [0, 0, 0, 0, 10, 10, 11, 11, 10, 10, 10, 10, 10, 9, 9, 8, 7, 7, 8, 7, 7, 6, 6, 5, 5];
+		self.wordOffsets = [];
+		int offset = 0;
+		for (int i = 0; i <= 24; i++) {
+			self.wordOffsets.push(offset);
+			if (i >= 4) { offset += i << self.depth.get(i); }
+		}
+		self.transformOffsets = [];
+		offset = 0;
+		while (offset < self.transforms.length()) {
+			self.transformOffsets.push(offset);
+			while (self.transforms.get(offset) != 0) { offset++; }
+			offset += 2;
+			while (self.transforms.get(offset) != 0) { offset++; }
+			offset++;
+		}
+	}
+
+	/* These are byte transforms defined by the wire format, independent of
+	 * the language or locale of the text being decoded. */
+	private int ferment(Bytes bytes, int i) {
+		int value = bytes.get(i);
+		if (value < 192) {
+			if (value >= 97 && value <= 122) { bytes.set(i, value ^ 32); }
+			return 1;
+		}
+		int step = value < 224 ? 2 : 3;
+		int last = i + step - 1;
+		if (last < bytes.length()) { bytes.set(last, bytes.get(last) ^ (step == 2 ? 32 : 5)); }
+		return step;
+	}
+
+	public Bytes word(int length, int id) {
+		if (length < 4 || length > 24) { throw "Invalid Brotli dictionary length"; }
+		int width = self.depth.get(length);
+		int transform = id >> width;
+		if (transform >= self.transformOffsets.size()) { throw "Invalid Brotli dictionary transform"; }
+		int offset = self.wordOffsets.get(length) + (id & ((1 << width) - 1)) * length;
+		int t = self.transformOffsets.get(transform);
+		var result = Bytes();
+		while (self.transforms.get(t) != 0) { result.append(self.transforms.get(t)); t++; }
+		int op = self.transforms.get(t + 1);
+		int start = op >= 3 && op < 12 ? op - 2 : 0;
+		int end = op >= 12 ? length - (op - 11) : length;
+		if (end > start) {
+			var bytes = self.words.slice(offset + start, offset + end);
+			if (op == 1) { self.ferment(bytes, 0); }
+			if (op == 2) {
+				int i = 0;
+				while (i < bytes.length()) { i += self.ferment(bytes, i); }
+			}
+			result.appendBytes(bytes);
+		}
+		t += 2;
+		while (self.transforms.get(t) != 0) { result.append(self.transforms.get(t)); t++; }
+		return result;
+	}
+}

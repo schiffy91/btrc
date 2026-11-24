@@ -1,0 +1,178 @@
+import Library.Bytes;
+import Library.Vector;
+
+import ./Contexts.btrc;
+import ./Dictionary.btrc;
+import ./Prefix.btrc;
+import ./Tables.btrc;
+
+/* RFC 7932 decoder for WOFF2 table streams. The caller supplies the exact
+ * decompressed size from the table directory. Check each meta-block and
+ * each copy against that size before growing the output. */
+class BrotliDecoder {
+	private BrotliBits bits;
+	private Bytes output;
+	private int window;
+	private int recent[4];
+	private Bytes lut0;
+	private Bytes lut1;
+	private Bytes lut2;
+	private BrotliDictionary? dictionary = null;
+	private Vector<int> insertWidths;
+	private Vector<int> copyWidths;
+	private Vector<int> insertBases;
+	private Vector<int> copyBases;
+	private Vector<int> insertGroups;
+	private Vector<int> copyGroups;
+
+	public BrotliDecoder(Bytes compressed) {
+		self.bits = BrotliBits(compressed);
+		int width = 16;
+		if (self.bits.read(1) != 0) {
+			int shortCode = self.bits.read(3);
+			if (shortCode != 0) { width = shortCode + 17; }
+			else {
+				int longCode = self.bits.read(3);
+				if (longCode == 1) { throw "Invalid Brotli window size"; }
+				width = longCode == 0 ? 17 : longCode + 8;
+			}
+		}
+		self.window = (1 << width) - 16;
+		self.output = Bytes();
+		self.recent[0] = 4;
+		self.recent[1] = 11;
+		self.recent[2] = 15;
+		self.recent[3] = 16;
+		self.lut0 = BrotliTables.lut0();
+		self.lut1 = BrotliTables.lut1();
+		self.lut2 = BrotliTables.lut2();
+		self.insertWidths = [0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7, 8, 9, 10, 12, 14, 24];
+		self.copyWidths = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7, 8, 9, 10, 24];
+		self.insertBases = self.bases(self.insertWidths, 0);
+		self.copyBases = self.bases(self.copyWidths, 2);
+		self.insertGroups = [0, 0, 0, 0, 8, 8, 0, 16, 8, 16, 16];
+		self.copyGroups = [0, 8, 0, 8, 0, 8, 16, 0, 16, 8, 16];
+	}
+
+	private Vector<int> bases(Vector<int> widths, int start) {
+		Vector<int> result = [];
+		for (int i = 0; i < widths.size(); i++) {
+			result.push(start);
+			start += 1 << widths.get(i);
+		}
+		return result;
+	}
+
+	public Bytes decode(int expected) {
+		if (expected < 0) { throw "Invalid Brotli output size"; }
+		bool last = false;
+		while (!last) {
+			last = self.bits.read(1) != 0;
+			if (last && self.bits.read(1) != 0) { break; }
+			int nibbles = self.bits.read(2) + 4;
+			if (nibbles == 7) {
+				if (self.bits.read(1) != 0) { throw "Invalid Brotli metadata"; }
+				int bytes = self.bits.read(2);
+				int length = bytes == 0 ? 0 : 1 + self.bits.read(bytes * 8);
+				if (bytes > 1 && length <= (1 << (8 * (bytes - 1)))) { throw "Invalid Brotli metadata length"; }
+				self.bits.align();
+				for (int i = 0; i < length; i++) { self.bits.read(8); }
+				continue;
+			}
+			int length = 1 + self.bits.read(nibbles * 4);
+			if (nibbles > 4 && length <= (1 << ((nibbles - 1) * 4))) { throw "Invalid Brotli meta-block length"; }
+			if (length > expected - self.output.length()) { throw "Brotli meta-block exceeds expected size"; }
+			if (!last && self.bits.read(1) != 0) {
+				self.bits.align();
+				for (int i = 0; i < length; i++) { self.output.append(self.bits.read(8)); }
+			} else { self.compressedBlock(self.output.length() + length); }
+		}
+		self.bits.end();
+		if (self.output.length() != expected) { throw "Wrong Brotli output size"; }
+		return self.output;
+	}
+
+	private int context(int mode) {
+		int n = self.output.length();
+		int p1 = n >= 1 ? self.output.get(n - 1) : 0;
+		int p2 = n >= 2 ? self.output.get(n - 2) : 0;
+		if (mode == 0) { return p1 & 63; }
+		if (mode == 1) { return p1 >> 2; }
+		if (mode == 2) { return self.lut0.get(p1) | self.lut1.get(p2); }
+		return (self.lut2.get(p1) << 3) | self.lut2.get(p2);
+	}
+
+	private int distance(int code, int direct, int postfix) {
+		if (code < 4) { return self.recent[code]; }
+		if (code < 16) {
+			int slot = code < 10 ? 0 : 1;
+			int delta = 1 + ((code - 4) % 6) / 2;
+			return self.recent[slot] + ((code & 1) == 0 ? -delta : delta);
+		}
+		if (code < 16 + direct) { return code - 15; }
+		int relative = code - 16 - direct;
+		int high = relative >> postfix;
+		int width = 1 + (high >> 1);
+		int extra = self.bits.read(width);
+		int offset = ((2 + (high & 1)) << width) - 4;
+		return ((offset + extra) << postfix) + (relative & ((1 << postfix) - 1)) + direct + 1;
+	}
+
+	private Vector<BrotliPrefix> trees(int count, int alphabet) {
+		Vector<BrotliPrefix> result = [];
+		for (int i = 0; i < count; i++) { result.push(BrotliPrefix.read(self.bits, alphabet)); }
+		return result;
+	}
+
+	private void compressedBlock(int end) {
+		var literals = BrotliBlocks(self.bits);
+		var commands = BrotliBlocks(self.bits);
+		var distances = BrotliBlocks(self.bits);
+		int postfix = self.bits.read(2);
+		int direct = self.bits.read(4) << postfix;
+		var modes = Bytes();
+		for (int i = 0; i < literals.types; i++) { modes.append(self.bits.read(2)); }
+		var literalMap = BrotliContexts(self.bits, 64 * literals.types);
+		var distanceMap = BrotliContexts(self.bits, 4 * distances.types);
+		var literalTrees = self.trees(literalMap.count, 256);
+		var commandTrees = self.trees(commands.types, 704);
+		var distanceTrees = self.trees(distanceMap.count, 16 + direct + (48 << postfix));
+		while (self.output.length() < end) {
+			int command = commandTrees.get(commands.next(self.bits)).symbol(self.bits);
+			int insertCode = self.insertGroups.get(command >> 6) + ((command >> 3) & 7);
+			int copyCode = self.copyGroups.get(command >> 6) + (command & 7);
+			int insert = self.insertBases.get(insertCode) + self.bits.read(self.insertWidths.get(insertCode));
+			int copy = self.copyBases.get(copyCode) + self.bits.read(self.copyWidths.get(copyCode));
+			if (insert > end - self.output.length()) { throw "Brotli literals exceed meta-block"; }
+			for (int i = 0; i < insert; i++) {
+				int block = literals.next(self.bits);
+				int tree = literalMap.map.get(block * 64 + self.context(modes.get(block)));
+				self.output.append(literalTrees.get(tree).symbol(self.bits));
+			}
+			if (self.output.length() == end) { break; }
+			int code = 0;
+			if (command >= 128) {
+				int id = copy < 5 ? copy - 2 : 3;
+				int tree = distanceMap.map.get(distances.next(self.bits) * 4 + id);
+				code = distanceTrees.get(tree).symbol(self.bits);
+			}
+			int distance = self.distance(code, direct, postfix);
+			if (distance <= 0) { throw "Invalid Brotli distance"; }
+			int maxDistance = self.output.length() < self.window ? self.output.length() : self.window;
+			if (distance > maxDistance) {
+				var dictionary = self.dictionary;
+				if (dictionary == null) { dictionary = BrotliDictionary(); self.dictionary = dictionary; }
+				var word = dictionary.word(copy, distance - maxDistance - 1);
+				if (word.length() > end - self.output.length()) { throw "Brotli dictionary word exceeds meta-block"; }
+				self.output.appendBytes(word);
+			} else {
+				if (copy > end - self.output.length()) { throw "Brotli copy exceeds meta-block"; }
+				for (int i = 0; i < copy; i++) { self.output.append(self.output.get(self.output.length() - distance)); }
+				if (code != 0) {
+					for (int i = 3; i > 0; i--) { self.recent[i] = self.recent[i - 1]; }
+					self.recent[0] = distance;
+				}
+			}
+		}
+	}
+}

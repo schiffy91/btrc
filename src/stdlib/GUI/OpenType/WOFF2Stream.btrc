@@ -1,0 +1,64 @@
+import Library.Bytes;
+
+/* A bounded cursor. Transformed WOFF2 tables interleave reads from several
+ * independent streams. A corrupt count must never advance into a neighbor. */
+class WOFF2Stream {
+	private Bytes data;
+	private int cursor;
+	private int end;
+
+	public WOFF2Stream(Bytes data, int start, int end) {
+		if (start < 0 || start > end || end > data.length()) { throw "Invalid WOFF2 stream bounds"; }
+		self.data = data;
+		self.cursor = start;
+		self.end = end;
+	}
+
+	public int remaining() { return self.end - self.cursor; }
+
+	private int take(int length) {
+		if (length < 0 || length > self.remaining()) { throw "Truncated WOFF2 stream"; }
+		int start = self.cursor;
+		self.cursor += length;
+		return start;
+	}
+
+	public WOFF2Stream stream(int length) {
+		int start = self.take(length);
+		return WOFF2Stream(self.data, start, self.cursor);
+	}
+
+	public Bytes bytes(int length) {
+		int start = self.take(length);
+		return self.data.slice(start, self.cursor);
+	}
+
+	public int byte() { return self.data.get(self.take(1)); }
+
+	public int word() { return self.data.readU16BE(self.take(2)); }
+
+	public int length32() {
+		unsigned int length = self.data.readU32BE(self.take(4));
+		if (length > 2147483647U) { throw "WOFF2 stream is too large"; }
+		return (int)length;
+	}
+
+	public int base128() {
+		int length = 0;
+		for (int i = 0; i < 5; i++) {
+			int octet = self.byte();
+			if ((i == 0 && octet == 128) || length > 16777215) { throw "Invalid WOFF2 variable length"; }
+			length = length * 128 + (octet & 127);
+			if ((octet & 128) == 0) { return length; }
+		}
+		throw "Invalid WOFF2 variable length";
+	}
+
+	public int uint255() {
+		int code = self.byte();
+		if (code == 253) { return self.word(); }
+		if (code == 254) { return 506 + self.byte(); }
+		if (code == 255) { return 253 + self.byte(); }
+		return code;
+	}
+}

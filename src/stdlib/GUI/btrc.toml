@@ -204,9 +204,9 @@ module = "FreeType.FreeTypeFace"
 header = "FreeType/FreeType.h"
 language = "c"
 standard = "c11"
-symbols = ["FT_Library", "FT_Face", "FT_Init_FreeType", "FT_Done_FreeType", "FT_New_Face", "FT_Done_Face", "FT_Set_Pixel_Sizes", "FT_Load_Char", "FT_LOAD_DEFAULT", "FT_LOAD_RENDER", "FT_PIXEL_MODE_MONO", "FT_PIXEL_MODE_GRAY"]
-borrowed-parameters = ["FT_New_Face.library", "FT_Set_Pixel_Sizes.face", "FT_Load_Char.face"]
-read-only-borrows = ["FT_New_Face.filepathname"]
+symbols = ["FT_Library", "FT_Face", "BtrcFreeTypeMemory", "btrcFreeTypeCopyMemory", "btrcFreeTypeReleaseMemory", "btrcFreeTypeOpenMemoryFace", "FT_Init_FreeType", "FT_Done_FreeType", "FT_New_Face", "FT_Done_Face", "FT_Set_Pixel_Sizes", "FT_Load_Char", "FT_LOAD_DEFAULT", "FT_LOAD_RENDER", "FT_PIXEL_MODE_MONO", "FT_PIXEL_MODE_GRAY"]
+borrowed-parameters = ["btrcFreeTypeOpenMemoryFace.library", "btrcFreeTypeOpenMemoryFace.memory", "FT_New_Face.library", "FT_Set_Pixel_Sizes.face", "FT_Load_Char.face"]
+read-only-borrows = ["FT_New_Face.filepathname", "btrcFreeTypeCopyMemory.data"]
 # FreeType.h includes <ft2build.h>, which only the freetype2 pkg-config record
 # below supplies; no iOS or Android sysroot has it, so the binding selects the
 # same desktop systems.
@@ -227,6 +227,16 @@ ownership = "unique"
 release = "FT_Done_Face"
 release-consumption = "always"
 cleanup-status = "discard"
+
+[native.bindings.resources.BtrcFreeTypeMemory]
+ownership = "unique"
+release = "btrcFreeTypeReleaseMemory"
+
+[native.bindings.owned-outputs."btrcFreeTypeCopyMemory.memory"]
+result = "FreeTypeMemoryResult"
+
+[native.bindings.owned-outputs."btrcFreeTypeOpenMemoryFace.face"]
+result = "FreeTypeMemoryFaceResult"
 
 [native.bindings.owned-outputs."FT_Init_FreeType.alibrary"]
 result = "FreeTypeLibraryResult"

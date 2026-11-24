@@ -1,0 +1,312 @@
+import Library.Vector;
+
+import ./GlyphOutline.btrc;
+import ./Hinting/Program.btrc;
+import ./Hinting/Zone.btrc;
+import ./OpenTypeData.btrc;
+import ./OpenTypeHorizontalMetrics.btrc;
+
+/* What one glyph load carries between a composite and its components: the
+ * horizontal origin and advance points in font units, and the work still
+ * allowed, which bounds a font whose composites refer to each other. */
+class TrueTypeLoad {
+	public long long left = 0LL;
+	public long long right = 0LL;
+	public int componentsLeft = 1024;
+
+	public TrueTypeLoad() {}
+}
+
+/* TrueType outlines: the `loca` index and the `glyf` descriptions it
+ * addresses. A simple glyph is contours of on-curve points and quadratic
+ * control points; a composite glyph places other glyphs, each scaled or
+ * transformed by a 2x2 matrix and moved by an offset or by matching one of
+ * its points to a point already placed.
+ *
+ * Every offset, count and array is checked against the end of its glyph's
+ * description before it is read. Composites nest to a fixed depth and a
+ * load places a bounded number of components, so a glyph that contains
+ * itself is refused rather than followed. */
+class TrueTypeGlyphs {
+	private OpenTypeData data;
+	private OpenTypeSpan glyf;
+	private OpenTypeSpan loca;
+	private OpenTypeHorizontalMetrics horizontal;
+	private int glyphCount;
+	private bool longOffsets;
+	private TrueTypeProgram? hinting = null;
+
+	public TrueTypeGlyphs(OpenTypeData data, OpenTypeSpan glyf, OpenTypeSpan loca, OpenTypeHorizontalMetrics horizontal, int glyphCount, bool longOffsets) {
+		self.data = data;
+		self.glyf = glyf;
+		self.loca = loca;
+		self.horizontal = horizontal;
+		self.glyphCount = glyphCount;
+		self.longOffsets = longOffsets;
+	}
+
+	public void prepare(TrueTypeProgram program) { self.hinting = program; }
+
+	/* Propagate unsupported instructions so the factory can use its native face. */
+	private void applyHints(OpenTypeSpan program, TrueTypeZone zone, GlyphOutline outline, int first, int count, bool composite = false) {
+		var engine = self.hinting;
+		if (engine == null || program.length == 0) { return; }
+		engine.glyph(program, zone, composite);
+		for (int i = 0; i < count; i++) {
+			outline.setPoint(first + i, (long long)zone.xs.get(i), (long long)zone.ys.get(i));
+		}
+	}
+
+	/* Adds the glyph's outline, scaled by the 16.16 factor from font units
+	 * to 26.6 pixels and moved so its origin is at x = 0, and returns its
+	 * advance in 26.6 pixels. */
+	public long long load(int glyph, long long scale, GlyphOutline outline) {
+		var state = TrueTypeLoad();
+		self.loadInto(glyph, scale, outline, state, 0);
+		long long origin = OpenTypeFixed.mul(state.left, scale);
+		if (origin != 0LL) { outline.translate(0, -origin, 0LL); }
+		return OpenTypeFixed.mul(state.right, scale) - origin;
+	}
+
+	private long long location(int index) {
+		int width = self.longOffsets ? 4 : 2;
+		long long entries = (long long)self.loca.length / (long long)width;
+		if (entries > (long long)self.glyphCount + 1LL) { entries = (long long)self.glyphCount + 1LL; }
+		if ((long long)index >= entries) { return -1LL; }
+		int position = self.loca.offset + index * width;
+		return self.longOffsets ? self.data.u32(position) : 2LL * (long long)self.data.u16(position);
+	}
+
+	/* An empty span represents an explicitly empty glyph. Invalid locations
+	 * are passed back to the native provider. */
+	private OpenTypeSpan describe(int glyph) {
+		long long length = (long long)self.glyf.length;
+		long long start = self.location(glyph);
+		long long end = self.location(glyph + 1);
+		if (start < 0LL || end < start || end > length) { throw "Invalid TrueType glyph location"; }
+		return OpenTypeSpan(self.glyf.offset + (int)start, (int)(end - start));
+	}
+
+	private void loadInto(int glyph, long long scale, GlyphOutline outline, TrueTypeLoad state, int depth) {
+		if (glyph < 0 || glyph >= self.glyphCount) { throw "Glyph index is outside the font"; }
+		var span = self.describe(glyph);
+		long long advance = (long long)self.horizontal.advance(glyph);
+		long long bearing = (long long)self.horizontal.bearing(glyph);
+		if (span.length == 0) {
+			state.left = -bearing;
+			state.right = state.left + advance;
+			return;
+		}
+		if (span.length < 10) { throw "Glyph description is truncated"; }
+		int contours = self.data.s16(span.offset);
+		state.left = (long long)self.data.s16(span.offset + 2) - bearing;
+		state.right = state.left + advance;
+		if (contours > 0) { self.simple(span, contours, scale, outline, state); }
+		else if (contours < 0) { self.composite(span, scale, outline, state, depth); }
+	}
+
+	private void simple(OpenTypeSpan span, int contours, long long scale, GlyphOutline outline, TrueTypeLoad state) {
+		int end = span.end();
+		int p = span.offset + 10;
+		if (end - p < 2 * contours + 2) { throw "Glyph contour list is truncated"; }
+		Vector<int> ends = [];
+		int previous = -1;
+		for (int i = 0; i < contours; i++) {
+			int last = self.data.u16(p + 2 * i);
+			if (last <= previous) { throw "Glyph contours are not in order"; }
+			ends.push(last);
+			previous = last;
+		}
+		int points = previous + 1;
+		p += 2 * contours;
+		int instructions = self.data.u16(p);
+		p += 2;
+		if (end - p < instructions) { throw "Glyph instructions are truncated"; }
+		var program = OpenTypeSpan(p, instructions);
+		p += instructions;
+		int firstPoint = outline.pointCount();
+		TrueTypeZone? zone = null;
+		if (self.hinting != null && instructions > 0) {
+			zone = TrueTypeZone(points + 4);
+			zone.ends = ends;
+			zone.place(points, (int)OpenTypeFixed.mul(state.left, scale), 0);
+			zone.place(points + 1, (int)OpenTypeFixed.mul(state.right, scale), 0);
+		}
+		Vector<int> flags = [];
+		while (flags.size() < points) {
+			if (p >= end) { throw "Glyph point flags are truncated"; }
+			int flag = self.data.u8(p);
+			p++;
+			flags.push(flag);
+			if ((flag & 8) != 0) {
+				if (p >= end) { throw "Glyph point flags are truncated"; }
+				int repeats = self.data.u8(p);
+				p++;
+				if (repeats > points - flags.size()) { throw "Glyph point flags repeat past the last point"; }
+				for (int i = 0; i < repeats; i++) { flags.push(flag); }
+			}
+		}
+		Vector<int> xs = [];
+		int x = 0;
+		for (int i = 0; i < points; i++) {
+			int flag = flags.get(i);
+			if ((flag & 2) != 0) {
+				if (p >= end) { throw "Glyph coordinates are truncated"; }
+				int delta = self.data.u8(p);
+				p++;
+				x += (flag & 16) != 0 ? delta : -delta;
+			} else if ((flag & 16) == 0) {
+				if (end - p < 2) { throw "Glyph coordinates are truncated"; }
+				x += self.data.s16(p);
+				p += 2;
+			}
+			xs.push(x);
+		}
+		int y = 0;
+		int contour = 0;
+		for (int i = 0; i < points; i++) {
+			int flag = flags.get(i);
+			if ((flag & 4) != 0) {
+				if (p >= end) { throw "Glyph coordinates are truncated"; }
+				int delta = self.data.u8(p);
+				p++;
+				y += (flag & 32) != 0 ? delta : -delta;
+			} else if ((flag & 32) == 0) {
+				if (end - p < 2) { throw "Glyph coordinates are truncated"; }
+				y += self.data.s16(p);
+				p += 2;
+			}
+			long long px = OpenTypeFixed.mul((long long)xs.get(i), scale);
+			long long py = OpenTypeFixed.mul((long long)y, scale);
+			outline.addPoint(px, py, (flag & 1) != 0 ? GLYPH_POINT_ON : GLYPH_POINT_CONIC);
+			if (zone != null) {
+				zone.place(i, (int)px, (int)py);
+				zone.unitsX.set(i, xs.get(i));
+				zone.unitsY.set(i, y);
+			}
+			if (i == ends.get(contour)) {
+				outline.closeContour();
+				contour++;
+			}
+		}
+		if (zone != null) { self.applyHints(program, zone, outline, firstPoint, points); }
+	}
+
+	private long long length(long long x, long long y) {
+		if (y == 0LL) { return x < 0LL ? -x : x; }
+		if (x == 0LL) { return y < 0LL ? -y : y; }
+		long long square = x * x + y * y;
+		long long root = 0LL;
+		long long bit = 1LL << 40;
+		while (bit > square) { bit = bit / 4LL; }
+		while (bit != 0LL) {
+			if (square >= root + bit) {
+				square -= root + bit;
+				root = root / 2LL + bit;
+			} else {
+				root = root / 2LL;
+			}
+			bit = bit / 4LL;
+		}
+		return square > root ? root + 1LL : root;
+	}
+
+	private void composite(OpenTypeSpan span, long long scale, GlyphOutline outline, TrueTypeLoad state, int depth) {
+		if (depth >= 8) { throw "Composite glyph nests too deeply"; }
+		int end = span.end();
+		int p = span.offset + 10;
+		int startPoint = outline.pointCount();
+		int startContour = outline.contourCount();
+		bool hasInstructions = false;
+		long long ownLeft = state.left;
+		long long ownRight = state.right;
+		bool more = true;
+		while (more) {
+			if (end - p < 4) { throw "Composite glyph is truncated"; }
+			if (state.componentsLeft < 1) { throw "Composite glyph has too many components"; }
+			state.componentsLeft--;
+			int flags = self.data.u16(p);
+			int component = self.data.u16(p + 2);
+			hasInstructions = hasInstructions || (flags & 256) != 0;
+			p += 4;
+			int size = ((flags & 1) != 0 ? 4 : 2) + ((flags & 8) != 0 ? 2 : ((flags & 64) != 0 ? 4 : ((flags & 128) != 0 ? 8 : 0)));
+			if (end - p < size) { throw "Composite glyph is truncated"; }
+			bool positions = (flags & 2) != 0;
+			long long first = 0LL;
+			long long second = 0LL;
+			if ((flags & 1) != 0) {
+				first = (long long)(positions ? self.data.s16(p) : self.data.u16(p));
+				second = (long long)(positions ? self.data.s16(p + 2) : self.data.u16(p + 2));
+				p += 4;
+			} else {
+				first = (long long)(positions ? self.data.s8(p) : self.data.u8(p));
+				second = (long long)(positions ? self.data.s8(p + 1) : self.data.u8(p + 1));
+				p += 2;
+			}
+			long long xx = 65536LL;
+			long long xy = 0LL;
+			long long yx = 0LL;
+			long long yy = 65536LL;
+			bool scaled = (flags & (8 | 64 | 128)) != 0;
+			if ((flags & 8) != 0) {
+				xx = 4LL * (long long)self.data.s16(p);
+				yy = xx;
+				p += 2;
+			} else if ((flags & 64) != 0) {
+				xx = 4LL * (long long)self.data.s16(p);
+				yy = 4LL * (long long)self.data.s16(p + 2);
+				p += 4;
+			} else if ((flags & 128) != 0) {
+				xx = 4LL * (long long)self.data.s16(p);
+				yx = 4LL * (long long)self.data.s16(p + 2);
+				xy = 4LL * (long long)self.data.s16(p + 4);
+				yy = 4LL * (long long)self.data.s16(p + 6);
+				p += 8;
+			}
+			int base = outline.pointCount();
+			self.loadInto(component, scale, outline, state, depth + 1);
+			if ((flags & 512) == 0) {
+				state.left = ownLeft;
+				state.right = ownRight;
+			} else {
+				ownLeft = state.left;
+				ownRight = state.right;
+			}
+			if (scaled) { outline.transform(base, xx, xy, yx, yy); }
+			long long dx = 0LL;
+			long long dy = 0LL;
+			if (positions) {
+				dx = first;
+				dy = second;
+				if (scaled && (flags & 2048) != 0) {
+					dx = OpenTypeFixed.mul(dx, self.length(xx, xy));
+					dy = OpenTypeFixed.mul(dy, self.length(yy, yx));
+				}
+				dx = OpenTypeFixed.mul(dx, scale);
+				dy = OpenTypeFixed.mul(dy, scale);
+				if (self.hinting != null && (flags & 4) != 0) { dy = OpenTypeFixed.pixelRound(dy); }
+			} else {
+				long long anchor = first + (long long)startPoint;
+				long long moved = second + (long long)base;
+				if (anchor >= (long long)base || moved >= (long long)outline.pointCount()) { throw "Composite glyph matches a point that does not exist"; }
+				dx = (long long)outline.pointX((int)anchor) - (long long)outline.pointX((int)moved);
+				dy = (long long)outline.pointY((int)anchor) - (long long)outline.pointY((int)moved);
+			}
+			if (dx != 0LL || dy != 0LL) { outline.translate(base, dx, dy); }
+			more = (flags & 32) != 0;
+		}
+		if (!hasInstructions || self.hinting == null) { return; }
+		if (end - p < 2) { throw "Composite glyph instructions are truncated"; }
+		int length = self.data.u16(p);
+		p += 2;
+		if (length > end - p) { throw "Composite glyph instructions are truncated"; }
+		if (length == 0) { return; }
+		int count = outline.pointCount() - startPoint;
+		var zone = TrueTypeZone(count + 4);
+		for (int i = 0; i < count; i++) { zone.place(i, outline.pointX(startPoint + i), outline.pointY(startPoint + i)); }
+		for (int i = startContour; i < outline.contourCount(); i++) { zone.ends.push(outline.contourEnd(i) - startPoint); }
+		zone.place(count, (int)OpenTypeFixed.mul(state.left, scale), 0);
+		zone.place(count + 1, (int)OpenTypeFixed.mul(state.right, scale), 0);
+		self.applyHints(OpenTypeSpan(p, length), zone, outline, startPoint, count, true);
+	}
+}

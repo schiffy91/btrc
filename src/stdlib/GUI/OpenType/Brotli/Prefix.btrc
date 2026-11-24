@@ -1,0 +1,156 @@
+import Library.Bytes;
+import Library.Vector;
+
+/* RFC 7932 integers are packed least-significant-bit first. Prefix codes
+ * are consumed a bit at a time, most significant code bit first. */
+class BrotliBits {
+	private Bytes data;
+	private int offset = 0;
+	private unsigned int buffer = 0U;
+	private int available = 0;
+
+	public BrotliBits(Bytes data) { self.data = data; }
+
+	public int read(int width) {
+		while (self.available < width) {
+			if (self.offset >= self.data.length()) { throw "Truncated Brotli stream"; }
+			self.buffer |= (unsigned int)self.data.get(self.offset) << self.available;
+			self.offset++;
+			self.available += 8;
+		}
+		int result = (int)(self.buffer & ((1U << width) - 1U));
+		self.buffer >>= width;
+		self.available -= width;
+		return result;
+	}
+
+	public void align() {
+		if (self.read(self.available) != 0) { throw "Invalid Brotli padding"; }
+	}
+
+	public void end() {
+		self.align();
+		if (self.offset != self.data.length()) { throw "Excess Brotli data"; }
+	}
+
+	public int count() {
+		if (self.read(1) == 0) { return 1; }
+		int width = self.read(3);
+		return 1 + (1 << width) + self.read(width);
+	}
+}
+
+/* A canonical prefix code is at most 15 bits deep. For each length keep
+ * the start of its consecutive code range and its first symbol index. */
+class BrotliPrefix {
+	private int counts[16];
+	private int first[16];
+	private int starts[16];
+	private Vector<int> symbols;
+	private int single = -1;
+
+	public BrotliPrefix(Bytes lengths, bool allowSingle) {
+		self.symbols = [];
+		int used = 0;
+		int only = 0;
+		for (int i = 0; i < lengths.length(); i++) {
+			int length = lengths.get(i);
+			if (length == 0) { continue; }
+			self.counts[length]++;
+			used++;
+			only = i;
+		}
+		if (used == 1 && allowSingle) { self.single = only; return; }
+		int code = 0;
+		int accumulated = 0;
+		for (int length = 1; length <= 15; length++) {
+			code = (code + self.counts[length - 1]) * 2;
+			self.first[length] = code;
+			self.starts[length] = accumulated;
+			accumulated += self.counts[length];
+			for (int i = 0; i < lengths.length(); i++) {
+				if (lengths.get(i) == length) { self.symbols.push(i); }
+			}
+		}
+		if (code + self.counts[15] != 32768) { throw "Invalid Brotli prefix code"; }
+	}
+
+	public int symbol(BrotliBits bits) {
+		if (self.single >= 0) { return self.single; }
+		int code = 0;
+		for (int length = 1; length <= 15; length++) {
+			code = code * 2 + bits.read(1);
+			int index = code - self.first[length];
+			if (index < self.counts[length] && index >= 0) { return self.symbols.get(self.starts[length] + index); }
+		}
+		throw "Invalid Brotli prefix code";
+	}
+
+	class BrotliPrefix read(BrotliBits bits, int alphabet) {
+		int skip = bits.read(2);
+		Bytes lengths = Bytes();
+		lengths.resetZeros(alphabet);
+		if (skip == 1) {
+			int count = 1 + bits.read(2);
+			int width = 0;
+			while ((1 << width) < alphabet) { width++; }
+			Vector<int> values = [];
+			for (int i = 0; i < count; i++) {
+				int value = bits.read(width);
+				if (value >= alphabet || lengths.get(value) != 0) { throw "Invalid simple Brotli symbol"; }
+				lengths.set(value, 1);
+				values.push(value);
+			}
+			if (count >= 3) {
+				bool balanced = count == 4 && bits.read(1) == 0;
+				for (int i = 0; i < count; i++) {
+					int length = balanced ? 2 : (i == 0 ? 1 : (count == 4 && i >= 2 ? 3 : 2));
+					lengths.set(values.get(i), length);
+				}
+			}
+			return BrotliPrefix(lengths, true);
+		}
+		Vector<int> order = [1, 2, 3, 4, 0, 5, 17, 6, 16, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+		Bytes header = Bytes();
+		header.resetZeros(18);
+		int space = 32;
+		for (int i = skip; i < 18 && space > 0; i++) {
+			int pair = bits.read(2);
+			int width = 0;
+			if (pair == 1) { width = 4; }
+			else if (pair == 2) { width = 3; }
+			else if (pair == 3) { width = bits.read(1) == 0 ? 2 : (bits.read(1) == 0 ? 1 : 5); }
+			header.set(order.get(i), width);
+			if (width != 0) { space -= 32 >> width; }
+		}
+		var codes = BrotliPrefix(header, true);
+		int index = 0;
+		int lastNonzero = 8;
+		int previous = -1;
+		int repeat = 0;
+		space = 32768;
+		while (index < alphabet && space > 0) {
+			int code = codes.symbol(bits);
+			int count = 1;
+			int width = code;
+			if (code >= 16) {
+				int extra = code == 16 ? 2 : 3;
+				int old = code == previous ? repeat : 0;
+				repeat = 3 + bits.read(extra);
+				if (old > 0) { repeat += (old - 2) << extra; }
+				count = repeat - old;
+				width = code == 16 ? lastNonzero : 0;
+			}
+			if (count > alphabet - index) { throw "Brotli prefix repetition exceeds alphabet"; }
+			for (int i = 0; i < count; i++) { lengths.set(index + i, width); }
+			if (width != 0) {
+				space -= count * (32768 >> width);
+				lastNonzero = width;
+			}
+			index += count;
+			previous = code;
+		}
+		if (space != 0) { throw "Invalid Brotli prefix lengths"; }
+		return BrotliPrefix(lengths, false);
+	}
+}

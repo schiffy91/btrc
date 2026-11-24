@@ -2,6 +2,7 @@ import Library.Bytes;
 import Library.GUI.IFontFace;
 
 import ./BitmapStrike.btrc;
+import ./SFNTDirectory.btrc;
 import ./OpenTypeCharacterMap.btrc;
 import ./OpenTypeHorizontalMetrics.btrc;
 
@@ -50,42 +51,28 @@ class ColorBitmapFace implements IFontFace {
 	public ColorBitmapFace(Bytes bytes, int pixels) {
 		self.gate.init(0u);
 		var data = OpenTypeData(bytes);
-		int count = data.u16(4);
-		data.need(12LL, (long long)count * 16LL);
-		var head = self.table(data, count, 0x68656164LL, 54);
+		var directory = SFNTDirectory(data);
+		var head = directory.required(0x68656164LL, 54);
 		int units = data.u16(head.offset + 18);
 		if (units < 16 || units > 16384) { throw "Invalid bitmap font units"; }
-		var maxp = self.table(data, count, 0x6d617870LL, 6);
+		var maxp = directory.required(0x6d617870LL, 6);
 		int glyphs = data.u16(maxp.offset + 4);
 		if (glyphs == 0) { throw "Bitmap font has no glyphs"; }
-		var hhea = self.table(data, count, 0x68686561LL, 36);
+		var hhea = directory.required(0x68686561LL, 36);
 		int metrics = data.u16(hhea.offset + 34);
 		if (metrics == 0 || metrics > glyphs) { throw "Invalid bitmap font horizontal metrics"; }
-		var hmtx = self.table(data, count, 0x686d7478LL, metrics * 4 + (glyphs - metrics) * 2);
+		var hmtx = directory.required(0x686d7478LL, metrics * 4 + (glyphs - metrics) * 2);
 		self.horizontal = OpenTypeHorizontalMetrics(data, hmtx, metrics);
 		self.scale = OpenTypeFixed.div((long long)pixels * 64LL, (long long)units);
-		var cmap = self.table(data, count, 0x636d6170LL, 4);
+		var cmap = directory.required(0x636d6170LL, 4);
 		self.characters = OpenTypeCharacterMap(data, cmap, glyphs);
 		if (!self.characters.unambiguousUnicodeMap(cmap)) { throw "No supported bitmap character map"; }
-		var locations = self.table(data, count, 0x43424c43LL, 8);
-		var images = self.table(data, count, 0x43424454LL, 4);
+		var locations = directory.required(0x43424c43LL, 8);
+		var images = directory.required(0x43424454LL, 4);
 		var strike = BitmapStrike.select(data, locations, images, pixels);
 		if (strike == null) { throw "No supported color bitmap strike at the requested size"; }
 		self.strike = strike;
 		self.lineMetrics = new FontMetrics((long long)strike.ascender * 64LL, (long long)strike.height * 64LL);
-	}
-
-	private OpenTypeSpan table(OpenTypeData data, int count, long long tag, int minimum) {
-		for (int i = 0; i < count; i++) {
-			int at = 12 + i * 16;
-			if (data.u32(at) != tag) { continue; }
-			long long offset = data.u32(at + 8);
-			long long length = data.u32(at + 12);
-			data.need(offset, length);
-			if (length < (long long)minimum) { throw "Truncated bitmap font table"; }
-			return OpenTypeSpan((int)offset, (int)length);
-		}
-		throw "Missing bitmap font table";
 	}
 
 	public FontMetrics metrics() { return self.lineMetrics; }
