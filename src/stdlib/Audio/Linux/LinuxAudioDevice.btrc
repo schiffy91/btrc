@@ -11,8 +11,6 @@
  * one control thread; the provider outlives them.
  */
 
-import ./KernelRate.btrc;
-import ./PulseStream.btrc;
 import Library.IO;
 import Library.Audio.AudioDevice;
 import Library.Audio.RealtimeAudio;
@@ -23,6 +21,9 @@ import Library.Math;
 import Library.OwnedBuffer;
 import Library.Strings;
 import Library.Vector;
+
+import ./KernelRate.btrc;
+import ./PulseStream.btrc;
 
 AudioDeviceStatus alsaStatus(int error) {
 	if (error >= 0) { return AUDIO_DEVICE_OK; }
@@ -90,6 +91,23 @@ class AlsaHardwareDevice {
 	public AudioDeviceDescriptor descriptor(bool defaultInput, bool defaultOutput) { return AudioDeviceDescriptor(self._name, self._description, self._inputChannels, self._outputChannels, defaultInput && self._inputChannels > 0, defaultOutput && self._outputChannels > 0, self._capability); }
 
 	/* Open one direction to read what the PCM can do; null when it cannot open. */
+	class AlsaProbe? probeJack(bool capture) {
+		void* handle = null;
+		if (btrcJackOpen(capture ? 1 : 0, &handle) < 0) { return null; }
+		int channels = 0; int rateMin = 0; int rateMax = 0; int periodMin = 0; int periodMax = 0;
+		int result = btrcJackProbe(handle, &channels, &rateMin, &rateMax, &periodMin, &periodMax);
+		btrcJackClose(handle);
+		return result < 0 ? null : AlsaProbe(channels, rateMin, rateMax, periodMin, periodMax);
+	}
+
+	class AlsaHardwareDevice? describeJack() {
+		var input = AlsaHardwareDevice.probeJack(true);
+		var output = AlsaHardwareDevice.probeJack(false);
+		var reference = output == null ? input : output;
+		if (reference == null) { return null; }
+		return AlsaHardwareDevice("jack", "JACK Audio Connection Kit", "jack", "jack", input == null ? 0 : input.channels, output == null ? 0 : output.channels, reference.capability());
+	}
+
 	class AlsaProbe? probe(string path) {
 		int descriptor = KernelPcm.openPath(path);
 		if (descriptor < 0) { return null; }
@@ -205,7 +223,8 @@ class AlsaHardwareInventory {
 		pcms.close();
 		struct PulseDeviceSpec serverInput = {}; struct PulseDeviceSpec serverOutput = {};
 		bool pipewire = false;
-		if (PulseClient.inventory(&serverInput, &serverOutput, &pipewire) == 0 && (serverInput.channels > 0 || serverOutput.channels > 0)) {
+		var routes = PulseJackRoutes();
+		if (PulseClient.inventory(&serverInput, &serverOutput, &pipewire, routes) == 0 && (serverInput.channels > 0 || serverOutput.channels > 0)) {
 			Vector<AudioSampleRateRange> ranges = [];
 			ranges.push(AudioSampleRateRange(8000, 768000));
 			var capabilities = AudioStreamCapability.available(ranges, serverOutput.rate > 0 ? serverOutput.rate : serverInput.rate, 1, 65536, 256);
@@ -213,6 +232,19 @@ class AlsaHardwareInventory {
 			devices.push(server); devices.push(server.named("default"));
 			if (pipewire) { devices.push(server.named("pipewire")); }
 		} else if (firstInput != null || firstOutput != null) { devices.push(AlsaHardwareDevice.fallback(firstInput, firstOutput)); }
+		var jack = held.contains("jack") ? self.find("jack") : null;
+		if (jack == null && (routes.sink.isEmpty() || routes.source.isEmpty()) && btrcJackAdvertised() != 0) { jack = AlsaHardwareDevice.describeJack(); }
+		if (!routes.sink.isEmpty() || !routes.source.isEmpty()) {
+			Vector<AudioSampleRateRange> rates = [];
+			rates.push(AudioSampleRateRange(8000, 768000));
+			var capabilities = AudioStreamCapability.available(rates, routes.rate, 16, 8192, 256);
+			string inputPath = routes.source.isEmpty() ? "jack" : "pulse:" + routes.source;
+			string outputPath = routes.sink.isEmpty() ? "jack" : "pulse:" + routes.sink;
+			int inputs = routes.source.isEmpty() && jack != null ? jack.inputChannels() : routes.inputChannels;
+			int outputs = routes.sink.isEmpty() && jack != null ? jack.outputChannels() : routes.outputChannels;
+			jack = AlsaHardwareDevice("jack", "JACK Audio Connection Kit", inputPath, outputPath, inputs, outputs, capabilities);
+		}
+		if (jack != null) { devices.push(jack); }
 		if (devices.isEmpty()) { return AudioDeviceInventoryOutcome.failed(AUDIO_DEVICE_UNAVAILABLE, "no ALSA PCM device could be opened"); }
 		string defaultName = "";
 		for device in devices { if (device.name() == "default") { defaultName = "default"; } }
@@ -247,47 +279,66 @@ struct LinuxPcmStream {
 	int descriptor;
 	int format;
 	int channels;
+	void* jack;
 	struct PulseStreamState pulse;
 	struct KernelRateState* rate;
 };
 
 class LinuxAudioPcm {
 	class int wait(struct LinuxPcmStream* pcm, int timeout) {
+		if (pcm->jack != null) { return btrcJackWait(pcm->jack, timeout); }
 		if (pcm->rate != null) { return 1; }
 		return pcm->server ? PulseStream.wait(&pcm->pulse, timeout) : KernelPcm.wait(pcm->descriptor, pcm->capture, timeout);
 	}
+
 	class long transfer(struct LinuxPcmStream* pcm, float* samples, int frames, Atomic<uint>* stopping) {
+		if (pcm->jack != null) { return btrcJackTransfer(pcm->jack, pcm->capture ? 1 : 0, samples, frames); }
 		if (pcm->rate != null) { return pcm->capture ? KernelRate.readFrames(pcm->rate, samples, frames, stopping) : KernelRate.writeFrames(pcm->rate, samples, frames, stopping); }
 		return pcm->server ? PulseStream.transfer(&pcm->pulse, samples, frames) : KernelPcm.transfer(pcm->descriptor, pcm->capture, pcm->format, pcm->channels, samples, frames);
 	}
+
 	class int recover(struct LinuxPcmStream* pcm, int error) {
+		if (pcm->jack != null) { return btrcJackRecover(pcm->jack, error); }
 		if (pcm->server) { return error == -EPIPE || error == -EINTR || error == -EAGAIN ? 0 : error; }
 		if (pcm->rate != null && (error == -EPIPE || error == -ESTRPIPE)) { KernelRate.reset(pcm->rate); }
 		return KernelPcm.recover(pcm->descriptor, error);
 	}
+
 	class bool takeDiscontinuity(struct LinuxPcmStream* pcm) {
 		if (!pcm->server || !pcm->pulse.discontinuity) { return false; }
 		pcm->pulse.discontinuity = false;
 		return true;
 	}
+
 	class int startIfPrepared(struct LinuxPcmStream* pcm) {
+		if (pcm->jack != null) { return btrcJackStartIfPrepared(pcm->jack); }
 		return pcm->server ? PulseStream.cork(&pcm->pulse, false) : KernelPcm.startIfPrepared(pcm->descriptor);
 	}
+
 	class int start(struct LinuxPcmStream* pcm) {
+		if (pcm->jack != null) { return btrcJackStart(pcm->jack); }
 		return pcm->server ? PulseStream.cork(&pcm->pulse, false) : KernelPcm.start(pcm->descriptor);
 	}
+
 	class int prepare(struct LinuxPcmStream* pcm) {
+		if (pcm->jack != null) { return btrcJackPrepare(pcm->jack); }
 		if (pcm->server) { return 0; }
 		return KernelPcm.prepare(pcm->descriptor);
 	}
+
 	class int drop(struct LinuxPcmStream* pcm) {
+		if (pcm->jack != null) { return btrcJackDrop(pcm->jack); }
 		return pcm->server ? PulseStream.stop(&pcm->pulse) : KernelPcm.drop(pcm->descriptor);
 	}
+
 	class bool needsDrop(struct LinuxPcmStream* pcm) {
+		if (pcm->jack != null) { return btrcJackNeedsDrop(pcm->jack) != 0; }
 		if (pcm->server) { return !pcm->pulse.broken && !pcm->pulse.corked; }
 		return KernelPcm.needsDrop(pcm->descriptor);
 	}
+
 	class int close(struct LinuxPcmStream* pcm) {
+		if (pcm->jack != null) { return btrcJackClose(pcm->jack); }
 		return pcm->server ? PulseStream.closeStream(&pcm->pulse) : KernelPcm.closeDescriptor(pcm->descriptor);
 	}
 }
@@ -366,12 +417,24 @@ class AlsaStream implements IAudioSessionBackend, INativeWorkerBody {
 
 	/* At least `channels`, the nearest count above when the device fixes a larger one. */
 	private AudioDeviceStatus openPcm(struct LinuxPcmStream* pcm, AlsaHardwareDevice device, bool capture, int channels, int rate, int periodFrames) {
-		if (device.path(capture) == "pulse") {
+		if (device.path(capture) == "jack") {
+			void* handle = null;
+			int error = btrcJackOpen(capture ? 1 : 0, &handle);
+			if (error < 0) { return alsaStatus(error); }
+			pcm->jack = handle; pcm->capture = capture; pcm->opened = true;
+			int actual = 0;
+			error = btrcJackConfigure(handle, channels, rate, periodFrames, &actual);
+			if (error >= 0) { pcm->channels = actual; }
+			return alsaStatus(error);
+		}
+		string path = device.path(capture);
+		if (path == "pulse" || path.startsWith("pulse:")) {
+			string target = path == "pulse" ? "" : path.substring(6, path.len() - 6);
 			int capacity = PulseStream.capacity(channels, periodFrames);
 			if (capacity == 0) { return AUDIO_DEVICE_UNSUPPORTED_FORMAT; }
 			var storage = new OwnedBuffer<unsigned char>((size_t)capacity * (size_t)(capture ? 2 : 1));
 			if (!storage.opened()) { return AUDIO_DEVICE_FAILED; }
-			int error = PulseStream.open(&pcm->pulse, capture, channels, rate, periodFrames, storage.borrow(), capacity);
+			int error = PulseStream.open(&pcm->pulse, capture, target, channels, rate, periodFrames, storage.borrow(), capacity);
 			if (error < 0) { return alsaStatus(error); }
 			if (capture) { self._inputPulse = storage; } else { self._outputPulse = storage; }
 			pcm->server = true; pcm->opened = true; pcm->capture = capture; pcm->channels = channels;

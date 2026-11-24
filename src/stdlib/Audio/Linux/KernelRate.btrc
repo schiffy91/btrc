@@ -1,5 +1,6 @@
-import ./KernelPcm.btrc;
 import Library.OwnedBuffer;
+
+import ./KernelPcm.btrc;
 
 /* Rational phase accumulation: every source frame advances exactly outputRate
  * units. A phase crossing emits one destination frame, with no rounded block

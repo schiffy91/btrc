@@ -1,5 +1,6 @@
-import ./PulseClient.btrc;
 import Library.Timer;
+
+import ./PulseClient.btrc;
 
 /* Each direction owns its own connection and negotiated channel. The worker
  * borrows the preallocated packet buffer and capture ring for its lifetime. */
@@ -28,7 +29,7 @@ class PulseStream {
 		return size < 65536 ? 65536 : size;
 	}
 
-	class int open(struct PulseStreamState* stream, bool capture, int channels, int rate, int frames, unsigned char* storage, int capacity) {
+	class int open(struct PulseStreamState* stream, bool capture, string target, int channels, int rate, int frames, unsigned char* storage, int capacity) {
 		long long deadline = MonotonicClock.deadlineAfter(1500LL);
 		int fd = PulseClient.connectServer(storage, capacity, deadline);
 		if (fd < 0) { return fd; }
@@ -39,7 +40,8 @@ class PulseStream {
 		struct PulseCursor message = {};
 		PulseClient.begin(&message, storage, capacity, capture ? 5u : 3u, 7u);
 		PulseWire.spec(&message, channels, rate); PulseWire.channelMap(&message, channels);
-		PulseWire.u32(&message, 0xffffffffu); PulseWire.byte(&message, 'N');
+		PulseWire.u32(&message, 0xffffffffu);
+		if (target.isEmpty()) { PulseWire.byte(&message, 'N'); } else { PulseWire.stringValue(&message, target); }
 		uint period = (uint)stream->periodBytes;
 		PulseWire.u32(&message, period * 4u); PulseWire.boolean(&message, true);
 		if (capture) { PulseWire.u32(&message, period); }

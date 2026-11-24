@@ -89,17 +89,21 @@ def test_linux_audio_session(tmp_path, request, frontend, sanitized):
         ROOT / "src/tests/native/audio/linux/LinuxAudioSession.btrc", tmp_path, frontend, sanitized, request
     )
     assert DependencyAudit().binary_problems(executable, TARGET) == []
-    with PulseTestServer(tmp_path) as server:
-        result = subprocess.run(
-            [str(executable)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=provider_environment(sanitized, **server.environment),
-        )
-        assert result.returncode == 0, result.stderr
-        assert "PASS: linux audio session" in result.stdout
-        assert len(server.playback) > 100 and all(len(block) == 1024 for block in server.playback)
+    for hosted in (False, True):
+        directory = tmp_path / ("jack" if hosted else "pulse")
+        directory.mkdir()
+        extra = {"BTRC_TEST_AUDIO_JACK": "1"} if hosted else {}
+        with PulseTestServer(directory, hosted_jack=hosted) as server:
+            result = subprocess.run(
+                [str(executable)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=provider_environment(sanitized, **server.environment, **extra),
+            )
+            assert result.returncode == 0, result.stderr
+            assert "PASS: linux audio session" in result.stdout
+            assert len(server.playback) > 100 and all(len(block) == 1024 for block in server.playback)
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])

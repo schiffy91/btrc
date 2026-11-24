@@ -47,7 +47,11 @@ module = "Linux.LinuxAudioDevice"
 header = "Linux/AudioWorker.h"
 language = "c"
 standard = "c11"
-symbols = ["btrcAlsaHostNanoseconds", "btrcAlsaRealtimePriority"]
+symbols = [
+	"btrcAlsaHostNanoseconds", "btrcAlsaRealtimePriority", "btrcJackAdvertised", "btrcJackOpen",
+	"btrcJackClose", "btrcJackProbe", "btrcJackConfigure", "btrcJackWait", "btrcJackPrepare",
+	"btrcJackStart", "btrcJackDrop", "btrcJackRecover", "btrcJackStartIfPrepared", "btrcJackNeedsDrop", "btrcJackTransfer"
+]
 os = ["linux"]
 
 [[native.bindings]]

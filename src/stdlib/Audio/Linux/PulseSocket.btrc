@@ -1,7 +1,8 @@
-import ./PulseWire.btrc;
 import Library.IO;
 import Library.Strings;
 import Library.Timer;
+
+import ./PulseWire.btrc;
 
 /* One full-duplex native socket for a stream or an inventory operation.
  * All nonblocking retries share the caller's monotonic deadline. */

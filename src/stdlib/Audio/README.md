@@ -91,9 +91,11 @@ server identifies itself as PipeWire. It reads the server address from
 `PULSE_COOKIE` or the user configuration directory, and reads channel counts
 and rates for the default sink and source. Without a reachable sound server,
 `default` selects the first available kernel capture and playback devices.
-Applications that previously selected `jack` through an alsa-lib plugin on a
-JACK-only desktop need a compatible backend. This workstream keeps that
-compatibility decision open.
+If the desktop server exposes JACK sinks or sources with `device.api=jack`,
+selecting `jack` targets those named ports independently of the default sink
+and source. On JACK-only desktops, the compatibility path loads the installed
+`libasound.so.2` and opens its advertised `jack` PCM. That existing fallback
+remains pending in the dependency ledger.
 
 Each session runs one worker, with a bounded wait for each device. Kernel
 xruns prepare the device again. A suspended kernel PCM resumes when the

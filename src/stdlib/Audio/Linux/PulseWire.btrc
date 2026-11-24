@@ -19,9 +19,7 @@ class PulseWire {
 		if (PulseWire.room(cursor, 1)) { cursor->data[cursor->at++] = (unsigned char)value; }
 	}
 
-	class int next(struct PulseCursor* cursor) {
-		return PulseWire.room(cursor, 1) ? (int)cursor->data[cursor->at++] : 0;
-	}
+	class int next(struct PulseCursor* cursor) { return PulseWire.room(cursor, 1) ? (int)cursor->data[cursor->at++] : 0; }
 
 	class void raw32(struct PulseCursor* cursor, uint value) {
 		for (int shift = 24; shift >= 0; shift -= 8) { PulseWire.byte(cursor, (int)((value >> shift) & 255u)); }
@@ -39,7 +37,9 @@ class PulseWire {
 	}
 
 	class void u32(struct PulseCursor* cursor, uint value) { PulseWire.byte(cursor, 'L'); PulseWire.raw32(cursor, value); }
+
 	class uint take32(struct PulseCursor* cursor) { return PulseWire.tag(cursor, 'L') ? PulseWire.read32(cursor) : 0u; }
+
 	class void boolean(struct PulseCursor* cursor, bool value) { PulseWire.byte(cursor, value ? '1' : '0'); }
 
 	class void bytes(struct PulseCursor* cursor, const unsigned char* data, int length) {
@@ -84,13 +84,21 @@ class PulseWire {
 		return start < 0 ? "" : Strings.copy((char*)(cursor->data + start));
 	}
 
-	class void skipProperties(struct PulseCursor* cursor) {
-		if (!PulseWire.tag(cursor, 'P')) { return; }
-		while (PulseWire.stringStart(cursor) >= 0) {
+	/* JACK bridge modules publish device.api=jack on both sinks and sources. */
+	class bool jackProperties(struct PulseCursor* cursor) {
+		if (!PulseWire.tag(cursor, 'P')) { return false; }
+		bool jack = false;
+		int key = PulseWire.stringStart(cursor);
+		while (key >= 0) {
+			bool deviceApi = cursor->at - key == 11 && memcmp(cursor->data + key, "device.api", (size_t)11) == 0;
 			uint declared = PulseWire.take32(cursor);
-			if (!PulseWire.tag(cursor, 'x') || declared != PulseWire.read32(cursor) || declared > (uint)INT_MAX) { cursor->failed = true; return; }
+			if (!PulseWire.tag(cursor, 'x') || declared != PulseWire.read32(cursor) || declared > (uint)INT_MAX) { cursor->failed = true; return false; }
+			if (!PulseWire.room(cursor, (int)declared)) { return false; }
+			if (deviceApi && declared == 5u && memcmp(cursor->data + cursor->at, "jack", (size_t)5) == 0) { jack = true; }
 			PulseWire.skip(cursor, (int)declared);
+			key = PulseWire.stringStart(cursor);
 		}
+		return !cursor->failed && jack;
 	}
 
 	class void spec(struct PulseCursor* cursor, int channels, int rate) {
@@ -128,6 +136,7 @@ class PulseWire {
 	}
 
 	class void usec(struct PulseCursor* cursor) { if (PulseWire.tag(cursor, 'U')) { PulseWire.skip(cursor, 8); } }
+
 	class void takeBoolean(struct PulseCursor* cursor) {
 		int tag = PulseWire.next(cursor);
 		if (tag != '0' && tag != '1') { cursor->failed = true; }

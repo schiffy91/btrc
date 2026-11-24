@@ -196,6 +196,7 @@ programs = ["dbus-launch"]
 name = "alsa-lib"
 pkg-config = ["alsa"]
 headers = ["alsa/*"]
+loads = ["libasound.so*"]
 binaries = ["libasound.so*"]
 
 [[dependencies]]

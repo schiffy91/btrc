@@ -108,10 +108,15 @@ class KernelPcm {
 	}
 
 	class int closeDescriptor(int descriptor) { return close(descriptor) != 0 ? -errno : 0; }
+
 	class int prepare(int descriptor) { return btrcPcmPrepare(descriptor); }
+
 	class int start(int descriptor) { return btrcPcmStart(descriptor); }
+
 	class int drop(int descriptor) { return btrcPcmDrop(descriptor); }
+
 	class int wait(int descriptor, bool capture, int timeout) { return btrcPcmPoll(descriptor, capture ? 1 : 0, timeout); }
+
 	class bool needsDrop(int descriptor) {
 		int state = btrcPcmState(descriptor);
 		return state == BTRC_PCM_PREPARED || state == BTRC_PCM_RUNNING || state == BTRC_PCM_XRUN || state == BTRC_PCM_DRAINING || state == BTRC_PCM_PAUSED;

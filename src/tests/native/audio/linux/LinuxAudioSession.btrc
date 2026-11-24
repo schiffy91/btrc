@@ -37,6 +37,11 @@ int main() {
 	assert(output != null);
 	assert(output.streamCapability().isKnown());
 	var input = inventory.defaultInput();
+	if (getenv("BTRC_TEST_AUDIO_JACK") != null) {
+		assert(output.id() == "default");
+		input = inventory.find("jack"); output = inventory.find("jack");
+		assert(input != null && output != null);
+	}
 	struct BlockLog state = {0ULL, 0ULL, 0ULL, 0, 0, 128, 0};
 	var program = RealtimeAudioProgram(logProcess, &state);
 	var stream = AudioStreamRequest(48000, 128);

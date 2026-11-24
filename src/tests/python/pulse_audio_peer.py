@@ -36,7 +36,8 @@ def volume(channels: int) -> bytes:
     return b"v" + bytes([channels]) + struct.pack(">I", 65536) * channels
 
 
-def device(name: str) -> bytes:
+def device(name: str, jack: bool = False) -> bytes:
+    properties = b"P" + (string("device.api") + u32(5) + b"x\0\0\0\5jack\0" if jack else b"") + b"N"
     return (
         u32(1)
         + string(name)
@@ -52,7 +53,7 @@ def device(name: str) -> bytes:
         + bytes(8)
         + string("clock")
         + u32(0)
-        + b"PN"
+        + properties
         + b"U"
         + bytes(8)
     )
@@ -93,7 +94,9 @@ class PulseTestPeer(socketserver.StreamRequestHandler):
         self.rate = struct.unpack(">I", args.take(4))[0]
         assert args.take(2) == b"m" + bytes([self.channels])
         args.take(self.channels)
-        assert args.number() == CONTROL and args.take(1) == b"N"
+        assert args.number() == CONTROL
+        expected = string("hosted-in" if capture else "hosted-out") if self.server.hosted_jack else b"N"
+        assert args.take(len(expected)) == expected
         maximum = args.number()
         assert args.take(1) == b"1"
         if capture:
@@ -152,7 +155,10 @@ class PulseTestPeer(socketserver.StreamRequestHandler):
                 + u32(1),
             )
         elif op in (22, 24):
-            self.reply(tag, device("sink" if op == 22 else "source"))
+            listing = device("sink" if op == 22 else "source")
+            if self.server.hosted_jack:
+                listing += device("hosted-out" if op == 22 else "hosted-in", jack=True)
+            self.reply(tag, listing)
         elif op in (3, 5):
             self.create(tag, args, op == 5)
         elif op in (41, 58):
@@ -226,7 +232,8 @@ class PulseTestPeer(socketserver.StreamRequestHandler):
 class PulseTestServer(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
 
-    def __init__(self, directory: Path, fault: str = ""):
+    def __init__(self, directory: Path, fault: str = "", hosted_jack: bool = False):
+        self.hosted_jack = hosted_jack
         self.fault = fault
         self.cookie = os.urandom(256)
         self.playback = []
