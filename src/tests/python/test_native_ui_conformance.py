@@ -158,8 +158,9 @@ def test_wayland_window_and_subtree_capture_without_gpu(programs, request, front
             "-o",
             guard,
         ],
-        input="#include <webgpu.h>\n#include <stdlib.h>\n"
-        "WGPUInstance wgpuCreateInstance(WGPUInstanceDescriptor const *desc) { (void)desc; abort(); }\n",
+        input="#include <webgpu.h>\n#include <stdio.h>\n#include <stdlib.h>\n"
+        "WGPUInstance wgpuCreateInstance(WGPUInstanceDescriptor const *desc) {"
+        ' (void)desc; fputs("GPU allocation intercepted\\n", stderr); _Exit(91); }\n',
         text=True,
         check=True,
     )
@@ -168,6 +169,10 @@ def test_wayland_window_and_subtree_capture_without_gpu(programs, request, front
         result = programs.run(request, frontend, False, case, LD_PRELOAD=preload, GSK_RENDERER="cairo")
         assert result.returncode == 0, result.stdout + result.stderr
         assert result.stdout.splitlines()[-2:] == [f"CASE {case} PASS", "CONFORMANCE ran=1 failed=0"]
+    requested = programs.run(request, frontend, False, "gpu.frame", LD_PRELOAD=preload, GSK_RENDERER="cairo")
+    assert requested.returncode == 91 and "GPU allocation intercepted" in requested.stderr, (
+        requested.stdout + requested.stderr
+    )
 
 
 @pytest.mark.linux_gui
