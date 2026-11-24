@@ -39,7 +39,7 @@ import Library.GUI.Shim.ShimSlider;
 import Library.GUI.Shim.ShimImageView;
 import Library.GUI.Shim.ShimIndicators;
 import Library.GUI.Shim.ShimGPUView;
-import Library.GUI.Shim.ShimDirectoryPicker;
+import Library.GUI.Shim.DialogPump;
 
 /* The public attachment retains the work result. Its scope registration owns
  * physical detach, so a drained work failure does not strand the owning scope. */

@@ -1,0 +1,7 @@
+/* Desktop modal dialogs service the application's UI thread and close when
+ * that application quits. Entering a modal during native dispatch is invalid. */
+interface IShimDialogPump {
+	bool isDispatching();
+	bool quitRequested();
+	void pumpOnce(int timeoutMilliseconds);
+}

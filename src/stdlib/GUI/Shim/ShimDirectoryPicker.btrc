@@ -2,25 +2,30 @@ import Library.App;
 import Library.Strings;
 import Library.GUI.IDirectoryPicker;
 import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.ShimWindow;
+import Library.GUI.Shim.DialogPump;
 
-/* The desktop's folder chooser through GTK's file dialog (the portal where there is one).
- * The application pumps events until the dialog answers, like a modal, so a
- * picker cannot open from inside native event dispatch. */
-interface IShimDialogPump {
-	bool isDispatching();
-	void pumpOnce(int timeoutMilliseconds);
-}
-
+/* The toolkit picker remains available when the Linux desktop has no portal
+ * supporting directory requests. Keep the window object alive across portal
+ * startup: by the time fallback is needed a queued event may have closed it. */
 class ShimDirectoryPicker implements IDirectoryPicker {
-	private BtrcShimWindow* _parent;
+	private ShimWindow? _parent;
 	private IShimDialogPump _pump;
 
-	public ShimDirectoryPicker(BtrcShimWindow* parent, IShimDialogPump pump) { self._parent = parent; self._pump = pump; }
+	public ShimDirectoryPicker(ShimWindow? parent, IShimDialogPump pump) { self._parent = parent; self._pump = pump; }
+
+	class DirectoryPickerOutcome modal(ShimWindow? parent, IShimDialogPump pump, DirectoryPickerRequest request) {
+		if (request == null || !request.isValid()) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request")); }
+		if (pump.isDispatching()) { throw "Native event dispatch is already active"; }
+		return DirectoryPickerProvider.choose(parent, pump, request, ShimDirectoryPicker(parent, pump));
+	}
 
 	public DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) {
 		if (request == null || !request.isValid()) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request")); }
 		if (self._pump.isDispatching()) { throw "Native event dispatch is already active"; }
-		var dialog = btrcShimFolderDialogOpen(self._parent, request.initialDirectory, request.title);
+		var parent = self._parent;
+		if (parent != null && !parent.isOpen()) { return DirectoryPickerOutcome.cancelled(); }
+		var dialog = btrcShimFolderDialogOpen(parent == null ? null : parent.nativeWindow(), request.initialDirectory, request.title);
 		if (dialog == null) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, "directory picker is unavailable")); }
 		DirectoryPickerOutcome outcome = DirectoryPickerOutcome.cancelled();
 		try {

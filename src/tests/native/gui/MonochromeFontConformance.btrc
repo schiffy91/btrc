@@ -5,14 +5,15 @@ import Library.GUI.IFontFace;
 /* The nine-column P checks packed-pixel order across a byte boundary.
  * Its missing code point resolves to the typeface's own default glyph. */
 int main(int argc, char** argv) {
-	if (argc != 2) { return 2; }
+	if (argc != 3) { return 2; }
+	bool bdf = strcmp(argv[2], "bdf") == 0;
 	var face = FreeType.load(argv[1], 8);
 	if (face.metrics().ascenderFixed() != 384LL || face.metrics().heightFixed() != 512LL) { return 3; }
 	for (int code = 80; code <= 81; code++) {
 		var measurement = face.glyph(code, false);
 		var glyph = face.glyph(code, true);
 		if (measurement == null || glyph == null || measurement.advanceFixed() != 384LL || measurement.width() != 0 || glyph.advanceFixed() != 384LL) { return 4; }
-		if (glyph.bitmapLeft() != -1 || glyph.bitmapTop() != 2 || glyph.width() != 9 || glyph.rows() != 3 || glyph.pitch() != 4 || glyph.pixelMode() != FONT_PIXEL_MONO || glyph.numGrays() != 1) { return 5; }
+		if (glyph.bitmapLeft() != -1 || glyph.bitmapTop() != 2 || glyph.width() != 9 || glyph.rows() != 3 || glyph.pitch() != (bdf ? 2 : 4) || glyph.pixelMode() != FONT_PIXEL_MONO || glyph.numGrays() != (bdf ? 0 : 1)) { return 5; }
 		for (int y = 0; y < 3; y++) {
 			for (int x = 0; x < 9; x++) {
 				int expected = y != 1 || x == 0 || x == 8 ? 255 : 0;
@@ -23,6 +24,6 @@ int main(int argc, char** argv) {
 	bool refused = false;
 	try { FreeType.load(argv[1], 9); } catch (string error) { refused = true; }
 	if (!refused) { return 7; }
-	print("PASS: PCF metrics, default glyph and packed pixels");
+	print("PASS: monochrome strike metrics, default glyph and packed pixels");
 	return 0;
 }
