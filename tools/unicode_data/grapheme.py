@@ -4,7 +4,7 @@ import argparse
 from itertools import groupby
 from pathlib import Path
 
-from tools.unicode_data.bidi import SOURCE, VERSION, interval, records
+from tools.unicode_data.properties import SOURCE, VERSION, interval, records
 
 OUTPUT = Path(__file__).resolve().parents[2] / "src/stdlib/GUI/Text/GraphemeData.h"
 BREAKS = (
