@@ -59,9 +59,14 @@ class RoutingPeer(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def test_public_http_proxy_bypass_and_resolver_deadline(compiler, request, tmp_path):
+def test_public_http_proxy_bypass_and_resolver_deadline(compiler, request, tmp_path, monkeypatch):
     if sys.platform not in {"linux", "darwin"}:
         pytest.skip("requires the desktop BSD socket HTTP provider")
+    # Build with no pkg-config modules, including libcurl and its resolver.
+    modules = tmp_path / "pkgconfig"
+    modules.mkdir()
+    monkeypatch.setenv("PKG_CONFIG_LIBDIR", str(modules))
+    monkeypatch.delenv("PKG_CONFIG_PATH", raising=False)
     source = tmp_path / "RouteProbe.btrc"
     source.write_text(PROBE)
     frontend = (
