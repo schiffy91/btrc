@@ -499,6 +499,16 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
     for suffix in ("otf", "raw"):
         visible_edge = run(suffix, "edge", env, long_edge)
         assert visible_edge.returncode == 0, visible_edge.stdout + visible_edge.stderr
+    # A 61 by 90 unit rectangle starting at x=10 has fractional grayscale
+    # coverage with both explicit vertical stem operators.
+    vertical_faces = []
+    for operator in (3, 23):
+        stem = bytes.fromhex("f95095c8") + bytes([operator]) + bytes.fromhex("9516c88b8be54e8b050e")
+        vertical_face = data[:at] + stem.ljust(len(curve), b"\x0e") + data[at + len(curve) :]
+        vertical_faces.append(vertical_face)
+        for suffix in ("otf", "raw"):
+            visible_vertical = run(suffix, "vertical", env, vertical_face)
+            assert visible_vertical.returncode == 0, visible_vertical.stdout + visible_vertical.stderr
     visible_hint = run("otf", "hint", env, hinted)
     assert visible_hint.returncode == 0, visible_hint.stdout + visible_hint.stderr
     fallback = run("otf", "render", env, unusual)
@@ -509,6 +519,9 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
         assert rejected.returncode != 0 and "Cannot initialize FreeType library" in rejected.stderr
         measured = run("otf", "measure", blocked)
         assert measured.returncode == 0, measured.stdout + measured.stderr
+        for vertical_face in vertical_faces:
+            portable_vertical = run("otf", "vertical", blocked, vertical_face)
+            assert portable_vertical.returncode == 0, portable_vertical.stdout + portable_vertical.stderr
         portable_curve = run("otf", "render", blocked)
         assert portable_curve.returncode == 0, portable_curve.stdout + portable_curve.stderr
         portable_edge = run("otf", "edge", blocked, long_edge)
