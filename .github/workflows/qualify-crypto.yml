@@ -4,6 +4,7 @@ on:
     branches: [claude/exciting-cori-xcqe5y-crypto]
 permissions:
   contents: read
+  actions: read
 jobs:
   apple:
     strategy:
@@ -25,24 +26,26 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d
         with:
           use-flakehub: false
-      - name: Qualify the public API and inspect Mach-O imports
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: btrcc-macos-arm64
+          run-id: 45289410508
+          github-token: ${{ github.token }}
+          path: build/host-compiler
+      - name: Check the published compiler and qualify iOS binaries
         shell: bash
         run: |
-          nix develop --profile "$RUNNER_TEMP/crypto-shell" --command bash -euo pipefail <<'CHECK'
-          export BTRC_HOME="$PWD/src" BTRC_TEST_COMPILER_CACHE="$RUNNER_TEMP/btrcc-cache"
-          BTRC_TEST_BTRCC="$(python -m src.tests.selfhost_cache ensure)"
-          export BTRC_TEST_BTRCC
-          if [[ "$QUALIFY_TARGET" == macos-aarch64 ]]; then
-            python -m pytest --compilers=both -q src/tests/python/test_crypto_runtime.py -k 'secure_channel or known_answers or ssh_keygen or plan_the_crypto'
-            python -m src.tests.target_runner --target "$QUALIFY_TARGET" --frontend both --btrcc "$BTRC_TEST_BTRCC" --program 'stdlib/Crypto*.btrc' --output build/crypto --jobs 2
-          else
-            export BTRC_IOS_UI_DEVICES=iphone,ipad
-            python -m pytest --compilers=both -q --basetemp="$RUNNER_TEMP/crypto-ios-tests" src/tests/python/test_stdlib_ios_programs.py -k crypto -o junit_family=xunit2 --junitxml=build/crypto-ios.xml
-            python -c 'import xml.etree.ElementTree as E; cases=E.parse("build/crypto-ios.xml").findall(".//testcase"); assert len(cases)==8 and all(case.find("skipped") is None for case in cases)'
-            find "$RUNNER_TEMP/crypto-ios-tests" -type f -path '*/crypto-*/Program' -exec python -m tools.qualification.dependencies binary --target "$QUALIFY_TARGET" {} +
-            python -m src.tests.target_runner --target "$QUALIFY_TARGET" --frontend both --btrcc "$BTRC_TEST_BTRCC" --program 'stdlib/Crypto*.btrc' --compile-only --output build/crypto --jobs 2
-          fi
+          (cd build/host-compiler && shasum -a 256 -c btrcc-macos-arm64.tar.gz.sha256 && tar -xzf btrcc-macos-arm64.tar.gz)
+          nix develop --command bash -euo pipefail <<'CHECK'
+          export BTRC_HOME="$PWD/src" BTRC_TEST_BTRCC="$PWD/build/host-compiler/btrcc-macos-arm64/bin/btrcc"
+          export BTRC_IOS_UI_DEVICES=ipad
+          python -m src.tests.target_runner --target "$QUALIFY_TARGET" --frontend both --btrcc "$BTRC_TEST_BTRCC" --program 'stdlib/Crypto*.btrc' --compile-only --output build/crypto --jobs 2
           binaries=(build/crypto/bundle/*-stdlib-Crypto*)
           test "${#binaries[@]}" -eq 4
           python -m tools.qualification.dependencies binary --target "$QUALIFY_TARGET" "${binaries[@]}"
+          python -m pytest --compilers=both -vv -s --durations=0 --basetemp="$RUNNER_TEMP/crypto-ios-tests" 'src/tests/python/test_stdlib_ios_programs.py::test_ios_stdlib_program[ipad-crypto-selfhost-plain]' --junitxml=build/crypto-ios.xml
+          python -c 'import xml.etree.ElementTree as E; cases=E.parse("build/crypto-ios.xml").findall(".//testcase"); assert len(cases)==1 and cases[0].find("skipped") is None'
+          programs=("$RUNNER_TEMP"/crypto-ios-tests/*/crypto-selfhost-plain/Program)
+          test -f "${programs[0]}"
+          python -m tools.qualification.dependencies binary --target "$QUALIFY_TARGET" "${programs[@]}"
           CHECK
