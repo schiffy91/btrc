@@ -66,7 +66,9 @@ class SystemTextFont {
 		int below = (data.u16(os2.offset + 62) & 128) != 0 ? data.s16(os2.offset + 70) : data.s16(hhea.offset + 6);
 		long long factor = OpenTypeFixed.div((long long)self.ppem * 64LL, (long long)data.u16(head.offset + 18));
 		self.descent = (double)OpenTypeFixed.pixelCeil(OpenTypeFixed.mul((long long)(-below), factor)) / (64.0 * scale);
-		self.outlines = HintedTrueTypeFace(bytes, self.ppem);
+		// The shaper already resolved glyph IDs using the selected Unicode
+		// cmap. A raster request by glyph index performs no second mapping.
+		self.outlines = HintedTrueTypeFace(bytes, self.ppem, true);
 		self.layout = LatinLayout(data);
 	}
 

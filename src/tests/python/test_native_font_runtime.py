@@ -474,3 +474,11 @@ def test_linux_system_text_runs(tmp_path, request, gui_provider_root, frontend, 
         timeout=60,
     )
     assert contextual.returncode == 0, contextual.stdout + contextual.stderr
+    vectors = subprocess.run(
+        [program, "--vectors", tests / "fixtures/shaping-vectors.ttf"],
+        capture_output=True,
+        text=True,
+        env=provider_environment(sanitized),
+        timeout=60,
+    )
+    assert vectors.returncode == 0, vectors.stdout + vectors.stderr
