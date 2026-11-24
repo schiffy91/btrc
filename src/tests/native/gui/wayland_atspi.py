@@ -105,7 +105,7 @@ def exercise_field(library, entry, iterate):
             unregister(listener, kind, None)
 
 
-def exercise_values(library, address, controls, role, states, has_state, component, focus, iterate):
+def exercise_values(library, address, controls, role, states, has_state, component, focus, iterate, orca_trace):
     pointer, integer, double = ctypes.c_void_p, ctypes.c_int, ctypes.c_double
     by_role = {role(control, None): control for control in controls if control}
     slider, level, spinner = [by_role[key] for key in (51, 103, 42)]
@@ -176,6 +176,8 @@ def exercise_values(library, address, controls, role, states, has_state, compone
         assert rejected.returncode and reason in rejected.stderr, (rejected.stdout, rejected.stderr)
     assert get(level_value, None) == 0.25 and get(slider_value, None) == 0.0
     assert focus(component(slider), None)
+    if orca_trace:
+        wait_for_speech(orca_trace, "Output gain horizontal slider", iterate)
     assert write(slider_value, 5.5, None)
     assert get(slider_value, None) == 6
     horizontal_value = iface(horizontal)
@@ -361,7 +363,16 @@ def main(executable, directory, option=None, orca_trace=None):
                                 if not {42, 48, 51, 103} <= {role(c, None) for c in controls if c}:
                                     continue
                                 exercise_values(
-                                    library, value, controls, role, states, has_state, component, focus, iterate
+                                    library,
+                                    value,
+                                    controls,
+                                    role,
+                                    states,
+                                    has_state,
+                                    component,
+                                    focus,
+                                    iterate,
+                                    orca_trace,
                                 )
                             button = entries[(43, b"Quit")]
                             break
