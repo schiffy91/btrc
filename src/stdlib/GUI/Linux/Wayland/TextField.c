@@ -13,6 +13,8 @@ struct BtrcWaylandTextField {
     BtrcSystemTextFont *metricFont;
     double size, scale, scroll;
     char *composition;
+    size_t preeditCursor, preeditEnd;
+    bool preeditCursorHidden;
 };
 
 enum { PADDING = 8 };
@@ -78,11 +80,11 @@ void btrcShimTextSetPlaceholder(BtrcShimControl *control, const char *value) {
     if (field && value && btrcWaylandSetControlText(&field->placeholder, value)) { btrcWaylandControlChanged(control); }
 }
 
-static double advance(BtrcWaylandTextField *field, BtrcSystemTextRun *run, size_t offset) {
+static double advance(BtrcWaylandTextField *field, BtrcSystemTextRun *run, char *text, size_t offset) {
     if (!offset) { return 0; }
     double position;
     if (offset <= INT_MAX && btrcSystemTextCaretX(run, (int)offset, &position)) { return position; }
-    char *text = field->edit.text;
+    if (!text || offset > strlen(text)) { return 0; }
     char saved = text[offset];
     text[offset] = 0;
     BtrcSystemTextRun *prefix = btrcSystemTextShapeLine(field->metricFont, text, -1, BTRC_TEXT_UNBOUNDED);
@@ -108,8 +110,8 @@ void btrcWaylandFieldPoint(BtrcWaylandTextField *field, double x, bool extend) {
     }
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;
-        double left = advance(field, run, edit->clusters.byteOffsets[mid]);
-        double right = advance(field, run, edit->clusters.byteOffsets[mid + 1]);
+        double left = advance(field, run, edit->text, edit->clusters.byteOffsets[mid]);
+        double right = advance(field, run, edit->text, edit->clusters.byteOffsets[mid + 1]);
         if (x < (left + right) / 2) { hi = mid; } else { lo = mid + 1; }
     }
     edit->caret = edit->clusters.byteOffsets[lo];
@@ -142,8 +144,18 @@ void btrcWaylandFieldPaint(BtrcWaylandTextField *field, const BtrcWaylandControl
     BtrcSystemTextRun *run = btrcWaylandLayoutControlText(text, field->size, false, canvas->scale, -1, BTRC_TEXT_UNBOUNDED);
     double lineHeight = run ? btrcSystemTextLineHeight(run) : field->size;
     double top = frame.y + (frame.height - lineHeight) / 2;
-    BtrcSystemTextRun *committed = placeholder || field->composition ? NULL : run;
-    double caret = advance(field, committed, field->edit.caret), anchor = advance(field, committed, field->edit.anchor);
+    size_t caretByte = field->edit.caret, anchorByte = field->edit.anchor;
+    bool cursorVisible = canvas->focused;
+    if (field->composition) {
+        /* The draft replaces the original selection. The IME's cursor is
+         * relative to that insertion, inside the actual displayed text. */
+        size_t insertion = caretByte < anchorByte ? caretByte : anchorByte;
+        caretByte = insertion + field->preeditCursor;
+        anchorByte = insertion + field->preeditEnd;
+        cursorVisible = cursorVisible && !field->preeditCursorHidden;
+    }
+    double caret = placeholder ? 0 : advance(field, run, field->display.value, caretByte);
+    double anchor = placeholder ? 0 : advance(field, run, field->display.value, anchorByte);
     double available = fmax(0, frame.width - 2 * PADDING);
     if (caret < field->scroll) { field->scroll = caret; }
     if (caret > field->scroll + available) { field->scroll = caret - available; }
@@ -155,12 +167,12 @@ void btrcWaylandFieldPaint(BtrcWaylandTextField *field, const BtrcWaylandControl
     double right = fmin(canvas->clip.x + canvas->clip.width, inner.frame.x + available);
     inner.clip.x = left;
     inner.clip.width = fmax(0, right - left);
-    if (canvas->focused && caret != anchor) {
+    if (cursorVisible && caret != anchor) {
         fill(&inner, x + fmin(caret, anchor), top, fabs(caret - anchor), lineHeight, selection);
     }
     unsigned char color[] = {ink, ink, ink, placeholder || !canvas->enabled ? 132 : 255};
     if (run) { btrcWaylandPaintTextRun(&inner, run, x, top + btrcSystemTextAscent(run), color); }
-    if (canvas->focused && caret == anchor) { fill(&inner, x + caret, top, 1, lineHeight, color); }
+    if (cursorVisible && caret == anchor) { fill(&inner, x + caret, top, 1, lineHeight, color); }
 }
 
 static bool publish(BtrcWaylandTextField *field, BtrcShimWindow *window, unsigned id, unsigned type) {
@@ -201,6 +213,18 @@ bool btrcWaylandFieldDeleteAround(BtrcWaylandTextField *field, BtrcShimWindow *w
         publish(field, window, id, BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED);
 }
 
+/* The shared editing event reports Unicode character counts. The shaped
+ * run works in UTF-8 bytes; never put the caret inside a multibyte scalar. */
+static size_t preeditByte(const char *value, size_t characters) {
+    size_t index = 0;
+    while (value[index] && characters) {
+        ++index;
+        while (((unsigned char)value[index] & 0xc0) == 0x80) { ++index; }
+        --characters;
+    }
+    return index;
+}
+
 bool btrcWaylandFieldEvent(BtrcWaylandTextField *field, BtrcShimWindow *window,
     unsigned id, const BtrcShimEvent *input, bool *handled) {
     BtrcEditBuffer *edit = &field->edit;
@@ -211,6 +235,11 @@ bool btrcWaylandFieldEvent(BtrcWaylandTextField *field, BtrcShimWindow *window,
             copy = malloc(strlen(input->text) + 1);
             if (!copy) { return false; }
             strcpy(copy, input->text);
+            field->preeditCursorHidden = input->data1 < 0;
+            size_t start = input->data1 >= 0 ? (size_t)input->data1 : 0;
+            size_t extent = input->data2 >= 0 ? (size_t)input->data2 : 0;
+            field->preeditCursor = preeditByte(copy, start);
+            field->preeditEnd = preeditByte(copy, start + extent);
         }
         free(field->composition);
         field->composition = copy;

@@ -79,10 +79,30 @@ def test_normal_example_edits_its_window(edit_app, edit_devices, tmp_path):
     )
 
 
+def test_editing_uses_the_shaped_ligature_boundaries(edit_app, edit_devices, tmp_path):
+    driver, _ = edit_devices
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, "caret", edit_app, driver, tmp_path],
+        check=True,
+        timeout=40,
+    )
+
+
 def test_input_method_updates_the_public_field(edit_app, edit_devices, tmp_path):
     driver, method = edit_devices
     result = subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, "ime", edit_app, driver, method, tmp_path], timeout=50
+    )
+    if result.returncode == 77:
+        pytest.skip("the test compositor does not advertise an input method manager")
+    assert result.returncode == 0
+
+
+def test_input_method_renders_its_cursor_highlight_and_hidden_state(edit_app, edit_devices, tmp_path):
+    driver, method = edit_devices
+    result = subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, "ime-caret", edit_app, driver, method, tmp_path],
+        timeout=50,
     )
     if result.returncode == 77:
         pytest.skip("the test compositor does not advertise an input method manager")
@@ -101,13 +121,14 @@ def test_switch_from_input_method_to_keyboard_menu(frontend, edit_devices, tmp_p
     assert result.returncode == 0
 
 
-def test_editing_uses_the_shaped_ligature_boundaries(edit_app, edit_devices, tmp_path):
-    driver, _ = edit_devices
-    subprocess.run(
-        [SESSION, "--wayland", "--", sys.executable, __file__, "caret", edit_app, driver, tmp_path],
-        check=True,
-        timeout=40,
-    )
+def exercise(program, driver, folder):
+    with subprocess.Popen(empty_root_command(program, folder)) as app:
+        try:
+            subprocess.run([driver], check=True, timeout=20)
+            assert app.wait(timeout=7) == 0
+        finally:
+            if app.poll() is None:
+                app.kill()
 
 
 def point_inside_ligature(program, driver, folder):
@@ -141,17 +162,15 @@ def point_inside_ligature(program, driver, folder):
                 pointer.kill()
 
 
-def exercise(program, driver, folder):
-    with subprocess.Popen(empty_root_command(program, folder)) as app:
-        try:
-            subprocess.run([driver], check=True, timeout=20)
-            assert app.wait(timeout=7) == 0
-        finally:
-            if app.poll() is None:
-                app.kill()
+def changed_columns(image, other):
+    header = re.match(rb"P6\s+(\d+)\s+(\d+)\s+255\s", image)
+    assert header and other.startswith(image[: header.end()])
+    width = int(header[1])
+    left, right = image[header.end() :], other[header.end() :]
+    return {(i // 3) % width for i, (a, b) in enumerate(zip(left, right, strict=True)) if a != b}
 
 
-def input_method(program, driver, method, folder, *, menu=False):
+def input_method(program, driver, method, folder, *, carets=False, menu=False):
     def send(process):
         process.stdin.write("\n")
         process.stdin.flush()
@@ -160,7 +179,9 @@ def input_method(program, driver, method, folder, *, menu=False):
         return subprocess.check_output(["grim", "-t", "ppm", "-"])
 
     with (
-        subprocess.Popen([method, "field"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as ime,
+        subprocess.Popen(
+            [method, "caret-field" if carets else "field"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
+        ) as ime,
         subprocess.Popen(
             [driver, "ime-menu" if menu else "ime"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
         ) as keys,
@@ -177,9 +198,28 @@ def input_method(program, driver, method, folder, *, menu=False):
                     before = screen()
                     send(ime)
                     assert ime.stdout.readline().strip() == "preedit sent"
-                    deadline = time.monotonic() + 6
-                    while screen() == before:
-                        assert time.monotonic() < deadline, "preedit glyphs did not appear"
+
+                    def next_frame(previous):
+                        deadline = time.monotonic() + 6
+                        while True:
+                            current = screen()
+                            if current != previous:
+                                return current
+                            assert time.monotonic() < deadline, "the composing field did not repaint"
+
+                    end = next_frame(before)
+                    if carets:
+                        current = end
+                        snapshots = []
+                        for _ in range(3):
+                            send(ime)
+                            assert ime.stdout.readline().strip() == "cursor sent"
+                            current = next_frame(current)
+                            snapshots.append(current)
+                        start, highlight, hidden = snapshots
+                        start_col, end_col = changed_columns(start, hidden), changed_columns(end, hidden)
+                        assert len(start_col) == len(end_col) == 1 and min(end_col) > min(start_col)
+                        assert len(changed_columns(highlight, hidden)) > 3
                     send(ime)
                     assert ime.stdout.readline().strip() == "committed text confirmed"
                     assert ime.wait(timeout=3) == 0
@@ -197,7 +237,7 @@ def input_method(program, driver, method, folder, *, menu=False):
 if __name__ == "__main__":
     if sys.argv[1] == "caret":
         point_inside_ligature(*sys.argv[2:])
-    elif sys.argv[1] in ("ime", "ime-menu"):
-        input_method(*sys.argv[2:], menu=sys.argv[1] == "ime-menu")
+    elif sys.argv[1] in ("ime", "ime-caret", "ime-menu"):
+        input_method(*sys.argv[2:], carets=sys.argv[1] == "ime-caret", menu=sys.argv[1] == "ime-menu")
     else:
         exercise(*sys.argv[1:])
