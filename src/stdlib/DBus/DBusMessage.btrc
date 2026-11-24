@@ -59,8 +59,10 @@ class DBusMessage {
 	}
 
 	public int descriptorAt(int index) {
-		if (self.handles == null || index < 0 || index >= self.handles.count()) { return -1; }
-		return self.handles.get(index);
+		if (self.handles == null) { return -1; }
+		IDBusDescriptors descriptors = self.handles;
+		if (index < 0 || index >= descriptors.count()) { return -1; }
+		return descriptors.get(index);
 	}
 
 	private DBusMessageType kind;
