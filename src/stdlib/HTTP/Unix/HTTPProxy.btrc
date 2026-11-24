@@ -3,12 +3,17 @@
  * networks and never trigger a lookup of the origin at the client. */
 import Library.HTTP.HTTPExchange;
 import Library.Platform;
+import Library.Process;
 import Library.Strings;
 import Library.Vector;
 
 extern int btrcHttpProxyNetwork(string host, string entry);
 
 class HTTPProxy {
+	/* curl --header sends caller-supplied Proxy-Authorization to the origin,
+	 * even across CONNECT. Preserve that installation's existing behavior. */
+	class bool needsLegacyHeaders(Vector<string> headers) { return HTTPExchange.names(headers, "proxy-authorization") && !ChildProcessExecutable.resolve("curl", "", [], []).isEmpty(); }
+
 	class string setting(HTTPClientAddress address) {
 		string proxy = Environment.get("http_proxy", "");
 		if (proxy.isEmpty()) { proxy = Environment.get("all_proxy", Environment.get("ALL_PROXY", "")); }

@@ -1,0 +1,113 @@
+/* SOCKS establishes a stream to the origin. Its credentials belong only to
+ * the proxy, and HTTP still uses origin-form after the tunnel is ready. */
+import Library.Bytes;
+import Library.HTTP.HTTPExchange;
+import Library.HTTP.HTTPUrl;
+
+extern int btrcHttpSocksAddress(string host, int local, int onlyIPv4, long long deadline, char* output);
+
+class HTTPSocks {
+	class string scheme(string setting) {
+		int split = setting.find("://", 0);
+		if (split < 0) { return ""; }
+		string kind = setting.substring(0, split).toLower();
+		return kind.equals("socks4") || kind.equals("socks4a") || kind.equals("socks5") || kind.equals("socks5h") ? kind : "";
+	}
+
+	class HTTPClientAddress? endpoint(string setting, string kind) { return HTTPClientAddress.parse("http" + setting.substring(kind.len(), setting.len() - kind.len()), 1080); }
+
+	class Bytes? read(IHTTPByteStream stream, int count, long long deadline) {
+		Bytes data = Bytes();
+		while (data.len < count) {
+			if (stream.receive(data, count - data.len, deadline) <= 0) { return null; }
+		}
+		return data;
+	}
+
+	class bool version4(IHTTPByteStream stream, HTTPClientAddress origin, string user, bool remote, long long deadline) {
+		Bytes request = Bytes();
+		request.append(4);
+		request.append(1);
+		request.appendU16BE(origin.port);
+		if (remote) { request.appendU32BE(1U); }
+		else {
+			char ip[16];
+			if (btrcHttpSocksAddress(origin.resolvable(), 1, 1, deadline, ip) != 4) { return false; }
+			request.appendRaw(ip, 4);
+		}
+		request.appendBytes(Bytes.fromString(user));
+		request.append(0);
+		if (remote) {
+			request.appendBytes(Bytes.fromString(origin.resolvable()));
+			request.append(0);
+		}
+		if (!stream.send(request, deadline)) { return false; }
+		Bytes? reply = HTTPSocks.read(stream, 8, deadline);
+		return reply != null && reply.get(0) == 0 && reply.get(1) == 90;
+	}
+
+	class bool authenticate(IHTTPByteStream stream, string user, string password, bool supplied, long long deadline) {
+		Bytes greeting = Bytes();
+		greeting.append(5);
+		greeting.append(supplied ? 2 : 1);
+		greeting.append(0);
+		if (supplied) { greeting.append(2); }
+		if (!stream.send(greeting, deadline)) { return false; }
+		Bytes? selected = HTTPSocks.read(stream, 2, deadline);
+		if (selected == null || selected.get(0) != 5) { return false; }
+		if (selected.get(1) == 0) { return true; }
+		if (selected.get(1) != 2 || !supplied || user.len() > 255 || password.len() > 255) { return false; }
+		Bytes credentials = Bytes();
+		credentials.append(1);
+		credentials.append(user.len());
+		credentials.appendBytes(Bytes.fromString(user));
+		credentials.append(password.len());
+		credentials.appendBytes(Bytes.fromString(password));
+		if (!stream.send(credentials, deadline)) { return false; }
+		Bytes? reply = HTTPSocks.read(stream, 2, deadline);
+		return reply != null && reply.get(0) == 1 && reply.get(1) == 0;
+	}
+
+	class bool version5(IHTTPByteStream stream, HTTPClientAddress origin, bool remote, long long deadline) {
+		string host = origin.resolvable();
+		char ip[16];
+		int size = btrcHttpSocksAddress(host, remote ? 0 : 1, 0, deadline, ip);
+		if (size < 0) { return false; }
+		Bytes request = Bytes();
+		request.append(5);
+		request.append(1);
+		request.append(0);
+		if (size == 0) {
+			request.append(3);
+			request.append(host.len());
+			request.appendBytes(Bytes.fromString(host));
+		} else {
+			request.append(size == 4 ? 1 : 4);
+			request.appendRaw(ip, size);
+		}
+		request.appendU16BE(origin.port);
+		if (!stream.send(request, deadline)) { return false; }
+		Bytes? reply = HTTPSocks.read(stream, 4, deadline);
+		if (reply == null || reply.get(0) != 5 || reply.get(1) != 0 || reply.get(2) != 0) { return false; }
+		int bound = 0;
+		if (reply.get(3) == 1) { bound = 4; }
+		else if (reply.get(3) == 4) { bound = 16; }
+		else if (reply.get(3) == 3) {
+			Bytes? count = HTTPSocks.read(stream, 1, deadline);
+			if (count == null || count.get(0) == 0) { return false; }
+			bound = count.get(0);
+		} else { return false; }
+		return HTTPSocks.read(stream, bound + 2, deadline) != null;
+	}
+
+	class bool connect(IHTTPByteStream stream, HTTPClientAddress origin, string userInfo, string kind, long long deadline) {
+		if (userInfo.toLower().contains("%00")) { return false; }
+		int colon = userInfo.find(":", 0);
+		string rawUser = colon < 0 ? userInfo : userInfo.substring(0, colon);
+		string user = HTTPUrl.decode(rawUser.replace("+", "%2B"));
+		if (kind.startsWith("socks4")) { return HTTPSocks.version4(stream, origin, user, kind.equals("socks4a"), deadline); }
+		string rawPassword = colon < 0 ? "" : userInfo.substring(colon + 1, userInfo.len() - colon - 1);
+		string password = HTTPUrl.decode(rawPassword.replace("+", "%2B"));
+		return HTTPSocks.authenticate(stream, user, password, !userInfo.isEmpty(), deadline) && HTTPSocks.version5(stream, origin, kind.equals("socks5h"), deadline);
+	}
+}
