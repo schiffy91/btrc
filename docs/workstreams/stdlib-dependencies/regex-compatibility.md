@@ -29,7 +29,7 @@ A broader compatibility engine would need to model which repeated consuming posi
 
 ## Current dispatch
 
-For `REG_EXTENDED`, single byte sets, plain literal searches and their start/end assertions use first-party byte matching. This includes one simple or counted quantifier on a set. Capture-free sequences and nonempty alternatives made entirely from consuming byte atoms and one quantifier per atom can use the bounded first-party Thompson matcher. Its current eligibility check limits this latter class to expressions of up to 255 bytes and routes parentheses, escapes, assertions, stacked quantifiers and other syntax to the legacy provider. Those bounds apply to the capture-free Thompson matcher.
+For `REG_EXTENDED`, single byte sets, plain literal searches and their start/end assertions use first-party byte matching. This includes one simple or counted quantifier on a set. Capture-free sequences and nonempty alternatives made entirely from consuming byte atoms and one quantifier per atom can use the bounded first-party Thompson matcher. The flat compiler accepts source patterns of up to 255 bytes. The rules below describe its handling of escapes, captures and assertions.
 
 The compiled regex owns its pattern data. If the Thompson matcher exhausts its working memory or per-input work allowance, the dispatcher retries with the legacy provider. Both execution paths maintain the public `regex_t` layout and support compiling in one translation unit and matching and freeing in another. The dependency audit continues to name bundled Windows regex while this fallback remains.
 
@@ -48,7 +48,7 @@ For eligible nonnullable grouped expressions, a request for match existence can 
 In the position matcher, copying a positive bracket consumes one internal slot per listed term. A negated bracket uses the gaps between the explicit excluded ranges, with named exclusions applied to each gap. A zero repetition discards its subtree while retaining the original numbering of subsequent source atoms. These rules preserve the Windows answer when a later counted interval shares positions with earlier terms.
 
 
-The position matcher can also prove an internal subject anchor unreachable when a byte must precede a start assertion or follow an end assertion. It preserves the consuming positions on both sides of the failed path. Competing nullable alternatives containing assertions and all remaining reachable assertions use the previous provider.
+The position matcher can also prove an internal subject anchor unreachable when a byte must precede a start assertion or follow an end assertion. It preserves the consuming positions on both sides of the failed path. With several source assertions, this optimization applies only after proving that every assertion is unreachable.
 
 A repeated group made of fixed-width blocks can also replace an earlier match. For example, `((..){1,3})+` matches `ab` in `abc` and `bcde` in `abcde`. Once two blocks fit in a run, two capture histories become available. The trailing partial block shifts the start while keeping the longest complete-block length. The first-party matcher recognizes equal-byte-set blocks with this structure. A leading single-byte alternative can be excluded for a subject that contains none of its bytes.
 
@@ -56,7 +56,7 @@ The same bounded suffix window can recover a whole span after an optional bounde
 
 A leading word-boundary alternative can compete with the repeated choice of a nullable byte capture and a fixed-width block. When the nullable byte is absent, the first boundary or complete block limits the set of eligible starts. Trailing empty mandatory repetitions decide which later starts can replace the previous match. For example, `(\B|(((a){0,3}|([^ab]){2})){2,4})` matches the last two bytes of `xxx` on Windows. Mixed inputs containing the nullable byte still use the legacy provider.
 
-The flat matcher also reports raw subgroups when every capture encloses the complete expression or every captured span has a fixed byte offset. Those groups either share the whole match or use offsets calculated once during compilation. Variable interior captures continue to use the historical ranking rules.
+The flat matcher also reports raw subgroups when every capture encloses the complete expression or every captured span has a fixed byte offset. Those groups either share the whole match or use offsets calculated once during compilation. The tagged matcher can also report variable interior captures when their boundaries are unambiguous.
 
 For eligible flat expressions the hosted interface supports BRE and ERE, including `REG_ICASE`, `REG_NEWLINE` and `REG_NOSUB`. The compiled object retains these flags when it needs the legacy retry for a resource limit. In no-submatch mode the caller’s match array remains untouched.
 
@@ -69,3 +69,5 @@ Empty patterns, empty alternatives and captures around an empty expression retai
 Variable-width interior captures can use the tagged matcher when each variable-width atom has a disjoint boundary with the next reachable byte sets. This covers separated fields such as `([a-z]+)-([0-9]+)` and preserves the actual offsets of both captures. Overlapping fields keep their previous routing.
 
 Groups may also follow an initial byte sequence, as in `item([[:digit:]])+`, or appear in a later top-level alternative. The position matcher applies the same expansion and origin checks to the entire expression.
+
+The position matcher handles a single subject or word assertion inside a grouped expression by selecting transitions at each input boundary. Counted copies preserve Windows’ preference for the first syntactically nullable arm. For example, `(a|$){1,2}` matches the empty subject unless the caller supplies `REG_NOTEOL`. The legacy provider still handles repeated assertion-only bodies, nested counted copies of nullable asserted expressions, and ambiguous position aliases with different assertion histories.

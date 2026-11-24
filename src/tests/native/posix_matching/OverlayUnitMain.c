@@ -118,7 +118,7 @@ int main(void)
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "((a){2})") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
 	const btrc_win_pos_program *positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
-	if (btrc_win_pos_match(positions, "aaaa", 1, span) != btrc_win_pos_competing_starts ||
+	if (btrc_win_pos_match(positions, "aaaa", 1, span, 0) != btrc_win_pos_competing_starts ||
 	    regexec(&compiled, "aaaa", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 2) return 1;
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "(((([abc]){0}|.)|(b){0}[[:space:]])){1,3}") != 0 ||
@@ -127,7 +127,7 @@ int main(void)
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "((((ab){2,}){1,3}|a)){2,4}") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
 	positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
-	if (positions->edges <= 64 || btrc_win_pos_match(positions, "aab", 1, span) ||
+	if (positions->edges <= 64 || btrc_win_pos_match(positions, "aab", 1, span, 0) ||
 	    span[0].rm_so != 0 || span[0].rm_eo != 3) return 1;
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "((a|$)(.){0}(b)){2}") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
@@ -136,24 +136,30 @@ int main(void)
 	if (overlay_helper_compile(&compiled, "(([^ab]|(..){1,3}))+")) return 1;
 	positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
 	if (((uintptr_t)compiled.__opaque & 3u) != 3 || positions->ranked_blocks.width != 2 ||
-	    btrc_win_pos_match(positions, "abbba", 1, span) || span[0].rm_so != 1 || span[0].rm_eo != 5) return 1;
+	    btrc_win_pos_match(positions, "abbba", 1, span, 0) || span[0].rm_so != 1 || span[0].rm_eo != 5) return 1;
 	if (btrc_win_rx_block_match(&positions->ranked_blocks, "abb!a", span) != btrc_win_pos_competing_starts) return 1;
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "(((b)?){2})?([abc]){2,4}") || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
 	positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
-	if (positions->optional_suffix.optional_prefix_limit != 2 || btrc_win_pos_match(positions, "abbba", 1, span) ||
+	if (positions->optional_suffix.optional_prefix_limit != 2 || btrc_win_pos_match(positions, "abbba", 1, span, 0) ||
 	    span[0].rm_so != 1 || span[0].rm_eo != 5) return 1;
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "(\\B|(((a){0,3}|([^ab]){2})){2,4})") ||
 	    ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
 	positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
-	if (positions->boundary_blocks.width != 2 || btrc_win_pos_match(positions, "xxx", 1, span) ||
-	    span[0].rm_so != 1 || span[0].rm_eo != 3 || btrc_win_pos_match(positions, "xxx", 0, NULL) ||
-	    btrc_win_pos_match(positions, "x", 0, NULL) != REG_NOMATCH ||
-	    btrc_win_pos_match(positions, "xxxaa", 1, span) != btrc_win_pos_competing_starts) return 1;
+	if (positions->boundary_blocks.width != 2 || btrc_win_pos_match(positions, "xxx", 1, span, 0) ||
+	    span[0].rm_so != 1 || span[0].rm_eo != 3 || btrc_win_pos_match(positions, "xxx", 0, NULL, 0) ||
+	    btrc_win_pos_match(positions, "x", 0, NULL, 0) != REG_NOMATCH ||
+	    btrc_win_pos_match(positions, "xxxaa", 1, span, 0) != btrc_win_pos_competing_starts) return 1;
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "x((a{2})?b)?") || ((uintptr_t)compiled.__opaque & 3u) != 3 ||
 	    regexec(&compiled, "xab", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 3) return 1;
+	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "(a|$){1,2}") || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
+	positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
+	if (!positions->when_true || regexec(&compiled, "", 1, span, REG_NOTBOL) || span[0].rm_so != 0 ||
+	    span[0].rm_eo != 0 || regexec(&compiled, "", 0, NULL, REG_NOTEOL) != REG_NOMATCH ||
+	    regexec(&compiled, "a", 1, span, REG_NOTBOL | REG_NOTEOL) || span[0].rm_so != 0 || span[0].rm_eo != 1) return 1;
 	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;

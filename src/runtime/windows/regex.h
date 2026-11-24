@@ -166,7 +166,7 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 			return btrc_win_regex_match_suffix(&((const btrc_win_regex_suffix *)group)->span, subject, count, matches);
 		const btrc_win_pos_program *p = (const btrc_win_pos_program *)group;
 		if (count <= 1) {
-			int status = btrc_win_pos_match(p, subject, count, matches);
+			int status = btrc_win_pos_match(p, subject, count, matches, flags);
 			if (status != btrc_win_pos_competing_starts) return status;
 		}
 		return btrc_win_regex_retry((const char *)(p->edge + p->edges), subject, count, matches, flags, REG_EXTENDED);
@@ -204,7 +204,9 @@ static inline void btrc_win_dispatch_regfree(regex_t *re)
 {
 	uintptr_t pointer = (uintptr_t)re->__opaque;
 	if ((pointer & (uintptr_t)3) == 3) {
-		free((void *)(pointer - 3));
+		btrc_win_group_header *group = (btrc_win_group_header *)(pointer - 3);
+		if (group->kind == btrc_win_group_positions) free(((btrc_win_pos_program *)group)->when_true);
+		free(group);
 		re->__opaque = NULL;
 	} else if ((pointer & (uintptr_t)3) == 2) {
 		btrc_win_regex_flat *flat = (btrc_win_regex_flat *)(pointer - 2);

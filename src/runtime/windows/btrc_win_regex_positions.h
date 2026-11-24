@@ -1,6 +1,5 @@
-/* A position automaton for unasserted grouped Windows EREs. Counted
-   repetitions inside
-   another repetition can share consuming positions with their suffix,
+/* A position automaton for grouped Windows EREs. Counted repetitions
+   inside another repetition can share consuming positions with their suffix,
    which changes the byte language of the historical Windows provider. */
 #pragma once
 #include "btrc_win_regex_compile.h"
@@ -41,7 +40,10 @@ typedef struct {
 	btrc_win_suffix_span optional_suffix;
 	btrc_win_boundary_blocks boundary_blocks;
 	btrc_win_pos_bits initial;
-	int edges, nullable;
+	/* When one source assertion is present, these are its initial positions
+	   and outgoing transitions at a byte boundary where it holds. */
+	btrc_win_pos_bits *when_true;
+	int edges, nullable, assertion;
 	btrc_win_pos_edge edge[];
 } btrc_win_pos_program;
 
@@ -56,7 +58,7 @@ typedef struct {
 	btrc_win_rx_parser *parser;
 	btrc_win_pos_program *program;
 	btrc_win_pos_node nodes[btrc_win_pos_nodes];
-	int used, extra, failed;
+	int used, extra, failed, conditional, assertion_true;
 	int positions[btrc_win_pos_limit], position_count;
 } btrc_win_pos_builder;
 
@@ -82,7 +84,7 @@ static inline int btrc_win_pos_new(btrc_win_pos_builder *b, enum btrc_win_pos_op
 		made.requires_byte = op == btrc_win_pos_cat ? a->requires_byte || z->requires_byte :
 		                     op == btrc_win_pos_union ? a->requires_byte && z->requires_byte :
 		                     op == btrc_win_pos_plus && a->requires_byte;
-		if (made.has_boundary && ((op == btrc_win_pos_union && !a->requires_byte && !z->requires_byte) ||
+		if (!b->conditional && made.has_boundary && ((op == btrc_win_pos_union && !a->requires_byte && !z->requires_byte) ||
 		    ((op == btrc_win_pos_optional || op == btrc_win_pos_star) && !a->requires_byte))) b->failed = 1;
 	}
 	b->nodes[++b->used] = made;
@@ -113,6 +115,14 @@ static inline int btrc_win_pos_repeat(btrc_win_pos_builder *b, const btrc_win_rx
 	int inner_offset = counted ? 0 : *offset;
 	int child = btrc_win_pos_sequence(b, n->child, &inner_offset, depth + 1);
 	if (b->failed) return 0;
+	const btrc_win_pos_node *body = &b->nodes[child];
+	/* Repeating a zero-width assertion or copying a nullable asserted body
+	   inside another repetition requires ranking individual empty paths. */
+	if (b->conditional && body->has_boundary &&
+	    (!body->width || (counted && depth && !body->requires_byte))) {
+		b->failed = 1;
+		return 0;
+	}
 	if (!counted) {
 		if (!depth) *offset = b->extra;
 		if (n->max == 1 && n->min == 1) return child;
@@ -129,7 +139,10 @@ static inline int btrc_win_pos_repeat(btrc_win_pos_builder *b, const btrc_win_rx
 		else if (n->max < 0) tail = btrc_win_pos_new(b, btrc_win_pos_star, copy, 0);
 		else {
 			if (tail) copy = btrc_win_pos_new(b, btrc_win_pos_cat, copy, tail);
-			tail = btrc_win_pos_new(b, btrc_win_pos_optional, copy, 0);
+			/* A counted optional copy prefers skipping the entire copy,
+			   even if it contains an asserted empty match of its own. */
+			tail = b->conditional ? btrc_win_pos_new(b, btrc_win_pos_union, 0, copy) :
+			                        btrc_win_pos_new(b, btrc_win_pos_optional, copy, 0);
 		}
 	}
 	/* The next sibling inside a repetition sees only positions allocated by
@@ -152,7 +165,7 @@ static inline int btrc_win_pos_sequence(btrc_win_pos_builder *b, int id, int *of
 			part = btrc_win_pos_new(b, btrc_win_pos_byte, id, n->arg + *offset);
 			break;
 		case btrc_win_rx_assert:
-			if (n->arg != btrc_win_rx_bol && n->arg != btrc_win_rx_eol) b->failed = 1;
+			if (!b->conditional && n->arg != btrc_win_rx_bol && n->arg != btrc_win_rx_eol) b->failed = 1;
 			else part = btrc_win_pos_new(b, btrc_win_pos_boundary, n->arg, 0);
 			break;
 		case btrc_win_rx_group:
@@ -204,7 +217,7 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 	btrc_win_pos_span empty = {{0, 0}, {0, 0}, 1};
 	if (!id || b->failed) return empty;
 	const btrc_win_pos_node *n = &b->nodes[id];
-	if (n->op == btrc_win_pos_boundary) return (btrc_win_pos_span){{0, 0}, {0, 0}, 0};
+	if (n->op == btrc_win_pos_boundary) return (btrc_win_pos_span){{0, 0}, {0, 0}, b->assertion_true};
 	if (n->op == btrc_win_pos_byte) {
 		btrc_win_pos_program *p = b->program;
 		/* Compact sparse source labels without changing position identity.
@@ -229,15 +242,26 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 	btrc_win_pos_span left = btrc_win_pos_span_for(b, n->left);
 	if (n->op == btrc_win_pos_cat || n->op == btrc_win_pos_union) {
 		btrc_win_pos_span right = btrc_win_pos_span_for(b, n->right);
-		if (n->op == btrc_win_pos_union)
-			return (btrc_win_pos_span){btrc_win_pos_union_bits(left.first, right.first), btrc_win_pos_union_bits(left.last, right.last), left.nullable || right.nullable};
+		/* Legacy transitions retain the first of adjacent equal destination
+		   positions. An asserted path and an ordinary path to that position
+		   can differ even when their byte sets coincide. */
+		if (b->assertion_true && n->has_boundary && (n->op == btrc_win_pos_union || left.nullable) &&
+		    ((left.first.low & right.first.low) || (left.first.high & right.first.high))) b->failed = 1;
+		if (n->op == btrc_win_pos_union) {
+			/* For an empty match the first structurally nullable arm supplies
+			   the assertion; a later arm cannot override its failed boundary. */
+			int nullable = left.nullable || right.nullable;
+			if (b->conditional) nullable = b->nodes[n->left].requires_byte ? right.nullable : left.nullable;
+			return (btrc_win_pos_span){btrc_win_pos_union_bits(left.first, right.first),
+			                           btrc_win_pos_union_bits(left.last, right.last), nullable};
+		}
 		btrc_win_pos_follow(b->program, left.last, right.first);
 		return (btrc_win_pos_span){left.nullable ? btrc_win_pos_union_bits(left.first, right.first) : left.first,
 		                           right.nullable ? btrc_win_pos_union_bits(right.last, left.last) : right.last, left.nullable && right.nullable};
 	}
 	if (n->op == btrc_win_pos_star || n->op == btrc_win_pos_plus)
 		btrc_win_pos_follow(b->program, left.last, left.first);
-	if (n->op != btrc_win_pos_plus) left.nullable = 1;
+	if (n->op != btrc_win_pos_plus && (!b->conditional || b->nodes[n->left].requires_byte)) left.nullable = 1;
 	return left;
 }
 
@@ -245,7 +269,7 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 {
 	if (strlen(pattern) > 255) return NULL;
 	const char *escape = strchr(pattern, '\\');
-	if (escape && ((escape[1] != 'B' && escape[1] != 'b') || strchr(escape + 1, '\\'))) return NULL;
+	if (escape && (!escape[1] || !strchr("bB<>", escape[1]) || strchr(escape + 1, '\\'))) return NULL;
 	btrc_win_rx_program parsed = {0};
 	parsed.flags = REG_EXTENDED;
 	btrc_win_rx_parser parser = {&parsed, (const unsigned char *)pattern, 0, 0, 0, 0};
@@ -262,18 +286,42 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 				*groups = (size_t)parser.groups;
 			}
 		}
-	} else if (!parser.error && root && parser.groups) {
-		int index = 0;
-		for (int i = 1; i <= parser.nodes; ++i)
+	}
+	if (!p && !parser.error && root && parser.groups) {
+		int index = 0, assertions = 0, assertion = 0;
+		for (int i = 1; i <= parser.nodes; ++i) {
 			if (parsed.nodes[i].op == btrc_win_rx_byte) parsed.nodes[i].arg = index++;
-		if (index && index <= btrc_win_pos_limit) p = (btrc_win_pos_program *)calloc(1, sizeof *p + btrc_win_pos_limit * sizeof *p->edge + strlen(pattern) + 1);
+			if (parsed.nodes[i].op == btrc_win_rx_assert) {
+				assertion = parsed.nodes[i].arg;
+				++assertions;
+			}
+		}
+		if (index && index <= btrc_win_pos_limit && (!escape || assertions == 1)) p = (btrc_win_pos_program *)calloc(1, sizeof *p + btrc_win_pos_limit * sizeof *p->edge + strlen(pattern) + 1);
 		if (p) {
-			btrc_win_pos_builder builder = { .parser = &parser, .program = p };
+			btrc_win_pos_builder builder = { .parser = &parser, .program = p, .conditional = assertions == 1 };
 			int offset = 0;
 			int tree = btrc_win_pos_sequence(&builder, root, &offset, 0);
-			if (!builder.failed && !btrc_win_pos_dead_boundaries(&builder, tree, 0, 0)) builder.failed = 1;
+			if (!builder.conditional && !builder.failed && !btrc_win_pos_dead_boundaries(&builder, tree, 0, 0)) builder.failed = 1;
+			if (builder.conditional && !builder.failed) {
+				/* Copies of the same assertion at one input boundary always agree.
+				   Build both transition tables with identical consuming edge IDs. */
+				p->assertion = assertion;
+				builder.assertion_true = 1;
+				btrc_win_pos_span truth = btrc_win_pos_span_for(&builder, tree);
+				btrc_win_pos_bits accept = btrc_win_pos_bit(btrc_win_pos_limit);
+				btrc_win_pos_follow(p, truth.last, accept);
+				p->when_true = (btrc_win_pos_bits *)malloc((size_t)(p->edges + 1) * sizeof *p->when_true);
+				if (!p->when_true) builder.failed = 1;
+				else {
+					p->when_true[0] = truth.nullable ? btrc_win_pos_union_bits(truth.first, accept) : truth.first;
+					for (int i = 0; i < p->edges; ++i) p->when_true[i + 1] = p->edge[i].target;
+				}
+				p->edges = 0;
+				builder.position_count = 0;
+				builder.assertion_true = 0;
+			}
 			btrc_win_pos_span span = btrc_win_pos_span_for(&builder, tree);
-			if (builder.failed) { free(p); p = NULL; }
+			if (builder.failed) { free(p->when_true); free(p); p = NULL; }
 			else {
 				p->header.kind = btrc_win_group_positions;
 				p->initial = span.first;
@@ -293,12 +341,14 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 	return p;
 }
 
-static inline btrc_win_pos_bits btrc_win_pos_step(const btrc_win_pos_program *p, btrc_win_pos_bits live, unsigned char byte)
+static inline btrc_win_pos_bits btrc_win_pos_step(const btrc_win_pos_program *p, btrc_win_pos_bits live, unsigned char byte,
+                                                  const btrc_win_pos_bits *at_end)
 {
 	btrc_win_pos_bits next = {0, 0};
 	for (int i = 0; i < p->edges; ++i) {
 		const btrc_win_pos_edge *edge = &p->edge[i];
-		if (btrc_win_pos_contains(live, edge->source) && btrc_win_set_has(&edge->bytes, byte)) next = btrc_win_pos_union_bits(next, edge->target);
+		if (btrc_win_pos_contains(live, edge->source) && btrc_win_set_has(&edge->bytes, byte))
+			next = btrc_win_pos_union_bits(next, at_end ? at_end[i + 1] : edge->target);
 	}
 	return next;
 }
@@ -313,30 +363,41 @@ static inline int btrc_win_pos_ranked(const btrc_win_pos_program *p, const char 
 	return btrc_win_rx_block_match(&p->ranked_blocks, subject, matches);
 }
 
+static inline const btrc_win_pos_bits *btrc_win_pos_context(const btrc_win_pos_program *p,
+                                                            const unsigned char *s, regoff_t i, int flags)
+{
+	return p->when_true && btrc_win_rx_boundary_ok(p->assertion, s, i, REG_EXTENDED, flags) ? p->when_true : NULL;
+}
+
 static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *subject,
-                                     size_t count, regmatch_t *matches)
+                                           size_t count, regmatch_t *matches, int flags)
 {
 	if (p->boundary_blocks.width)
 		return btrc_win_rx_match_boundary_blocks(&p->boundary_blocks, subject, count, matches);
-	btrc_win_pos_origin row[btrc_win_pos_origin_limit] = {{0, {0, 0}}};
-	int rows = p->nullable ? 1 : 0;
-	regoff_t start = p->nullable ? 0 : -1, end = start;
-	if (p->nullable) {
-		if (!count) return 0;
-		row[0].live = p->initial;
-	}
-	for (regoff_t i = 0; subject[i]; ++i) {
-		unsigned char byte = (unsigned char)subject[i];
+	const unsigned char *s = (const unsigned char *)subject;
+	const btrc_win_pos_bits *context = btrc_win_pos_context(p, s, 0, flags);
+	btrc_win_pos_origin row[btrc_win_pos_origin_limit];
+	int rows = 0;
+	regoff_t start = -1, end = -1;
+	for (regoff_t i = 0; ; ++i) {
+		int admit = end < 0;
+		if (admit && (context ? btrc_win_pos_contains(context[0], btrc_win_pos_limit) : p->nullable)) {
+			if (!count) return 0;
+			start = end = i;
+		}
+		if (!s[i]) break;
 		/* The legacy search admits a new start only at positions absent
 		   from the frontier before consuming this byte. */
 		btrc_win_pos_bits occupied = {0, 0};
 		for (int k = 0; k < rows; ++k) occupied = btrc_win_pos_union_bits(occupied, row[k].live);
-		btrc_win_pos_bits initial = {p->initial.low & ~occupied.low, p->initial.high & ~occupied.high};
-		int candidates = rows + (end < 0 && btrc_win_pos_any(initial));
+		btrc_win_pos_bits first = context ? context[0] : p->initial;
+		btrc_win_pos_bits initial = {first.low & ~occupied.low, first.high & ~occupied.high & ~(UINT64_C(1) << 63)};
+		int candidates = rows + (admit && btrc_win_pos_any(initial));
+		context = btrc_win_pos_context(p, s, i + 1, flags);
 		int remaining = 0;
 		for (int k = 0; k < candidates; ++k) {
 			btrc_win_pos_origin origin = k == rows ? (btrc_win_pos_origin){i, initial} : row[k];
-			btrc_win_pos_bits next = btrc_win_pos_step(p, origin.live, byte);
+			btrc_win_pos_bits next = btrc_win_pos_step(p, origin.live, s[i], context);
 			if (btrc_win_pos_contains(next, btrc_win_pos_limit)) {
 				if (!count) return 0;
 				/* Distinct accepting origins need the old subgroup ranking.
@@ -359,6 +420,6 @@ static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *
 		if (!rows && end >= 0) break;
 	}
 	if (end < 0) return REG_NOMATCH;
-	matches[0] = (regmatch_t){start, end};
+	if (count) matches[0] = (regmatch_t){start, end};
 	return 0;
 }
