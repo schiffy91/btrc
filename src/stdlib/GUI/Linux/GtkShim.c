@@ -4,6 +4,7 @@
  * events. BTRC polls it each turn, so the provider's own dispatch runs
  * between GTK's callbacks and never inside one. */
 #include "GtkShimPrivate.h"
+#include "GtkShapedText.h"
 #include "../Shim/ShimControls.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -826,15 +827,19 @@ unsigned char* btrcShimRasterizeText(const char* text, double pixelSize, bool bo
 	if (text == NULL || width == NULL || height == NULL || pixelSize <= 0.0) { g_strlcpy(btrcGtkFailure, "invalid text run", sizeof btrcGtkFailure); return NULL; }
 	PangoFontMap* fonts = pango_cairo_font_map_get_default();
 	PangoContext* context = pango_font_map_create_context(fonts);
-	PangoLayout* layout = pango_layout_new(context);
+	PangoLayout* layout = NULL;
 	PangoFontDescription* font = pango_font_description_from_string("Sans");
 	pango_font_description_set_absolute_size(font, pixelSize * PANGO_SCALE);
 	pango_font_description_set_weight(font, bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
-	pango_layout_set_font_description(layout, font);
-	pango_layout_set_text(layout, text, -1);
 	PangoRectangle ink;
 	PangoRectangle logical;
-	pango_layout_get_pixel_extents(layout, &ink, &logical);
+	BtrcGtkGlyphRun run = {0};
+	if (!btrcGtkShapeText(context, font, text, pixelSize, &run, &ink, &logical)) {
+		layout = pango_layout_new(context);
+		pango_layout_set_font_description(layout, font);
+		pango_layout_set_text(layout, text, -1);
+		pango_layout_get_pixel_extents(layout, &ink, &logical);
+	}
 	/* Wide enough for the advance and for ink that reaches past it; tall
 	 * enough for the line and for ink that reaches past that. */
 	int left = MIN(0, ink.x);
@@ -848,7 +853,11 @@ unsigned char* btrcShimRasterizeText(const char* text, double pixelSize, bool bo
 		cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_A8, drawnWidth, drawnHeight);
 		cairo_t* cairo = cairo_create(surface);
 		cairo_move_to(cairo, -left, (drawnHeight - (bottom - top)) / 2 - top);
-		pango_cairo_show_layout(cairo, layout);
+		if (layout != NULL) { pango_cairo_show_layout(cairo, layout); }
+		else {
+			cairo_rel_move_to(cairo, 0.0, (double)run.baseline / PANGO_SCALE);
+			pango_cairo_show_glyph_string(cairo, run.font, run.glyphs);
+		}
 		cairo_destroy(cairo);
 		cairo_surface_flush(surface);
 		pixels = cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS ? malloc((size_t)drawnWidth * (size_t)drawnHeight * 4u) : NULL;
@@ -869,7 +878,8 @@ unsigned char* btrcShimRasterizeText(const char* text, double pixelSize, bool bo
 	}
 	if (pixels == NULL) { g_strlcpy(btrcGtkFailure, "the text run cannot be drawn", sizeof btrcGtkFailure); }
 	pango_font_description_free(font);
-	g_object_unref(layout);
+	if (layout != NULL) { g_object_unref(layout); }
+	btrcGtkCloseRun(&run);
 	g_object_unref(context);
 	return pixels;
 }

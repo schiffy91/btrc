@@ -21,6 +21,7 @@ from tools.native_plan import NativePlanBuilder
 ROOT = Path(__file__).resolve().parents[2]
 TOOLKIT_UNITS = {
     "Linux/GtkShim.c",
+    "Linux/GtkShapedText.c",
     "Linux/Viewport.c",
     "Linux/GtkCanvas.c",
     "Linux/GtkControls.c",
