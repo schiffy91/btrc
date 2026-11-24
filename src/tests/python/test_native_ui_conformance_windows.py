@@ -127,6 +127,7 @@ def test_windows_shared_frame_builds(tmp_path, request, monkeypatch, frontend, t
     result = transpile(source / "Main.btrc", generated, plan, frontend, request, shell.TARGETS[target][0])
     assert result.returncode == 0, result.stderr
     executable = shell.link(plan, generated, tmp_path / f"frame-view-{frontend}.exe", [])
+    assert DependencyAudit().binary_problems(executable, shell.TARGETS[target][0]) == []
     sender = tmp_path / "frame-producer.exe"
     subprocess.run(
         [
@@ -154,7 +155,7 @@ def test_windows_shared_frame_builds(tmp_path, request, monkeypatch, frontend, t
     directory = published(target)
     if directory:
         directory.mkdir(parents=True, exist_ok=True)
-        for path in (executable, sender, dll, shell.webview2_loader(target, tmp_path)):
+        for path in (executable, sender, dll):
             shutil.copy2(path, directory / path.name)
 
 
