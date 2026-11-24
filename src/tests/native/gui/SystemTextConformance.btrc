@@ -17,6 +17,9 @@ extern int btrcSystemTextInkHeight(void* run);
 extern int btrcSystemTextPixelFormat(void* run);
 extern const unsigned char* btrcSystemTextPixels(void* run);
 
+extern bool btrcSystemTextCaretX(void* run, int offset, double* x);
+extern bool btrcSystemTextHitTest(void* run, double x, int* offset);
+
 bool sameTextInk(void* a, void* b) {
 	if (a == null || b == null || btrcSystemTextInkWidth(a) != btrcSystemTextInkWidth(b) || btrcSystemTextInkHeight(a) != btrcSystemTextInkHeight(b) || btrcSystemTextAdvance(a) != btrcSystemTextAdvance(b)) { return false; }
 	return memcmp(btrcSystemTextPixels(a), btrcSystemTextPixels(b), (size_t)btrcSystemTextInkWidth(a) * (size_t)btrcSystemTextInkHeight(a)) == 0;
@@ -57,10 +60,40 @@ int vectorInstructions(const char* path) {
 	return valid ? 0 : 15;
 }
 
+/* The fixture substitutes "fi" into one glyph. The authored GDEF caret
+ * is at 300/1000 of its em; the other font has no ligature caret table. */
+int caretPositions(const char* path, double first) {
+	void* font = btrcSystemTextOpenFont(path, 10.0, 1.0);
+	if (font == null) { return 11; }
+	void* shaped = btrcSystemTextShapeLine(font, "fi…", 0.0, 0);
+	void* clipped = btrcSystemTextShapeLine(font, "fifi", 10.0, 1);
+	void* empty = btrcSystemTextShapeLine(font, "", 0.0, 0);
+	btrcSystemTextCloseFont(font);
+	int offset = -1;
+	double x = -1.0;
+	bool valid = shaped != null && clipped != null && empty != null;
+	valid = valid && btrcSystemTextCaretX(shaped, 1, &x) && x == first && btrcSystemTextHitTest(shaped, x, &offset) && offset == 1;
+	valid = valid && btrcSystemTextCaretX(shaped, 2, &x) && x == 10.0 && !btrcSystemTextCaretX(shaped, 3, &x) && x == 10.0;
+	valid = valid && btrcSystemTextHitTest(shaped, (10.0 + first) / 2.0, &offset) && offset == 2 && btrcSystemTextHitTest(shaped, 80.0, &offset) && offset == 5;
+	valid = valid && !btrcSystemTextCaretX(clipped, 0, &x) && !btrcSystemTextHitTest(clipped, 0.0, &offset) && offset == 5;
+	valid = valid && btrcSystemTextHitTest(empty, -10.0, &offset) && offset == 0 && btrcSystemTextCaretX(empty, 0, &x) && x == 0.0;
+	btrcSystemTextCloseRun(empty);
+	btrcSystemTextCloseRun(clipped);
+	btrcSystemTextCloseRun(shaped);
+	void* fractionalFont = btrcSystemTextOpenFont(path, 13.0, 1.5);
+	void* fractional = btrcSystemTextShapeLine(fractionalFont, "AAAAAA", 0.0, 0);
+	btrcSystemTextCloseFont(fractionalFont);
+	valid = valid && fractional != null && btrcSystemTextHitTest(fractional, 20.0, &offset) && offset == 2;
+	valid = valid && btrcSystemTextCaretX(fractional, 6, &x) && x == btrcSystemTextAdvance(fractional);
+	btrcSystemTextCloseRun(fractional);
+	return valid ? 0 : 12;
+}
+
 int main(int argc, char** argv) {
 	SystemTextABI.install();
 	if (argc == 3 && strcmp(argv[1], "--context") == 0) { return classSubstitution(argv[2]); }
 	if (argc == 3 && strcmp(argv[1], "--vectors") == 0) { return vectorInstructions(argv[2]); }
+	if (argc == 4 && strcmp(argv[1], "--carets") == 0) { return caretPositions(argv[2], (double)atoi(argv[3])); }
 	if (argc != 2) { return 2; }
 	void* font = btrcSystemTextOpenFont(argv[1], 8.0, 1.0);
 	void* installed = btrcSystemTextOpenDefaultFont(8.0, 1.0, false);

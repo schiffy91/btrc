@@ -482,3 +482,47 @@ def test_linux_system_text_runs(tmp_path, request, gui_provider_root, frontend, 
         timeout=60,
     )
     assert vectors.returncode == 0, vectors.stdout + vectors.stderr
+    for fixture, caret in (("shaping-fixture.ttf", "5"), ("shaping-carets.ttf", "3")):
+        result = subprocess.run(
+            [program, "--carets", tests / "fixtures" / fixture, caret],
+            capture_output=True,
+            text=True,
+            env=provider_environment(sanitized),
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.linux_gui
+def test_gtk_shaped_text(tmp_path_factory, tmp_path, request, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import build_observed_provider_program, provider_environment
+
+    program = build_observed_provider_program(
+        tmp_path_factory,
+        request,
+        frontend,
+        sanitized,
+        "src/tests/native/gui/linux/GtkShapedText.btrc",
+        "src/tests/native/gui/linux/GtkTextRoute",
+        ("gtkTextGlyphCalls", "gtkTextLayoutCalls", "gtkTextUseNativeLayout"),
+        ("pango_cairo_show_glyph_string", "pango_cairo_show_layout"),
+        # The optimized cases cover the production binary. An unoptimized
+        # sanitizer translation unit keeps full GUI instrumentation bounded.
+        optimization=0 if sanitized else 2,
+    )
+    fonts = tmp_path / "fonts"
+    fonts.mkdir()
+    shutil.copyfile(REPO / "src/tests/native/gui/fixtures/shaping-fixture.ttf", fonts / "widgets.ttf")
+    config = tmp_path / "fonts.conf"
+    config.write_text(f"<fontconfig><dir>{fonts}</dir><cachedir>{tmp_path / 'cache'}</cachedir></fontconfig>")
+    result = subprocess.run(
+        [program],
+        capture_output=True,
+        text=True,
+        env=provider_environment(sanitized, FONTCONFIG_FILE=str(config), LC_ALL="C.UTF-8"),
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: public Latin shaping and native fallback produce the same RGBA pixels" in result.stdout

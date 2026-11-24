@@ -10,7 +10,7 @@ class LayoutTable {
 	public Vector<int> order = [];
 	public bool hasKerning = false;
 
-	public LayoutTable(OpenTypeData data, Vector<long long> active, long long script) {
+	public LayoutTable(OpenTypeData data, Vector<long long> active, long long script, bool requireDefaultEnglish = false) {
 		self.data = data;
 		if (data.u16(0) != 1 || data.u16(2) > 1) { throw "Unsupported layout table"; }
 		if (data.u16(2) == 1 && data.u32(10) != 0LL) { throw "Unsupported variable layout"; }
@@ -20,6 +20,7 @@ class LayoutTable {
 		int scriptBase = self.record(scripts, script);
 		if (scriptBase == 0) { scriptBase = self.record(scripts, 0x44464c54LL); } // DFLT
 		if (scriptBase == 0) { return; }
+		if (requireDefaultEnglish && self.record(scriptBase + 2, 0x454e4720LL) != 0) { throw "Font has language-specific English shaping"; }
 		int language = data.u16(scriptBase);
 		if (language == 0) { return; }
 		language += scriptBase;
@@ -70,22 +71,24 @@ class LayoutTable {
 
 	/* Coverage formats use sorted glyphs or sorted disjoint ranges. The
 	 * returned index addresses the parallel subtable record. */
-	public int coverage(int base, int id) {
-		int format = self.data.u16(base);
+	public int coverage(int base, int id) { return LayoutTable.coverageAt(self.data, base, id); }
+
+	class int coverageAt(OpenTypeData data, int base, int id) {
+		int format = data.u16(base);
 		if (format != 1 && format != 2) { throw "Unsupported layout coverage"; }
-		int count = self.data.u16(base + 2);
+		int count = data.u16(base + 2);
 		int stride = format == 1 ? 2 : 6;
-		self.data.need((long long)base + 4LL, (long long)count * (long long)stride);
+		data.need((long long)base + 4LL, (long long)count * (long long)stride);
 		int low = 0;
 		int high = count;
 		while (low < high) {
 			int mid = low + (high - low) / 2;
 			int at = base + 4 + mid * stride;
-			int first = self.data.u16(at);
-			int last = format == 1 ? first : self.data.u16(at + 2);
+			int first = data.u16(at);
+			int last = format == 1 ? first : data.u16(at + 2);
 			if (id < first) { high = mid; }
 			else if (id > last) { low = mid + 1; }
-			else { return format == 1 ? mid : self.data.u16(at + 4) + id - first; }
+			else { return format == 1 ? mid : data.u16(at + 4) + id - first; }
 		}
 		return -1;
 	}

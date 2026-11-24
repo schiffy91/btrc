@@ -15,6 +15,16 @@ implementation = "Shim.GUIProvider"
 os = ["linux", "windows", "android", "ios"]
 
 [[package.providers]]
+module = "Shim.ToolkitFeatures"
+implementation = "Linux.Fonts.GtkLayoutSetup"
+os = ["linux"]
+
+[[package.providers]]
+module = "Shim.ToolkitFeatures"
+implementation = "Shim.PlatformTextLayout"
+os = ["windows", "android", "ios"]
+
+[[package.providers]]
 module = "WebView"
 implementation = "MacOS.WebViewProvider"
 os = ["macos"]
@@ -141,6 +151,13 @@ os = ["linux"]
 
 [[native.sources]]
 path = "Linux/Viewport.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/GtkShapedText.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.Shim"]

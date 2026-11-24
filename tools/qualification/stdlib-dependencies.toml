@@ -171,7 +171,7 @@ binaries = ["libfreetype.so*"]
 [[dependencies]]
 name = "GTK 4"
 pkg-config = ["gtk4", "gtk4-wayland", "gtk4-x11"]
-headers = ["gtk/*", "gdk/*", "glib.h", "glib/*", "gio/*", "glib-object.h"]
+headers = ["gtk/*", "gdk/*", "glib.h", "glib/*", "gio/*", "glib-object.h", "pango/pangocairo.h", "cairo-ft.h"]
 binaries = ["libgtk-4.so*", "libglib-2.0.so*", "libgobject-2.0.so*", "libgio-2.0.so*", "libcairo*.so*", "libpango*.so*", "libgdk_pixbuf*.so*", "libgraphene*.so*", "libharfbuzz*.so*"]
 
 [[dependencies]]
@@ -310,7 +310,7 @@ resolution = "A first-party TrueType reader and rasterizer in BTRC behind the sa
 dependency = "alsa-lib"
 module = "Audio/Linux/LinuxAudioDevice"
 os = ["linux"]
-resolution = "Kernel PCM, PulseAudio and PipeWire sessions use first-party code. Opening an existing user-configured ALSA plugin PCM, including a JACK-only route, still needs its installed libasound runtime. Retiring that compatibility path requires an owner decision."
+resolution = "Kernel PCM, PulseAudio, PipeWire, and self-contained null/raw-file PCM routes use first-party code. Other configured ALSA plugins, including JACK-only routes, still need their installed libasound runtime. Retiring that compatibility path requires an owner decision."
 
 [[pending]]
 dependency = "GTK 4"
