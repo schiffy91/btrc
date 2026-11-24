@@ -1,0 +1,29 @@
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.Linux.PortalDirectoryPicker;
+import Library.GUI.Shim.DialogPump;
+import Library.Platform;
+import Library.Timer;
+
+class TestPortalHost implements IShimDialogPump {
+	private string _mode;
+	private long long _started;
+	public int pumps = 0;
+	public TestPortalHost(string mode) { self._mode = mode; self._started = MonotonicClock.milliseconds(); }
+	public bool isDispatching() { return self._mode.equals("dispatch"); }
+	public bool quitRequested() { return self._mode.equals("quit") && MonotonicClock.milliseconds() - self._started >= 250LL; }
+	public void pumpOnce(int timeoutMilliseconds) { self.pumps++; Timer.sleepMillis(timeoutMilliseconds); }
+}
+
+int main() {
+	string mode = Environment.get("BTRC_PORTAL_TEST", "selected");
+	TestPortalHost host = TestPortalHost(mode);
+	IDirectoryPicker picker = PortalDirectoryPicker(Environment.get("BTRC_PORTAL_PARENT", "wayland:parent"), host);
+	try {
+		DirectoryPickerOutcome outcome = picker.chooseDirectory(DirectoryPickerRequest(mode.equals("invalid") ? "" : mode, Environment.get("BTRC_PORTAL_INITIAL", "input folder")));
+		printf("%d %s\n", (int)outcome.kind, outcome.directory);
+		var error = outcome.error;
+		if (error != null) { printf("error %d %s\n", (int)error.code, error.message); }
+		printf("pumps %d\n", host.pumps);
+	} catch (string error) { printf("exception %s\n", error); }
+	return 0;
+}
