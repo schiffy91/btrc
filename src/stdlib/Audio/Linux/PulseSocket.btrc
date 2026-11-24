@@ -1,0 +1,116 @@
+import ./PulseWire.btrc;
+import Library.IO;
+import Library.Strings;
+import Library.Timer;
+
+/* One full-duplex native socket for a stream or an inventory operation.
+ * All nonblocking retries share the caller's monotonic deadline. */
+class PulseSocket {
+	class string environment(string name) {
+		char* value = getenv(name);
+		return value == null ? "" : Strings.copy(value);
+	}
+
+	class string defaultPath() {
+		string server = PulseSocket.environment("PULSE_SERVER");
+		if (!server.isEmpty()) { return server.startsWith("unix:") ? server.substring(5, server.len() - 5) : server; }
+		string runtime = PulseSocket.environment("XDG_RUNTIME_DIR");
+		if (runtime.isEmpty()) { runtime = f"/run/user/{(int)geteuid()}"; }
+		return runtime + "/pulse/native";
+	}
+
+	class int ready(int fd, bool writing, long long deadline) {
+		while (true) {
+			long long remaining = MonotonicClock.remaining(deadline);
+			if (remaining <= 0LL) { return 0; }
+			struct pollfd pending;
+			pending.fd = fd;
+			pending.events = (short)(writing ? POLLOUT : POLLIN);
+			pending.revents = 0;
+			int result = poll(&pending, (nfds_t)1, (int)(remaining > (long long)INT_MAX ? (long long)INT_MAX : remaining));
+			if (result < 0 && errno == EINTR) { continue; }
+			if (result <= 0) { return result < 0 ? -errno : 0; }
+			return (pending.revents & pending.events) != 0 ? 1 : -EIO;
+		}
+		return -EIO;
+	}
+
+	class int connectPath(string path, long long deadline) {
+		BtrcPulseAddress address = {};
+		if (path.isEmpty() || path[0] != '/' || (size_t)path.len() >= sizeof(address.sun_path)) { return -EINVAL; }
+		int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+		if (fd < 0) { return -errno; }
+		bool configured = DescriptorFlags.configure(fd, true);
+		int error = configured ? 0 : errno;
+		address.sun_family = AF_UNIX;
+		memcpy(address.sun_path, path, (size_t)path.len() + (size_t)1);
+		if (configured && connect(fd, (struct sockaddr*)&address, sizeof(address)) != 0) {
+			error = errno;
+			if (error == EINPROGRESS) {
+				int ready = PulseSocket.ready(fd, true, deadline);
+				if (ready <= 0) { error = ready == 0 ? ETIMEDOUT : -ready; }
+				else {
+					socklen_t size = sizeof(error);
+					if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &size) != 0) { error = errno; }
+				}
+			}
+		}
+		if (error != 0) { close(fd); return -error; }
+		return fd;
+	}
+
+	class int transfer(int fd, unsigned char* data, int length, bool writing, long long deadline) {
+		int offset = 0;
+		while (offset < length) {
+			if (!MonotonicClock.before(deadline)) { return -ETIMEDOUT; }
+			ssize_t count = writing ? send(fd, data + offset, (size_t)(length - offset), MSG_NOSIGNAL) : recv(fd, data + offset, (size_t)(length - offset), 0);
+			if (count < (ssize_t)0 && errno == EINTR) { continue; }
+			if (count < (ssize_t)0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+				int ready = PulseSocket.ready(fd, writing, deadline);
+				if (ready <= 0) { return ready == 0 ? -ETIMEDOUT : ready; }
+				continue;
+			}
+			if (count <= (ssize_t)0) { return count == (ssize_t)0 ? -ECONNRESET : -errno; }
+			offset += (int)count;
+		}
+		return 0;
+	}
+
+	class int sendFrame(int fd, uint channel, unsigned char* data, int length, long long deadline) {
+		unsigned char header[20] = {};
+		struct PulseCursor cursor = {header, 20, 0, false};
+		PulseWire.raw32(&cursor, (uint)length); PulseWire.raw32(&cursor, channel);
+		int error = PulseSocket.transfer(fd, header, 20, true, deadline);
+		return error < 0 ? error : PulseSocket.transfer(fd, data, length, true, deadline);
+	}
+
+	class int receiveFrame(int fd, uint* channel, unsigned char* data, int capacity, long long deadline) {
+		unsigned char header[20] = {};
+		int error = PulseSocket.transfer(fd, header, 20, false, deadline);
+		if (error < 0) { return error; }
+		struct PulseCursor cursor = {header, 20, 0, false};
+		uint length = PulseWire.read32(&cursor);
+		*channel = PulseWire.read32(&cursor);
+		uint offsetHigh = PulseWire.read32(&cursor); uint offsetLow = PulseWire.read32(&cursor);
+		uint flags = PulseWire.read32(&cursor);
+		if (length == 0u || length > (uint)capacity || flags != 0u || offsetHigh != 0u || offsetLow != 0u) { return -EPROTO; }
+		error = PulseSocket.transfer(fd, data, (int)length, false, deadline);
+		return error < 0 ? error : (int)length;
+	}
+
+	class int readCookie(unsigned char* cookie) {
+		memset(cookie, 0, (size_t)256);
+		string path = PulseSocket.environment("PULSE_COOKIE");
+		if (path.isEmpty()) {
+			string config = PulseSocket.environment("XDG_CONFIG_HOME");
+			if (config.isEmpty()) { config = PulseSocket.environment("HOME") + "/.config"; }
+			path = config + "/pulse/cookie";
+		}
+		// Servers can also authorize the connecting Unix peer by its credentials.
+		FILE* file = fopen(path, "rb");
+		if (file == null) { return errno == ENOENT ? 0 : -errno; }
+		bool complete = fread(cookie, (size_t)1, (size_t)256, file) == (size_t)256 && fgetc(file) == EOF && ferror(file) == 0;
+		fclose(file);
+		return complete ? 0 : -EACCES;
+	}
+}

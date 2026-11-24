@@ -9,8 +9,8 @@ Applications open the target's device provider with `Audio.createDevice()`
 which the `[[package.providers]]` entries in this group's `btrc.toml` select per
 compilation target: `MacOS.AudioProvider` (CoreAudio, through
 `MacOS/MacOSAudioDevice.btrc` and the SDK declared by `MacOS/Hardware.h`) for
-`macos`, and `Linux.AudioProvider` (ALSA, through `Linux/LinuxAudioDevice.btrc` and
-`Linux/Alsa.h`) for `linux`. Application policy and processors consume the
+`macos`, and `Linux.AudioProvider` (the kernel ALSA PCM interface and the Pulse native socket protocol through
+`Linux/LinuxAudioDevice.btrc`) for `linux`. Application policy and processors consume the
 portable types and never name a platform module. Each platform's native
 bindings, frameworks and pkg-config entries are declared in the same
 `btrc.toml`.
@@ -70,43 +70,51 @@ native backend; it does not infer an asynchronous entry barrier from a status
 code. The fault suite separately proves no callback publication on preparation
 failure and recovery after callback-installation failure.
 
-`Linux/LinuxAudioDevice.btrc` implements the same provider over ALSA. Inventory
-enumerates PCM hints, keeps the shared server entry points (`default`,
-`pipewire`, `pulse`, `jack`) and per-card `sysdefault`/`hw`/`plughw` names,
-probes each direction for channel, rate and period ranges, and reports
-`default` as both defaults. A session opens interleaved float capture and
-playback handles configured to the requested period with two periods of
-buffer, then runs a worker thread (a `NativeWorker` from
-`Library.BackgroundJobs.NativeWorker`, the same start/join owner the
-background-job executor uses) that reads one capture period, calls the
-realtime program on the selected channels and writes one playback period in
-lock step; xruns are recovered in place and reported as discontinuities, and
-the worker asks for `SCHED_FIFO` when the system allows it. Channel counts are
-negotiated as at least the selection's highest channel, so a device fixed at a
-larger count opens and the selection is scattered into it. The worker waits
-for each period with `snd_pcm_wait` and a 100 ms timeout, re-checking the stop
-request between waits, so a stalled device never holds it. A failed
-`snd_pcm_recover`, prefill write or capture start latches the stream's fault
-and ends the worker. `suspend()` stops admission and signals the worker;
-`drain()` waits up to five seconds for the worker to leave the device
-(`AUDIO_DEVICE_BUSY` otherwise), joins it and reports any latched fault;
-`close()` stops and releases the handles. While a session holds a PCM, an
-inventory refresh reuses that PCM's last probe instead of reopening it, so a
-`hw:` device that admits one opener stays published and the generation does
-not move. A failed `snd_pcm_drop` keeps the handle, so the close is
-retryable; alsa-lib frees the handle whether or not `snd_pcm_close` succeeds,
-so that failure is indeterminate and the stream is never touched again, the
-same disposal contract the CoreAudio provider exposes. The fault suite
-(`src/tests/native/audio/linux/AlsaFaults.h`, `LinuxAudioFaults.btrc`) stands
-in for alsa-lib with one fake `default` PCM and drives every failure point
-without hardware, including a lost device, failed prefill and capture start,
-a stalled device, an overdue worker, a fixed four-channel device and an
-exclusive device held by the session. The session test (`LinuxAudioSession.btrc`) needs a PCM the
-real alsa-lib can open. The devcontainer has no sound card, so its image
-installs `nix/asound.conf` as `/etc/asound.conf`: a null default PCM that
-discards playback and captures silence. CI's Linux shards therefore run the
-session on both frontends, optimized and sanitized, and a missing PCM there is
-a test failure, not a skip. The null plugin does not advance on a clock, so
-those runs cover the provider's ALSA calls, lifecycle and frame accounting but
-not realtime pacing or xrun recovery; that still needs a real device.
-Windows remains unimplemented; do not add fake-success stubs.
+Linux reads the kernel PCM inventory from `/proc/asound/pcm` and card names from
+`/proc/asound/card*/id`. Both numeric and named addresses work, for example
+`hw:0,0` and `plughw:CARD=Loopback,DEV=0`. A raw `hw:` session uses native
+interleaved float32. The `plughw:` and per-card `sysdefault:` entries also
+convert S32_LE, S24_3LE, S24_LE and S16_LE samples to and from the public
+float buffers. A device with a larger fixed channel count opens with its full
+count. The worker scatters selected output channels, silences unselected
+channels and gathers selected input channels. Kernel sessions require a
+hardware-supported sample rate and the requested period. Applications that
+need rate conversion can use the desktop sound server.
+
+On a desktop, `default` and `pulse` connect to PulseAudio or PipeWire's
+Pulse server over a Unix socket. The provider publishes `pipewire` when that
+server identifies itself as PipeWire. It reads the server address from
+`PULSE_SERVER` or `XDG_RUNTIME_DIR/pulse/native`, authenticates using
+`PULSE_COOKIE` or the user configuration directory, and reads channel counts
+and rates for the default sink and source. Without a reachable sound server,
+`default` selects the first available kernel capture and playback devices.
+Applications that previously selected `jack` through an alsa-lib plugin on a
+JACK-only desktop need a compatible backend. This workstream keeps that
+compatibility decision open.
+
+Each session runs one worker, with a bounded wait for each device. Kernel
+xruns prepare the device again. A suspended kernel PCM resumes when the
+driver supports it. Pulse underflow and overflow notifications reach the
+next realtime block as discontinuity flags. The worker asks for `SCHED_FIFO`
+when the OS permits it. Admission stops at `suspend()`. After `drain()` joins
+the worker, subsequent calls observe its terminal fault, if any. The drain
+deadline is five seconds, after which an active worker reports
+`AUDIO_DEVICE_BUSY`.
+
+The standard Linux audio tests use a clocked Pulse native peer and a kernel
+PCM ioctl fixture. To check real kernel transfer, load the kernel's
+`snd-aloop` module, then run the public duplex sample round-trip.
+
+```sh
+sudo modprobe snd-aloop
+BTRC_TEST_AUDIO_HARDWARE=1 python -m pytest src/tests/python/test_native_linux_providers.py -k 'linux_audio_loopback and alsa-loopback' --compilers=both
+```
+
+For the real sound-server round-trip, select a test sink and its matching
+monitor as that server's default source, then run the same sample test.
+
+```sh
+BTRC_TEST_PULSE_MONITOR=1 python -m pytest src/tests/python/test_native_linux_providers.py -k 'linux_audio_loopback and pulse-monitor' --compilers=both
+```
+
+Windows remains unimplemented.

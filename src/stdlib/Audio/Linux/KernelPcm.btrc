@@ -68,4 +68,88 @@ class KernelPcm {
 		}
 		return -EINVAL;
 	}
+
+	class int openPath(string path) {
+		int descriptor = open(path, (int)O_RDWR | (int)O_NONBLOCK | (int)O_CLOEXEC);
+		return descriptor < 0 ? -errno : descriptor;
+	}
+
+	class int closeDescriptor(int descriptor) { return close(descriptor) != 0 ? -errno : 0; }
+	class int prepare(int descriptor) { return btrcPcmPrepare(descriptor); }
+	class int start(int descriptor) { return btrcPcmStart(descriptor); }
+	class int drop(int descriptor) { return btrcPcmDrop(descriptor); }
+	class int wait(int descriptor, bool capture, int timeout) { return btrcPcmPoll(descriptor, capture ? 1 : 0, timeout); }
+	class bool needsDrop(int descriptor) {
+		int state = btrcPcmState(descriptor);
+		return state == BTRC_PCM_PREPARED || state == BTRC_PCM_RUNNING || state == BTRC_PCM_XRUN || state == BTRC_PCM_DRAINING || state == BTRC_PCM_PAUSED;
+	}
+
+	class int startIfPrepared(int descriptor) {
+		int state = btrcPcmState(descriptor);
+		if (state < 0) { return state; }
+		return state == BTRC_PCM_PREPARED ? btrcPcmStart(descriptor) : 0;
+	}
+
+	class int recover(int descriptor, int error) {
+		if (error == -EINTR || error == -EAGAIN) { return 0; }
+		if (error == -ESTRPIPE) {
+			int resumed = btrcPcmResume(descriptor);
+			if (resumed == 0) { return 0; }
+			return btrcPcmPrepare(descriptor);
+		}
+		return error == -EPIPE ? btrcPcmPrepare(descriptor) : error;
+	}
+
+	/* Compact forward on playback and expand backward on capture, so the
+	 * physical float buffer doubles as the wire buffer without allocation. */
+	class int bytesPerSample(int format) {
+		if (format == BTRC_PCM_S16) { return 2; }
+		return format == BTRC_PCM_S24_PACKED ? 3 : 4;
+	}
+
+	class void pack(float* samples, int count, int format) {
+		if (format == BTRC_PCM_FLOAT) { return; }
+		int bytes = KernelPcm.bytesPerSample(format);
+		long long scale = format == BTRC_PCM_S16 ? 32768LL : (format == BTRC_PCM_S32 ? 2147483648LL : 8388608LL);
+		var data = (unsigned char*)samples;
+		for (int sample = 0; sample < count; sample++) {
+			double value = (double)samples[sample];
+			long long encoded = 0LL;
+			if (value >= 1.0) { encoded = scale - 1LL; }
+			else if (value <= -1.0) { encoded = -scale; }
+			else if (value == value) {
+				double scaled = value * (double)scale;
+				encoded = (long long)(scaled < 0.0 ? scaled - 0.5 : scaled + 0.5);
+				if (encoded == scale) { encoded--; }
+			}
+			uint bits = (uint)encoded;
+			for (int byte = 0; byte < bytes; byte++) {
+				data[sample * bytes + byte] = (unsigned char)(bits >> (8 * byte));
+			}
+		}
+	}
+
+	class void unpack(float* samples, int count, int format) {
+		if (format == BTRC_PCM_FLOAT) { return; }
+		int bytes = KernelPcm.bytesPerSample(format);
+		int significant = format == BTRC_PCM_S24 ? 3 : bytes;
+		long long scale = 1LL << (8 * significant - 1);
+		var data = (unsigned char*)samples;
+		for (int sample = count - 1; sample >= 0; sample--) {
+			long long value = 0LL;
+			for (int byte = 0; byte < significant; byte++) {
+				value |= (long long)data[sample * bytes + byte] << (8 * byte);
+			}
+			if (value >= scale) { value -= 2LL * scale; }
+			samples[sample] = (float)((double)value / (double)scale);
+		}
+	}
+
+	class long transfer(int descriptor, bool capture, int format, int channels, float* samples, int frames) {
+		if (!capture) { KernelPcm.pack(samples, frames * channels, format); }
+		long result = btrcPcmTransfer(descriptor, capture ? 1 : 0, samples, (unsigned int)frames);
+		if (result > (long)frames) { return -EIO; }
+		if (capture && result > 0L) { KernelPcm.unpack(samples, (int)result * channels, format); }
+		return result;
+	}
 }
