@@ -22,7 +22,7 @@ class PostScriptPath {
 		self.deviceScale = (scale + 32LL) / 64LL;
 	}
 
-	/* With one uncaptured horizontal stem the hint map is a translation.
+	/* With one free or baseline-anchored horizontal stem the hint map is a translation.
 	 * Snap its nearer edge to the pixel grid, preferring upward motion
 	 * when equally close. An even device-space width preserves both
 	 * half-widths exactly at 16.16 precision. */
@@ -30,7 +30,7 @@ class PostScriptPath {
 		if (!self.deviceSpace || self.outline.pointCount() != 0 || width <= 0LL || bottom % 65536LL != 0LL || width % 65536LL != 0LL) { return false; }
 		int low = (int)(bottom / 65536LL);
 		int high = low + (int)(width / 65536LL);
-		if (!blues.clearOf(low, high)) { return false; }
+		if (!blues.allowsSingleStem(low, high)) { return false; }
 		long long a = (long long)low * self.deviceScale;
 		long long b = (long long)high * self.deviceScale;
 		if (((b - a) & 1LL) != 0LL) { return false; }
