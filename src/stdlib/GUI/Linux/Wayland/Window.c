@@ -354,7 +354,7 @@ int btrcWaylandDisplayPoll(BtrcWaylandDisplay *d, int timeout) {
     /* Modal, clipboard and normal event loops all poll this display. An
      * assistive action can complete the caller's wait without a queued event. */
     int dispatched = 0;
-    if (d->accessibilityService) { d->wire->accessibility = d->accessibilityService(&dispatched); }
+    if (d->accessibilityService) { d->wire->accessibility = d->accessibilityService(&dispatched, &timeout); }
     int result = btrcWaylandPoll(d->wire, btrcWaylandRepeatTimeout(d, dispatched ? 0 : timeout));
     if (result < 0) { return -1; }
     if (result == 2 && !btrcWaylandQueueEvent(d, (BtrcShimEvent){.type = BTRC_SHIM_EVENT_USER})) { return -1; }

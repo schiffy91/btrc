@@ -116,6 +116,31 @@ def controls_visible(pixels, width, left, top, background):
     return pixel(26, 70) != background and any(pixel(x, y) != background for x in range(16, 140) for y in range(12, 42))
 
 
+def test_preview_accessibility_reconnect(preview_app, tmp_path):
+    libexec = os.environ.get("BTRC_ATSPI_LIBEXEC")
+    if not libexec or not (Path(libexec) / "at-spi2-registryd").is_file():
+        pytest.skip("requires the desktop's AT-SPI registry")
+    if not all(shutil.which(tool) for tool in ("dbus-daemon", "gdbus", "grim")):
+        pytest.skip("requires the D-Bus tools and a compositor screenshot observer")
+    subprocess.run(
+        [
+            SESSION,
+            "--wayland",
+            "--",
+            sys.executable,
+            "-m",
+            "src.tests.native.gui.wayland_atspi_reconnect",
+            preview_app,
+            tmp_path,
+            str(Path(libexec) / "at-spi2-registryd"),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "BTRC_ATSPI_LIBEXEC": ""},
+        check=True,
+        timeout=90,
+    )
+
+
 def empty_root_command(executable, work, options=()):
     executable, work = Path(executable).resolve(), Path(work)
     listing = subprocess.check_output(["ldd", executable], text=True)

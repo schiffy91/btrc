@@ -18,8 +18,8 @@ static BtrcShimWindow *windows;
 static pthread_t thread;
 static int openError;
 static bool disconnected;
-static int (*accessibilityService)(int *);
-void btrcWaylandAccessibilityInstall(int (*service)(int *)) {
+static int (*accessibilityService)(int *, int *);
+void btrcWaylandAccessibilityInstall(int (*service)(int *, int *)) {
     accessibilityService = service;
     if (display) { display->accessibilityService = service; }
 }

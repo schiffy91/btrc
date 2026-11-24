@@ -1,6 +1,7 @@
 import Library.DBus;
 import Library.Platform;
 import Library.Strings;
+import Library.Timer;
 import Library.Vector;
 
 #include <unistd.h>
@@ -39,7 +40,8 @@ class WaylandAccessible {
 
 class WaylandAccessibility {
 	class DBusConnection? bus = null;
-	class bool attempted = false;
+	class long long retryAt = 0;
+	class int retryDelay = 250;
 	class int appId = -1;
 	class unsigned embedSerial = 0;
 	class string desktopOwner = "org.a11y.atspi.Registry";
@@ -248,7 +250,6 @@ class WaylandAccessibility {
 	}
 
 	class DBusConnection? connect() {
-		if (Environment.get("NO_AT_BRIDGE", "") == "1") { return null; }
 		string address = Environment.get("AT_SPI_BUS_ADDRESS", "");
 		if (address.isEmpty()) {
 			if (Environment.get("DBUS_SESSION_BUS_ADDRESS", "").isEmpty() && access(Environment.get("XDG_RUNTIME_DIR", "") + "/bus", F_OK) != 0) { return null; }
@@ -259,6 +260,12 @@ class WaylandAccessibility {
 		}
 		if (address.isEmpty()) { return null; }
 		var connection = DBusConnection.open(address); if (connection == null) { return null; }
+		/* The accessibility bus can survive a registry restart. Subscribe before
+		 * Embed so a later loss of our registration cannot race the subscription. */
+		var watch = DBusMessage.methodCall(DBusConnection.busName(), DBusConnection.busPath(), DBusConnection.busName(), "AddMatch");
+		watch.writer().appendString("type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.a11y.atspi.Registry'");
+		watch.setNoReply(true);
+		if (!connection.send(watch)) { connection.close(); return null; }
 		var embed = DBusMessage.methodCall(WaylandAccessibility.registry(), WaylandAccessibility.root(), "org.a11y.atspi.Socket", "Embed");
 		WaylandAccessibility.reference(embed.writer(), connection.uniqueName(), WaylandAccessibility.root());
 		if (!connection.send(embed)) { connection.close(); return null; }
@@ -266,14 +273,38 @@ class WaylandAccessibility {
 		return connection;
 	}
 
-	class int turn(int* dispatched) {
-		if (!WaylandAccessibility.attempted) {
-			WaylandAccessibility.attempted = true;
-			WaylandAccessibility.bus = WaylandAccessibility.connect();
-		}
+	class void capWait(int* timeout, int delay) {
+		if (*timeout < 0 || *timeout > delay) { *timeout = delay; }
+	}
+
+	class int disconnected(int* timeout) {
 		var channel = WaylandAccessibility.bus;
-		if (channel == null) { return -1; }
-		if (!channel.readWrite(0)) { channel.close(); WaylandAccessibility.bus = null; return -1; }
+		if (channel != null) { channel.close(); }
+		WaylandAccessibility.bus = null;
+		WaylandAccessibility.previous = null;
+		WaylandAccessibility.revision = 0;
+		WaylandAccessibility.appId = -1;
+		WaylandAccessibility.embedSerial = 0;
+		WaylandAccessibility.desktopOwner = WaylandAccessibility.registry();
+		WaylandAccessibility.desktopPath = WaylandAccessibility.root();
+		int delay = WaylandAccessibility.retryDelay;
+		WaylandAccessibility.retryAt = MonotonicClock.deadlineAfter(delay);
+		WaylandAccessibility.capWait(timeout, delay);
+		if (delay < 8000) { WaylandAccessibility.retryDelay = delay * 2; }
+		return -1;
+	}
+
+	class int turn(int* dispatched, int* timeout) {
+		var channel = WaylandAccessibility.bus;
+		if (channel == null) {
+			if (Environment.get("NO_AT_BRIDGE", "") == "1") { return -1; }
+			long long left = MonotonicClock.remaining(WaylandAccessibility.retryAt);
+			if (left > 0) { WaylandAccessibility.capWait(timeout, (int)left); return -1; }
+			channel = WaylandAccessibility.connect();
+			if (channel == null) { return WaylandAccessibility.disconnected(timeout); }
+			WaylandAccessibility.bus = channel;
+		}
+		if (!channel.readWrite(0)) { return WaylandAccessibility.disconnected(timeout); }
 		unsigned long long revision = btrcWaylandAccessibilityRevision();
 		var nodes = WaylandAccessibility.previous;
 		if (nodes == null || WaylandAccessibility.revision != revision) {
@@ -285,10 +316,17 @@ class WaylandAccessibility {
 		if (message != null) {
 			*dispatched = 1;
 			while (message != null) {
-				if (message.type() == DBUS_MESSAGE_TYPE_METHOD_RETURN && message.replySerial() == WaylandAccessibility.embedSerial && message.signature() == "(so)") {
+				if (WaylandAccessibility.embedSerial != 0 && message.replySerial() == WaylandAccessibility.embedSerial) {
+					if (message.type() != DBUS_MESSAGE_TYPE_METHOD_RETURN || message.signature() != "(so)") { return WaylandAccessibility.disconnected(timeout); }
+					WaylandAccessibility.embedSerial = 0;
+					WaylandAccessibility.retryDelay = 250;
 					var parent = message.reader().recurse();
 					WaylandAccessibility.desktopOwner = parent.readString();
 					parent.next(); WaylandAccessibility.desktopPath = parent.readObjectPath();
+				}
+				if (message.sender() == DBusConnection.busName() && message.isSignal(DBusConnection.busName(), "NameOwnerChanged") && message.signature() == "sss") {
+					var owner = message.reader(); string name = owner.readString(); owner.next();
+					if (name == WaylandAccessibility.registry() && !owner.readString().isEmpty()) { return WaylandAccessibility.disconnected(timeout); }
 				}
 				if (message.type() == DBUS_MESSAGE_TYPE_METHOD_CALL) {
 					var answer = WaylandAccessibility.dispatch(channel, message, nodes);
@@ -303,6 +341,6 @@ class WaylandAccessibility {
 	class void install() { btrcWaylandAccessibilityInstall(serviceWaylandAccessibility); }
 }
 
-typedef CFunction<int, int*> WaylandAccessibilityPump;
+typedef CFunction<int, int*, int*> WaylandAccessibilityPump;
 extern void btrcWaylandAccessibilityInstall(WaylandAccessibilityPump service);
-int serviceWaylandAccessibility(int* dispatched) { try { return WaylandAccessibility.turn(dispatched); } catch (string error) { return -1; } }
+int serviceWaylandAccessibility(int* dispatched, int* timeout) { try { return WaylandAccessibility.turn(dispatched, timeout); } catch (string error) { return WaylandAccessibility.disconnected(timeout); } }

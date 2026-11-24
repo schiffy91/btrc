@@ -15,5 +15,5 @@ bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessibl
 bool btrcWaylandAccessibleAction(unsigned window, unsigned control, bool focusOnly);
 void btrcWaylandAccessibilityChanged(void);
 unsigned long long btrcWaylandAccessibilityRevision(void);
-void btrcWaylandAccessibilityInstall(int (*service)(int *));
+void btrcWaylandAccessibilityInstall(int (*service)(int *, int *));
 #endif

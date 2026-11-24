@@ -16,7 +16,7 @@ struct BtrcWaylandDisplay {
     bool (*editContext)(BtrcWaylandWindow *, struct BtrcEditContext *);
     bool (*deleteAround)(BtrcWaylandWindow *, unsigned, unsigned);
     void (*activationChanged)(void);
-    int (*accessibilityService)(int *);
+    int (*accessibilityService)(int *, int *);
     bool (*routeInput)(BtrcWaylandDisplay *, const BtrcShimEvent *, bool *);
     bool (*modalFilter)(void *, const BtrcShimEvent *, bool *);
     void *modal;
