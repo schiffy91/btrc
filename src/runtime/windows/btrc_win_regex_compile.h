@@ -30,7 +30,7 @@ typedef struct {
 	btrc_win_rx_node *nodes;
 	btrc_win_rx_inst *code;
 	int code_count, code_capacity, flags, references;
-	int tag_count, guard_count, capture_count;
+	int tag_count, guard_count, capture_count, report_interior;
 	int *fixed_spans;
 	int *guard_tags;
 	/* 0 minimizes and 1 maximizes. A guard (2) and a capture erased by {0}
@@ -603,6 +603,35 @@ static inline int btrc_win_rx_fixed_spans(btrc_win_rx_program *rx, int n, int *p
 	return 1;
 }
 
+/* Pending holds variable-width byte sets that can reach the next atom
+   across nullable intervening atoms. With disjoint boundaries, a match
+   has a single decomposition and the tags determine each capture. */
+static inline int btrc_win_rx_separated_captures(const btrc_win_rx_node *nodes, int n, btrc_win_byte_set *pending)
+{
+	for (; n; n = nodes[n].next) {
+		const btrc_win_rx_node *node = &nodes[n];
+		if (node->op == btrc_win_rx_group && node->child) {
+			if (!btrc_win_rx_separated_captures(nodes, node->child, pending)) return 0;
+			continue;
+		}
+		int minimum = 1, maximum = 1;
+		if (node->op == btrc_win_rx_repeat) {
+			minimum = node->min;
+			maximum = node->max;
+			node = &nodes[node->child];
+		}
+		if (node->op != btrc_win_rx_byte) return 0;
+		if (!maximum) continue;
+		for (size_t i = 0; i < sizeof pending->bits; ++i) {
+			unsigned char bits = node->bytes.bits[i];
+			if (pending->bits[i] & bits) return 0;
+			if (minimum) pending->bits[i] = 0;
+			if (minimum != maximum) pending->bits[i] |= bits;
+		}
+	}
+	return 1;
+}
+
 static inline int btrc_win_regcomp(regex_t *restrict re, const char *restrict pattern, int flags)
 {
 	memset(re, 0, sizeof *re);
@@ -626,7 +655,13 @@ static inline int btrc_win_regcomp(regex_t *restrict re, const char *restrict pa
 			rx->fixed_spans = (int *)calloc(2 * ((size_t)parser.groups + 1), sizeof *rx->fixed_spans);
 			int position = 0;
 			if (!rx->fixed_spans) parser.error = REG_ESPACE;
-			else if (!btrc_win_rx_fixed_spans(rx, root, &position)) parser.error = REG_BADPAT;
+			else if (!btrc_win_rx_fixed_spans(rx, root, &position)) {
+				free(rx->fixed_spans);
+				rx->fixed_spans = NULL;
+				btrc_win_byte_set pending = {{0}};
+				if (btrc_win_rx_separated_captures(rx->nodes, root, &pending)) rx->report_interior = 1;
+				else parser.error = REG_BADPAT;
+			}
 		} else {
 			parser.error = REG_BADPAT;
 		}

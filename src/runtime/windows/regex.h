@@ -174,8 +174,9 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 	if ((pointer & (uintptr_t)3) == 2) {
 		const btrc_win_regex_flat *flat = (const btrc_win_regex_flat *)(pointer - 2);
 		const btrc_win_rx_program *rx = (const btrc_win_rx_program *)flat->compiled.__opaque;
-		int status = btrc_win_regexec(&flat->compiled, subject, count ? 1 : 0, matches, flags);
-		if (!status && count && !(rx->flags & REG_NOSUB)) {
+		size_t slots = rx->report_interior ? count : (count ? 1 : 0);
+		int status = btrc_win_regexec(&flat->compiled, subject, slots, matches, flags);
+		if (!rx->report_interior && !status && count && !(rx->flags & REG_NOSUB)) {
 			for (size_t g = 1; g < count; ++g) {
 				if (g > re->re_nsub) matches[g] = (regmatch_t){-1, -1};
 				else if (!rx->fixed_spans) matches[g] = matches[0];

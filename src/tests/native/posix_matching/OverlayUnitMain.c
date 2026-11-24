@@ -79,6 +79,13 @@ int main(void)
 	if (regcomp(&compiled, "", 0) || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
 	    regexec(&compiled, "", 1, span, REG_NOTBOL | REG_NOTEOL) || span[0].rm_so || span[0].rm_eo) return 1;
 	regfree(&compiled);
+	if (regcomp(&compiled, "([a-z]+)-([0-9]+)", REG_EXTENDED) || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
+	    regexec(&compiled, "!test-42.", 4, capture, 0) || capture[0].rm_so != 1 || capture[0].rm_eo != 8 ||
+	    capture[1].rm_so != 1 || capture[1].rm_eo != 5 || capture[2].rm_so != 6 || capture[2].rm_eo != 8 ||
+	    capture[3].rm_so != -1) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "(b*)(.{2,3})", REG_EXTENDED) || ((uintptr_t)compiled.__opaque & 3u) == 2) return 1;
+	regfree(&compiled);
 	char literal[] = "ababaca";
 	if (overlay_helper_compile(&compiled, literal) != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
 	literal[0] = 'z';
