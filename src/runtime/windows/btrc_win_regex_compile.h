@@ -583,16 +583,29 @@ static inline int btrc_win_rx_flat_eligible(const btrc_win_rx_parser *parser)
 /* All positions in a concatenation of positive fixed-width atoms are
    determined by the whole-match start. Record the participating captures
    once during compilation; each occurrence consumes exactly its width. */
-static inline int btrc_win_rx_fixed_spans(btrc_win_rx_program *rx, int n, int *position)
+static inline int btrc_win_rx_fixed_spans(btrc_win_rx_program *rx, int n, int *position, int inside_copy)
 {
 	for (; n; n = rx->nodes[n].next) {
 		const btrc_win_rx_node *node = &rx->nodes[n];
 		int width;
+		if (inside_copy && node->op != btrc_win_rx_byte && node->op != btrc_win_rx_group) return 0;
 		if (node->op == btrc_win_rx_byte) {
 			width = 1;
 		} else if (node->op == btrc_win_rx_repeat && rx->nodes[node->child].op == btrc_win_rx_byte &&
 		           node->min > 0 && node->min == node->max) {
 			width = node->min;
+		} else if (node->op == btrc_win_rx_repeat && node->min > 0 && node->min == node->max &&
+		           rx->nodes[node->child].op == btrc_win_rx_group) {
+			const btrc_win_rx_node *group = &rx->nodes[node->child];
+			int start = *position;
+			if (!btrc_win_rx_fixed_spans(rx, node->child, position, 1)) return 0;
+			int step = *position - start;
+			if (!step || node->min - 1 > (INT_MAX - *position) / step) return 0;
+			width = step * (node->min - 1);
+			for (int g = group->arg; g <= group->max; ++g) {
+				rx->fixed_spans[2 * g] += width;
+				rx->fixed_spans[2 * g + 1] += width;
+			}
 		} else if (node->op == btrc_win_rx_assert && rx->references) {
 			continue;
 		} else if (node->op == btrc_win_rx_ref && node->arg <= rx->capture_count) {
@@ -604,7 +617,7 @@ static inline int btrc_win_rx_fixed_spans(btrc_win_rx_program *rx, int n, int *p
 		} else if (node->op == btrc_win_rx_group && node->child) {
 			int *span = rx->fixed_spans + 2 * node->arg;
 			span[0] = *position;
-			if (!btrc_win_rx_fixed_spans(rx, node->child, position)) return 0;
+			if (!btrc_win_rx_fixed_spans(rx, node->child, position, inside_copy)) return 0;
 			span[1] = *position;
 			continue;
 		} else {
@@ -682,7 +695,7 @@ static inline int btrc_win_regcomp(regex_t *restrict re, const char *restrict pa
 			rx->fixed_spans = (int *)calloc(2 * ((size_t)parser.groups + 1), sizeof *rx->fixed_spans);
 			int position = 0;
 			if (!rx->fixed_spans) parser.error = REG_ESPACE;
-			else if (!btrc_win_rx_fixed_spans(rx, root, &position)) {
+			else if (!btrc_win_rx_fixed_spans(rx, root, &position, 0)) {
 				free(rx->fixed_spans);
 				rx->fixed_spans = NULL;
 				btrc_win_byte_set pending = {{0}};

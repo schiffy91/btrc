@@ -127,10 +127,15 @@ int main(void)
 	if (regexec(&compiled, "aabbb", 1, span, 0) || span[0].rm_so != 1 || span[0].rm_eo != 5 ||
 	    regexec(&compiled, "aaaa", 0, NULL, 0) != REG_NOMATCH) return 1;
 	regfree(&compiled);
-	if (overlay_helper_compile(&compiled, "((a){2})") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
+	if (overlay_helper_compile(&compiled, "((a){2})") || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
+	    regexec(&compiled, "aaaa", 4, capture, 0) || capture[0].rm_so != 0 || capture[0].rm_eo != 2 ||
+	    capture[1].rm_so != 0 || capture[1].rm_eo != 2 || capture[2].rm_so != 1 || capture[2].rm_eo != 2 ||
+	    capture[3].rm_so != -1) return 1;
+	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "((a){2,3})") || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
 	const btrc_win_pos_program *positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
 	if (btrc_win_pos_match(positions, "aaaa", 1, span, 0) != btrc_win_pos_competing_starts ||
-	    regexec(&compiled, "aaaa", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 2) return 1;
+	    regexec(&compiled, "aaaa", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 3) return 1;
 	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "(((([abc]){0}|.)|(b){0}[[:space:]])){1,3}") != 0 ||
 	    ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
