@@ -1,4 +1,4 @@
 #pragma once
-int startFramePeer(const char *path);
+int acceptFramePeer(void);
 int submitFrame(const char *address, int width, int pattern);
-int finishFramePeer(void);
+void closeFramePeer(void);

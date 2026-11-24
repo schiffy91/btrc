@@ -17,10 +17,9 @@ class AwaitCapture implements IApplicationWork {
 	}
 }
 
-int main(Vector<string> args) {
-	if (args.length != 1) { return 1; }
-	var pid = startFramePeer(args.get(0));
-	if (pid <= 0) { throw "Cannot launch frame producer"; }
+int main() {
+	var pid = acceptFramePeer();
+	if (pid <= 0) { throw "Cannot connect to frame producer"; }
 	GUI.initialize();
 	try {
 		var window = GUI.createWindow("Shared frame", 300.0, 200.0);
@@ -41,13 +40,13 @@ int main(Vector<string> args) {
 		var next = view.listen(pid);
 		if (next.address() == first.address() || submitFrame(first.address(), 64, 1) != 0) { throw "Old endpoint survived reconnect"; }
 		if (submitFrame(next.address(), 64, 2) != 1 || !view.presentPending()) { throw "Cannot present after reconnect"; }
-		if (finishFramePeer() != 0) { throw "Producer failed"; }
+		closeFramePeer();
 		if (!FileSystem.writeText("frame-ready", "1")) { throw "Cannot signal the screen capture"; }
 		var watch = AwaitCapture();
 		GUI.post(watch);
 		GUI.run();
 		if (!watch.captured) { throw "Screen capture timed out"; }
 		Console.log("Shared frame captured after producer exit");
-	} finally { finishFramePeer(); GUI.close(); }
+	} finally { closeFramePeer(); GUI.close(); }
 	return 0;
 }

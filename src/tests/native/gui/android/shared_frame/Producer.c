@@ -41,17 +41,20 @@ static int sendFrame(const char *name, unsigned width, int pattern) {
 }
 
 int main(void) {
+	struct sockaddr_un control = {.sun_family = AF_UNIX, .sun_path = "frame-peer"};
+	int channel = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+	if (channel < 0 || connect(channel, (struct sockaddr *)&control, sizeof control)) { return 1; }
 	char line[160], address[108];
 	unsigned width;
 	int pattern;
 	ssize_t bytes;
-	while ((bytes = recv(STDIN_FILENO, line, sizeof line - 1, 0)) > 0) {
+	while ((bytes = recv(channel, line, sizeof line - 1, 0)) > 0) {
 		line[bytes] = '\0';
 		if (sscanf(line, "%107s %u %d", address, &width, &pattern) != 3) { return 1; }
 		int result = sendFrame(address, width, pattern);
 		if (result < 0) { return 1; }
 		unsigned char reply = (unsigned char)result;
-		if (send(STDIN_FILENO, &reply, 1, MSG_NOSIGNAL) != 1) { return 1; }
+		if (send(channel, &reply, 1, MSG_NOSIGNAL) != 1) { return 1; }
 	}
 	return bytes == 0 ? 0 : 1;
 }

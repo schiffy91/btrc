@@ -224,21 +224,27 @@ def test_android_shared_frame_case(frontend, android_device, request, tmp_path, 
     base = runner.adb("shell", "pm", "path", package).stdout.decode().strip().removeprefix("package:")
     install = base.rsplit("/", 1)[0]
     (peer,) = runner.within(f"find {shlex.quote(install)}/lib -name libframeproducer.so").stdout.decode().splitlines()
-    with ThreadPoolExecutor(max_workers=1) as worker:
-        result = worker.submit(runner.run, [peer], timeout=90)
+    with ThreadPoolExecutor(max_workers=2) as worker:
+        result = worker.submit(runner.run, timeout=90)
+        producer = None
         deadline = time.monotonic() + 90
         shown = False
         while time.monotonic() < deadline and not result.done():
-            if runner.file("frame-ready") and frame_on_screen(runner.adb("exec-out", "screencap").stdout):
-                shown = True
-                evidence = os.environ.get("BTRC_ANDROID_UI_EVIDENCE")
-                if evidence:
-                    directory = Path(evidence)
-                    directory.mkdir(parents=True, exist_ok=True)
-                    picture = runner.adb("exec-out", "screencap", "-p").stdout
-                    (directory / f"shared-frame-{frontend}.png").write_bytes(picture)
-                runner.within("touch files/frame-captured")
-                break
+            if producer is None:
+                if runner.within("test -S files/frame-peer", check=False).returncode == 0:
+                    producer = worker.submit(runner.within, f"cd files && exec {shlex.quote(peer)}", timeout=60)
+            elif producer.done():
+                producer.result()
+                if runner.file("frame-ready") and frame_on_screen(runner.adb("exec-out", "screencap").stdout):
+                    shown = True
+                    evidence = os.environ.get("BTRC_ANDROID_UI_EVIDENCE")
+                    if evidence:
+                        directory = Path(evidence)
+                        directory.mkdir(parents=True, exist_ok=True)
+                        picture = runner.adb("exec-out", "screencap", "-p").stdout
+                        (directory / f"shared-frame-{frontend}.png").write_bytes(picture)
+                    runner.within("touch files/frame-captured")
+                    break
             time.sleep(0.2)
         status, stdout, stderr = result.result(timeout=100)
     assert status == 0 and shown and "Shared frame captured after producer exit" in stdout, stdout + stderr
