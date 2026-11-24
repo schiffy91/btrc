@@ -14,6 +14,7 @@ from src.tests.python.test_first_party_wayland_window import (
     ROOT,
     SESSION,
     client,  # noqa: F401
+    connected_mouse,
     input_device,  # noqa: F401
 )
 from src.tests.python.test_wayland_public_preview import build_app, empty_root_command
@@ -60,19 +61,14 @@ def observe(program, device, work):
     with (
         os.fdopen(master, "rb", buffering=0) as report,
         os.fdopen(slave, "wb", buffering=0) as console,
+        connected_mouse(device) as send,
         subprocess.Popen(empty_root_command(program, work), stdout=console) as app,
-        subprocess.Popen([device, "mouse"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as mouse,
     ):
         try:
 
             def message(expected):
                 assert select.select([report], [], [], 6)[0], f"waiting for {expected}, exit {app.poll()}"
                 assert report.readline().decode().strip() == expected
-
-            def send(command, x, y):
-                mouse.stdin.write(f"{command} {x} {y}\n")
-                mouse.stdin.flush()
-                assert mouse.stdout.readline().strip() == "sent"
 
             def click(x, y):
                 send("d", x, y)
@@ -123,7 +119,6 @@ def observe(program, device, work):
         finally:
             if app.poll() is None:
                 app.kill()
-            mouse.terminate()
 
 
 if __name__ == "__main__":
