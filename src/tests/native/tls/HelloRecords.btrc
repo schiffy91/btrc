@@ -1,0 +1,47 @@
+/* Exercise both the transport-facing handshake reader and retry-flight writer. */
+import Library.Bytes;
+import Library.Console;
+import Library.Strings;
+
+import ./TLS13ClientHandshake.btrc;
+import ./TLS13Hello.btrc;
+import ./X509PeerName.btrc;
+
+void writeBytes(Bytes? data) {
+	if (data == null || fwrite(data.data, (size_t)1, (size_t)data.length(), stdout) != (size_t)data.length()) {
+		throw "cannot write handshake bytes";
+	}
+	Console.flush();
+}
+
+Bytes readFrame() {
+	Bytes frame = Bytes.zeros(5);
+	if (fread(frame.data, (size_t)1, (size_t)5, stdin) != (size_t)5) { throw "missing record"; }
+	int length = frame.readU16BE(3);
+	if (length < 1 || length > 16640) { throw "invalid fragment"; }
+	Bytes body = Bytes.zeros(length);
+	if (fread(body.data, (size_t)1, (size_t)length, stdin) != (size_t)length) { throw "truncated fragment"; }
+	frame.appendBytes(body);
+	return frame;
+}
+
+int main(int argc, char** argv) {
+	bool postRetry = argc == 2 && Strings.copy(argv[1]).equals("post-retry");
+	var name = X509PeerName.dns("localhost");
+	if (name == null) { throw "no peer name"; }
+	var hello = TLS13Hello("localhost");
+	var state = TLS13ClientHandshake(hello, name, true, 0LL);
+	writeBytes(TLS13ClientHandshake.clientHelloRecord(hello));
+	while (!state.wantsRetry()) {
+		if (!state.feed(readFrame())) { throw "invalid retry"; }
+	}
+	writeBytes(state.retryFlight());
+	if (postRetry) {
+		while (true) {
+			if (!state.feed(readFrame())) { throw "invalid post-retry"; }
+			writeBytes(Bytes.fromString("ok\n"));
+		}
+	}
+	writeBytes(TLS13Hello.hash(true, hello.transcript));
+	return 0;
+}

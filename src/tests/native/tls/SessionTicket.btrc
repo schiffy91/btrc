@@ -1,0 +1,13 @@
+import Library.Bytes;
+import Library.Strings;
+
+import ./TLS13SessionTicket.btrc;
+
+int main(int argc, char** argv) {
+	for (int i = 1; i < argc; i++) {
+		var body = Bytes.fromHex(Strings.copy(argv[i]));
+		if (body == null) { return 2; }
+		print(TLS13SessionTicket.valid(body) ? "valid" : "invalid");
+	}
+	return 0;
+}

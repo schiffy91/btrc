@@ -1,0 +1,167 @@
+/* TLS 1.3 record protection (RFC 8446 sections 5.2–5.5 and 7.2).
+ * Each direction and each traffic-key epoch has its own sequence number. */
+import Library.Bytes;
+import Library.Crypto.Primitives.AESGCM;
+import Library.Crypto.Primitives.ChaCha20;
+import Library.Crypto.Sodium;
+import Library.TLS.TLS13Keys;
+
+const unsigned long long TLS13_RECORD_LIMIT = 16777216ULL;
+
+struct TLS13RecordSecrets {
+	unsigned char secret[48];
+	unsigned char key[32];
+	unsigned char iv[12];
+};
+
+class TLS13Plaintext {
+	public int contentType;
+	public Bytes content;
+
+	public TLS13Plaintext(int contentType, Bytes content) {
+		self.contentType = contentType;
+		self.content = content;
+	}
+}
+
+class TLS13Records {
+	private struct TLS13RecordSecrets material;
+	private int suite;
+	private bool writing;
+	private bool active;
+	private bool overflowed = false;
+	private unsigned long long sequence;
+
+	private TLS13Records(int suite, bool writing) {
+		self.suite = suite;
+		self.writing = writing;
+		self.active = true;
+		self.sequence = 0ULL;
+	}
+
+	private int keyLength() { return self.suite == 0x1301 ? 16 : 32; }
+
+	private int secretLength() { return self.suite == 0x1302 ? 48 : 32; }
+
+	private bool derive() {
+		bool sha384 = self.suite == 0x1302;
+		return TLS13Keys.expandLabel(sha384, self.material.key, self.keyLength(), self.material.secret, "key", null, 0) && TLS13Keys.expandLabel(sha384, self.material.iv, 12, self.material.secret, "iv", null, 0);
+	}
+
+	class TLS13Records? create(int suite, Bytes trafficSecret, bool writing) {
+		if (suite < 0x1301 || suite > 0x1303 || trafficSecret == null || trafficSecret.length() != (suite == 0x1302 ? 48 : 32)) { return null; }
+		TLS13Records records = TLS13Records(suite, writing);
+		memcpy(records.material.secret, trafficSecret.data, (size_t)trafficSecret.length());
+		if (!records.derive()) {
+			records.close();
+			return null;
+		}
+		return records;
+	}
+
+	public void close() {
+		Sodium.wipe(self.material.secret, 48);
+		Sodium.wipe(self.material.key, 32);
+		Sodium.wipe(self.material.iv, 12);
+		self.active = false;
+	}
+
+	public void __del__() { self.close(); }
+
+	/* The final record permitted under this traffic key is reserved for the
+	 * authenticated KeyUpdate, before the sequence/AEAD limit is reached. */
+	public bool needsWriteUpdate() { return self.active && self.writing && self.sequence >= TLS13_RECORD_LIMIT - 1ULL; }
+
+	/* Called after sending or receiving the authenticated KeyUpdate under the old key. */
+	public bool updateKey() {
+		if (!self.active) { return false; }
+		unsigned char next[48];
+		bool derived = TLS13Keys.expandLabel(self.suite == 0x1302, next, self.secretLength(), self.material.secret, "traffic upd", null, 0);
+		if (derived) {
+			memcpy(self.material.secret, next, (size_t)self.secretLength());
+			derived = self.derive();
+		}
+		Sodium.wipe(next, 48);
+		if (!derived) { self.close(); }
+		self.sequence = 0ULL;
+		return derived;
+	}
+
+	private void nonce(unsigned char* iv) {
+		for (int index = 0; index < 12; index++) { iv[index] = self.material.iv[index]; }
+		for (int index = 0; index < 8; index++) {
+			iv[11 - index] ^= (unsigned char)((self.sequence >> (8 * index)) & 255ULL);
+		}
+	}
+
+	class bool contentAllowed(int contentType, int length) { return contentType == 23 || (length > 0 && (contentType == 21 || contentType == 22)); }
+
+	public Bytes? seal(int contentType, Bytes content, int padding = 0) {
+		if (!self.active || !self.writing || self.sequence >= TLS13_RECORD_LIMIT || content == null || !TLS13Records.contentAllowed(contentType, content.length())) { return null; }
+		if (padding < 0 || content.length() > 16384 || padding > 16384 - content.length()) { return null; }
+		int length = content.length() + 1 + padding;
+		Bytes wire = Bytes.zeros(5 + length + 16);
+		wire.set(0, 23);
+		wire.set(1, 3);
+		wire.set(2, 3);
+		wire.set(3, (length + 16) >> 8);
+		wire.set(4, length + 16);
+		unsigned char* header = (unsigned char*)wire.data;
+		unsigned char* body = header + 5;
+		if (content.length() > 0) { memcpy(body, content.data, (size_t)content.length()); }
+		body[content.length()] = (unsigned char)contentType;
+		unsigned char iv[12];
+		self.nonce(iv);
+		bool ok = false;
+		if (self.suite == 0x1303) { ok = ChaCha20Poly1305.seal(body, body + length, body, length, header, 5, iv, self.material.key); } else { ok = AESGCM.seal(body, body + length, body, length, header, 5, iv, self.material.key, self.keyLength()); }
+		Sodium.wipe(iv, 12);
+		if (!ok) {
+			Sodium.wipe(body, length);
+			self.close();
+			return null;
+		}
+		self.sequence++;
+		return wire;
+	}
+
+	public bool recordOverflowed() { return self.overflowed; }
+
+	public TLS13Plaintext? open(Bytes wire) {
+		if (!self.active || self.writing) { return null; }
+		if (wire != null && wire.length() > 5 + 16640) {
+			self.overflowed = true;
+			self.close();
+			return null;
+		}
+		if (self.sequence >= TLS13_RECORD_LIMIT || wire == null || wire.length() < 22 || wire.get(0) != 23 || wire.get(1) != 3 || wire.get(2) != 3 || wire.readU16BE(3) != wire.length() - 5) {
+			self.close();
+			return null;
+		}
+		int length = wire.length() - 5 - 16;
+		Bytes plain = Bytes.zeros(length);
+		unsigned char* out = (unsigned char*)plain.data;
+		unsigned char* header = (unsigned char*)wire.data;
+		unsigned char* body = header + 5;
+		unsigned char iv[12];
+		self.nonce(iv);
+		bool ok = false;
+		if (self.suite == 0x1303) { ok = ChaCha20Poly1305.open(out, body, length, body + length, header, 5, iv, self.material.key); } else { ok = AESGCM.open(out, body, length, body + length, header, 5, iv, self.material.key, self.keyLength()); }
+		Sodium.wipe(iv, 12);
+		if (ok) {
+			int end = length - 1;
+			while (end >= 0 && out[end] == 0) { end--; }
+			if (end > 16384) {
+				self.overflowed = true;
+			} else if (end >= 0 && TLS13Records.contentAllowed(out[end], end)) {
+				int contentType = out[end];
+				Sodium.wipe(out + end, length - end);
+				plain.len = end;
+				self.sequence++;
+				return TLS13Plaintext(contentType, plain);
+			}
+		}
+		Sodium.wipe(out, length);
+		self.close();
+		return null;
+	}
+}

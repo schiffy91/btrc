@@ -1,0 +1,106 @@
+import ./DER.btrc;
+
+class X509Identity {
+	class bool scalar(int code) { return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff); }
+
+	class bool utf8(unsigned char* data, int at, int end) {
+		while (at < end) {
+			int byte = (int)data[at++];
+			if (byte < 128) { if (byte == 0) { return false; } continue; }
+			int count = byte >= 194 && byte <= 223 ? 1 : (byte >= 224 && byte <= 239 ? 2 : (byte >= 240 && byte <= 244 ? 3 : 0));
+			if (count == 0 || count > end - at) { return false; }
+			int code = byte & (127 >> (count + 1));
+			for (int tail = 0; tail < count; tail++) {
+				int next = (int)data[at++];
+				if ((next & 192) != 128) { return false; }
+				code = (code << 6) | (next & 63);
+			}
+			if ((count == 2 && code < 2048) || (count == 3 && code < 65536) || !X509Identity.scalar(code)) { return false; }
+		}
+		return true;
+	}
+
+	class bool printable(int byte) { return (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') || byte == ' ' || byte == 39 || byte == '(' || byte == ')' || byte == '+' || byte == ',' || byte == '-' || byte == '.' || byte == '/' || byte == ':' || byte == '=' || byte == '?'; }
+
+	class bool attribute(unsigned char* data, struct DERElement* value) {
+		int size = value->end - value->content;
+		if (size == 0 || size > 4096) { return false; }
+		if (value->tag == 12) { return X509Identity.utf8(data, value->content, value->end); }
+		if (value->tag == 28 || value->tag == 30) {
+			int width = value->tag == 28 ? 4 : 2;
+			if (size % width != 0) { return false; }
+			for (int at = value->content; at < value->end; at += width) {
+				if (width == 4 && data[at] != 0) { return false; }
+				int code = 0;
+				for (int offset = 0; offset < width; offset++) { code = (code << 8) | (int)data[at + offset]; }
+				if (!X509Identity.scalar(code)) { return false; }
+			}
+			return true;
+		}
+		if (value->tag != 19 && value->tag != 20 && value->tag != 22 && value->tag != 18) { return false; }
+		for (int at = value->content; at < value->end; at++) {
+			int byte = (int)data[at];
+			if (byte == 0 || (value->tag == 19 && !X509Identity.printable(byte)) || (value->tag == 22 && (byte < 32 || byte > 126)) || (value->tag == 18 && byte != ' ' && (byte < '0' || byte > '9'))) { return false; }
+		}
+		return true;
+	}
+
+	class bool name(struct DERCursor* rdns) {
+		int attributes = 0;
+		while (!DER.exhausted(rdns)) {
+			struct DERCursor set = {};
+			if (!DER.enter(rdns, 49, &set) || DER.exhausted(&set)) { return false; }
+			struct DERElement previous = {};
+			while (!DER.exhausted(&set)) {
+				struct DERElement entry = {}; struct DERElement id = {}; struct DERElement value = {};
+				if (++attributes > 128 || !DER.read(&set, 48, &entry)) { return false; }
+				if (previous.end > previous.start) {
+					int before = previous.end - previous.start; int length = entry.end - entry.start;
+					int cmp = memcmp(set.bytes + previous.start, set.bytes + entry.start, (size_t)(length < before ? length : before));
+					if (cmp > 0 || (cmp == 0 && before >= length)) { return false; }
+				}
+				previous = entry;
+				var pair = DER.contents(&set, &entry);
+				if (!DER.oid(&pair, &id) || !DER.read(&pair, -1, &value) || !DER.exhausted(&pair) || !X509Identity.attribute(pair.bytes, &value)) { return false; }
+			}
+		}
+		return true;
+	}
+
+	class int decimal(unsigned char* data, int at, int digits) {
+		int number = 0;
+		for (int index = 0; index < digits; index++) {
+			int byte = (int)data[at + index];
+			if (byte < '0' || byte > '9') { return -1; }
+			number = number * 10 + byte - (int)'0';
+		}
+		return number;
+	}
+
+	/* RFC 5280 section 4.1.2.5: whole seconds, Zulu time, real Gregorian
+	 * dates, and the UTCTime century pivot at 1950. Convert to Unix seconds. */
+	class bool timeValue(struct DERCursor* reader, long long* seconds, bool trustAnchor) {
+		struct DERElement value = {};
+		if (!DER.read(reader, -1, &value)) { return false; }
+		int digits = value.tag == 23 ? 2 : (value.tag == 24 ? 4 : 0);
+		if (digits == 0 || value.end - value.content != digits + 11 || reader->bytes[value.end - 1] != 'Z') { return false; }
+		int year = X509Identity.decimal(reader->bytes, value.content, digits);
+		if (year < 0) { return false; }
+		if (digits == 2) { year += year >= 50 ? 1900 : 2000; }
+		else if (year == 0 || (!trustAnchor && year >= 1950 && year < 2050)) { return false; }
+		int at = value.content + digits;
+		int month = X509Identity.decimal(reader->bytes, at, 2); int day = X509Identity.decimal(reader->bytes, at + 2, 2);
+		int hour = X509Identity.decimal(reader->bytes, at + 4, 2); int minute = X509Identity.decimal(reader->bytes, at + 6, 2);
+		int second = X509Identity.decimal(reader->bytes, at + 8, 2);
+		if (month < 1 || month > 12 || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) { return false; }
+		bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+		int maximum = month == 2 ? (leap ? 29 : 28) : (month == 4 || month == 6 || month == 9 || month == 11 ? 30 : 31);
+		if (day < 1 || day > maximum) { return false; }
+		int marchYear = year - (month <= 2 ? 1 : 0);
+		int era = marchYear / 400; int yearOfEra = marchYear % 400;
+		int dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+		int days = era * 146097 + yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear - 719468;
+		*seconds = (long long)days * 86400LL + (long long)(hour * 3600 + minute * 60 + second);
+		return true;
+	}
+}

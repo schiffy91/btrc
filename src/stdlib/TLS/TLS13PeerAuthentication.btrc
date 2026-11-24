@@ -1,0 +1,33 @@
+import Library.Bytes;
+import Library.Crypto.Sodium;
+
+import ./X509ServerPath.btrc;
+import ./TLS13HandshakeKeys.btrc;
+import ./TLS13Hello.btrc;
+import ./X509Certificate.btrc;
+
+class TLS13PeerAuthentication {
+	/* The caller must separately validate the certificate chain and identity.
+	 * CertificateVerify binds its leaf key to this particular handshake. */
+	class bool certificateVerify(X509Certificate leaf, int suite, Bytes transcript, Bytes body) {
+		if (leaf == null || suite < 0x1301 || suite > 0x1303 || transcript == null || body == null || body.length() < 5 || body.readU16BE(2) != body.length() - 4) { return false; }
+		Bytes signatureInput = Bytes.zeros(64);
+		for (int i = 0; i < 64; i++) { signatureInput.set(i, 32); }
+		signatureInput.appendBytes(Bytes.fromString("TLS 1.3, server CertificateVerify"));
+		signatureInput.append(0);
+		signatureInput.appendBytes(TLS13Hello.hash(suite == 0x1302, transcript));
+		int scheme = body.readU16BE(0);
+		Bytes signature = body.slice(4, body.length());
+		bool rsa = leaf.key.kind == X509_RSA && scheme >= 0x0804 && scheme <= 0x0806;
+		bool pss = leaf.key.kind == X509_RSA_PSS && scheme >= 0x0809 && scheme <= 0x080b;
+		bool ec = (leaf.key.kind == X509_P256 && scheme == 0x0403) || (leaf.key.kind == X509_P384 && scheme == 0x0503);
+		bool ed = leaf.key.kind == X509_ED25519 && scheme == 0x0807;
+		return (rsa || pss || ec || ed) && X509ServerPath.signature(scheme, leaf, signatureInput, signature);
+	}
+
+	class bool serverFinished(TLS13HandshakeKeys keys, Bytes transcript, Bytes body) {
+		if (keys == null || transcript == null || body == null) { return false; }
+		var expected = keys.finished(true, transcript);
+		return expected != null && body.length() == expected.length() && Sodium.equal((unsigned char*)expected.data, (unsigned char*)body.data, body.length());
+	}
+}

@@ -1,0 +1,48 @@
+/* White-box client of the package-private TLS certificate reader. The
+ * driver writes length-prefixed DER records for one bounded process run. */
+import Library.Vector;
+import Library.Bytes;
+import Library.Console;
+
+import ./X509Certificate.btrc;
+import ./X509Extensions.btrc;
+
+string nameValues(X509Certificate cert, Vector<X509GeneralName> names) {
+	string result = "";
+	for name in names {
+		if (!result.isEmpty()) { result += ","; }
+		var raw = cert.copyRange(name.start, name.end);
+		result += f"{name.kind}=" + raw.toHex();
+	}
+	return result;
+}
+
+void inspectCertificate(unsigned char* data, int length, bool verbose, bool trustAnchor) {
+	var cert = trustAnchor ? X509Certificate.parseTrustAnchor(data, length) : X509Certificate.parse(data, length);
+	if (cert == null) { Console.log("invalid"); return; }
+	if (!verbose) { Console.log("valid"); return; }
+	// The owner must still supply the original signed bytes after the input
+	// packet has been reused by the transport.
+	memset(data, 0, (size_t)length);
+	var ext = cert.extensions;
+	Console.log(f"valid {cert.signatureScheme} {cert.key.bits} {cert.notBefore} {cert.notAfter} {ext.ca} {ext.pathLength} {ext.keyUsage} {ext.serverAuth}");
+	Console.log(cert.signedBytes().toHex()); Console.log(cert.signatureBytes().toHex());
+	Console.log(cert.rsaModulus().toHex()); Console.log(cert.rsaExponent().toHex());
+	Console.log(cert.publicKeyBytes().toHex()); Console.log(cert.issuerDER().toHex()); Console.log(cert.subjectDER().toHex());
+	Console.log(nameValues(cert, ext.subjectAltNames)); Console.log(nameValues(cert, ext.permitted)); Console.log(nameValues(cert, ext.excluded));
+}
+
+int main(int argc, char** argv) {
+	if (argc < 2) { return 2; }
+	FILE* records = fopen(argv[1], "rb");
+	if (records == null) { return 2; }
+	unsigned char data[131073];
+	unsigned char header[3];
+	while (fread(header, (size_t)1, (size_t)3, records) == (size_t)3) {
+		int length = ((int)header[0] << 16) | ((int)header[1] << 8) | (int)header[2];
+		if (length > 131073 || fread(data, (size_t)1, (size_t)length, records) != (size_t)length) { fclose(records); return 2; }
+		inspectCertificate(data, length, argc > 2 && strcmp(argv[2], "details") == 0, argc > 2 && strcmp(argv[2], "anchor") == 0);
+	}
+	bool readError = ferror(records) != 0;
+	fclose(records); return readError ? 2 : 0;
+}

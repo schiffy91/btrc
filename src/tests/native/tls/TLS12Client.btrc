@@ -1,0 +1,62 @@
+/* Relay real TLS records between a full first-party client and an independent
+ * server. The driver chooses the local CA and supplies the offered ClientHello. */
+import Library.Bytes;
+import Library.Strings;
+import Library.Timer;
+
+import ./TLS12Handshake.btrc;
+import ./X509TrustBundle.btrc;
+
+class TLS12TestClient {
+	class Bytes? readRecord() {
+		unsigned char header[5];
+		if (fread(header, (size_t)1, (size_t)5, stdin) != (size_t)5) { return null; }
+		int size = ((int)header[3] << 8) | (int)header[4];
+		if (size < 1 || size > 16640) { return null; }
+		var wire = Bytes.zeros(5 + size);
+		memcpy(wire.data, header, 5);
+		if (fread(wire.data + 5, (size_t)1, (size_t)size, stdin) != (size_t)size) { return null; }
+		return wire;
+	}
+
+	class bool send(Bytes wire) { return fwrite(wire.data, (size_t)1, (size_t)wire.length(), stdout) == (size_t)wire.length() && fflush(stdout) == 0; }
+}
+
+int main(int argc, char** argv) {
+	if (argc != 5) { return 2; }
+	string offered = Strings.copy(argv[1]);
+	Bytes? hello;
+	if (offered == "new") { var shared = TLS13Hello("loopback.test", true); hello = shared.clientHello(); }
+	else { hello = Bytes.fromHex(offered); } var ca = Bytes.fromHex(Strings.copy(argv[2]));
+	var name = X509PeerName.dns(Strings.copy(argv[3]));
+	if (hello == null || ca == null || name == null) { return 3; }
+	var client = TLS12Handshake.create(hello, name, strtoll(argv[4], null, 10), MonotonicClock.deadlineAfter(30000));
+	if (client == null || !TLS12TestClient.send(TLS12Handshake.record(22, hello))) { return 4; }
+	while (!client.wantClientFlight()) {
+		var frame = TLS12TestClient.readRecord();
+		if (frame == null || !client.feed(frame)) { return 5; }
+	}
+	var root = X509Certificate.parseTrustAnchor((unsigned char*)ca.data, ca.length());
+	if (root == null) { return 6; }
+	var trust = X509TrustBundle(); trust.entries.push(X509AnchorEntry(root, true));
+	if (client.peerChain().len == 0) { return 7; }
+	var flight = client.clientFlight(trust);
+	if (flight == null || !TLS12TestClient.send(flight)) { return 8; }
+	while (!client.established()) {
+		var frame = TLS12TestClient.readRecord();
+		if (frame == null || !client.feed(frame)) { return 9; }
+	}
+	var application = TLS12TestClient.readRecord();
+	if (application == null || application.get(0) != 23) { return 10; }
+	var message = client.receiveRecord(application);
+	if (message == null) { return 11; }
+	var echo = client.sendRecord(23, message);
+	if (echo == null || !TLS12TestClient.send(echo)) { return 12; }
+	var alert = TLS12TestClient.readRecord();
+	if (alert == null || alert.get(0) != 21) { return 13; }
+	var close = client.receiveRecord(alert);
+	if (close == null || close.toHex() != "0100") { return 14; }
+	var reply = client.sendRecord(21, close);
+	if (reply == null || !TLS12TestClient.send(reply)) { return 15; }
+	client.close(); return 0;
+}

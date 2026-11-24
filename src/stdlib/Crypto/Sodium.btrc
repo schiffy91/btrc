@@ -58,6 +58,9 @@ class Sodium {
 	/* Overwrite secret bytes in a way the compiler cannot remove. */
 	class void wipe(unsigned char* data, int length) { ConstantTime.wipe(data, length); }
 
+	/* Compare equal-length authenticators without revealing a matching prefix. */
+	class bool equal(unsigned char* left, unsigned char* right, int length) { return length >= 0 && ConstantTime.equal(left, right, length); }
+
 	/* A signing key pair from its 32-byte seed. The 64-byte secret is the
 	 * seed followed by the public key. */
 	class bool signingKeys(unsigned char* seed, unsigned char* publicKey, unsigned char* secretKey) {

@@ -1,0 +1,120 @@
+/* X.690 definite-length DER. Every cursor is confined to the contents of
+ * one value. Elements retain offsets into the certificate's owned bytes so
+ * signature verification can use the exact encoded TBSCertificate. */
+struct DERCursor { unsigned char* bytes; int at; int end; };
+struct DERElement { int tag; int start; int content; int end; };
+
+class DER {
+	class bool open(struct DERCursor* reader, unsigned char* data, int length) {
+		if (data == null || length < 1 || length > 131072) { return false; }
+		reader->bytes = data; reader->at = 0; reader->end = length;
+		return true;
+	}
+
+	class bool exhausted(struct DERCursor* reader) { return reader->at == reader->end; }
+
+	class int peek(struct DERCursor* reader) { return reader->at < reader->end ? (int)reader->bytes[reader->at] : -1; }
+
+	class bool read(struct DERCursor* reader, int expected, struct DERElement* element) {
+		int at = reader->at;
+		if (reader->end - at < 2) { return false; }
+		int tag = (int)reader->bytes[at++];
+		// Certificate syntax uses only single-octet identifiers. EOC is
+		// reserved for BER indefinite-length encodings.
+		if (tag == 0 || (tag & 31) == 31 || (expected >= 0 && tag != expected)) { return false; }
+		int length = (int)reader->bytes[at++];
+		if (length >= 128) {
+			int octets = length & 127;
+			if (octets == 0 || octets > 3 || octets > reader->end - at || reader->bytes[at] == 0) { return false; }
+			length = 0;
+			for (int byte = 0; byte < octets; byte++) { length = (length << 8) | (int)reader->bytes[at++]; }
+			if (length < 128) { return false; }
+		}
+		if (length > reader->end - at) { return false; }
+		element->tag = tag; element->start = reader->at; element->content = at; element->end = at + length;
+		reader->at = element->end;
+		return true;
+	}
+
+	class struct DERCursor contents(struct DERCursor* parent, struct DERElement* value) {
+		struct DERCursor child = {parent->bytes, value->content, value->end};
+		return child;
+	}
+
+	class bool enter(struct DERCursor* parent, int tag, struct DERCursor* child) {
+		struct DERElement value = {};
+		if (!DER.read(parent, tag, &value)) { return false; }
+		*child = DER.contents(parent, &value);
+		return true;
+	}
+
+	class bool same(unsigned char* data, struct DERElement* first, struct DERElement* second) {
+		int length = first->end - first->start;
+		return length == second->end - second->start && memcmp(data + first->start, data + second->start, (size_t)length) == 0;
+	}
+
+	class bool oid(struct DERCursor* reader, struct DERElement* value) {
+		if (!DER.read(reader, 6, value) || value->content == value->end || value->end - value->content > 128) { return false; }
+		bool start = true;
+		for (int at = value->content; at < value->end; at++) {
+			int byte = (int)reader->bytes[at];
+			if (start && byte == 128) { return false; }
+			start = (byte & 128) == 0;
+		}
+		return start;
+	}
+
+	class bool oidIs(unsigned char* data, struct DERElement* value, string hex) {
+		if (hex.len() != 2 * (value->end - value->content)) { return false; }
+		string digits = "0123456789abcdef";
+		for (int at = value->content; at < value->end; at++) {
+			int byte = (int)data[at]; int offset = 2 * (at - value->content);
+			if (hex[offset] != digits[byte >> 4] || hex[offset + 1] != digits[byte & 15]) { return false; }
+		}
+		return true;
+	}
+
+	/* Nonnegative, minimally encoded ASN.1 INTEGER. The returned element
+	 * includes a necessary sign octet, if present. */
+	class bool integer(struct DERCursor* reader, struct DERElement* value) { return DER.taggedInteger(reader, 2, value); }
+
+	/* Minimally encoded signed ASN.1 INTEGER (for historical trust anchor
+	 * serial numbers, RFC 5280 §4.1.2.2). */
+	class bool signedInteger(struct DERCursor* reader, struct DERElement* value) {
+		if (!DER.read(reader, 2, value) || value->content == value->end) { return false; }
+		if (value->end - value->content == 1) { return true; }
+		int first = (int)reader->bytes[value->content];
+		int second = (int)reader->bytes[value->content + 1];
+		if (first == 0 && second < 128) { return false; }
+		if (first == 255 && second >= 128) { return false; }
+		return true;
+	}
+
+	class bool taggedInteger(struct DERCursor* reader, int tag, struct DERElement* value) {
+		if (!DER.read(reader, tag, value) || value->content == value->end) { return false; }
+		int first = (int)reader->bytes[value->content];
+		if (first >= 128) { return false; }
+		return first != 0 || value->end - value->content == 1 || reader->bytes[value->content + 1] >= 128;
+	}
+
+	class int small(struct DERCursor* reader) {
+		struct DERElement value = {};
+		if (!DER.integer(reader, &value) || value.end - value.content > 4) { return -1; }
+		int result = 0;
+		for (int at = value.content; at < value.end; at++) { result = (result << 8) | (int)reader->bytes[at]; }
+		return result;
+	}
+
+	class bool bits(struct DERCursor* reader, int tag, struct DERElement* value) {
+		if (!DER.read(reader, tag, value) || value->end == value->content) { return false; }
+		int unused = (int)reader->bytes[value->content];
+		if (unused > 7) { return false; }
+		if (value->content + 1 == value->end) { return unused == 0; }
+		return ((int)reader->bytes[value->end - 1] & ((1 << unused) - 1)) == 0;
+	}
+
+	class bool nullParameter(struct DERCursor* reader) {
+		struct DERElement value = {};
+		return DER.read(reader, 5, &value) && value.content == value.end;
+	}
+}

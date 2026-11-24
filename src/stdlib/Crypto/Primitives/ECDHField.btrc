@@ -1,0 +1,157 @@
+/* Field arithmetic for secret P-256/P-384 inputs. The public curve fixes the
+ * loop bounds. All carry chains run to completion and reductions select with
+ * full-word masks. Values use base 2^32, least significant limb first. */
+import Library.Bytes;
+import Library.Crypto.Primitives.ConstantTime;
+
+struct ECDHValue { unsigned int limbs[12]; };
+
+class ECDHField {
+	public int count;
+	public struct ECDHValue modulus;
+	public struct ECDHValue one;
+	private struct ECDHValue rSquared;
+
+	public ECDHField(string prime, int words) {
+		self.count = words;
+		self.modulus = ECDHField.constant(prime);
+		self.rSquared.limbs[0] = 1U;
+		for (int bit = 0; bit < 64 * words; bit++) { self.rSquared = self.add(self.rSquared, self.rSquared); }
+		self.one.limbs[0] = 1U;
+		self.one = self.encode(self.one);
+	}
+
+	class struct ECDHValue load(unsigned char* bytes, int size) {
+		struct ECDHValue result = {};
+		for (int i = 0; i < size; i++) { result.limbs[i / 4] |= (unsigned int)bytes[size - 1 - i] << (8 * (i % 4)); }
+		return result;
+	}
+
+	class struct ECDHValue constant(string hex) {
+		Bytes? bytes = Bytes.fromHex(hex);
+		if (bytes == null) { throw "Invalid named curve constant"; }
+		return ECDHField.load((unsigned char*)bytes.data, bytes.length());
+	}
+
+	class void store(unsigned char* out, int size, struct ECDHValue value) {
+		for (int i = 0; i < size; i++) { out[size - 1 - i] = (unsigned char)(value.limbs[i / 4] >> (8 * (i % 4))); }
+	}
+
+	/* The volatile mask prevents the C optimizer from specializing a
+	 * 0/all-ones selector into a secret-dependent control-flow edge. */
+	public struct ECDHValue choose(unsigned int bit, struct ECDHValue a, struct ECDHValue b) {
+		volatile unsigned int mask = 0U - bit;
+		struct ECDHValue result = {};
+		for (int i = 0; i < self.count; i++) { result.limbs[i] = a.limbs[i] ^ ((a.limbs[i] ^ b.limbs[i]) & mask); }
+		return result;
+	}
+
+	public unsigned int less(struct ECDHValue a, struct ECDHValue b) {
+		unsigned long long borrow = 0ULL;
+		for (int i = 0; i < self.count; i++) { borrow = ((unsigned long long)a.limbs[i] - b.limbs[i] - borrow) >> 63; }
+		return (unsigned int)borrow;
+	}
+
+	public unsigned int nonzero(struct ECDHValue x) {
+		unsigned int any = 0U;
+		for (int i = 0; i < self.count; i++) { any |= x.limbs[i]; }
+		return (any | (0U - any)) >> 31;
+	}
+
+	/* The input is less than 2*p; high is its carry beyond the field width. */
+	private struct ECDHValue reduce(struct ECDHValue x, unsigned int high) {
+		struct ECDHValue minus = {};
+		unsigned long long borrow = 0ULL;
+		for (int i = 0; i < self.count; i++) {
+			unsigned long long diff = (unsigned long long)x.limbs[i] - self.modulus.limbs[i] - borrow;
+			minus.limbs[i] = (unsigned int)diff;
+			borrow = diff >> 63;
+		}
+		return self.choose(high | (1U ^ (unsigned int)borrow), x, minus);
+	}
+
+	public struct ECDHValue add(struct ECDHValue a, struct ECDHValue b) {
+		struct ECDHValue result = {};
+		unsigned long long carry = 0ULL;
+		for (int i = 0; i < self.count; i++) {
+			unsigned long long sum = (unsigned long long)a.limbs[i] + b.limbs[i] + carry;
+			result.limbs[i] = (unsigned int)sum;
+			carry = sum >> 32;
+		}
+		return self.reduce(result, (unsigned int)carry);
+	}
+
+	public struct ECDHValue sub(struct ECDHValue a, struct ECDHValue b) {
+		struct ECDHValue result = {};
+		unsigned long long borrow = 0ULL;
+		for (int i = 0; i < self.count; i++) {
+			unsigned long long diff = (unsigned long long)a.limbs[i] - b.limbs[i] - borrow;
+			result.limbs[i] = (unsigned int)diff;
+			borrow = diff >> 63;
+		}
+		volatile unsigned int mask = 0U - (unsigned int)borrow;
+		unsigned long long carry = 0ULL;
+		for (int i = 0; i < self.count; i++) {
+			unsigned long long sum = (unsigned long long)result.limbs[i] + (self.modulus.limbs[i] & mask) + carry;
+			result.limbs[i] = (unsigned int)sum;
+			carry = sum >> 32;
+		}
+		return result;
+	}
+
+	public struct ECDHValue mul(struct ECDHValue a, struct ECDHValue b) {
+		unsigned int product[25] = {0};
+		int n = self.count;
+		for (int i = 0; i < n; i++) {
+			unsigned long long carry = 0ULL;
+			for (int j = 0; j < n; j++) {
+				unsigned long long sum = (unsigned long long)a.limbs[i] * b.limbs[j] + product[i + j] + carry;
+				product[i + j] = (unsigned int)sum;
+				carry = sum >> 32;
+			}
+			product[i + n] = (unsigned int)carry;
+		}
+		for (int i = 0; i < n; i++) {
+			/* Both primes are -1 modulo 2^32, so the current low limb
+			 * is exactly the multiple that cancels that limb. */
+			unsigned int factor = product[i];
+			unsigned long long carry = 0ULL;
+			for (int j = 0; j < n; j++) {
+				unsigned long long sum = (unsigned long long)factor * self.modulus.limbs[j] + product[i + j] + carry;
+				product[i + j] = (unsigned int)sum;
+				carry = sum >> 32;
+			}
+			for (int j = i + n; j <= 2 * n; j++) {
+				unsigned long long sum = (unsigned long long)product[j] + carry;
+				product[j] = (unsigned int)sum;
+				carry = sum >> 32;
+			}
+		}
+		struct ECDHValue result = {};
+		for (int i = 0; i < n; i++) { result.limbs[i] = product[n + i]; }
+		result = self.reduce(result, product[2 * n]);
+		ConstantTime.wipe((unsigned char*)product, sizeof(product));
+		return result;
+	}
+
+	public struct ECDHValue encode(struct ECDHValue x) { return self.mul(x, self.rSquared); }
+
+	public struct ECDHValue decode(struct ECDHValue x) {
+		struct ECDHValue unit = {}; unit.limbs[0] = 1U;
+		return self.mul(x, unit);
+	}
+
+	public struct ECDHValue triple(struct ECDHValue x) { return self.add(self.add(x, x), x); }
+
+	/* Fermat inversion, with a public exponent p-2 for the named curve. */
+	public struct ECDHValue inverse(struct ECDHValue x) {
+		struct ECDHValue exponent = self.modulus;
+		exponent.limbs[0] -= 2U;
+		struct ECDHValue result = self.one;
+		for (int i = 32 * self.count - 1; i >= 0; i--) {
+			result = self.mul(result, result);
+			if (((exponent.limbs[i / 32] >> (i % 32)) & 1U) != 0U) { result = self.mul(result, x); }
+		}
+		return result;
+	}
+}

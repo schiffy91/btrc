@@ -1207,11 +1207,11 @@ def test_ui_catalog_and_p0_rows_roll_up_against_the_frozen_denominators():
         SubjectKind.FAMILY_CELL: 300,
         SubjectKind.UI_OPERATION: 1620,
         SubjectKind.UI_CASE: 470,
-        SubjectKind.OPERATION: 2370,
+        SubjectKind.OPERATION: 2424,
     }
     # The base release stays frozen; the supervisor/image/file supplements
     # add distinct operations to the active union.
-    assert sum(row["slots"] for row in evidence if row["kind"] == "operation") == 2538
+    assert sum(row["slots"] for row in evidence if row["kind"] == "operation") == 2592
     assert sum(row["slots"] for row in evidence if row["kind"] == "ui-operation") == 1620
     assert sum(row["slots"] for row in evidence if row["kind"] == "ui-case") == 470
     assert sum(row["slots"] for row in evidence if row["kind"] == "family-cell") == 300
@@ -1255,12 +1255,12 @@ def test_the_tracked_denominators_match_their_sources():
         "family-cell": (60, 300),
         "ui-operation": (162, 1620),
         "ui-case": (47, 470),
-        "operation": (395, 2370),
+        "operation": (404, 2424),
     }
     assert [
         (entry.release, len(entry.ids), entry.frozen_slots) for entry in manifest.releases(SubjectKind.OPERATION)
     ] == [
-        ("p0-inventory-2026-11-24-gpu", 395, 2370),
+        ("p0-inventory-2026-11-24-tls", 404, 2424),
         ("p0-windows-supervisor-2026-10-29", 10, 60),
         ("p0-windows-supervisor-image-2026-10-29", 4, 24),
         ("p0-windows-daemon-files-2026-10-29", 14, 84),

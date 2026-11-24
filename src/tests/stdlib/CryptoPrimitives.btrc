@@ -10,6 +10,7 @@ import Library.Bytes;
 import Library.Crypto.Primitives.BLAKE2b;
 import Library.Crypto.Primitives.ChaCha20;
 import Library.Crypto.Primitives.Ed25519;
+import Library.Crypto.Primitives.HKDF;
 import Library.Crypto.Primitives.Poly1305;
 import Library.Crypto.Primitives.SHA512;
 import Library.Crypto.Primitives.SecretStream;
@@ -110,6 +111,53 @@ class CryptoVectors {
 		try { million.update((unsigned char*)thousand.data, 1); } catch (string error) { refused = true; }
 		self.expect(refused, "SHA-512 refuses input after its digest");
 		return self.finish("SHA-512");
+	}
+
+	public bool sha384() {
+		unsigned char digest[49];
+		digest[48] = (unsigned char)33;
+		SHA384.digest(digest, null, 0);
+		self.expectBytes(digest, 48, "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b", "SHA-384 empty");
+		Bytes abc = Bytes.fromString("abc");
+		SHA384.digest(digest, (unsigned char*)abc.data, 3);
+		self.expectBytes(digest, 48, "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7", "SHA-384 abc");
+		Bytes data = Bytes.fromString("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn" + "hijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+		SHA384 streamed = SHA384();
+		for (int index = 0; index < data.length(); index++) { streamed.update((unsigned char*)data.data + index, 1); }
+		streamed.finish(digest);
+		self.expectBytes(digest, 48, "09330c33f71147e83d192fc782cd1b4753111b173b3b05d22fa08086e3b0f712fcc7c71a557e2db966c3e9fa91746039", "SHA-384 two-block padding");
+		self.expect((int)digest[48] == 33, "SHA-384 writes exactly 48 bytes");
+		return self.finish("SHA-384");
+	}
+
+	public bool keyDerivation() {
+		/* RFC 4231 case 1 for both SHA-2 variants. */
+		Bytes key = CryptoVectors.hex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b");
+		Bytes text = Bytes.fromString("Hi There");
+		unsigned char tag[48];
+		HMAC shortMac = HMAC(false, (unsigned char*)key.data, key.length());
+		shortMac.update((unsigned char*)text.data, 2);
+		shortMac.update((unsigned char*)text.data + 2, text.length() - 2);
+		shortMac.finish(tag);
+		self.expectBytes(tag, 32, "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7", "RFC 4231 SHA-256");
+		HMAC wideMac = HMAC(true, (unsigned char*)key.data, key.length());
+		wideMac.update((unsigned char*)text.data, text.length());
+		wideMac.finish(tag);
+		self.expectBytes(tag, 48, "afd03944d84895626b0825f4ab46907f15f9dadbe4101ec682aa034c7cebc59cfaea9ea9076ede7f4af152e8b2fa9cb6", "RFC 4231 SHA-384");
+
+		/* RFC 5869 appendix A.1. */
+		key.append(11);
+		key.append(11);
+		Bytes salt = CryptoVectors.hex("000102030405060708090a0b0c");
+		Bytes info = CryptoVectors.hex("f0f1f2f3f4f5f6f7f8f9");
+		unsigned char derived[42];
+		HKDF.extract(false, tag, (unsigned char*)salt.data, salt.length(), (unsigned char*)key.data, key.length());
+		self.expectBytes(tag, 32, "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5", "HKDF extract");
+		self.expect(HKDF.expand(false, derived, 42, tag, 32, (unsigned char*)info.data, info.length()), "HKDF expand length");
+		self.expectBytes(derived, 42, "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865", "HKDF expand");
+		self.expect(!HKDF.expand(false, derived, 8161, tag, 32, null, 0), "expand rejects more than 255 blocks");
+		self.expect(!HKDF.expand(true, derived, 1, tag, 32, null, 0), "expand rejects a short SHA-384 key");
+		return self.finish("HMAC and HKDF");
 	}
 
 	public void blake2bOf(Bytes message, int size, string expected, string what) {
@@ -338,6 +386,31 @@ class CryptoVectors {
 		return self.finish("ChaCha20 and Poly1305");
 	}
 
+	/* RFC 8439 section 2.8.2, including a rejected tag before in-place open. */
+	public bool authenticatedCipher() {
+		Bytes key = CryptoVectors.hex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f");
+		Bytes nonce = CryptoVectors.hex("070000004041424344454647");
+		Bytes associated = CryptoVectors.hex("50515253c0c1c2c3c4c5c6c7");
+		Bytes message = Bytes.fromString("Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.");
+		Bytes sealed = Bytes.zeros(message.length());
+		unsigned char tag[16];
+		unsigned char* data = (unsigned char*)sealed.data;
+		unsigned char* aad = (unsigned char*)associated.data;
+		unsigned char* iv = (unsigned char*)nonce.data;
+		unsigned char* secret = (unsigned char*)key.data;
+		self.expect(ChaCha20Poly1305.seal(data, tag, (unsigned char*)message.data, message.length(), aad, associated.length(), iv, secret), "AEAD seal");
+		string expected = "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b6116";
+		self.expectBytes(data, sealed.length(), expected, "AEAD ciphertext");
+		self.expectBytes(tag, 16, "1ae10b594f09e26a7e902ecbd0600691", "AEAD tag");
+		tag[0] ^= (unsigned char)1;
+		self.expect(!ChaCha20Poly1305.open(data, data, sealed.length(), tag, aad, associated.length(), iv, secret), "AEAD refuses altered tag");
+		self.expectBytes(data, sealed.length(), expected, "failed in-place open preserves ciphertext");
+		tag[0] ^= (unsigned char)1;
+		self.expect(ChaCha20Poly1305.open(data, data, sealed.length(), tag, aad, associated.length(), iv, secret), "AEAD open");
+		self.expect(sealed.equals(message), "AEAD plaintext");
+		return self.finish("ChaCha20-Poly1305 AEAD");
+	}
+
 	/* Seal `message` and check the sealed bytes; returns them. */
 	public Bytes seals(unsigned char* state, Bytes message, int tag, string expected, string what) {
 		Bytes sealed = Bytes.zeros(message.length() + 17);
@@ -441,10 +514,13 @@ class CryptoVectors {
 int main() {
 	CryptoVectors vectors = CryptoVectors();
 	bool passed = vectors.sha512();
+	passed = vectors.sha384() && passed;
+	passed = vectors.keyDerivation() && passed;
 	passed = vectors.blake2b() && passed;
 	passed = vectors.x25519() && passed;
 	passed = vectors.ed25519() && passed;
 	passed = vectors.chaCha20AndPoly1305() && passed;
+	passed = vectors.authenticatedCipher() && passed;
 	passed = vectors.secretStream() && passed;
 	return passed ? 0 : 1;
 }

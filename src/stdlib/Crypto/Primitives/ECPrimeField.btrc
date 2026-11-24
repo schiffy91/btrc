@@ -1,0 +1,75 @@
+import Library.Bytes;
+import Library.Crypto.Primitives.Montgomery;
+
+/* Fixed storage covers both NIST primes. Arithmetic values use Montgomery
+ * representation; external coordinates and scalar bits use normal words. */
+struct ECValue { unsigned int words[12]; };
+
+class ECPrimeField {
+	public Montgomery arithmetic = Montgomery();
+	private struct ECValue exponent;
+	public struct ECValue one;
+
+	class Bytes parameter(string value) {
+		Bytes? bytes = Bytes.fromHex(value);
+		if (bytes == null) { throw "Invalid named curve parameter"; }
+		return bytes;
+	}
+
+	public ECPrimeField(Bytes modulus) {
+		int size = modulus.length();
+		self.arithmetic.initializeModulus((unsigned char*)modulus.data, size);
+		self.exponent = ECPrimeField.words((unsigned char*)modulus.data, size);
+		/* The least significant word of each P-256/P-384 field prime and
+		 * group order is at least two; Fermat's exponent fits in place. */
+		self.exponent.words[0] -= 2U;
+		self.one.words[0] = 1U;
+		self.arithmetic.encode(self.one.words);
+	}
+
+	class struct ECValue words(unsigned char* bytes, int size) {
+		struct ECValue value = {};
+		for (int i = 0; i < size; i++) { value.words[i / 4] |= (unsigned int)bytes[size - 1 - i] << (8 * (i % 4)); }
+		return value;
+	}
+
+	class bool bit(struct ECValue value, int i) { return ((value.words[i / 32] >> (i % 32)) & 1U) != 0U; }
+
+	class bool zero(struct ECValue value) {
+		for (int i = 0; i < 12; i++) { if (value.words[i] != 0U) { return false; } }
+		return true;
+	}
+
+	class bool equal(struct ECValue a, struct ECValue b) {
+		for (int i = 0; i < 12; i++) { if (a.words[i] != b.words[i]) { return false; } }
+		return true;
+	}
+
+	public struct ECValue encode(struct ECValue x) { self.arithmetic.encode(x.words); return x; }
+
+	public struct ECValue decode(struct ECValue x) {
+		struct ECValue unit = {}; unit.words[0] = 1U;
+		return self.mul(x, unit);
+	}
+
+	public struct ECValue add(struct ECValue a, struct ECValue b) {
+		struct ECValue result = {}; self.arithmetic.add(result.words, a.words, b.words); return result;
+	}
+
+	public struct ECValue sub(struct ECValue a, struct ECValue b) {
+		struct ECValue result = {}; self.arithmetic.subtract(result.words, a.words, b.words); return result;
+	}
+
+	public struct ECValue mul(struct ECValue a, struct ECValue b) {
+		struct ECValue result = {}; self.arithmetic.multiply(result.words, a.words, b.words); return result;
+	}
+
+	public struct ECValue inv(struct ECValue a) {
+		struct ECValue result = self.one;
+		for (int i = self.arithmetic.words * 32 - 1; i >= 0; i--) {
+			result = self.mul(result, result);
+			if (ECPrimeField.bit(self.exponent, i)) { result = self.mul(result, a); }
+		}
+		return result;
+	}
+}

@@ -1,31 +1,29 @@
-/* BSD socket targets share plain HTTP. Apple uses NSURLSession and
+/* BSD socket targets share plain HTTP. Linux uses first-party TLS over BSD
+ * sockets for all HTTP, HTTPS, and proxy routes. Apple uses NSURLSession and
  * Network.framework/Security.framework, and Android applications use private
- * platform JSSE TLS contexts, with no curl dependency on either platform.
- * Linux retains curl until first-party TLS lands. */
-#if defined(__ANDROID__)
+ * platform JSSE TLS contexts. No target launches curl. */
+#if defined(__linux__) && !defined(__ANDROID__)
+import Library.HTTP.Linux.HTTPTransport;
+#elif defined(__ANDROID__)
 import Library.Bytes;
 import Library.HTTP.Unix.HTTPConnect;
+import Library.HTTP.Unix.HTTPPlainTransport;
+import Library.HTTP.Unix.HTTPProxy;
 import Library.HTTP.Unix.HTTPSocks;
 import Library.Java.JavaVirtualMachine;
 import Library.Platform;
 import Library.Timer;
 #elif defined(__APPLE__)
 import Library.HTTP.Apple.HTTPURLSession;
+import Library.HTTP.Unix.HTTPPlainTransport;
 import Library.Platform;
 #if TARGET_OS_OSX
 import Library.HTTP.Apple.HTTPNetworkTLS;
-import Library.HTTP.Unix.HTTPSocks;
-#endif
-#else
-import Library.HTTP.HTTPCurlTransport;
-import Library.HTTP.Unix.HTTPSocks;
-import Library.Process;
-#endif
-#if !TARGET_OS_IOS
 import Library.HTTP.Unix.HTTPProxy;
+import Library.HTTP.Unix.HTTPSocks;
+#endif
 #endif
 import Library.HTTP.HTTPExchange;
-import Library.HTTP.Unix.HTTPPlainTransport;
 import Library.Vector;
 
 #if defined(__ANDROID__)
@@ -116,16 +114,16 @@ class AndroidJSSEStream implements IHTTPByteStream {
 		return result;
 	}
 }
-
-
 #endif
 
 class HTTPTransportProvider {
 	class HTTPExchangeResult request(string method, string url, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes) {
 		HTTPClientAddress? address = HTTPClientAddress.parse(url);
 		if (address == null) { return HTTPExchangeResult.failed("invalid URL"); }
+#if defined(__linux__) && !defined(__ANDROID__)
+		return LinuxHTTPTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes);
+#elif defined(__ANDROID__)
 		if (address.secure) {
-#if defined(__ANDROID__)
 			if (!JavaVirtualMachine.running()) { return HTTPExchangeResult.failed("HTTPS on Android requires an Android application VM"); }
 			long long deadline = MonotonicClock.deadlineAfter((long long)timeoutSecs * 1000LL);
 			string setting = HTTPProxy.setting(address);
@@ -139,7 +137,27 @@ class HTTPTransportProvider {
 			}
 			if (!setting.isEmpty() && proxy == null) { return HTTPExchangeResult.failed("invalid proxy URL"); }
 			return AndroidJSSEStream().exchange(method, address, proxy, headers, body, deadline, maxResponseBytes, socks);
+		}
+		string setting = HTTPProxy.setting(address);
+		if (!setting.isEmpty()) {
+			string socks = HTTPSocks.scheme(setting);
+			if (!socks.isEmpty()) {
+				HTTPClientAddress? endpoint = HTTPSocks.endpoint(setting, socks);
+				if (endpoint == null) { return HTTPExchangeResult.failed("invalid proxy URL"); }
+				return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes, endpoint, socks);
+			}
+			string proxyUrl = setting.contains("://") ? setting : "http://" + setting;
+			HTTPClientAddress? proxy = HTTPClientAddress.parse(proxyUrl, 1080);
+			if (proxy == null) { return HTTPExchangeResult.failed("invalid proxy URL"); }
+			if (proxy.secure) {
+				if (!JavaVirtualMachine.running()) { return HTTPExchangeResult.failed("HTTPS on Android requires an Android application VM"); }
+				return AndroidJSSEStream().exchange(method, address, proxy, headers, body, MonotonicClock.deadlineAfter((long long)timeoutSecs * 1000LL), maxResponseBytes);
+			}
+			return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes, proxy);
+		}
+		return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes);
 #elif defined(__APPLE__)
+		if (address.secure) {
 			string bundle = Environment.get("CURL_CA_BUNDLE", "");
 			string certDir = "";
 			if (bundle.isEmpty()) {
@@ -171,14 +189,10 @@ class HTTPTransportProvider {
 #else
 			return HTTPURLSession.request(method, address, headers, body, timeoutSecs, maxResponseBytes, null, bundle, certDir);
 #endif
-#else
-			return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes);
-#endif
 		}
 #if !TARGET_OS_IOS
 		string setting = HTTPProxy.setting(address);
 		if (!setting.isEmpty()) {
-#if TARGET_OS_OSX
 			string socks = HTTPSocks.scheme(setting);
 			if (!socks.isEmpty()) {
 				HTTPClientAddress? endpoint = HTTPSocks.endpoint(setting, socks);
@@ -198,39 +212,9 @@ class HTTPTransportProvider {
 				return HTTPNetworkTLS.request(method, address, headers, body, timeoutSecs, maxResponseBytes, proxy, "", bundle, certDir);
 			}
 			return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes, proxy);
-#else
-#if defined(__linux__)
-			string socks = HTTPSocks.scheme(setting);
-#if defined(__ANDROID__)
-			if (!socks.isEmpty()) {
-				HTTPClientAddress? endpoint = HTTPSocks.endpoint(setting, socks);
-				if (endpoint == null) { return HTTPExchangeResult.failed("invalid proxy URL"); }
-				return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes, endpoint, socks);
-			}
-#else
-			/* Installed curl may provide SOCKS5 GSSAPI or caller header compatibility. */
-			bool useSocks = !socks.isEmpty() && !HTTPProxy.needsLegacyHeaders(headers) && (!socks.startsWith("socks5") || ChildProcessExecutable.resolve("curl", "", [], []).isEmpty());
-			if (useSocks) {
-				HTTPClientAddress? endpoint = HTTPSocks.endpoint(setting, socks);
-				if (endpoint != null) { return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes, endpoint, socks); }
-			}
-#endif
-#endif
-			string proxyUrl = setting.contains("://") ? setting : "http://" + setting;
-			HTTPClientAddress? proxy = HTTPClientAddress.parse(proxyUrl, 1080);
-#if defined(__ANDROID__)
-			if (proxy == null) { return HTTPExchangeResult.failed("invalid proxy URL"); }
-			if (proxy.secure) {
-				if (!JavaVirtualMachine.running()) { return HTTPExchangeResult.failed("HTTPS on Android requires an Android application VM"); }
-				return AndroidJSSEStream().exchange(method, address, proxy, headers, body, MonotonicClock.deadlineAfter((long long)timeoutSecs * 1000LL), maxResponseBytes);
-			}
-#else
-			if (proxy == null || proxy.secure) { return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes); }
-#endif
-			return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes, proxy);
-#endif
 		}
 #endif
 		return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes);
+#endif
 	}
 }

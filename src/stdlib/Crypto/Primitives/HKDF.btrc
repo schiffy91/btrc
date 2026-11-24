@@ -1,0 +1,84 @@
+/* HMAC (RFC 2104) and HKDF (RFC 5869). SHA-256 produces 32 bytes,
+ * SHA-384 produces 48. Keys and message buffers are borrowed for each call. */
+import Library.Crypto.Primitives.ConstantTime;
+import Library.Crypto.Primitives.SHA512;
+import Library.Digest.SHA256;
+
+class HMAC {
+	private IBinaryDigest inner;
+	private IBinaryDigest outer;
+	private int digestLength;
+
+	class IBinaryDigest newDigest(bool useSHA384) {
+		if (useSHA384) { return SHA384(); }
+		return SHA256State();
+	}
+
+	public HMAC(bool useSHA384, unsigned char* key, int length) {
+		if (length < 0) { throw "negative HMAC key length"; }
+		self.inner = HMAC.newDigest(useSHA384);
+		self.outer = HMAC.newDigest(useSHA384);
+		self.digestLength = useSHA384 ? 48 : 32;
+		int blockLength = useSHA384 ? 128 : 64;
+		unsigned char pad[128] = {0};
+		if (length > blockLength) {
+			IBinaryDigest reduction = HMAC.newDigest(useSHA384);
+			reduction.update(key, length);
+			reduction.finish(pad);
+		} else {
+			for (int index = 0; index < length; index++) { pad[index] = key[index]; }
+		}
+		for (int index = 0; index < blockLength; index++) { pad[index] ^= (unsigned char)0x36; }
+		self.inner.update(pad, blockLength);
+		for (int index = 0; index < blockLength; index++) { pad[index] ^= (unsigned char)(0x36 ^ 0x5c); }
+		self.outer.update(pad, blockLength);
+		ConstantTime.wipe(pad, 128);
+	}
+
+	public void update(unsigned char* data, int length) {
+		if (length < 0) { throw "negative HMAC message length"; }
+		self.inner.update(data, length);
+	}
+
+	public void finish(unsigned char* out) {
+		unsigned char innerTag[48];
+		self.inner.finish(innerTag);
+		self.outer.update(innerTag, self.digestLength);
+		ConstantTime.wipe(innerTag, 48);
+		self.outer.finish(out);
+	}
+}
+
+class HKDF {
+	/* An absent salt is equivalent to an empty HMAC key. */
+	class void extract(bool useSHA384, unsigned char* out, unsigned char* salt, int saltLength, unsigned char* input, int inputLength) {
+		HMAC mac = HMAC(useSHA384, salt, saltLength);
+		mac.update(input, inputLength);
+		mac.finish(out);
+	}
+
+	/* The output must not overlap the pseudorandom key or info. Reject
+	 * invalid lengths before emitting any bytes (RFC 5869 section 2.3). */
+	class bool expand(bool useSHA384, unsigned char* out, int length, unsigned char* key, int keyLength, unsigned char* info, int infoLength) {
+		int size = useSHA384 ? 48 : 32;
+		if (length < 0 || length > 255 * size || keyLength < size || infoLength < 0) { return false; }
+		unsigned char block[48];
+		unsigned char counter[1];
+		int previous = 0;
+		int offset = 0;
+		for (int number = 1; offset < length; number++) {
+			HMAC mac = HMAC(useSHA384, key, keyLength);
+			mac.update(block, previous);
+			mac.update(info, infoLength);
+			counter[0] = (unsigned char)number;
+			mac.update(counter, 1);
+			mac.finish(block);
+			int count = length - offset < size ? length - offset : size;
+			for (int index = 0; index < count; index++) { out[offset + index] = block[index]; }
+			offset += count;
+			previous = size;
+		}
+		ConstantTime.wipe(block, 48);
+		return true;
+	}
+}

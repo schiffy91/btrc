@@ -1,0 +1,81 @@
+/* The TLS 1.2 P_hash PRF, AEAD key block, and RFC 7627 extended master
+ * secret for X25519. The handshake must establish the EMS extension before
+ * it supplies the transcript through ClientKeyExchange to masterSecret. */
+import Library.Bytes;
+import Library.Crypto.Primitives.HKDF;
+import Library.Crypto.Sodium;
+
+class TLS12Keys {
+	/* ECDHE_ECDSA and ECDHE_RSA AES-GCM suites (RFC 5289) and
+	 * ChaCha20-Poly1305 suites (RFC 7905). */
+	class int keyLength(int suite) {
+		if (suite == 0xc02b || suite == 0xc02f) { return 16; }
+		if (suite == 0xc02c || suite == 0xc030 || suite == 0xcca8 || suite == 0xcca9) { return 32; }
+		return 0;
+	}
+
+	class bool sha384(int suite) { return suite == 0xc02c || suite == 0xc030; }
+
+	class bool chacha(int suite) { return suite == 0xcca8 || suite == 0xcca9; }
+
+	/* A(0) = label || seed, A(i) = HMAC(secret, A(i-1)).
+	 * Output and seed/key must not overlap. Bounded for the TLS key schedule. */
+	class bool prf(bool sha384, unsigned char* out, int length, unsigned char* key, int keyLength, string label, unsigned char* seed, int seedLength) {
+		if (out == null || length < 1 || length > 256 || key == null || keyLength < 1 || keyLength > 64 || label == null || label.len() < 1 || label.len() > 40 || seed == null || seedLength < 1 || seedLength > 64) { return false; }
+		unsigned char input[104];
+		for (int i = 0; i < label.len(); i++) { input[i] = (unsigned char)label[i]; }
+		memcpy(input + label.len(), seed, (size_t)seedLength);
+		int count = label.len() + seedLength;
+		int size = sha384 ? 48 : 32;
+		unsigned char a[48]; unsigned char block[48];
+		HMAC initial = HMAC(sha384, key, keyLength);
+		initial.update(input, count); initial.finish(a);
+		for (int offset = 0; offset < length; offset += size) {
+			HMAC next = HMAC(sha384, key, keyLength);
+			next.update(a, size); next.update(input, count); next.finish(block);
+			memcpy(out + offset, block, (size_t)(length - offset < size ? length - offset : size));
+			if (offset + size < length) {
+				HMAC advance = HMAC(sha384, key, keyLength);
+				advance.update(a, size); advance.finish(a);
+			}
+		}
+		Sodium.wipe(a, 48); Sodium.wipe(block, 48); Sodium.wipe(input, 104);
+		return true;
+	}
+
+	class Bytes? masterSecret(int suite, Bytes shared, Bytes sessionHash) {
+		bool sha384 = TLS12Keys.sha384(suite);
+		if (TLS12Keys.keyLength(suite) == 0 || shared == null || shared.length() != 32 || sessionHash == null || sessionHash.length() != (sha384 ? 48 : 32)) { return null; }
+		/* RFC 7748: a low-order peer share can produce an all-zero secret. */
+		unsigned char nonzero = 0;
+		for (int i = 0; i < 32; i++) { nonzero |= (unsigned char)shared.data[i]; }
+		if (nonzero == 0) { return null; }
+		var master = Bytes.zeros(48);
+		if (!TLS12Keys.prf(sha384, (unsigned char*)master.data, 48, (unsigned char*)shared.data, 32, "extended master secret", (unsigned char*)sessionHash.data, sessionHash.length())) { return null; }
+		return master;
+	}
+
+	class Bytes? finished(int suite, Bytes master, Bytes transcriptHash, bool client) {
+		bool sha384 = TLS12Keys.sha384(suite);
+		if (TLS12Keys.keyLength(suite) == 0 || master == null || master.length() != 48 || transcriptHash == null || transcriptHash.length() != (sha384 ? 48 : 32)) { return null; }
+		var result = Bytes.zeros(12);
+		string label = client ? "client finished" : "server finished";
+		if (!TLS12Keys.prf(sha384, (unsigned char*)result.data, 12, (unsigned char*)master.data, 48, label, (unsigned char*)transcriptHash.data, transcriptHash.length())) { return null; }
+		return result;
+	}
+
+	class bool trafficKey(int suite, Bytes master, Bytes clientRandom, Bytes serverRandom, bool client, unsigned char* key, unsigned char* iv) {
+		int keyLength = TLS12Keys.keyLength(suite);
+		if (keyLength == 0 || master == null || master.length() != 48 || clientRandom == null || clientRandom.length() != 32 || serverRandom == null || serverRandom.length() != 32 || key == null || iv == null) { return false; }
+		int ivLength = TLS12Keys.chacha(suite) ? 12 : 4;
+		unsigned char seed[64]; unsigned char block[88];
+		memcpy(seed, serverRandom.data, 32); memcpy(seed + 32, clientRandom.data, 32);
+		bool ok = TLS12Keys.prf(TLS12Keys.sha384(suite), block, 2 * (keyLength + ivLength), (unsigned char*)master.data, 48, "key expansion", seed, 64);
+		if (ok) {
+			memcpy(key, block + (client ? 0 : keyLength), (size_t)keyLength);
+			memcpy(iv, block + 2 * keyLength + (client ? 0 : ivLength), (size_t)ivLength);
+		}
+		Sodium.wipe(block, 88);
+		return ok;
+	}
+}

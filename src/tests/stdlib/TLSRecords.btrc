@@ -1,0 +1,69 @@
+import Library.Bytes;
+import Library.Testing;
+import Library.TLS.TLS13Records;
+
+class RecordFixture {
+	class Bytes hex(string raw) {
+		Bytes? data = Bytes.fromHex(raw);
+		if (data == null) { throw "invalid record fixture"; }
+		return data;
+	}
+
+	class void refuse(Bytes wire) {
+		Bytes secret = Bytes.zeros(32);
+		for (int index = 0; index < 32; index++) { secret.set(index, index); }
+		var reader = TLS13Records.create(0x1301, secret, false);
+		if (reader == null) { throw "state missing"; }
+		Expect.isTrue(reader.open(wire) == null);
+		Expect.isFalse(reader.updateKey());
+	}
+
+	class void check(int suite, string first, string second, string updated) {
+		int digestSize = suite == 0x1302 ? 48 : 32;
+		Bytes secret = Bytes.zeros(digestSize);
+		for (int index = 0; index < digestSize; index++) { secret.set(index, index); }
+		var writer = TLS13Records.create(suite, secret, true);
+		var reader = TLS13Records.create(suite, secret, false);
+		if (writer == null || reader == null) { throw "record state missing"; }
+		Bytes input = Bytes.fromString("record data");
+		var one = writer.seal(23, input, 3);
+		var two = writer.seal(23, input, 3);
+		if (one == null || two == null) { throw "failed to seal"; }
+		Expect.isTrue(one.equals(RecordFixture.hex(first)) && two.equals(RecordFixture.hex(second)));
+		var p = reader.open(one);
+		var q = reader.open(two);
+		if (p == null || q == null) { throw "failed to open"; }
+		Expect.isTrue(p.contentType == 23 && p.content.equals(input) && q.content.equals(input));
+		Expect.isTrue(writer.updateKey() && reader.updateKey());
+		var three = writer.seal(22, input);
+		if (three == null) { throw "updated seal failed"; }
+		Expect.isTrue(three.equals(RecordFixture.hex(updated)));
+		var r = reader.open(three);
+		if (r == null) { throw "failed to open updated record"; }
+		Expect.isTrue(r.contentType == 22 && r.content.equals(input));
+		Expect.isTrue(reader.open(three) == null);
+		Expect.isFalse(reader.updateKey());
+		Expect.isTrue(writer.seal(22, Bytes()) == null && writer.seal(20, input) == null);
+		Expect.isTrue(writer.seal(23, input, 16384) == null);
+		Expect.isTrue(writer.seal(23, Bytes()) != null);
+		writer.close();
+		Expect.isTrue(writer.seal(23, input) == null);
+	}
+}
+
+int main() {
+	RecordFixture.check(0x1301, "170303001f576d8451d9524ff9874999cac4284da885b06d49336140b351b19c1553c4a3", "170303001f27985d70df0609f7ebc48b035eee780b21d40b06c141eda1355d64c19b3a95", "170303001ca8510c096b56fac1e420e318361fbce6ccccf3387e5d58525bd929cb");
+	RecordFixture.check(0x1302, "170303001f3a521c53676996e1f0b034f1ff5a74bdd475f024d84719b4296ab36a41b3c7", "170303001fef741a9fb62a2d4d3528bbcca84d2dd39383c58a44cf17bbc4a6f487c9d346", "170303001c5ef0c0e8f562bf12cbbb5ec6182155472a5ac7b240a8df97351eab9a");
+	RecordFixture.check(0x1303, "170303001fc0cb089175119a858e19f9d3bbf54e11ddb56130212acd2405b1b916fcdcf4", "170303001f79d056b5f548e3b7ef7f5e0f7ab472b0628e2fb4957da4d58f110f486c1b35", "170303001c606e529440c5e6f529b995f444022f459d452ccaa0d392125b9aa45e");
+	/* Independent authenticated records with all padding, an unknown type,
+	 * and zero-length handshake/alert content. */
+	RecordFixture.refuse(RecordFixture.hex("17030300182508e73eab366f9de19ac3afa9d59165da042a2a971c4c1a"));
+	RecordFixture.refuse(RecordFixture.hex("17030300125df77c0431f105d73c2e5a3f9f32d759b072"));
+	RecordFixture.refuse(RecordFixture.hex("170303001133e7a829aa42f1cbffe87d788d23bfd3e7"));
+	RecordFixture.refuse(RecordFixture.hex("170303001130c9eaeaeee586f1fecd3f379266be1a5a"));
+	RecordFixture.refuse(Bytes.zeros(21));
+	RecordFixture.refuse(Bytes.zeros(16407));
+	RecordFixture.refuse(Bytes.zeros(16646));
+	print("PASS TLS 1.3 records");
+	return 0;
+}

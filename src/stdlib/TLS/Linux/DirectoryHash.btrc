@@ -1,0 +1,33 @@
+import Library.Bytes;
+
+/* OpenSSL c_rehash filenames use the first four SHA-1 digest bytes in
+ * little-endian order. This unkeyed directory index selects candidates.
+ * Certificate identity and signatures authenticate each selected candidate. */
+class LinuxDirectoryHash {
+	class uint rotate(uint n, int bits) { return (n << bits) | (n >> (32 - bits)); }
+
+	class string of(Bytes name) {
+		var padded = name.slice(0, name.len);
+		padded.append(128);
+		while ((padded.len % 64) != 56) { padded.append(0); }
+		padded.appendU64BE((unsigned long long)name.len * 8ULL);
+		uint h[5] = {0x67452301u, 0xefcdab89u, 0x98badcfeu, 0x10325476u, 0xc3d2e1f0u};
+		for (int offset = 0; offset < padded.len; offset += 64) {
+			uint words[80];
+			for (int i = 0; i < 16; i++) { words[i] = padded.readU32BE(offset + 4 * i); }
+			for (int i = 16; i < 80; i++) { words[i] = LinuxDirectoryHash.rotate(words[i-3] ^ words[i-8] ^ words[i-14] ^ words[i-16], 1); }
+			uint a = h[0]; uint b = h[1]; uint c = h[2]; uint d = h[3]; uint e = h[4];
+			for (int i = 0; i < 80; i++) {
+				uint f; uint k;
+				if (i < 20) { f = (b & c) | ((~b) & d); k = 0x5a827999u; }
+				else if (i < 40) { f = b ^ c ^ d; k = 0x6ed9eba1u; }
+				else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdcu; }
+				else { f = b ^ c ^ d; k = 0xca62c1d6u; }
+				uint next = LinuxDirectoryHash.rotate(a, 5) + f + e + words[i] + k;
+				e = d; d = c; c = LinuxDirectoryHash.rotate(b, 30); b = a; a = next;
+			}
+			h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
+		}
+		var prefix = Bytes(); prefix.appendU32LE(h[0]); return prefix.toHex();
+	}
+}

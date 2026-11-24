@@ -16,7 +16,6 @@ failure names the module, the target and the dependency.
 | Dependency | Module | Targets | How it is required | Replacement |
 | --- | --- | --- | --- | --- |
 | GTK 4 | `GUI/Shim/Shim` | linux | headers `cairo-ft.h`; headers `gdk/gdkkeysyms.h`; headers `gdk/wayland/gdkwayland.h`; headers `gdk/x11/gdkx.h`; headers `gtk/gtk.h`; headers `pango/pangocairo.h`; pkg-config `gtk4-wayland`; pkg-config `gtk4-x11`; pkg-config `gtk4` | First-party windows and controls over the display server's protocol. |
-| curl | `HTTP/HTTPCurlTransport` | linux | programs `curl` | Android, Linux, and macOS use first-party code for plain HTTP and HTTP forward proxies. macOS and iOS use NSURLSession and Network.framework/Security.framework with no curl dependency. Android applications use private platform JSSE TLS contexts with HTTPExchange and first-party SOCKS4/4a/5/5h, and standalone Android binaries without an application VM refuse HTTPS explicitly with no curl dependency. Linux retains curl for HTTPS and remaining proxy paths until first-party TLS lands. Windows uses WinHTTP. |
 | libX11 | `GUI/Shim/Shim` | linux | headers `X11/Xlib.h`; pkg-config `x11` | Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend. |
 | libwayland-client | `GUI/Shim/Shim` | linux | headers `wayland-client.h`; pkg-config `wayland-client` | The Wayland wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects. |
 
@@ -52,10 +51,10 @@ require Xwayland for a Wayland session.
 
 ### TLS on Linux
 
-Build first-party TLS over the first-party cryptography and the system CA bundle.
-Qualify certificate and hostname verification, protocol interoperability and observable
-HTTP behavior. Obtain independent security review before switching production HTTPS.
-Keep the current working transport while qualification and review are pending.
+Linux HTTPS and proxy transports use first-party TLS (Library.TLS) over first-party
+cryptography (Library.Crypto) and the Linux CA store, with no curl fallback.
+Certificate/hostname verification, protocol interoperability, alert handling, and
+DoS bounds are hardened per independent security review (docs/design/linux-tls-security-review.md).
 
 ## The exception
 

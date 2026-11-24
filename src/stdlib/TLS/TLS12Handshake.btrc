@@ -1,0 +1,260 @@
+/* Full, non-resumed TLS 1.2 client. A transport supplies complete records
+ * under its overall deadline. No application data is admitted before the
+ * actual peer chain, signed ECDHE parameters, and server Finished verify. */
+import Library.Bytes;
+import Library.Vector;
+import Library.Timer;
+import Library.Crypto.Primitives.X25519;
+import Library.Crypto.Sodium;
+
+import ./TLSAlert.btrc;
+import ./TLS12Keys.btrc;
+import ./TLS12PeerMessages.btrc;
+import ./TLS12Records.btrc;
+import ./TLS13Hello.btrc;
+import ./TLS13PeerMessages.btrc;
+import ./X509PeerName.btrc;
+import ./X509TrustBundle.btrc;
+
+enum TLS12Phase { TLS12_WAIT_HELLO, TLS12_WAIT_CERTIFICATE, TLS12_WAIT_SHARE, TLS12_WAIT_REQUEST_OR_DONE, TLS12_WAIT_DONE, TLS12_SEND_CLIENT_FLIGHT, TLS12_WAIT_CHANGE_CIPHER, TLS12_WAIT_FINISHED, TLS12_ESTABLISHED, TLS12_CLOSED };
+
+class TLS12Handshake {
+	private TLS12Offer offer;
+	private X509PeerName name;
+	private long long at;
+	private long long deadline;
+	private TLS12Phase phase;
+	private TLS13HandshakeStream framing;
+	private Bytes transcript;
+	private Bytes random;
+	private Bytes peerShare;
+	private Vector<X509Certificate> peerCertificates = [];
+	private bool clientCertificateRequested;
+	private Bytes master;
+	private TLS12Records? inbound = null;
+	private TLS12Records? outbound = null;
+	public int suite;
+	private int errorAlert = TLS_UNEXPECTED_MESSAGE;
+	private Bytes? pendingAlert;
+	private TLS12AlertStream alerts;
+	private int handshakeRecords = 0;
+	private int warningAlerts = 0;
+	private int warningRecords = 0;
+
+	public TLSAlertDisposition peerAlert(Bytes content) { return self.alerts.feed(content); }
+
+	private bool reject(int description) { self.errorAlert = description; return false; }
+
+	public Bytes? takeAlert() {
+		var result = self.pendingAlert; self.pendingAlert = null; return result;
+	}
+
+	public void fail(int description) {
+		if (self.phase != TLS12_CLOSED && description != TLS_NO_ALERT) {
+			var alert = TLSAlert.fatal(description);
+			/* Our write epoch changes at our own ChangeCipherSpec, even
+			 * while waiting for the peer's ChangeCipherSpec or Finished. */
+			if (self.phase < TLS12_WAIT_CHANGE_CIPHER) { self.pendingAlert = TLSAlert.plaintext(alert); }
+			else if (self.outbound != null) { self.pendingAlert = self.outbound.seal(21, alert); }
+		}
+		self.close();
+	}
+
+	private TLS12Handshake(TLS12Offer offer, Bytes clientHello, X509PeerName name, long long at, long long deadline) {
+		self.offer = offer; self.name = name; self.at = at; self.deadline = deadline;
+		self.phase = TLS12_WAIT_HELLO; self.framing = TLS13HandshakeStream(); self.alerts = TLS12AlertStream();
+		self.transcript = clientHello.slice(0, clientHello.length()); self.master = Bytes();
+	}
+
+	class TLS12Handshake? create(Bytes sentClientHello, X509PeerName name, long long at, long long deadline = 9223372036854775807LL) {
+		if (name == null || !MonotonicClock.before(deadline)) { return null; }
+		var offer = TLS12Offer.read(sentClientHello);
+		if (offer == null) { return null; }
+		return TLS12Handshake(offer, sentClientHello, name, at, deadline);
+	}
+
+	public void close() {
+		self.phase = TLS12_CLOSED;
+		if (self.master != null && self.master.length() > 0) { Sodium.wipe((unsigned char*)self.master.data, self.master.length()); self.master.clear(); }
+		var reader = self.inbound; var writer = self.outbound;
+		if (reader != null) { reader.close(); }
+		if (writer != null) { writer.close(); }
+	}
+
+	public void __del__() { self.close(); }
+
+	public bool wantClientFlight() { return self.phase == TLS12_SEND_CLIENT_FLIGHT; }
+
+	public bool established() { return self.phase == TLS12_ESTABLISHED; }
+
+	public Vector<X509Certificate> peerChain() {
+		Vector<X509Certificate> peers = [];
+		for cert in self.peerCertificates { peers.push(cert); }
+		return peers;
+	}
+
+	private bool handshakeMessage(Bytes message) {
+		int kind = message.get(0);
+		Bytes body = message.slice(4, message.length());
+		if (self.phase == TLS12_WAIT_HELLO && kind == 2) {
+			int suite = self.offer.selectSuite(body);
+			if (suite < 0) { return self.reject(TLS_ILLEGAL_PARAMETER); }
+			if (suite == 0) { return self.reject(TLS_HANDSHAKE_FAILURE); }
+			self.suite = suite; self.random = body.slice(2, 34); self.phase = TLS12_WAIT_CERTIFICATE;
+		} else if (self.phase == TLS12_WAIT_CERTIFICATE && kind == 11) {
+			var certs = TLS12PeerMessages.certificates(body);
+			if (certs == null || certs.len == 0) { return self.reject(TLS_BAD_CERTIFICATE); }
+			self.peerCertificates = certs; self.phase = TLS12_WAIT_SHARE;
+		} else if (self.phase == TLS12_WAIT_SHARE && kind == 12) {
+			var share = TLS12PeerMessages.signedShare(self.offer, self.random, self.suite, self.peerCertificates.get(0), body);
+			if (share == null) { return self.reject(TLS_DECRYPT_ERROR); }
+			self.peerShare = share; self.phase = TLS12_WAIT_REQUEST_OR_DONE;
+		} else if (self.phase == TLS12_WAIT_REQUEST_OR_DONE && kind == 13) {
+			if (!TLS12PeerMessages.certificateRequest(body)) { return self.reject(TLS_DECODE_ERROR); }
+			self.clientCertificateRequested = true; self.phase = TLS12_WAIT_DONE;
+		} else if ((self.phase == TLS12_WAIT_REQUEST_OR_DONE || self.phase == TLS12_WAIT_DONE) && kind == 14 && body.isEmpty()) {
+			self.phase = TLS12_SEND_CLIENT_FLIGHT;
+		} else if (self.phase == TLS12_WAIT_FINISHED && kind == 20) {
+			var digest = TLS13Hello.hash(TLS12Keys.sha384(self.suite), self.transcript);
+			var expected = TLS12Keys.finished(self.suite, self.master, digest, false);
+			if (expected == null || body.length() != 12 || !Sodium.equal((unsigned char*)expected.data, (unsigned char*)body.data, 12)) { return self.reject(TLS_DECRYPT_ERROR); }
+			Sodium.wipe((unsigned char*)self.master.data, self.master.length()); self.master.clear();
+			self.transcript.clear(); self.phase = TLS12_ESTABLISHED; return true;
+		} else { return false; }
+		self.transcript.appendBytes(message);
+		return true;
+	}
+
+	private bool fragment(Bytes part) {
+		if (!self.framing.push(part)) { return false; }
+		while (self.framing.valid()) {
+			var next = self.framing.next();
+			if (next == null) { break; }
+			if (!self.handshakeMessage(next)) { return false; }
+		}
+		return self.framing.valid() && ((self.phase != TLS12_SEND_CLIENT_FLIGHT && self.phase != TLS12_ESTABLISHED) || self.framing.empty());
+	}
+
+	private bool take(Bytes wire) {
+		if (self.phase == TLS12_CLOSED || self.established() || self.wantClientFlight()) { return false; }
+		if (wire == null || wire.length() < 6 || wire.get(1) != 3 || wire.readU16BE(3) != wire.length() - 5) { return false; }
+		if (++self.handshakeRecords > 256) { return false; }
+		int versionMinor = wire.get(2);
+		if (versionMinor != 3 && (self.phase != TLS12_WAIT_HELLO || versionMinor < 1 || versionMinor > 2)) { return false; }
+		bool encrypted = self.phase == TLS12_WAIT_FINISHED;
+		if (!encrypted && wire.length() > 16389) { return self.reject(TLS_RECORD_OVERFLOW); }
+		if (wire.get(0) == 21) {
+			Bytes? alert = null;
+			if (encrypted) {
+				var reader = self.inbound;
+				if (reader == null) { return false; }
+				alert = reader.open(wire);
+				if (alert == null) { return self.reject(reader.recordOverflowed() ? TLS_RECORD_OVERFLOW : TLS_BAD_RECORD_MAC); }
+			} else {
+				alert = wire.slice(5, wire.length());
+			}
+			var action = self.peerAlert(alert);
+			if (action == TLS_ALERT_CONTINUE) {
+				if (++self.warningRecords > 8) { return false; }
+				if (!self.alerts.partial() && ++self.warningAlerts > 4) { return false; }
+				return true;
+			}
+			return self.reject(action == TLS_ALERT_INVALID ? TLS_DECODE_ERROR : TLS_NO_ALERT);
+		}
+		if (self.alerts.partial()) { return self.reject(TLS_UNEXPECTED_MESSAGE); }
+		if (self.phase == TLS12_WAIT_CHANGE_CIPHER) {
+			if (!self.framing.empty() || wire.length() != 6 || wire.get(0) != 20 || wire.get(5) != 1) { return false; }
+			self.phase = TLS12_WAIT_FINISHED; return true;
+		}
+		if (wire.get(0) != 22) { return false; }
+		if (encrypted) {
+			var reader = self.inbound;
+			if (reader == null) { return false; }
+			var plain = reader.open(wire);
+			if (plain == null) { return self.reject(reader.recordOverflowed() ? TLS_RECORD_OVERFLOW : TLS_BAD_RECORD_MAC); }
+			return self.fragment(plain);
+		}
+		return self.fragment(wire.slice(5, wire.length()));
+	}
+
+	public bool feed(Bytes wire) {
+		self.errorAlert = TLS_UNEXPECTED_MESSAGE;
+		if (MonotonicClock.before(self.deadline)) {
+			if (self.take(wire) && MonotonicClock.before(self.deadline)) { return true; }
+			self.fail(self.errorAlert); return false;
+		}
+		self.close(); return false;
+	}
+
+	class Bytes record(int kind, Bytes plain) {
+		Bytes wire = Bytes(); wire.append(kind); wire.appendU16BE(0x0303); wire.appendU16BE(plain.length()); wire.appendBytes(plain); return wire;
+	}
+
+	private Bytes? makeFlight(X509TrustBundle trust) {
+		if (!self.wantClientFlight()) { return null; }
+		if (trust == null) { self.errorAlert = TLS_UNKNOWN_CA; return null; }
+		if (!trust.verifyPresented(self.peerCertificates, self.name, self.at, self.deadline)) {
+			self.errorAlert = TLSAlert.certificate(self.peerCertificates, trust, self.name, self.at, self.deadline); return null;
+		}
+		unsigned char scalar[32]; unsigned char sharedBytes[32]; unsigned char publicKey[32];
+		Sodium.random(scalar, 32); X25519.publicKey(publicKey, scalar);
+		bool exchanged = X25519.multiply(sharedBytes, scalar, (unsigned char*)self.peerShare.data);
+		Sodium.wipe(scalar, 32);
+		if (!exchanged) { Sodium.wipe(sharedBytes, 32); return null; }
+		var body = Bytes(); body.append(32); body.appendRaw((char*)publicKey, 32);
+		var flight = Bytes();
+		if (self.clientCertificateRequested) { flight.appendBytes(TLS13Hello.message(11, Bytes.zeros(3))); }
+		flight.appendBytes(TLS13Hello.message(16, body)); self.transcript.appendBytes(flight);
+		var shared = Bytes.fromRaw((char*)sharedBytes, 32); Sodium.wipe(sharedBytes, 32);
+		var digest = TLS13Hello.hash(TLS12Keys.sha384(self.suite), self.transcript);
+		var master = TLS12Keys.masterSecret(self.suite, shared, digest);
+		Sodium.wipe((unsigned char*)shared.data, 32);
+		if (master == null) { return null; }
+		self.master = master;
+		var reader = TLS12Records.create(self.suite, master, self.offer.random, self.random, false, false);
+		var writer = TLS12Records.create(self.suite, master, self.offer.random, self.random, true, true);
+		if (reader == null || writer == null) { return null; }
+		self.inbound = reader; self.outbound = writer;
+		var verify = TLS12Keys.finished(self.suite, master, digest, true);
+		if (verify == null) { return null; }
+		var finished = TLS13Hello.message(20, verify);
+		var protected = writer.seal(22, finished);
+		if (protected == null) { return null; }
+		self.transcript.appendBytes(finished);
+		var records = TLS12Handshake.record(22, flight);
+		var change = Bytes(); change.append(1);
+		records.appendBytes(TLS12Handshake.record(20, change)); records.appendBytes(protected);
+		self.phase = TLS12_WAIT_CHANGE_CIPHER; return records;
+	}
+
+	public Bytes? clientFlight(X509TrustBundle trust) {
+		if (!MonotonicClock.before(self.deadline)) { self.close(); return null; }
+		self.errorAlert = TLS_INTERNAL_ERROR;
+		var result = self.makeFlight(trust);
+		if (!MonotonicClock.before(self.deadline)) { self.close(); return null; }
+		if (result == null) { self.fail(self.errorAlert); return null; }
+		return result;
+	}
+
+	public Bytes? sendRecord(int type, Bytes plain) {
+		var writer = self.outbound;
+		if (!MonotonicClock.before(self.deadline)) { self.close(); return null; }
+		if (!self.established() || writer == null || (type != 21 && type != 23)) { return null; }
+		var result = writer.seal(type, plain);
+		if (result == null || !MonotonicClock.before(self.deadline)) { self.close(); return null; }
+		return result;
+	}
+
+	public Bytes? receiveRecord(Bytes wire) {
+		var reader = self.inbound;
+		if (!MonotonicClock.before(self.deadline)) { self.close(); return null; }
+		if (!self.established() || reader == null) { return null; }
+		if (wire != null && wire.length() >= 5 && (wire.get(0) == 21 || wire.get(0) == 23)) {
+			var result = reader.open(wire);
+			if (result == null) { self.fail(reader.recordOverflowed() ? TLS_RECORD_OVERFLOW : TLS_BAD_RECORD_MAC); return null; }
+			if (wire.get(0) != 21 && self.alerts.partial()) { self.fail(TLS_UNEXPECTED_MESSAGE); return null; }
+			if (MonotonicClock.before(self.deadline)) { return result; }
+		}
+		self.fail(TLS_UNEXPECTED_MESSAGE); return null;
+	}
+}

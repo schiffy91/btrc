@@ -1,0 +1,40 @@
+/* RFC 8448 section 3, from the empty PSK to both handshake traffic secrets. */
+import Library.Bytes;
+import Library.Crypto.Primitives.HKDF;
+import Library.Testing;
+import Library.TLS.TLS13Keys;
+
+class HandshakeTrace {
+	class Bytes hex(string value) {
+		Bytes? bytes = Bytes.fromHex(value);
+		if (bytes == null) { throw "invalid test vector"; }
+		return bytes;
+	}
+
+	class Bytes label(Bytes secret, string label, Bytes context, int length) {
+		Bytes result = Bytes.zeros(length);
+		Expect.isTrue(TLS13Keys.expandLabel(false, (unsigned char*)result.data, length, (unsigned char*)secret.data, label, (unsigned char*)context.data, context.length()));
+		return result;
+	}
+}
+
+int main() {
+	Bytes zero = Bytes.zeros(32);
+	Bytes early = Bytes.zeros(32);
+	HKDF.extract(false, (unsigned char*)early.data, null, 0, (unsigned char*)zero.data, 32);
+	Expect.isTrue(early.equals(HandshakeTrace.hex("33ad0a1c607ec03b09e6cd9893680ce210adf300aa1f2660e1b22e10f170f92a")));
+	Bytes emptyHash = HandshakeTrace.hex("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+	Bytes salt = HandshakeTrace.label(early, "derived", emptyHash, 32);
+	Expect.isTrue(salt.equals(HandshakeTrace.hex("6f2615a108c702c5678f54fc9dbab69716c076189c48250cebeac3576c3611ba")));
+	Bytes shared = HandshakeTrace.hex("8bd4054fb55b9d63fdfbacf9f04b9f0d35e6d63f537563efd46272900f89492d");
+	Bytes handshake = Bytes.zeros(32);
+	HKDF.extract(false, (unsigned char*)handshake.data, (unsigned char*)salt.data, 32, (unsigned char*)shared.data, 32);
+	Expect.isTrue(handshake.equals(HandshakeTrace.hex("1dc826e93606aa6fdc0aadc12f741b01046aa6b99f691ed221a9f0ca043fbeac")));
+	Bytes transcript = HandshakeTrace.hex("860c06edc07858ee8e78f0e7428c58edd6b43f2ca3e6e95f02ed063cf0e1cad8");
+	Bytes client = HandshakeTrace.label(handshake, "c hs traffic", transcript, 32);
+	Bytes server = HandshakeTrace.label(handshake, "s hs traffic", transcript, 32);
+	Expect.isTrue(client.equals(HandshakeTrace.hex("b3eddb126e067f35a780b3abf45e2d8f3b1a950738f52e9600746a0e27a55a21")));
+	Expect.isTrue(server.equals(HandshakeTrace.hex("b67b7d690cc16c4e75e54213cb2d37b4e9c912bcded9105d42befd59d391ad38")));
+	print("PASS TLS 1.3 handshake secrets");
+	return 0;
+}

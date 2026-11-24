@@ -1,0 +1,152 @@
+import Library.Bytes;
+import Library.Timer;
+import Library.Vector;
+import Library.Crypto.Primitives.Ed25519;
+import Library.Crypto.Primitives.RSA;
+
+import ./ECDSASignature.btrc;
+import ./X509DistinguishedName.btrc;
+import ./X509Algorithm.btrc;
+import ./X509Certificate.btrc;
+import ./X509PeerName.btrc;
+
+/* Bounded TLS 1.3 certificate path search. The caller supplies trusted local
+ * anchors separately from the untrusted certificates in the server flight. */
+class X509ServerPath {
+	private long long _time;
+	private long long _deadline;
+	private int _signatures;
+	private Vector<X509Certificate> _path = [];
+	private Vector<X509Certificate> _anchors;
+	private Vector<X509Certificate>? _rejected;
+	private Vector<X509Certificate> _intermediates;
+
+	private X509ServerPath(Vector<X509Certificate> anchors, Vector<X509Certificate> intermediates, Vector<X509Certificate>? rejected, long long at, long long deadline) {
+		self._deadline = deadline; self._rejected = rejected; self._anchors = anchors; self._intermediates = intermediates; self._time = at; self._signatures = 0;
+	}
+
+	class bool sameCertificate(X509Certificate a, X509Certificate b) { return a.length() == b.length() && memcmp(a.bytes(), b.bytes(), (size_t)a.length()) == 0; }
+
+	class bool sameTBS(X509Certificate a, X509Certificate b) {
+		int aLen = a.tbs.end - a.tbs.start;
+		int bLen = b.tbs.end - b.tbs.start;
+		return aLen > 0 && aLen == bLen && memcmp(a.bytes() + a.tbs.start, b.bytes() + b.tbs.start, (size_t)aLen) == 0;
+	}
+
+	private bool rejected(X509Certificate candidate) {
+		if (self._rejected == null) { return false; }
+		for denied in self._rejected {
+			if (denied != null && (X509ServerPath.sameCertificate(candidate, denied) || X509ServerPath.sameTBS(candidate, denied))) { return true; }
+		}
+		return false;
+	}
+
+	class bool signature(int scheme, X509Certificate signer, Bytes message, Bytes value) {
+		if (signer.key.kind == X509_KEY_UNSUPPORTED) { return false; }
+		if (signer.key.kind == X509_RSA || signer.key.kind == X509_RSA_PSS) {
+			int algorithm = scheme;
+			if (signer.key.kind == X509_RSA_PSS) {
+				if (scheme < 0x0809 || scheme > 0x080b) { return false; }
+				int digest = scheme == 0x0809 ? 32 : (scheme == 0x080a ? 48 : 64);
+				if (signer.key.pssHash != 0 && (signer.key.pssHash != digest || signer.key.pssMaskHash != digest || signer.key.pssMinimumSalt > digest)) { return false; }
+				algorithm = scheme - 5;
+			}
+			var exponent = signer.rsaExponent();
+			// Bound work on peer-provided public exponents before modular arithmetic.
+			return exponent.len <= 8 && RSA.verify(algorithm, signer.rsaModulus(), exponent, message, value);
+		}
+		if (signer.key.kind == X509_P256 || signer.key.kind == X509_P384) {
+			// Certificate signatures select the digest by algorithm OID. TLS
+			// CertificateVerify imposes its own curve/scheme pairing.
+			int group = signer.key.kind == X509_P256 ? 23 : 24;
+			return ECDSASignature.verify(group, scheme, signer.publicKeyBytes(), message, value);
+		}
+		if (scheme == 0x0807 && signer.key.kind == X509_ED25519) {
+			var key = signer.publicKeyBytes();
+			return key.len == 32 && value.len == 64 && Ed25519.verify((unsigned char*)value.data, (unsigned char*)message.data, message.len, (unsigned char*)key.data);
+		}
+		return false;
+	}
+
+	private bool currentServerPurpose(X509Certificate certificate) {
+		var extension = certificate.extensions;
+		return certificate.notBefore <= self._time && self._time <= certificate.notAfter && (!extension.hasExtendedUsage || extension.serverAuth);
+	}
+
+	private bool allowsPath(X509Certificate issuer) {
+		var extension = issuer.extensions;
+		if (!self.currentServerPurpose(issuer) || !extension.hasBasicConstraints || !extension.ca || (extension.hasKeyUsage && (extension.keyUsage & 32) == 0)) { return false; }
+		int below = 0;
+		for (int i = 0; i < self._path.len; i++) {
+			var child = self._path.get(i);
+			// A self-issued intermediate does not consume pathLen and its
+			// own names are exempt from inherited constraints (RFC 5280 §6).
+			if (i > 0 && child.subjectName().equals(child.issuerName())) { continue; }
+			if (i > 0) { below++; }
+			if (!X509PeerName.allowedBy(child, issuer)) { return false; }
+		}
+		return extension.pathLength < 0 || below <= extension.pathLength;
+	}
+
+	/* When authority key information is present, distinguish cross-certificates
+	 * with the same subject and public key before considering their policies. */
+	class bool authorityMatches(X509Certificate child, X509Certificate issuer) {
+		if (!child.issuerName().equals(issuer.subjectName())) { return false; }
+		var authority = child.extensions;
+		var expectedKey = authority.authorityKeyId;
+		var actualKey = issuer.extensions.subjectKeyId;
+		if (expectedKey.end > 0 && actualKey.end > 0 && !child.copyRange(expectedKey.content, expectedKey.end).equals(issuer.copyRange(actualKey.content, actualKey.end))) { return false; }
+		var expectedSerial = authority.authoritySerial;
+		if (expectedSerial.end == 0) { return true; }
+		if (!child.copyRange(expectedSerial.content, expectedSerial.end).equals(issuer.copyRange(issuer.serial.content, issuer.serial.end))) { return false; }
+		for name in authority.authorityNames {
+			if (name.kind == 4) {
+				var registered = X509DistinguishedName.canonical(child.copyRange(name.start, name.end));
+				if (registered != null && registered.equals(issuer.issuerName())) { return true; }
+			}
+		}
+		return false;
+	}
+
+	private bool issuedBy(X509Certificate child, X509Certificate issuer) {
+		if (issuer == null || issuer.key.kind == X509_KEY_UNSUPPORTED || !X509ServerPath.authorityMatches(child, issuer)) { return false; }
+		if (self.rejected(issuer) || !self.allowsPath(issuer)) { return false; }
+		for member in self._path { if (X509ServerPath.sameCertificate(member, issuer)) { return false; } }
+		if (++self._signatures > 64) { return false; }
+		// The certificate AlgorithmIdentifier encodes PSS parameters. Its
+		// TLS scheme family is determined by the issuing key's SPKI OID.
+		int scheme = child.signatureScheme;
+		if (issuer.key.kind == X509_RSA_PSS && scheme >= 0x0804 && scheme <= 0x0806) { scheme += 5; }
+		return X509ServerPath.signature(scheme, issuer, child.signedBytes(), child.signatureBytes());
+	}
+
+	private bool findAnchor() {
+		var child = self._path.get(self._path.len - 1);
+		for anchor in self._anchors {
+			if (anchor == null) { continue; }
+			if (X509ServerPath.sameCertificate(child, anchor) || self.issuedBy(child, anchor)) { return true; }
+			if (self._signatures > 64 || !MonotonicClock.before(self._deadline)) { return false; }
+		}
+		if (self._path.len >= 12) { return false; }
+		for issuer in self._intermediates {
+			if (self.issuedBy(child, issuer)) {
+				self._path.push(issuer);
+				bool found = self.findAnchor();
+				self._path.pop();
+				if (found) { return true; }
+			}
+			if (self._signatures > 64 || !MonotonicClock.before(self._deadline)) { return false; }
+		}
+		return false;
+	}
+
+	class bool verify(X509Certificate leaf, Vector<X509Certificate> intermediates, Vector<X509Certificate> anchors, X509PeerName name, long long at, Vector<X509Certificate>? rejected = null, long long deadline = 9223372036854775807LL) {
+		if (!MonotonicClock.before(deadline)) { return false; }
+		if (rejected != null && rejected.len > 4096) { return false; }
+		if (leaf == null || name == null || intermediates == null || anchors == null || intermediates.len > 16 || anchors.len == 0 || anchors.len > 4096) { return false; }
+		var search = X509ServerPath(anchors, intermediates, rejected, at, deadline);
+		if (search.rejected(leaf) || !search.currentServerPurpose(leaf) || (leaf.extensions.hasKeyUsage && (leaf.extensions.keyUsage & 1) == 0) || !name.matches(leaf)) { return false; }
+		search._path.push(leaf);
+		return search.findAnchor() && MonotonicClock.before(deadline);
+	}
+}

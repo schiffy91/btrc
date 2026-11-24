@@ -38,7 +38,7 @@ class Field25519 {
 
 	/* Exchange `p` and `q` when `bit` is 1 and leave them when it is 0. */
 	class void swap(long long* p, long long* q, int bit) {
-		long long mask = 0LL - (long long)bit;
+		volatile long long mask = 0LL - (long long)bit;
 		for (int index = 0; index < 16; index++) {
 			long long difference = mask & (p[index] ^ q[index]);
 			p[index] ^= difference;
@@ -70,6 +70,8 @@ class Field25519 {
 			out[2 * index] = (unsigned char)(t[index] & 0xffLL);
 			out[2 * index + 1] = (unsigned char)((t[index] >> 8) & 0xffLL);
 		}
+		ConstantTime.wipeLimbs(m, 16);
+		ConstantTime.wipeLimbs(t, 16);
 	}
 
 	/* Read a 32-byte encoding; the top bit is not part of the value. */
@@ -96,6 +98,7 @@ class Field25519 {
 		for (int index = 0; index < 16; index++) { out[index] = t[index]; }
 		Field25519.carry(out);
 		Field25519.carry(out);
+		ConstantTime.wipeLimbs(t, 31);
 	}
 
 	class void square(long long* out, long long* a) { Field25519.multiply(out, a, a); }
@@ -109,6 +112,7 @@ class Field25519 {
 			if (bit != 2 && bit != 4) { Field25519.multiply(c, c, a); }
 		}
 		Field25519.copy(out, c);
+		ConstantTime.wipeLimbs(c, 16);
 	}
 
 	/* a^((p - 5) / 8), the power a square root is built from. */
@@ -120,6 +124,7 @@ class Field25519 {
 			if (bit != 1) { Field25519.multiply(c, c, a); }
 		}
 		Field25519.copy(out, c);
+		ConstantTime.wipeLimbs(c, 16);
 	}
 
 	/* Whether two elements are the same value. */
@@ -128,13 +133,18 @@ class Field25519 {
 		unsigned char right[32];
 		Field25519.pack(left, a);
 		Field25519.pack(right, b);
-		return ConstantTime.equal(left, right, 32);
+		bool result = ConstantTime.equal(left, right, 32);
+		ConstantTime.wipe(left, 32);
+		ConstantTime.wipe(right, 32);
+		return result;
 	}
 
 	/* The lowest bit of the canonical value: the sign an encoding carries. */
 	class int parity(long long* a) {
 		unsigned char bytes[32];
 		Field25519.pack(bytes, a);
-		return (int)bytes[0] & 1;
+		int bit = (int)bytes[0] & 1;
+		ConstantTime.wipe(bytes, 32);
+		return bit;
 	}
 }

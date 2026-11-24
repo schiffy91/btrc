@@ -1,10 +1,11 @@
-/* SHA-512 (FIPS 180-4) over raw buffers.
+/* SHA-512 and SHA-384 (FIPS 180-4) over raw buffers.
  *
- * `update` borrows its input for the call; `finish` writes the 64-byte digest
+ * `update` borrows its input for the call; `finish` writes the digest
  * and clears the state, so one instance hashes one message. Ed25519 hashes
  * secret material with it, which is why nothing here branches on the data. */
 
 import Library.Crypto.Primitives.ConstantTime;
+import Library.Digest.SHA256;
 
 /* The words a message passes through, kept in one structure so `finish` can
  * clear them. */
@@ -14,18 +15,24 @@ struct SHA512Core {
 	unsigned char pending[128];
 };
 
-class SHA512 {
+class SHA512State {
 	private struct SHA512Core core;
 	private int pendingLength = 0;
 	private unsigned long long byteCount = 0ULL;
 	private bool finished = false;
+	private int digestWords;
 
-	public SHA512() {
+	public SHA512State(bool sha384) {
 		static const unsigned long long initial[8] = {
 			0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL, 0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL,
 			0x510e527fade682d1ULL, 0x9b05688c2b3e6c1fULL, 0x1f83d9abfb41bd6bULL, 0x5be0cd19137e2179ULL
 		};
-		for (int index = 0; index < 8; index++) { self.core.state[index] = initial[index]; }
+		static const unsigned long long initial384[8] = {
+			0xcbbb9d5dc1059ed8ULL, 0x629a292a367cd507ULL, 0x9159015a3070dd17ULL, 0x152fecd8f70e5939ULL,
+			0x67332667ffc00b31ULL, 0x8eb44a8768581511ULL, 0xdb0c2e0d64f98fa7ULL, 0x47b5481dbefa4fa4ULL
+		};
+		self.digestWords = sha384 ? 6 : 8;
+		for (int index = 0; index < 8; index++) { self.core.state[index] = sha384 ? initial384[index] : initial[index]; }
 	}
 
 	private unsigned long long rotateRight(unsigned long long value, int count) { return (value >> count) | (value << (64 - count)); }
@@ -101,7 +108,8 @@ class SHA512 {
 
 	public void update(unsigned char* data, int length) {
 		if (self.finished) { throw "SHA512 is finished"; }
-		if (length <= 0) { return; }
+		if (length < 0) { throw "negative SHA512 message length"; }
+		if (length == 0) { return; }
 		self.byteCount = self.byteCount + (unsigned long long)length;
 		int offset = 0;
 		if (self.pendingLength > 0) {
@@ -125,7 +133,7 @@ class SHA512 {
 		}
 	}
 
-	/* Write the 64-byte digest to `out` and clear everything the message
+	/* Write the digest to `out` and clear everything the message
 	 * left in this instance. */
 	public void finish(unsigned char* out) {
 		if (self.finished) { throw "SHA512 is finished"; }
@@ -145,7 +153,7 @@ class SHA512 {
 			self.core.pending[120 + index] = (unsigned char)((bitLength >> (56 - 8 * index)) & 0xffULL);
 		}
 		self.compress(self.core.pending);
-		for (int index = 0; index < 8; index++) {
+		for (int index = 0; index < self.digestWords; index++) {
 			for (int offset = 0; offset < 8; offset++) { out[index * 8 + offset] = (unsigned char)((self.core.state[index] >> (56 - 8 * offset)) & 0xffULL); }
 		}
 		ConstantTime.wipe(self.core.pending, 128);
@@ -154,9 +162,43 @@ class SHA512 {
 		self.pendingLength = 0;
 	}
 
-	/* The digest of one buffer. */
+	public void __del__() {
+		ConstantTime.wipe(self.core.pending, 128);
+		ConstantTime.wipe((unsigned char*)self.core.words, 640);
+		ConstantTime.wipe((unsigned char*)self.core.state, 64);
+		self.pendingLength = 0;
+	}
+}
+
+class SHA512 implements IBinaryDigest {
+	private SHA512State state = SHA512State(false);
+
+	public SHA512() {}
+
+	public void update(unsigned char* data, int length) { self.state.update(data, length); }
+
+	/* Write 64 bytes and clear the state. */
+	public void finish(unsigned char* out) { self.state.finish(out); }
+
 	class void digest(unsigned char* out, unsigned char* data, int length) {
 		SHA512 hash = SHA512();
+		hash.update(data, length);
+		hash.finish(out);
+	}
+}
+
+class SHA384 implements IBinaryDigest {
+	private SHA512State state = SHA512State(true);
+
+	public SHA384() {}
+
+	public void update(unsigned char* data, int length) { self.state.update(data, length); }
+
+	/* Write 48 bytes and clear the state. */
+	public void finish(unsigned char* out) { self.state.finish(out); }
+
+	class void digest(unsigned char* out, unsigned char* data, int length) {
+		SHA384 hash = SHA384();
 		hash.update(data, length);
 		hash.finish(out);
 	}

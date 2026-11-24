@@ -458,6 +458,23 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("value", "int", "method", (("char", "letter"),), "value"),
         BuiltinMemberSpec("decode", "Bytes?", "method", (("string", "text"),), "decode"),
     )),
+    ("AESBlock", (
+        BuiltinMemberSpec("doubleByte", "unsigned int", "method", (("unsigned int", "value"),), "doubleByte"),
+        BuiltinMemberSpec("product", "unsigned int", "method", (("unsigned int", "left"), ("unsigned int", "right"),), "product"),
+        BuiltinMemberSpec("square", "unsigned int", "method", (("unsigned int", "value"),), "square"),
+        BuiltinMemberSpec("substitute", "unsigned char", "method", (("unsigned int", "value"),), "substitute"),
+        BuiltinMemberSpec("expand", "int", "method", (("unsigned char*", "schedule"), ("unsigned char*", "key"), ("int", "keyLength"),), "expand"),
+        BuiltinMemberSpec("encrypt", "void", "method", (("unsigned char*", "out"), ("unsigned char*", "input"), ("unsigned char*", "schedule"), ("int", "rounds"),), "encrypt"),
+    )),
+    ("AESGCM", (
+        BuiltinMemberSpec("multiply", "void", "method", (("unsigned char*", "y"), ("unsigned char*", "hashKey"),), "multiply"),
+        BuiltinMemberSpec("absorb", "void", "method", (("unsigned char*", "y"), ("unsigned char*", "hashKey"), ("unsigned char*", "data"), ("int", "length"),), "absorb"),
+        BuiltinMemberSpec("counterBlock", "void", "method", (("unsigned char*", "out"), ("unsigned char*", "nonce"), ("unsigned int", "counter"),), "counterBlock"),
+        BuiltinMemberSpec("crypt", "void", "method", (("unsigned char*", "out"), ("unsigned char*", "input"), ("int", "length"), ("unsigned char*", "nonce"), ("unsigned char*", "schedule"), ("int", "rounds"),), "crypt"),
+        BuiltinMemberSpec("authenticate", "void", "method", (("unsigned char*", "tag"), ("unsigned char*", "ciphertext"), ("int", "length"), ("unsigned char*", "associated"), ("int", "associatedLength"), ("unsigned char*", "nonce"), ("unsigned char*", "schedule"), ("int", "rounds"),), "authenticate"),
+        BuiltinMemberSpec("seal", "bool", "method", (("unsigned char*", "ciphertext"), ("unsigned char*", "tag"), ("unsigned char*", "plaintext"), ("int", "length"), ("unsigned char*", "associated"), ("int", "associatedLength"), ("unsigned char*", "nonce"), ("unsigned char*", "key"), ("int", "keyLength"),), "seal"),
+        BuiltinMemberSpec("open", "bool", "method", (("unsigned char*", "plaintext"), ("unsigned char*", "ciphertext"), ("int", "length"), ("unsigned char*", "tag"), ("unsigned char*", "associated"), ("int", "associatedLength"), ("unsigned char*", "nonce"), ("unsigned char*", "key"), ("int", "keyLength"),), "open"),
+    )),
     ("ChaCha20", (
         BuiltinMemberSpec("load", "unsigned int", "method", (("unsigned char*", "bytes"),), "load"),
         BuiltinMemberSpec("store", "void", "method", (("unsigned char*", "bytes"), ("unsigned int", "word"),), "store"),
@@ -468,6 +485,11 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("xorKeystream", "void", "method", (("unsigned char*", "out"), ("unsigned char*", "input"), ("int", "length"), ("unsigned char*", "nonce"), ("unsigned int", "counter"), ("unsigned char*", "key"),), "xorKeystream"),
         BuiltinMemberSpec("keystream", "void", "method", (("unsigned char*", "out"), ("int", "length"), ("unsigned char*", "nonce"), ("unsigned int", "counter"), ("unsigned char*", "key"),), "keystream"),
         BuiltinMemberSpec("subkey", "void", "method", (("unsigned char*", "out"), ("unsigned char*", "nonce"), ("unsigned char*", "key"),), "subkey"),
+    )),
+    ("ChaCha20Poly1305", (
+        BuiltinMemberSpec("authenticate", "void", "method", (("unsigned char*", "tag"), ("unsigned char*", "ciphertext"), ("int", "length"), ("unsigned char*", "associated"), ("int", "associatedLength"), ("unsigned char*", "nonce"), ("unsigned char*", "key"),), "authenticate"),
+        BuiltinMemberSpec("seal", "bool", "method", (("unsigned char*", "ciphertext"), ("unsigned char*", "tag"), ("unsigned char*", "plaintext"), ("int", "length"), ("unsigned char*", "associated"), ("int", "associatedLength"), ("unsigned char*", "nonce"), ("unsigned char*", "key"),), "seal"),
+        BuiltinMemberSpec("open", "bool", "method", (("unsigned char*", "plaintext"), ("unsigned char*", "ciphertext"), ("int", "length"), ("unsigned char*", "tag"), ("unsigned char*", "associated"), ("int", "associatedLength"), ("unsigned char*", "nonce"), ("unsigned char*", "key"),), "open"),
     )),
     ("Edwards25519", (
         BuiltinMemberSpec("constantD", "void", "method", (("long long*", "out"),), "constantD"),
@@ -496,6 +518,10 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("sign", "void", "method", (("unsigned char*", "signature"), ("unsigned char*", "message"), ("int", "length"), ("unsigned char*", "secretKey"),), "sign"),
         BuiltinMemberSpec("verify", "bool", "method", (("unsigned char*", "signature"), ("unsigned char*", "message"), ("int", "length"), ("unsigned char*", "publicKey"),), "verify"),
     )),
+    ("HKDF", (
+        BuiltinMemberSpec("extract", "void", "method", (("bool", "useSHA384"), ("unsigned char*", "out"), ("unsigned char*", "salt"), ("int", "saltLength"), ("unsigned char*", "input"), ("int", "inputLength"),), "extract"),
+        BuiltinMemberSpec("expand", "bool", "method", (("bool", "useSHA384"), ("unsigned char*", "out"), ("int", "length"), ("unsigned char*", "key"), ("int", "keyLength"), ("unsigned char*", "info"), ("int", "infoLength"),), "expand"),
+    )),
     ("SecretStream", (
         BuiltinMemberSpec("begin", "void", "method", (("unsigned char*", "state"), ("unsigned char*", "header"), ("unsigned char*", "key"),), "begin"),
         BuiltinMemberSpec("resetCounter", "void", "method", (("unsigned char*", "state"),), "resetCounter"),
@@ -523,6 +549,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("random", "void", "method", (("unsigned char*", "out"), ("int", "length"),), "random"),
         BuiltinMemberSpec("randomBytes", "Bytes", "method", (("int", "length"),), "randomBytes"),
         BuiltinMemberSpec("wipe", "void", "method", (("unsigned char*", "data"), ("int", "length"),), "wipe"),
+        BuiltinMemberSpec("equal", "bool", "method", (("unsigned char*", "left"), ("unsigned char*", "right"), ("int", "length"),), "equal"),
         BuiltinMemberSpec("signingKeys", "bool", "method", (("unsigned char*", "seed"), ("unsigned char*", "publicKey"), ("unsigned char*", "secretKey"),), "signingKeys"),
         BuiltinMemberSpec("sign", "bool", "method", (("unsigned char*", "signature"), ("unsigned char*", "message"), ("int", "length"), ("unsigned char*", "secretKey"),), "sign"),
         BuiltinMemberSpec("verify", "bool", "method", (("unsigned char*", "signature"), ("unsigned char*", "message"), ("int", "length"), ("unsigned char*", "publicKey"),), "verify"),
@@ -1121,6 +1148,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("wordScalar", "bool", "method", (("string", "data"), ("int", "length"), ("int", "offset"),), "wordScalar"),
         BuiltinMemberSpec("previousWord", "int", "method", (("string", "data"), ("int", "length"), ("int", "offset"),), "previousWord"),
         BuiltinMemberSpec("nextWord", "int", "method", (("string", "data"), ("int", "length"), ("int", "offset"),), "nextWord"),
+    )),
+    ("TLS13Keys", (
+        BuiltinMemberSpec("expandLabel", "bool", "method", (("bool", "useSHA384"), ("unsigned char*", "out"), ("int", "length"), ("unsigned char*", "secret"), ("string", "label"), ("unsigned char*", "context"), ("int", "contextLength"),), "expandLabel"),
     )),
     ("TOML", (
         BuiltinMemberSpec("unquotedPosition", "int", "method", (("string", "line"), ("char", "target"),), "unquotedPosition"),

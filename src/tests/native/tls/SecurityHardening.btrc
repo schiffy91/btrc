@@ -1,0 +1,223 @@
+/* Portable regression tests for TLS alert-level validation (M2), TLS 1.3
+ * padded record acceptance and record_overflow reporting (M3), TLS 1.3
+ * mid-fragment user_canceled rejection (H4), and bounded RSA exponent (L1). */
+import Library.Bytes;
+import Library.Crypto.Primitives.AESGCM;
+import Library.Crypto.Primitives.HKDF;
+import Library.Crypto.Primitives.RSA;
+import Library.Crypto.Primitives.X25519;
+import Library.Testing;
+import Library.TLS.TLS13Keys;
+import Library.TLS.TLS13Records;
+
+import ./TLSAlert.btrc;
+import ./TLS12Records.btrc;
+import ./TLS13ClientHandshake.btrc;
+import ./TLS13HandshakeKeys.btrc;
+import ./TLS13Hello.btrc;
+import ./X509PeerName.btrc;
+
+class SecurityProbe {
+	class Bytes alertPair(int level, int description) {
+		Bytes pair = Bytes.zeros(2);
+		pair.set(0, level);
+		pair.set(1, description);
+		return pair;
+	}
+
+	/* Seal a raw TLS 1.3 inner plaintext (content || type || padding) using the
+	 * exact RFC 8446 §5.2 AEAD construction so we can test valid padded 16384-byte
+	 * records and invalid 16385-byte unpadded records directly. */
+	class Bytes sealRawTLS13(Bytes secret, unsigned long long seq, Bytes inner) {
+		unsigned char key[16];
+		unsigned char iv[12];
+		Expect.isTrue(TLS13Keys.expandLabel(false, key, 16, (unsigned char*)secret.data, "key", null, 0));
+		Expect.isTrue(TLS13Keys.expandLabel(false, iv, 12, (unsigned char*)secret.data, "iv", null, 0));
+		for (int index = 0; index < 8; index++) {
+			iv[11 - index] ^= (unsigned char)((seq >> (8 * index)) & 255ULL);
+		}
+		int length = inner.length();
+		Bytes wire = Bytes.zeros(5 + length + 16);
+		wire.set(0, 23);
+		wire.set(1, 3);
+		wire.set(2, 3);
+		wire.set(3, (length + 16) >> 8);
+		wire.set(4, length + 16);
+		unsigned char* header = (unsigned char*)wire.data;
+		unsigned char* body = header + 5;
+		memcpy(body, inner.data, (size_t)length);
+		Expect.isTrue(AESGCM.seal(body, body + length, body, length, header, 5, iv, key, 16));
+		return wire;
+	}
+
+	class void checkAlertLevels() {
+		Expect.isTrue(TLSAlert.disposition(SecurityProbe.alertPair(1, 0)) == TLS_ALERT_CLOSE);
+		Expect.isTrue(TLSAlert.disposition(SecurityProbe.alertPair(1, 90)) == TLS_ALERT_CONTINUE);
+		Expect.isTrue(TLSAlert.disposition(SecurityProbe.alertPair(1, 40)) == TLS_ALERT_FATAL);
+		Expect.isTrue(TLSAlert.disposition(SecurityProbe.alertPair(2, 0)) == TLS_ALERT_FATAL);
+		Expect.isTrue(TLSAlert.disposition(SecurityProbe.alertPair(2, 90)) == TLS_ALERT_FATAL);
+		Expect.isTrue(TLSAlert.disposition(SecurityProbe.alertPair(2, 40)) == TLS_ALERT_FATAL);
+		Expect.isTrue(TLSAlert.disposition(SecurityProbe.alertPair(0, 0)) == TLS_ALERT_INVALID);
+		Expect.isTrue(TLSAlert.disposition(SecurityProbe.alertPair(255, 0)) == TLS_ALERT_INVALID);
+		Expect.isTrue(TLSAlert.disposition(SecurityProbe.alertPair(255, 90)) == TLS_ALERT_INVALID);
+		Expect.isTrue(TLSAlert.disposition(Bytes.zeros(1)) == TLS_ALERT_INVALID);
+		Expect.isTrue(TLSAlert.disposition(Bytes.zeros(3)) == TLS_ALERT_INVALID);
+	}
+
+	class void checkRecordOverflow() {
+		Bytes secret = Bytes.zeros(32);
+		for (int i = 0; i < 32; i++) { secret.set(i, i + 1); }
+
+		/* 1. Valid padded full-size TLS 1.3 record: 16384 content + 1 type + 32 zeros + 16 tag = 16433 <= 16640. */
+		var reader = TLS13Records.create(0x1301, secret, false);
+		if (reader == null) { throw "missing TLS13Records reader"; }
+		Bytes paddedInner = Bytes.zeros(16384 + 1 + 32);
+		for (int i = 0; i < 16384; i++) { paddedInner.set(i, (i & 127) | 1); }
+		paddedInner.set(16384, 23);
+		Bytes paddedWire = SecurityProbe.sealRawTLS13(secret, 0ULL, paddedInner);
+		Expect.isTrue(paddedWire.length() == 5 + 16433);
+		var opened = reader.open(paddedWire);
+		if (opened == null) { throw "padded 16384-byte TLS 1.3 record rejected"; }
+		Expect.isTrue(opened.contentType == 23 && opened.content.length() == 16384);
+		Expect.isFalse(reader.recordOverflowed());
+
+		/* 2. Authentic record whose unpadded plaintext exceeds 16384 (16385 content + 1 type + 16 tag = 16402 <= 16640) must report recordOverflowed(). */
+		Bytes overInner = Bytes.zeros(16385 + 1);
+		for (int i = 0; i < 16385; i++) { overInner.set(i, 65); }
+		overInner.set(16385, 23);
+		Bytes overWire = SecurityProbe.sealRawTLS13(secret, 1ULL, overInner);
+		Expect.isTrue(reader.open(overWire) == null);
+		Expect.isTrue(reader.recordOverflowed());
+
+		/* 3. Ciphertext exceeding 16640 bytes must report recordOverflowed(). */
+		var reader2 = TLS13Records.create(0x1301, secret, false);
+		if (reader2 == null) { throw "missing TLS13Records reader2"; }
+		Bytes huge = Bytes.zeros(5 + 16641);
+		huge.set(0, 23);
+		huge.set(1, 3);
+		huge.set(2, 3);
+		huge.set(3, 16641 >> 8);
+		huge.set(4, 16641 & 255);
+		Expect.isTrue(reader2.open(huge) == null);
+		Expect.isTrue(reader2.recordOverflowed());
+
+		/* 4. TLS 1.2 encrypted record exceeding 16384 + overhead must report recordOverflowed(). */
+		Bytes master = Bytes.zeros(48);
+		Bytes cr = Bytes.zeros(32);
+		Bytes sr = Bytes.zeros(32);
+		var tls12 = TLS12Records.create(0xc02b, master, cr, sr, false, false);
+		if (tls12 == null) { throw "missing TLS12Records"; }
+		Bytes huge12 = Bytes.zeros(5 + 8 + 16 + 16385);
+		huge12.set(0, 23);
+		huge12.set(1, 3);
+		huge12.set(2, 3);
+		huge12.set(3, (8 + 16 + 16385) >> 8);
+		huge12.set(4, (8 + 16 + 16385) & 255);
+		Expect.isTrue(tls12.open(huge12) == null);
+		Expect.isTrue(tls12.recordOverflowed());
+	}
+
+	/* Verify H4: encrypted user_canceled alert interleaved mid-fragment (and > 4
+	 * consecutive user_canceled alerts) are rejected during TLS 1.3 handshake. */
+	class void checkHandshakeAlerts(bool midFragment) {
+		var name = X509PeerName.dns("localhost");
+		if (name == null) { throw "invalid peer name"; }
+		var hello = TLS13Hello("localhost", false);
+		var state = TLS13ClientHandshake(hello, name, true, 0LL);
+		var chRecord = TLS13ClientHandshake.clientHelloRecord(hello);
+		if (chRecord == null) { throw "missing ClientHello"; }
+		Bytes chMsg = chRecord.slice(5, chRecord.length());
+		Bytes sessionId = chMsg.slice(39, 71);
+		/* Extract client's X25519 public share (last 32 bytes of ClientHello). */
+		Bytes clientPub = chMsg.slice(chMsg.length() - 32, chMsg.length());
+		unsigned char serverScalar[32];
+		unsigned char serverPub[32];
+		unsigned char sharedBytes[32];
+		for (int i = 0; i < 32; i++) { serverScalar[i] = (unsigned char)(i + 7); }
+		X25519.publicKey(serverPub, serverScalar);
+		Expect.isTrue(X25519.multiply(sharedBytes, serverScalar, (unsigned char*)clientPub.data));
+
+		/* Build ServerHello (TLS 1.3, TLS_AES_128_GCM_SHA256, X25519). */
+		Bytes exts = Bytes();
+		Bytes ver = Bytes(); ver.appendU16BE(0x0304);
+		TLS13Hello.extension(exts, 43, ver);
+		Bytes ks = Bytes(); ks.appendU16BE(29); ks.appendU16BE(32); ks.appendRaw((char*)serverPub, 32);
+		TLS13Hello.extension(exts, 51, ks);
+		Bytes shBody = Bytes();
+		shBody.appendU16BE(0x0303);
+		shBody.appendBytes(Bytes.zeros(32));
+		shBody.append(32);
+		shBody.appendBytes(sessionId);
+		shBody.appendU16BE(0x1301);
+		shBody.append(0);
+		shBody.appendU16BE(exts.length());
+		shBody.appendBytes(exts);
+		Bytes shMsg = TLS13Hello.message(2, shBody);
+		Bytes shWire = Bytes();
+		shWire.append(22); shWire.appendU16BE(0x0303); shWire.appendU16BE(shMsg.length()); shWire.appendBytes(shMsg);
+		Bytes transcript = chMsg.slice(0, chMsg.length());
+		transcript.appendBytes(shMsg);
+		var serverKeys = TLS13HandshakeKeys.derive(0x1301, Bytes.fromRaw((char*)sharedBytes, 32), transcript);
+		if (serverKeys == null) { throw "missing server handshake keys"; }
+		/* Create a server-side writer using server handshake traffic secret. */
+		Bytes serverHsSecret = Bytes.zeros(32);
+		unsigned char zeros[32] = {0};
+		unsigned char early[32];
+		unsigned char salt[32];
+		unsigned char hsSecret[32];
+		HKDF.extract(false, early, zeros, 32, zeros, 32);
+		Expect.isTrue(TLS13Keys.expandLabel(false, salt, 32, early, "derived", (unsigned char*)TLS13Hello.hash(false, Bytes()).data, 32));
+		HKDF.extract(false, hsSecret, salt, 32, sharedBytes, 32);
+		Bytes digest = TLS13Hello.hash(false, transcript);
+		Expect.isTrue(TLS13Keys.expandLabel(false, (unsigned char*)serverHsSecret.data, 32, hsSecret, "s hs traffic", (unsigned char*)digest.data, 32));
+		var serverWriter = TLS13Records.create(0x1301, serverHsSecret, true);
+		if (serverWriter == null) { throw "missing serverWriter"; }
+		serverKeys.close();
+		Expect.isTrue(state.feed(shWire));
+		if (midFragment) {
+			/* Send 2 bytes of a 6-byte EncryptedExtensions header, then user_canceled alert. */
+			Bytes partial = Bytes.zeros(2);
+			partial.set(0, 8);
+			partial.set(1, 0);
+			var rec1 = serverWriter.seal(22, partial);
+			var recAlert = serverWriter.seal(21, SecurityProbe.alertPair(1, 90));
+			if (rec1 == null || recAlert == null) { throw "seal failed"; }
+			Expect.isTrue(state.feed(rec1));
+			Expect.isFalse(state.feed(recAlert));
+			Expect.isTrue(state.takeAlert() != null);
+		} else {
+			/* 4 user_canceled alerts allowed, 5th must be rejected. */
+			for (int i = 0; i < 4; i++) {
+				var recAlert = serverWriter.seal(21, SecurityProbe.alertPair(1, 90));
+				if (recAlert == null) { throw "seal alert failed"; }
+				Expect.isTrue(state.feed(recAlert));
+			}
+			var fifth = serverWriter.seal(21, SecurityProbe.alertPair(1, 90));
+			if (fifth == null) { throw "seal fifth alert failed"; }
+			Expect.isFalse(state.feed(fifth));
+			Expect.isTrue(state.takeAlert() != null);
+		}
+		state.close();
+		serverWriter.close();
+	}
+
+	class void checkExponentBound() {
+		Bytes n = Bytes.zeros(256);
+		n.set(0, 0x80);
+		n.set(255, 0x01);
+		Bytes hugeExp = Bytes.zeros(9);
+		hugeExp.set(0, 1);
+		hugeExp.set(8, 1);
+		Expect.isFalse(RSA.verify(0x0401, n, hugeExp, Bytes.fromString("msg"), Bytes.zeros(256)));
+	}
+}
+
+int main() {
+	SecurityProbe.checkAlertLevels();
+	SecurityProbe.checkRecordOverflow();
+	SecurityProbe.checkHandshakeAlerts(true);
+	SecurityProbe.checkHandshakeAlerts(false);
+	SecurityProbe.checkExponentBound();
+	print("PASS TLS security hardening");
+	return 0;
+}

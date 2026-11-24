@@ -1,0 +1,251 @@
+/* Initial TLS 1.3 negotiation for a full, certificate-authenticated client.
+ * This package-private state owns the negotiated ephemeral scalar and the exact
+ * handshake transcript. Application bytes are never admitted in this phase. */
+import Library.Bytes;
+import Library.Crypto.Primitives.ECDH;
+import Library.Crypto.Primitives.HKDF;
+import Library.Crypto.Primitives.X25519;
+import Library.Crypto.Sodium;
+import Library.TLS.TLS13Keys;
+
+class TLS13Hello {
+	private Bytes scalar = Bytes();
+	private int shareGroup;
+	private Bytes clientRandom;
+	private Bytes session;
+	private Bytes publicShare;
+	private Bytes retryCookie;
+	private string serverName;
+	private bool offerTLS12;
+	private int phase = 0;
+	public int suite = 0;
+	public Bytes transcript;
+
+	public TLS13Hello(string sni, bool offerTLS12 = false) {
+		self.offerTLS12 = offerTLS12;
+		self.serverName = sni;
+		self.clientRandom = Bytes.zeros(32);
+		self.session = Bytes.zeros(32);
+		self.retryCookie = Bytes();
+		self.transcript = Bytes();
+		Sodium.random((unsigned char*)self.clientRandom.data, 32);
+		Sodium.random((unsigned char*)self.session.data, 32);
+		self.generateShare(29);
+	}
+
+	private void discardScalar() {
+		if (!self.scalar.isEmpty()) {
+			Sodium.wipe((unsigned char*)self.scalar.data, self.scalar.length());
+			self.scalar.free();
+		}
+	}
+
+	public void close() { self.discardScalar(); }
+
+	public void __del__() { self.discardScalar(); }
+
+	/* Only the initial X25519 share is sent speculatively. A retry may select
+	 * another advertised group; that group needs a fresh, independent scalar. */
+	private void generateShare(int group) {
+		self.discardScalar();
+		self.shareGroup = group;
+		int size = group == 24 ? 48 : 32;
+		self.scalar = Bytes.zeros(size);
+		if (group == 29) {
+			Sodium.random((unsigned char*)self.scalar.data, size);
+			self.publicShare = Bytes.zeros(32);
+			X25519.publicKey((unsigned char*)self.publicShare.data, (unsigned char*)self.scalar.data);
+			return;
+		}
+		while (true) {
+			Sodium.random((unsigned char*)self.scalar.data, size);
+			Bytes? point = ECDH.publicKey(group, self.scalar);
+			if (point != null) { self.publicShare = point; return; }
+		}
+	}
+
+	class Bytes message(int kind, Bytes body) {
+		Bytes result = Bytes();
+		result.append(kind);
+		result.append(body.length() >> 16);
+		result.appendU16BE(body.length());
+		result.appendBytes(body);
+		return result;
+	}
+
+	class void extension(Bytes extensions, int kind, Bytes value) {
+		extensions.appendU16BE(kind);
+		extensions.appendU16BE(value.length());
+		extensions.appendBytes(value);
+	}
+
+	private void signatureAlgorithms(Bytes extensions, bool certificate) {
+		Bytes listed = Bytes();
+		bool legacy = certificate || self.offerTLS12;
+		listed.appendU16BE(legacy ? 24 : 18);
+		listed.appendU16BE(0x0804);
+		listed.appendU16BE(0x0805);
+		listed.appendU16BE(0x0806);
+		listed.appendU16BE(0x0809);
+		listed.appendU16BE(0x080a);
+		listed.appendU16BE(0x080b);
+		listed.appendU16BE(0x0403);
+		listed.appendU16BE(0x0503);
+		listed.appendU16BE(0x0807);
+		if (legacy) {
+			listed.appendU16BE(0x0401);
+			listed.appendU16BE(0x0501);
+			listed.appendU16BE(0x0601);
+		}
+		TLS13Hello.extension(extensions, certificate ? 50 : 13, listed);
+	}
+
+	public Bytes? clientHello() {
+		if ((self.phase != 0 && self.phase != 2) || self.serverName == null || self.serverName.len() > 253) { return null; }
+		Bytes extensions = Bytes();
+		if (!self.serverName.isEmpty()) {
+			Bytes sni = Bytes();
+			sni.appendU16BE(self.serverName.len() + 3);
+			sni.append(0);
+			sni.appendU16BE(self.serverName.len());
+			sni.appendBytes(Bytes.fromString(self.serverName));
+			TLS13Hello.extension(extensions, 0, sni);
+		}
+		Bytes groups = Bytes();
+		groups.appendU16BE(6);
+		groups.appendU16BE(29);
+		groups.appendU16BE(23);
+		groups.appendU16BE(24);
+		TLS13Hello.extension(extensions, 10, groups);
+		self.signatureAlgorithms(extensions, false);
+		self.signatureAlgorithms(extensions, true);
+		Bytes alpn = Bytes();
+		alpn.appendU16BE(9);
+		alpn.append(8);
+		alpn.appendBytes(Bytes.fromString("http/1.1"));
+		TLS13Hello.extension(extensions, 16, alpn);
+		Bytes versions = Bytes();
+		versions.append(self.offerTLS12 ? 4 : 2);
+		versions.appendU16BE(0x0304);
+		if (self.offerTLS12) {
+			versions.appendU16BE(0x0303);
+			TLS13Hello.extension(extensions, 23, Bytes());
+			TLS13Hello.extension(extensions, 0xff01, Bytes.zeros(1));
+			Bytes pointFormats = Bytes();
+			pointFormats.append(1);
+			pointFormats.append(0);
+			TLS13Hello.extension(extensions, 11, pointFormats);
+		}
+		TLS13Hello.extension(extensions, 43, versions);
+		Bytes share = Bytes();
+		share.appendU16BE(4 + self.publicShare.length());
+		share.appendU16BE(self.shareGroup);
+		share.appendU16BE(self.publicShare.length());
+		share.appendBytes(self.publicShare);
+		TLS13Hello.extension(extensions, 51, share);
+		if (!self.retryCookie.isEmpty()) { TLS13Hello.extension(extensions, 44, self.retryCookie); }
+		if (extensions.length() > 65535) { self.phase = 5; self.discardScalar(); return null; }
+		Bytes hello = Bytes();
+		hello.appendU16BE(0x0303);
+		hello.appendBytes(self.clientRandom);
+		hello.append(32);
+		hello.appendBytes(self.session);
+		hello.appendU16BE(self.offerTLS12 ? 18 : 6);
+		hello.appendU16BE(0x1301);
+		hello.appendU16BE(0x1302);
+		hello.appendU16BE(0x1303);
+		if (self.offerTLS12) {
+			hello.appendU16BE(0xc02b); // ECDHE-ECDSA-AES128-GCM-SHA256
+			hello.appendU16BE(0xc02f); // ECDHE-RSA-AES128-GCM-SHA256
+			hello.appendU16BE(0xc02c); // ECDHE-ECDSA-AES256-GCM-SHA384
+			hello.appendU16BE(0xc030); // ECDHE-RSA-AES256-GCM-SHA384
+			hello.appendU16BE(0xcca9); // ECDHE-ECDSA-CHACHA20-POLY1305
+			hello.appendU16BE(0xcca8); // ECDHE-RSA-CHACHA20-POLY1305
+		}
+		hello.append(1);
+		hello.append(0);
+		hello.appendU16BE(extensions.length());
+		hello.appendBytes(extensions);
+		Bytes result = TLS13Hello.message(1, hello);
+		self.transcript.appendBytes(result);
+		self.phase++;
+		return result;
+	}
+
+	class Bytes hash(bool sha384, Bytes message) {
+		var digest = HMAC.newDigest(sha384);
+		digest.update((unsigned char*)message.data, message.length());
+		Bytes out = Bytes.zeros(sha384 ? 48 : 32);
+		digest.finish((unsigned char*)out.data);
+		return out;
+	}
+
+	public bool retryRequested() { return self.phase == 2; }
+
+	/* A valid retry returns empty and keeps only the scalar for ClientHello2.
+	 * Every terminal outcome releases the scalar, including malformed replies. */
+	public Bytes? serverHello(Bytes msg) {
+		int prior = self.phase;
+		self.phase = 5;
+		var result = self.parseServerHello(msg, prior);
+		if (self.phase != 2) { self.discardScalar(); }
+		return result;
+	}
+
+	private Bytes? parseServerHello(Bytes msg, int prior) {
+		if ((prior != 1 && prior != 3) || msg == null || msg.length() < 76 || msg.length() > 76 + 65535) { return null; }
+		int bodyLength = (msg.get(1) << 16) | msg.readU16BE(2);
+		if (msg.get(0) != 2 || bodyLength != msg.length() - 4 || msg.readU16BE(4) != 0x0303 || msg.get(38) != 32) { return null; }
+		if (!msg.slice(39, 71).equals(self.session) || msg.get(73) != 0 || msg.readU16BE(74) != msg.length() - 76) { return null; }
+		int selected = msg.readU16BE(71);
+		if (selected < 0x1301 || selected > 0x1303 || (prior == 3 && self.suite != selected)) { return null; }
+		bool retry = msg.slice(6, 38).toHex().equals("cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c");
+		if (retry && prior != 1) { return null; }
+		Bytes peer = Bytes();
+		Bytes cookie = Bytes();
+		int requestedGroup = 0;
+		bool version = false;
+		int offset = 76;
+		while (offset < msg.length()) {
+			if (msg.length() - offset < 4) { return null; }
+			int kind = msg.readU16BE(offset);
+			int size = msg.readU16BE(offset + 2);
+			offset += 4;
+			if (size > msg.length() - offset) { return null; }
+			if (kind == 43 && !version && size == 2 && msg.readU16BE(offset) == 0x0304) { version = true; }
+			else if (kind == 51 && retry && requestedGroup == 0 && size == 2) {
+				requestedGroup = msg.readU16BE(offset);
+				if ((requestedGroup != 23 && requestedGroup != 24) || requestedGroup == self.shareGroup) { return null; }
+			} else if (kind == 51 && !retry && peer.isEmpty() && size == 4 + self.publicShare.length()) {
+				if (msg.readU16BE(offset) != self.shareGroup || msg.readU16BE(offset + 2) != size - 4) { return null; }
+				peer = msg.slice(offset + 4, offset + size);
+			} else if (kind == 44 && retry && cookie.isEmpty() && size >= 3 && msg.readU16BE(offset) == size - 2) {
+				cookie = msg.slice(offset, offset + size);
+			} else { return null; }
+			offset += size;
+		}
+		if (!version) { return null; }
+		self.suite = selected;
+		if (retry) {
+			if (cookie.isEmpty() && requestedGroup == 0) { return null; }
+			if (requestedGroup != 0) { self.generateShare(requestedGroup); }
+			self.retryCookie = cookie;
+			self.transcript = TLS13Hello.message(254, TLS13Hello.hash(selected == 0x1302, self.transcript));
+			self.transcript.appendBytes(msg);
+			self.phase = 2;
+			return Bytes();
+		}
+		if (peer.isEmpty()) { return null; }
+		Bytes? shared = null;
+		if (self.shareGroup == 29) {
+			shared = Bytes.zeros(32);
+			if (!X25519.multiply((unsigned char*)shared.data, (unsigned char*)self.scalar.data, (unsigned char*)peer.data)) { return null; }
+		} else {
+			shared = ECDH.sharedSecret(self.shareGroup, self.scalar, peer);
+			if (shared == null) { return null; }
+		}
+		self.transcript.appendBytes(msg);
+		self.phase = 4;
+		return shared;
+	}
+}

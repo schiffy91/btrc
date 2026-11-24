@@ -15,6 +15,10 @@ programs to pair and then talk privately over a `TCPStream`.
 `import Library.Crypto;` brings the first four. Signatures, key exchange and message encryption use first-party btrc on every
 supported target. Random bytes come from the operating system.
 
+## RSA signature verification
+
+Import `Library.Crypto.Primitives.RSA` and call `RSA.verify(scheme, modulus, exponent, message, signature)`. Supply the original signed message and unsigned big-endian public key components as `Bytes`. The verifier accepts 2048–8192-bit RSA keys and the SHA-256, SHA-384 and SHA-512 TLS signature schemes for PKCS#1 v1.5 and RSA-PSS with an RSA encryption key. PSS uses the same hash in MGF1 and a digest-sized salt. Invalid signatures return `false`.
+
 ## Identities
 
 A `PublicKey` names a party and a `SigningKey` proves it is that party.
@@ -88,11 +92,12 @@ libsodium itself is not used, and nothing else is linked in its place.
 
 | Module | What it computes |
 | --- | --- |
-| `Primitives.SHA512` | SHA-512 (FIPS 180-4). SHA-256 is `Library.Digest.SHA256`. |
+| `Primitives.SHA512` | Incremental SHA-512 and SHA-384 (FIPS 180-4). SHA-256 is `Library.Digest.SHA256`. |
+| `Primitives.HKDF` | HMAC and HKDF with SHA-256 or SHA-384 (RFCs 2104 and 5869). |
 | `Primitives.BLAKE2b` | BLAKE2b (RFC 7693), unkeyed, 1 to 64 bytes. |
 | `Primitives.X25519` | X25519 (RFC 7748). A result of all zeros, which a small-order point gives, is reported as unusable. |
 | `Primitives.Ed25519` | Ed25519 (RFC 8032): keys from a seed, deterministic signatures, verification. |
-| `Primitives.ChaCha20` | ChaCha20 with a 96-bit nonce (RFC 8439) and HChaCha20. |
+| `Primitives.ChaCha20` | ChaCha20 with a 96-bit nonce (RFC 8439) and HChaCha20. ChaCha20Poly1305 seals or opens RFC 8439 AEAD records with a detached tag. |
 | `Primitives.Poly1305` | Poly1305 (RFC 8439). |
 | `Primitives.SecretStream` | libsodium's `crypto_secretstream_xchacha20poly1305`, state layout included. |
 

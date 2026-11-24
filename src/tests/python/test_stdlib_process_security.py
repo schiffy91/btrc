@@ -408,18 +408,16 @@ def test_environment_snapshot_allocates_one_owned_copy_per_inherited_entry() -> 
 
 
 def test_http_client_is_direct_and_protocol_restricted() -> None:
-    # The client itself starts nothing; the interim curl transport, where a
-    # row still selects it, is direct and protocol-restricted.
+    # HTTPClient and all HTTP providers have retired the curl subprocess transport.
     client = HTTP_CLIENT.read_text()
     assert "ChildProcess" not in client and "Library.Process" not in client
     assert "HTTPTransportProvider.request(" in client
-    source = HTTP_CURL_TRANSPORT.read_text()
-    assert '"--proto", "=http,https"' in source
-    assert '"--proto-redir", "=http,https"' in source
-    assert 'arguments.push("--");' in source
-    assert "ChildProcess.run(" in source
-    assert "UnixShell().run" not in source
-    assert "btrchttp" not in source
+    assert not HTTP_CURL_TRANSPORT.exists()
+    for module in (ROOT / "src" / "stdlib" / "HTTP").rglob("*.btrc"):
+        text = module.read_text()
+        assert "ChildProcess" not in text, module
+        assert "Library.Process" not in text, module
+        assert "UnixShell" not in text, module
 
 
 def test_recursive_delete_is_descriptor_relative_and_nofollow() -> None:

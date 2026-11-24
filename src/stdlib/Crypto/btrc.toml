@@ -4,8 +4,8 @@ manifest-version = 1
 name = "btrc_stdlib_crypto"
 exports = [
 	"Base64", "Crypto", "SecureChannel", "SigningKey", "Sodium", "TrustedKeys",
-	"Primitives.BLAKE2b", "Primitives.ChaCha20", "Primitives.Ed25519", "Primitives.Poly1305",
-	"Primitives.SHA512", "Primitives.SecretStream", "Primitives.X25519"
+	"Primitives.AESGCM", "Primitives.BLAKE2b", "Primitives.ChaCha20", "Primitives.ECDH", "Primitives.ECDSA", "Primitives.Ed25519", "Primitives.HKDF", "Primitives.Poly1305",
+	"Primitives.RSA", "Primitives.SHA512", "Primitives.SecretStream", "Primitives.X25519"
 ]
 
 # The primitives are portable btrc. Sodium's only target-specific part is the

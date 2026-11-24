@@ -1,0 +1,13 @@
+/* A connected byte stream underneath a TLS client session. */
+import Library.Bytes;
+
+interface ITLSByteStream {
+	/* Appends up to `maximum` bytes to `into` before the deadline: the count,
+	 * 0 at the end of the stream, -1 when the deadline passed, -2 on failure. */
+	int receive(Bytes into, int maximum, long long deadline);
+
+	/* Sends every byte before the deadline. */
+	bool send(Bytes data, long long deadline);
+
+	void close();
+}

@@ -185,6 +185,14 @@ class Poly1305 {
 		self.pendingLength = 0;
 	}
 
+	public void __del__() {
+		ConstantTime.wipe((unsigned char*)self.core.r, 20);
+		ConstantTime.wipe((unsigned char*)self.core.h, 20);
+		ConstantTime.wipe((unsigned char*)self.core.pad, 16);
+		ConstantTime.wipe(self.core.pending, 16);
+		self.pendingLength = 0;
+	}
+
 	class void store(unsigned char* bytes, unsigned int word) {
 		bytes[0] = (unsigned char)(word & 0xffU);
 		bytes[1] = (unsigned char)((word >> 8) & 0xffU);

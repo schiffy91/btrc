@@ -4,6 +4,7 @@
  * words: nothing depends on the key or the data being enciphered. */
 
 import Library.Crypto.Primitives.ConstantTime;
+import Library.Crypto.Primitives.Poly1305;
 
 class ChaCha20 {
 	class unsigned int load(unsigned char* bytes) { return (unsigned int)bytes[0] | ((unsigned int)bytes[1] << 8) | ((unsigned int)bytes[2] << 16) | ((unsigned int)bytes[3] << 24); }
@@ -94,5 +95,47 @@ class ChaCha20 {
 			ChaCha20.store(out + 16 + 4 * index, x[12 + index]);
 		}
 		ConstantTime.wipe((unsigned char*)x, 64);
+	}
+}
+
+/* RFC 8439 section 2.8. Each nonce is twelve bytes and must be unique
+ * for its 32-byte key. Ciphertext and plaintext may be the same buffer.
+ * The detached 16-byte tag must have its own storage. */
+class ChaCha20Poly1305 {
+	class void authenticate(unsigned char* tag, unsigned char* ciphertext, int length, unsigned char* associated, int associatedLength, unsigned char* nonce, unsigned char* key) {
+		unsigned char oneTimeKey[32];
+		unsigned char zeros[16] = {0};
+		unsigned char lengths[16];
+		ChaCha20.keystream(oneTimeKey, 32, nonce, 0U, key);
+		Poly1305 mac = Poly1305(oneTimeKey);
+		ConstantTime.wipe(oneTimeKey, 32);
+		mac.update(associated, associatedLength);
+		mac.update(zeros, (16 - (associatedLength & 15)) & 15);
+		mac.update(ciphertext, length);
+		mac.update(zeros, (16 - (length & 15)) & 15);
+		for (int index = 0; index < 8; index++) {
+			lengths[index] = (unsigned char)(((unsigned long long)associatedLength >> (index * 8)) & 255ULL);
+			lengths[8 + index] = (unsigned char)(((unsigned long long)length >> (index * 8)) & 255ULL);
+		}
+		mac.update(lengths, 16);
+		mac.finish(tag);
+	}
+
+	class bool seal(unsigned char* ciphertext, unsigned char* tag, unsigned char* plaintext, int length, unsigned char* associated, int associatedLength, unsigned char* nonce, unsigned char* key) {
+		if (length < 0 || associatedLength < 0 || tag == null || nonce == null || key == null || (length > 0 && (ciphertext == null || plaintext == null)) || (associatedLength > 0 && associated == null)) { return false; }
+		ChaCha20.xorKeystream(ciphertext, plaintext, length, nonce, 1U, key);
+		ChaCha20Poly1305.authenticate(tag, ciphertext, length, associated, associatedLength, nonce, key);
+		return true;
+	}
+
+	/* A failed authentication leaves the caller's plaintext untouched. */
+	class bool open(unsigned char* plaintext, unsigned char* ciphertext, int length, unsigned char* tag, unsigned char* associated, int associatedLength, unsigned char* nonce, unsigned char* key) {
+		if (length < 0 || associatedLength < 0 || tag == null || nonce == null || key == null || (length > 0 && (plaintext == null || ciphertext == null)) || (associatedLength > 0 && associated == null)) { return false; }
+		unsigned char expected[16];
+		ChaCha20Poly1305.authenticate(expected, ciphertext, length, associated, associatedLength, nonce, key);
+		bool verified = ConstantTime.equal(expected, tag, 16);
+		ConstantTime.wipe(expected, 16);
+		if (verified) { ChaCha20.xorKeystream(plaintext, ciphertext, length, nonce, 1U, key); }
+		return verified;
 	}
 }

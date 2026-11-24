@@ -1,0 +1,28 @@
+/* NIST CAVS ECC CDH, KASValidityTest_ECCStaticUnified_NOKC_ZZOnly_init:
+ * EC/SHA256 COUNT 2 and ED/SHA384 COUNT 0. */
+import Library.Bytes;
+import Library.Console;
+import Library.Crypto.Primitives.ECDH;
+
+class ECDHVectors {
+	class Bytes hex(string value) {
+		Bytes? bytes = Bytes.fromHex(value);
+		if (bytes == null) { throw "Invalid ECDH vector"; }
+		return bytes;
+	}
+
+	class void check(int group, string scalar, string own, string peer, string shared) {
+		var key = ECDHVectors.hex(scalar);
+		Bytes? publicKey = ECDH.publicKey(group, key);
+		assert(publicKey != null && publicKey.toHex() == own);
+		Bytes? secret = ECDH.sharedSecret(group, key, ECDHVectors.hex(peer));
+		assert(secret != null && secret.toHex() == shared);
+	}
+}
+
+int main() {
+	ECDHVectors.check(23, "8087ab163864bfa81001c72f736b6d94e7612559ac4c847d06ba2171840684d6", "04e8b020e8c3cc25d3e5e83e76077f3d5ccdabd7ad76121b724a171414e73f793c98dfb6863fbdbc1d2083f6c41e502645ae9b7a0fdb38904f7483ef883bc2a57b", "045a3955c54a49645ed818f3774ea10971a1db88c370d8966c5a6e88234ed5d82003b13f0dad73f64532f42b8b2fa6d1450d9ab24896e95c24674298f2da07ccda", "0cb890a0dcc277c3dde0f91b4322a32e6365d7ec85316185d3286b4977849410");
+	ECDHVectors.check(24, "f865418473e5bf7d2e1bbcd9bd5a9270c003a9dd35e778133ca59fcab4bb64fe24d6800e7047bdd033abc8bfa8db35b5", "0432b72ab9b558249dcbc6cbade234f58e4f7aa5d3f6420ea99a5f997e8c2a91fb7fd83779d0d2169428683771c745fd1ac749e02a3719bb56bf1dfc4ba3820309c01ab6e84cb29db7cdd80f127233f5295687f8178f3a8704c1063b84c2ee472f", "04d1bf2ac21637d66d6398aac01dcd56ac6f065fb45d1f6f16747bab9e9b01b4630b59b20927aea147355bf41838acb4824c9e23f1c5a41647d094086bf4ed31708651f21d996c47780688ac10f77deee2e43b5241b6caecd2fd5444bc50472e0e", "a781430e6078a179df3f9ee27cd8fdc6188f161b6c4ccc4053ef6c6ca6fc222946883a53c06db08f0a020023ced055aa");
+	Console.log("PASS NIST P-256 and P-384 ECDH");
+	return 0;
+}

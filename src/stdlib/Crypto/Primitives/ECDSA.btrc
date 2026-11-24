@@ -1,0 +1,149 @@
+/* FIPS 186-5 ECDSA verification using the named prime-order curves of
+ * SEC 2. The key, signature, and scalars here are public; no secret-key
+ * operations may use this variable-time implementation. */
+import Library.Bytes;
+import Library.Crypto.Primitives.ECPrimeField;
+import Library.Crypto.Primitives.SHA512;
+import Library.Digest.SHA256;
+
+struct ECPoint { struct ECValue x; struct ECValue y; struct ECValue z; };
+
+class ECDSA {
+	private ECPrimeField field;
+	private ECPrimeField order;
+	private struct ECValue b;
+	private struct ECPoint generator;
+	private int size;
+
+	private struct ECValue fieldConstant(string value) {
+		Bytes bytes = ECPrimeField.parameter(value);
+		return self.field.encode(ECPrimeField.words((unsigned char*)bytes.data, bytes.length()));
+	}
+
+	private ECDSA(int group) {
+		if (group == 23) {
+			self.size = 32;
+			self.field = ECPrimeField(ECPrimeField.parameter("ffffffff00000001000000000000000000000000ffffffffffffffffffffffff"));
+			self.order = ECPrimeField(ECPrimeField.parameter("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"));
+			self.b = self.fieldConstant("5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b");
+			self.generator.x = self.fieldConstant("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296");
+			self.generator.y = self.fieldConstant("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5");
+		} else {
+			self.size = 48;
+			self.field = ECPrimeField(ECPrimeField.parameter("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000ffffffff"));
+			self.order = ECPrimeField(ECPrimeField.parameter("ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973"));
+			self.b = self.fieldConstant("b3312fa7e23ee7e4988e056be3f82d19181d9c6efe8141120314088f5013875ac656398d8a2ed19d2a85c8edd3ec2aef");
+			self.generator.x = self.fieldConstant("aa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7");
+			self.generator.y = self.fieldConstant("3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f");
+		}
+		self.generator.z = self.field.one;
+	}
+
+	private bool publicPoint(Bytes point, struct ECPoint* q) {
+		if (point.length() != 1 + 2 * self.size || point.data[0] != 4) { return false; }
+		unsigned char* bytes = (unsigned char*)point.data + 1;
+		struct ECValue x = ECPrimeField.words(bytes, self.size);
+		struct ECValue y = ECPrimeField.words(bytes + self.size, self.size);
+		if (self.field.arithmetic.atLeastModulus(x.words) || self.field.arithmetic.atLeastModulus(y.words)) { return false; }
+		x = self.field.encode(x); y = self.field.encode(y);
+		/* Both groups have cofactor 1. A finite point on the curve
+		 * necessarily belongs to its prime-order subgroup. */
+		var x3 = self.field.mul(x, self.field.mul(x, x));
+		var rhs = self.field.add(self.field.sub(x3, self.field.add(self.field.add(x, x), x)), self.b);
+		if (!ECPrimeField.equal(self.field.mul(y, y), rhs)) { return false; }
+		q->x = x; q->y = y; q->z = self.field.one;
+		return true;
+	}
+
+	/* Jacobian doubling for a = -3. Infinity is represented by Z = 0. */
+	private struct ECPoint twice(struct ECPoint p) {
+		struct ECPoint result = {};
+		if (ECPrimeField.zero(p.z) || ECPrimeField.zero(p.y)) { return result; }
+		var f = self.field;
+		var delta = f.mul(p.z, p.z);
+		var gamma = f.mul(p.y, p.y);
+		var beta = f.mul(p.x, gamma);
+		var slope = f.mul(f.sub(p.x, delta), f.add(p.x, delta));
+		slope = f.add(f.add(slope, slope), slope);
+		var fourBeta = f.add(beta, beta);
+		fourBeta = f.add(fourBeta, fourBeta);
+		result.x = f.sub(f.mul(slope, slope), f.add(fourBeta, fourBeta));
+		var twiceY = f.add(p.y, p.y);
+		result.z = f.mul(twiceY, p.z);
+		var gamma2 = f.mul(gamma, gamma);
+		var eightGamma2 = f.add(gamma2, gamma2);
+		eightGamma2 = f.add(eightGamma2, eightGamma2);
+		eightGamma2 = f.add(eightGamma2, eightGamma2);
+		result.y = f.sub(f.mul(slope, f.sub(fourBeta, result.x)), eightGamma2);
+		return result;
+	}
+
+	/* Add an affine input to a Jacobian accumulator. Handle P=Q and
+	 * P=-Q explicitly: the usual mixed formula does not cover them. */
+	private struct ECPoint addAffine(struct ECPoint p, struct ECPoint q) {
+		if (ECPrimeField.zero(p.z)) { return q; }
+		var f = self.field;
+		var zz = f.mul(p.z, p.z);
+		var h = f.sub(f.mul(q.x, zz), p.x);
+		var slope = f.sub(f.mul(q.y, f.mul(zz, p.z)), p.y);
+		struct ECPoint result = {};
+		if (ECPrimeField.zero(h)) {
+			if (ECPrimeField.zero(slope)) { return self.twice(p); }
+			return result;
+		}
+		var hh = f.mul(h, h);
+		var hhh = f.mul(h, hh);
+		var v = f.mul(p.x, hh);
+		result.x = f.sub(f.sub(f.mul(slope, slope), hhh), f.add(v, v));
+		result.y = f.sub(f.mul(slope, f.sub(v, result.x)), f.mul(p.y, hhh));
+		result.z = f.mul(p.z, h);
+		return result;
+	}
+
+	private bool scalar(Bytes input, struct ECValue* output) {
+		int length = input.length();
+		if (length < 1 || length > self.size) { return false; }
+		*output = ECPrimeField.words((unsigned char*)input.data, length);
+		return !ECPrimeField.zero(*output) && !self.order.arithmetic.atLeastModulus(output->words);
+	}
+
+	private bool verifyPair(int scheme, Bytes point, Bytes message, Bytes rBytes, Bytes sBytes) {
+		struct ECPoint q = {}; struct ECValue r = {}; struct ECValue s = {};
+		if (!self.scalar(rBytes, &r) || !self.scalar(sBytes, &s) || !self.publicPoint(point, &q)) { return false; }
+		IBinaryDigest hash; int length;
+		if (scheme == 0x0403) { hash = SHA256State(); length = 32; }
+		else if (scheme == 0x0503) { hash = SHA384(); length = 48; }
+		else { hash = SHA512(); length = 64; }
+		unsigned char digest[64];
+		hash.update((unsigned char*)message.data, message.length()); hash.finish(digest);
+		/* Both orders have a multiple of 8 bits. Truncate the digest to
+		 * its leftmost order bits and then reduce it modulo the order. */
+		var e = ECPrimeField.words(digest, length < self.size ? length : self.size);
+		if (self.order.arithmetic.atLeastModulus(e.words)) { self.order.arithmetic.subtractModulus(e.words); }
+		var inverse = self.order.inv(self.order.encode(s));
+		var u = self.order.decode(self.order.mul(self.order.encode(e), inverse));
+		var v = self.order.decode(self.order.mul(self.order.encode(r), inverse));
+		struct ECPoint sum = {};
+		for (int i = self.size * 8 - 1; i >= 0; i--) {
+			sum = self.twice(sum);
+			if (ECPrimeField.bit(u, i)) { sum = self.addAffine(sum, self.generator); }
+			if (ECPrimeField.bit(v, i)) { sum = self.addAffine(sum, q); }
+		}
+		if (ECPrimeField.zero(sum.z)) { return false; }
+		var zi = self.field.inv(sum.z);
+		var x = self.field.decode(self.field.mul(sum.x, self.field.mul(zi, zi)));
+		/* The field prime is less than twice the group order. */
+		if (self.order.arithmetic.atLeastModulus(x.words)) { self.order.arithmetic.subtractModulus(x.words); }
+		return ECPrimeField.equal(x, r);
+	}
+
+	/* Uncompressed SEC 1 public point and unsigned, big-endian r and s.
+	 * Named group and hash are independent in X.509. TLS CertificateVerify
+	 * enforces the curve/signature-scheme pairing at its protocol layer. */
+	class bool verify(int group, int scheme, Bytes point, Bytes message, Bytes r, Bytes s) {
+		if ((group != 23 && group != 24) || (scheme != 0x0403 && scheme != 0x0503 && scheme != 0x0603)) { return false; }
+		if (point == null || message == null || r == null || s == null) { return false; }
+		var curve = ECDSA(group);
+		return curve.verifyPair(scheme, point, message, r, s);
+	}
+}

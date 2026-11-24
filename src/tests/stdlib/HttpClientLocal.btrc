@@ -1,5 +1,11 @@
+<<<<<<< HEAD
 /* HTTPClient end-to-end through a deterministic local curl stand-in where a
  * target still selects curl, and zero-curl refusal on standalone Android. */
+=======
+/* HTTPClient end-to-end check: verifies first-party Linux HTTPS never invokes
+ * curl even when a stand-in exists on PATH, and exercises the interim curl
+ * stand-in on targets that still select it. */
+>>>>>>> origin/claude/retire-linux-tls-curl
 import Library.FileSystem;
 import Library.HTTP.HTTPClient;
 import Library.Platform;
@@ -74,33 +80,29 @@ int main() {
 	Vector<string> remaining = FileSystem.listDir(fixture);
 	assert(remaining.len == 1);
 #else
+	/* Linux uses first-party TLS and must never invoke curl on PATH even when
+	 * SSL_CERT_DIR is configured. */
+	bool hadCertDir = Environment.has("SSL_CERT_DIR");
+	string oldCertDir = Environment.get("SSL_CERT_DIR", "");
+	assert(setenv("no_proxy", "*", 1) == 0);
+	assert(setenv("SSL_CERT_DIR", fixture, 1) == 0);
 	HTTPClientResponse get = client.get("https://unused.invalid", headers);
-	assert(get.status == 201);
-	assert(get.body.equals("local-response"));
-	assert(get.error.isEmpty());
-	string argvLog = FileSystem.readText(argumentLog);
-	assert(argvLog.contains("--proto\n=http,https\n"));
-	assert(argvLog.contains("--proto-redir\n=http,https\n"));
-	assert(argvLog.endsWith("--\nhttps://unused.invalid\n"));
+	assert(get.status == 0);
+	assert(!get.error.isEmpty());
+	assert(!FileSystem.exists(argumentLog));
 	assert(!FileSystem.exists(injectionMarker));
-
-	HTTPClientResponse post = client.post("https://unused.invalid", headers, "request-body");
-	assert(post.status == 201);
-	assert(post.body.equals("request-body"));
-	assert(post.error.isEmpty());
-
-	client.maxResponseBytes = 4;
-	HTTPClientResponse bounded = client.get("https://unused.invalid", headers);
-	assert(bounded.status == 0);
-	assert(bounded.error.contains("too large"));
 
 	HTTPClientResponse unsupported = client.get("file:///etc/passwd", headers);
 	assert(unsupported.status == 0);
 	assert(unsupported.error.contains("unsupported URL scheme"));
 
-	/* Requests use pipes/anonymous input storage, never named capture files. */
 	Vector<string> remaining = FileSystem.listDir(fixture);
-	assert(remaining.len == 2);
+	assert(remaining.len == 1);
+	if (hadCertDir) {
+		setenv("SSL_CERT_DIR", oldCertDir, 1);
+	} else {
+		unsetenv("SSL_CERT_DIR");
+	}
 #endif
 
 	setenv("PATH", oldPath, 1);

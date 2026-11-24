@@ -1,0 +1,16 @@
+import Library.Bytes;
+import Library.Console;
+import Library.Strings;
+
+import ./ECDSASignature.btrc;
+
+int main(int argc, char** argv) {
+	if (argc != 6) { return 2; }
+	Bytes? key = Bytes.fromHex(Strings.copy(argv[3]));
+	Bytes? message = Bytes.fromHex(Strings.copy(argv[4]));
+	Bytes? signature = Bytes.fromHex(Strings.copy(argv[5]));
+	if (key == null || message == null || signature == null) { return 2; }
+	bool valid = ECDSASignature.verify(atoi(argv[1]), atoi(argv[2]), key, message, signature);
+	Console.log(valid ? "valid" : "invalid");
+	return 0;
+}

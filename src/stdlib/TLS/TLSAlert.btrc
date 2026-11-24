@@ -1,0 +1,79 @@
+/* TLS alert descriptions and their wire encoding (RFC 5246 §7.2 and RFC 8446 §6). */
+import Library.Bytes;
+import Library.Timer;
+import Library.Vector;
+
+import ./X509Certificate.btrc;
+import ./X509PeerName.btrc;
+import ./X509TrustBundle.btrc;
+
+enum TLSAlertCode { TLS_NO_ALERT = -1, TLS_UNEXPECTED_MESSAGE = 10, TLS_BAD_RECORD_MAC = 20, TLS_RECORD_OVERFLOW = 22, TLS_HANDSHAKE_FAILURE = 40, TLS_BAD_CERTIFICATE = 42, TLS_CERTIFICATE_EXPIRED = 45, TLS_CERTIFICATE_UNKNOWN = 46, TLS_ILLEGAL_PARAMETER = 47, TLS_UNKNOWN_CA = 48, TLS_DECODE_ERROR = 50, TLS_DECRYPT_ERROR = 51, TLS_INTERNAL_ERROR = 80 };
+
+enum TLSAlertDisposition { TLS_ALERT_CONTINUE, TLS_ALERT_CLOSE, TLS_ALERT_FATAL, TLS_ALERT_INVALID };
+
+class TLSAlert {
+	class TLSAlertDisposition disposition(Bytes alert) {
+		/* In TLS 1.3 each alert is exactly one complete record. Validate
+		 * AlertLevel (1=warning, 2=fatal); fatal alerts always abort, and
+		 * only warning close_notify (0) or user_canceled (90) are non-fatal. */
+		if (alert == null || alert.length() != 2) { return TLS_ALERT_INVALID; }
+		int level = alert.get(0);
+		int description = alert.get(1);
+		if (level != 1 && level != 2) { return TLS_ALERT_INVALID; }
+		if (level == 2) { return TLS_ALERT_FATAL; }
+		if (description == 0) { return TLS_ALERT_CLOSE; }
+		return description == 90 ? TLS_ALERT_CONTINUE : TLS_ALERT_FATAL;
+	}
+
+	class Bytes fatal(int description) {
+		Bytes data = Bytes(); data.append(2); data.append(description);
+		return data;
+	}
+
+	class Bytes plaintext(Bytes alert) {
+		Bytes wire = Bytes(); wire.append(21); wire.appendU16BE(0x0303);
+		wire.appendU16BE(alert.length()); wire.appendBytes(alert);
+		return wire;
+	}
+
+	class int certificate(Vector<X509Certificate> presented, X509TrustBundle trust, X509PeerName identity, long long at, long long deadline) {
+		if (presented == null || presented.len == 0) { return TLS_BAD_CERTIFICATE; }
+		var leaf = presented.get(0);
+		if (leaf == null) { return TLS_BAD_CERTIFICATE; }
+		if (at < leaf.notBefore || at > leaf.notAfter) { return TLS_CERTIFICATE_EXPIRED; }
+		if (!identity.matches(leaf)) { return TLS_BAD_CERTIFICATE; }
+		/* Distinguish a missing issuer from policy or path failure. These
+		 * names only classify an already rejected chain; they never grant trust. */
+		for entry in trust.entries {
+			if (!MonotonicClock.before(deadline)) { return TLS_INTERNAL_ERROR; }
+			var anchor = entry.certificate.subjectName();
+			for cert in presented {
+				if (anchor.equals(cert.issuerName()) || anchor.equals(cert.subjectName())) { return TLS_CERTIFICATE_UNKNOWN; }
+			}
+		}
+		return TLS_UNKNOWN_CA;
+	}
+}
+
+/* RFC 5246 section 6.2.1 permits both fragmentation and coalescing.
+ * Carry at most one level byte between records. */
+class TLS12AlertStream {
+	private int pendingLevel = -1;
+	public bool partial() { return self.pendingLevel >= 0; }
+
+	public TLSAlertDisposition feed(Bytes fragment) {
+		if (fragment == null || fragment.isEmpty()) { return TLS_ALERT_INVALID; }
+		for (int i = 0; i < fragment.length(); i++) {
+			int value = fragment.get(i);
+			if (!self.partial()) {
+				if (value != 1 && value != 2) { return TLS_ALERT_INVALID; }
+				self.pendingLevel = value;
+			} else {
+				int level = self.pendingLevel; self.pendingLevel = -1;
+				if (level == 2) { return TLS_ALERT_FATAL; }
+				if (value == 0) { return TLS_ALERT_CLOSE; }
+			}
+		}
+		return TLS_ALERT_CONTINUE;
+	}
+}

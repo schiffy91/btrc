@@ -7,7 +7,6 @@
  * Digests are 64-character lowercase hexadecimal strings. */
 
 import Library.Bytes;
-import Library.Strings;
 
 /* One-shot SHA-256 providers return owned lowercase hexadecimal text and
  * borrow their input only for the call. Null inputs denote empty messages. */
@@ -16,16 +15,27 @@ interface ISHA256Digest {
 	string digestBytes(Bytes bytes);
 }
 
-class SHA256 {
-	/* Fixed SHA-256 state and schedule stay embedded in this owner. */
-	private unsigned int hashState[8];
-	private unsigned int constants[64];
-	private unsigned int words[64];
-	private Bytes pending = Bytes();
-	private unsigned long long byteCount = 0ULL;
-	private string finalizedDigest = "";
+/* A binary digest borrows each input until update returns. finish writes
+ * the algorithm's output and clears the state. */
+interface IBinaryDigest {
+	void update(unsigned char* data, int length);
+	void finish(unsigned char* out);
+}
 
-	public SHA256() {
+struct SHA256Buffers {
+	unsigned int hashState[8];
+	unsigned int words[64];
+	unsigned char pending[64];
+};
+
+class SHA256State implements IBinaryDigest {
+	private struct SHA256Buffers buffers;
+	private unsigned int constants[64];
+	private int pendingLength = 0;
+	private unsigned long long byteCount = 0ULL;
+	private bool finished = false;
+
+	public SHA256State() {
 		unsigned int initialHash[8] = {
 			0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU,
 			0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U
@@ -48,39 +58,39 @@ class SHA256 {
 			0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U,
 			0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U
 		};
-		for (int index = 0; index < 8; index++) { self.hashState[index] = initialHash[index]; }
+		for (int index = 0; index < 8; index++) { self.buffers.hashState[index] = initialHash[index]; }
 		for (int index = 0; index < 64; index++) { self.constants[index] = initialConstants[index]; }
 	}
 
 	private unsigned int rotateRight(unsigned int value, int count) { return (value >> count) | (value << (32 - count)); }
 
 	/* Complete blocks are consumed directly; no input pointer survives this call. */
-	private void compress(char* source) {
+	private void compress(unsigned char* source) {
 		for (int index = 0; index < 16; index++) {
 			int base = index * 4;
 			unsigned int value = ((unsigned int)(unsigned char)source[base] << 24) | ((unsigned int)(unsigned char)source[base + 1] << 16) | ((unsigned int)(unsigned char)source[base + 2] << 8) | (unsigned int)(unsigned char)source[base + 3];
-			self.words[index] = value;
+			self.buffers.words[index] = value;
 		}
 		for (int index = 16; index < 64; index++) {
-			unsigned int previous15 = self.words[index - 15];
-			unsigned int previous2 = self.words[index - 2];
+			unsigned int previous15 = self.buffers.words[index - 15];
+			unsigned int previous2 = self.buffers.words[index - 2];
 			unsigned int sigma0 = self.rotateRight(previous15, 7) ^ self.rotateRight(previous15, 18) ^ (previous15 >> 3);
 			unsigned int sigma1 = self.rotateRight(previous2, 17) ^ self.rotateRight(previous2, 19) ^ (previous2 >> 10);
-			self.words[index] = self.words[index - 16] + sigma0 + self.words[index - 7] + sigma1;
+			self.buffers.words[index] = self.buffers.words[index - 16] + sigma0 + self.buffers.words[index - 7] + sigma1;
 		}
-		unsigned int a = self.hashState[0];
-		unsigned int b = self.hashState[1];
-		unsigned int c = self.hashState[2];
-		unsigned int d = self.hashState[3];
-		unsigned int e = self.hashState[4];
-		unsigned int f = self.hashState[5];
-		unsigned int g = self.hashState[6];
-		unsigned int h = self.hashState[7];
+		unsigned int a = self.buffers.hashState[0];
+		unsigned int b = self.buffers.hashState[1];
+		unsigned int c = self.buffers.hashState[2];
+		unsigned int d = self.buffers.hashState[3];
+		unsigned int e = self.buffers.hashState[4];
+		unsigned int f = self.buffers.hashState[5];
+		unsigned int g = self.buffers.hashState[6];
+		unsigned int h = self.buffers.hashState[7];
 		int round = 0;
 		while (round < 64) {
 			unsigned int sum1 = self.rotateRight(e, 6) ^ self.rotateRight(e, 11) ^ self.rotateRight(e, 25);
 			unsigned int choice = (e & f) ^ ((~e) & g);
-			unsigned int temporary1 = h + sum1 + choice + self.constants[round] + self.words[round];
+			unsigned int temporary1 = h + sum1 + choice + self.constants[round] + self.buffers.words[round];
 			unsigned int sum0 = self.rotateRight(a, 2) ^ self.rotateRight(a, 13) ^ self.rotateRight(a, 22);
 			unsigned int majority = (a & b) ^ (a & c) ^ (b & c);
 			unsigned int temporary2 = sum0 + majority;
@@ -94,59 +104,81 @@ class SHA256 {
 			a = temporary1 + temporary2;
 			round++;
 		}
-		self.hashState[0] = self.hashState[0] + a;
-		self.hashState[1] = self.hashState[1] + b;
-		self.hashState[2] = self.hashState[2] + c;
-		self.hashState[3] = self.hashState[3] + d;
-		self.hashState[4] = self.hashState[4] + e;
-		self.hashState[5] = self.hashState[5] + f;
-		self.hashState[6] = self.hashState[6] + g;
-		self.hashState[7] = self.hashState[7] + h;
+		self.buffers.hashState[0] = self.buffers.hashState[0] + a;
+		self.buffers.hashState[1] = self.buffers.hashState[1] + b;
+		self.buffers.hashState[2] = self.buffers.hashState[2] + c;
+		self.buffers.hashState[3] = self.buffers.hashState[3] + d;
+		self.buffers.hashState[4] = self.buffers.hashState[4] + e;
+		self.buffers.hashState[5] = self.buffers.hashState[5] + f;
+		self.buffers.hashState[6] = self.buffers.hashState[6] + g;
+		self.buffers.hashState[7] = self.buffers.hashState[7] + h;
 	}
 
-	private void append(char* source, int count) {
-		if (!self.finalizedDigest.isEmpty()) { throw "SHA256 is finalized"; }
-		/* SHA-256 encodes a message length strictly below 2^64 bits. */
-		if ((unsigned long long)count > 2305843009213693951ULL - self.byteCount) { throw "SHA256 message is too large"; }
+	/* Incremental binary digest for keyed hashes. The fixed message buffer
+	 * avoids leaving key pads in discarded heap allocations. */
+	public void update(unsigned char* source, int count) {
+		if (self.finished) { throw "SHA256 is finalized"; }
+		if (count < 0 || (unsigned long long)count > 2305843009213693951ULL - self.byteCount) { throw "SHA256 message is too large"; }
 		self.byteCount = self.byteCount + (unsigned long long)count;
 		int offset = 0;
-		if (self.pending.len > 0) {
-			while (offset < count && self.pending.len < 64) { self.pending.append((int)(unsigned char)source[offset]); offset++; }
-			if (self.pending.len == 64) { self.compress(self.pending.data); self.pending.len = 0; }
+		if (self.pendingLength > 0) {
+			while (offset < count && self.pendingLength < 64) { self.buffers.pending[self.pendingLength++] = source[offset++]; }
+			if (self.pendingLength == 64) { self.compress(self.buffers.pending); self.pendingLength = 0; }
 		}
-		while (count - offset >= 64) { self.compress(source + offset); offset = offset + 64; }
-		while (offset < count) { self.pending.append((int)(unsigned char)source[offset]); offset++; }
+		while (count - offset >= 64) { self.compress(source + offset); offset += 64; }
+		while (offset < count) { self.buffers.pending[self.pendingLength++] = source[offset++]; }
 	}
+
+	public void finish(unsigned char* out) {
+		if (self.finished) { throw "SHA256 is finalized"; }
+		self.finished = true;
+		unsigned long long bits = self.byteCount * 8ULL;
+		self.buffers.pending[self.pendingLength++] = (unsigned char)0x80;
+		if (self.pendingLength > 56) {
+			while (self.pendingLength < 64) { self.buffers.pending[self.pendingLength++] = (unsigned char)0; }
+			self.compress(self.buffers.pending);
+			self.pendingLength = 0;
+		}
+		while (self.pendingLength < 56) { self.buffers.pending[self.pendingLength++] = (unsigned char)0; }
+		for (int index = 0; index < 8; index++) { self.buffers.pending[56 + index] = (unsigned char)(bits >> (56 - 8 * index)); }
+		self.compress(self.buffers.pending);
+		for (int index = 0; index < 32; index++) { out[index] = (unsigned char)(self.buffers.hashState[index / 4] >> (24 - 8 * (index % 4))); }
+		/* Volatile writes also survive optimization when the owner dies here. */
+		self.wipe(self.buffers.pending, 64);
+		self.wipe((unsigned char*)self.buffers.words, (int)sizeof(self.buffers.words));
+		self.wipe((unsigned char*)self.buffers.hashState, (int)sizeof(self.buffers.hashState));
+	}
+
+	public void __del__() {
+		self.wipe(self.buffers.pending, 64);
+		self.wipe((unsigned char*)self.buffers.words, (int)sizeof(self.buffers.words));
+		self.wipe((unsigned char*)self.buffers.hashState, (int)sizeof(self.buffers.hashState));
+	}
+
+	private void wipe(volatile unsigned char* data, int length) {
+		for (int index = 0; index < length; index++) { data[index] = (unsigned char)0; }
+	}
+}
+
+class SHA256 {
+	private SHA256State state = SHA256State();
+	private string finalizedDigest = "";
+
+	public SHA256() {}
 
 	public void appendBytes(Bytes bytes) {
-		if (bytes == null) { self.append(null, 0); }
-		else { self.append(bytes.data, bytes.length()); }
+		if (bytes == null) { self.state.update(null, 0); }
+		else { self.state.update((unsigned char*)bytes.data, bytes.length()); }
 	}
 
-	public void appendText(string text) { self.append((char*)text, text == null ? 0 : text.length()); }
+	public void appendText(string text) { self.state.update((unsigned char*)text, text == null ? 0 : text.length()); }
 
 	public string finish() {
-		if (!self.finalizedDigest.isEmpty()) { return self.finalizedDigest; }
-		unsigned long long bitLength = self.byteCount * 8ULL;
-		self.pending.append(0x80);
-		if (self.pending.len > 56) {
-			while (self.pending.len < 64) { self.pending.append(0); }
-			self.compress(self.pending.data);
-			self.pending.len = 0;
+		if (self.finalizedDigest.isEmpty()) {
+			Bytes digest = Bytes.zeros(32);
+			self.state.finish((unsigned char*)digest.data);
+			self.finalizedDigest = digest.toHex();
 		}
-		while (self.pending.len < 56) { self.pending.append(0); }
-		for (int shift = 56; shift >= 0; shift = shift - 8) { self.pending.append((int)((bitLength >> shift) & 0xffULL)); }
-		self.compress(self.pending.data);
-		self.pending.len = 0;
-		string digits = "0123456789abcdef";
-		var output = StringBuilder();
-		for (int index = 0; index < 8; index++) {
-			for (int shift = 28; shift >= 0; shift = shift - 4) {
-				int nibble = (int)((self.hashState[index] >> shift) & 0x0fU);
-				output.appendChar(digits[nibble]);
-			}
-		}
-		self.finalizedDigest = output.toString();
 		return self.finalizedDigest;
 	}
 

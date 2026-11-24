@@ -275,19 +275,13 @@ require Xwayland for a Wayland session.
 [[decisions]]
 title = "TLS on Linux"
 text = """
-Build first-party TLS over the first-party cryptography and the system CA bundle.
-Qualify certificate and hostname verification, protocol interoperability and observable
-HTTP behavior. Obtain independent security review before switching production HTTPS.
-Keep the current working transport while qualification and review are pending.
+Linux HTTPS and proxy transports use first-party TLS (Library.TLS) over first-party
+cryptography (Library.Crypto) and the Linux CA store, with no curl fallback.
+Certificate/hostname verification, protocol interoperability, alert handling, and
+DoS bounds are hardened per independent security review (docs/design/linux-tls-security-review.md).
 """
 
 # ── Third-party requirements known today, awaiting removal ──────────────────
-
-[[pending]]
-dependency = "curl"
-module = "HTTP/HTTPCurlTransport"
-os = ["linux"]
-resolution = "Android, Linux, and macOS use first-party code for plain HTTP and HTTP forward proxies. macOS and iOS use NSURLSession and Network.framework/Security.framework with no curl dependency. Android applications use private platform JSSE TLS contexts with HTTPExchange and first-party SOCKS4/4a/5/5h, and standalone Android binaries without an application VM refuse HTTPS explicitly with no curl dependency. Linux retains curl for HTTPS and remaining proxy paths until first-party TLS lands. Windows uses WinHTTP."
 
 [[pending]]
 dependency = "GTK 4"

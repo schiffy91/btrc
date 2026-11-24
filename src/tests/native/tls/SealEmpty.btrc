@@ -1,0 +1,21 @@
+/* Emit N authentic encrypted empty TLS 1.3 application_data records for H3 flood testing. */
+import Library.Bytes;
+import Library.Strings;
+import Library.TLS.TLS13Records;
+
+int main(int argc, char** argv) {
+	if (argc != 4) { return 2; }
+	int suite = (int)strtoll(argv[1], null, 0);
+	var secret = Bytes.fromHex(Strings.copy(argv[2]));
+	int count = (int)strtoll(argv[3], null, 10);
+	if (secret == null || count < 1 || count > 128) { return 3; }
+	var writer = TLS13Records.create(suite, secret, true);
+	if (writer == null) { return 4; }
+	for (int i = 0; i < count; i++) {
+		var record = writer.seal(23, Bytes());
+		if (record == null) { return 5; }
+		print(record.toHex());
+	}
+	writer.close();
+	return 0;
+}
