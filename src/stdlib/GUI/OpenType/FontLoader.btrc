@@ -1,0 +1,95 @@
+import Library.Bytes;
+import Library.Compression.Gzip;
+import Library.GUI.Font;
+import Library.IO;
+
+import ../Bitmap/BDFFace.btrc;
+import ../Bitmap/PCFFace.btrc;
+import ./CFFMeasuredFace.btrc;
+import ./ColorBitmapFace.btrc;
+import ./HintedTrueTypeFace.btrc;
+import ./OpenTypeData.btrc;
+import ./SFNTDirectory.btrc;
+import ./WOFF2Font.btrc;
+import ./WOFFFont.btrc;
+
+/* Package-private font loader detecting PCF, PCF.GZ, BDF, WOFF, WOFF2,
+ * SFNT and TTC/OTC collections by file header magic bytes. */
+class FontLoader {
+	class Bytes readFontFile(string path) {
+		var file = File(path, "rb");
+		if (!file.ok()) { throw "Cannot load font face"; }
+		var info = file.snapshot();
+		if (!info.ok() || info.snapshot().kind() != FILE_REGULAR || info.snapshot().size() < 4LL || info.snapshot().size() > 268435456LL) {
+			file.close();
+			throw "Cannot load font face";
+		}
+		var bytes = file.readBytes();
+		bool failed = file.failed();
+		file.close();
+		if (failed || bytes.length() < 4) { throw "Cannot load font face"; }
+		return bytes;
+	}
+
+	class bool hasPrefix(Bytes bytes, string prefix) {
+		if (bytes.length() < prefix.length()) { return false; }
+		for (int i = 0; i < prefix.length(); i++) {
+			if (bytes.get(i) != (int)prefix[i]) { return false; }
+		}
+		return true;
+	}
+
+	class Font load(string path, int pixelSize) {
+		if (path == null || path.isEmpty() || pixelSize < 1) { throw "FreeType requires a font path and positive pixel size"; }
+		var bytes = FontLoader.readFontFile(path);
+
+		// Gzip-compressed PCF (.pcf.gz or arbitrary extension)
+		if (bytes.length() >= 2 && bytes.get(0) == 0x1f && bytes.get(1) == 0x8b) {
+			bytes = Gzip.decode(bytes, 268435456);
+			if (bytes.length() < 4) { throw "Cannot load font face"; }
+		}
+
+		// X11 Portable Compiled Format (.pcf)
+		if (bytes.readU32LE(0) == 0x70636601U) {
+			return new Font(new PCFFace(bytes, pixelSize));
+		}
+
+		// Adobe Glyph Bitmap Distribution Format (.bdf)
+		if (FontLoader.hasPrefix(bytes, "STARTFONT ")) {
+			return new Font(new BDFFace(bytes, pixelSize));
+		}
+
+		// Unpack WOFF / WOFF2 containers to SFNT
+		unsigned int magic = bytes.readU32BE(0);
+		if (magic == 0x774f4646U) {
+			bytes = WOFFFont().unpack(bytes);
+			if (bytes.length() < 12) { throw "Cannot load font face"; }
+			magic = bytes.readU32BE(0);
+		} else if (magic == 0x774f4632U) {
+			bytes = WOFF2Font().unpack(bytes);
+			if (bytes.length() < 12) { throw "Cannot load font face"; }
+			magic = bytes.readU32BE(0);
+		}
+
+		// SFNT / TrueType Collection (.ttf, .otf, .ttc, .otc)
+		if (magic == 0x00010000U || magic == 0x74727565U || magic == 0x4f54544fU || magic == 0x74746366U || magic == 0x74797031U) {
+			var data = OpenTypeData(bytes);
+			int faceOffset = SFNTDirectory.firstFaceOffset(data);
+			var dir = SFNTDirectory(data, faceOffset, true);
+			bool hasGlyf = dir.find(0x676c7966LL, 0) != null && dir.find(0x6c6f6361LL, 0) != null;
+			bool hasCff = dir.find(0x43464620LL, 4) != null;
+			bool hasBitmap = (dir.find(0x43424c43LL, 8) != null && dir.find(0x43424454LL, 4) != null) || (dir.find(0x45424c43LL, 8) != null && dir.find(0x45424454LL, 4) != null) || (dir.find(0x626c6f63LL, 8) != null && dir.find(0x62646174LL, 4) != null);
+			if (!hasGlyf && !hasCff && hasBitmap) {
+				return new Font(new ColorBitmapFace(bytes, pixelSize, faceOffset));
+			}
+			if (hasGlyf) {
+				return new Font(new HintedTrueTypeFace(bytes, pixelSize, false, faceOffset));
+			}
+			if (hasCff) {
+				return new Font(new CFFMeasuredFace(bytes, pixelSize, faceOffset));
+			}
+		}
+
+		throw "Cannot load font face";
+	}
+}

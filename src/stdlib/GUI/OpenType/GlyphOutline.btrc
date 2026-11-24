@@ -37,6 +37,10 @@ class GlyphOutline {
 
 	public int pointY(int index) { return self.ys.get(index); }
 
+	public GlyphPointKind pointKind(int index) { return (GlyphPointKind)self.kinds.get(index); }
+
+	public void setPointKind(int index, GlyphPointKind kind) { self.kinds.set(index, (int)kind); }
+
 	public void addPoint(long long x, long long y, GlyphPointKind kind) {
 		if (x < -268435456LL || x > 268435456LL || y < -268435456LL || y > 268435456LL) { throw "Glyph outline exceeds the supported coordinate range"; }
 		if (self.xs.size() >= 262144) { throw "Glyph outline has too many points"; }

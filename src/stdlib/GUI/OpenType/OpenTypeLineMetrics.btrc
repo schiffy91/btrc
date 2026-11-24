@@ -4,14 +4,32 @@ import ./SFNTDirectory.btrc;
 
 class OpenTypeLineMetrics {
 	class FontMetrics scaled(OpenTypeData data, SFNTDirectory dir, OpenTypeSpan hhea, long long scale) {
-		var os2 = dir.required(0x4f532f32LL, 78);
+		var os2 = dir.find(0x4f532f32LL, 78);
 		int ascent = data.s16(hhea.offset + 4);
 		int descent = data.s16(hhea.offset + 6);
 		int height = ascent - descent + data.s16(hhea.offset + 8);
-		if ((data.u16(os2.offset + 62) & 128) != 0) {
+		if (os2 != null && (data.u16(os2.offset + 62) & 128) != 0) {
 			ascent = data.s16(os2.offset + 68);
 			height = ascent - data.s16(os2.offset + 70) + data.s16(os2.offset + 72);
-		} else if (ascent == 0 && descent == 0) { throw "Unsupported OpenType line metrics"; }
+		} else if (ascent == 0 && descent == 0) {
+			if (os2 != null) {
+				int typoAscent = data.s16(os2.offset + 68);
+				int typoDescent = data.s16(os2.offset + 70);
+				if (typoAscent != 0 || typoDescent != 0) {
+					ascent = typoAscent;
+					height = typoAscent - typoDescent + data.s16(os2.offset + 72);
+				} else {
+					ascent = data.u16(os2.offset + 74);
+					height = ascent + data.u16(os2.offset + 76);
+				}
+			} else {
+				var head = dir.find(0x68656164LL, 54);
+				if (head != null) {
+					ascent = data.s16(head.offset + 42);
+					height = ascent - data.s16(head.offset + 38);
+				}
+			}
+		}
 		return new FontMetrics(OpenTypeFixed.pixelCeil(OpenTypeFixed.mul((long long)ascent, scale)), OpenTypeFixed.pixelRound(OpenTypeFixed.mul((long long)height, scale)));
 	}
 }

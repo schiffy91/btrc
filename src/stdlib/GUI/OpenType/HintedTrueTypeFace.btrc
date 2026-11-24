@@ -12,80 +12,34 @@ import ./TrueTypeGlyphs.btrc;
 import ./WOFF2Font.btrc;
 import ./WOFFFont.btrc;
 
-/* A standalone SFNT or WOFF face with TrueType outlines and its own grid-fitting
- * programs. The public factory retains its original bytes for instructions
- * that require the SDK later. */
+/* First-party TrueType outline reader, bytecode interpreter and grayscale
+ * rasterizer covering hinted and unhinted SFNT, TTC, WOFF and WOFF2 faces. */
 class HintedTrueTypeFace implements IFontFace {
 	private TrueTypeGlyphs outlines;
 	private OpenTypeCharacterMap characters;
 	private long long scale;
 	private FontMetrics lineMetrics;
-	private bool nativeVectorInk = false;
-	public Bytes source;
+	private bool fixedCrossings = false;
+	private Atomic<uint> gate;
 
-	class HintedTrueTypeFace? tryOpen(string path, int pixels) {
-		if (path == null || pixels < 1) { return null; }
-		string name = path.toLower();
-		if (!name.endsWith(".woff2") && !name.endsWith(".woff") && !name.endsWith(".ttf")) { return null; }
-		// Honor explicitly configured FreeType interpreter/renderer properties.
-		char* properties = getenv("FREETYPE_PROPERTIES");
-		if (properties != null && properties[0] != 0) { return null; }
-		FILE* file = fopen(path, "rb");
-		if (file == null) { return null; }
-		try {
-			var header = Bytes.zeros(48);
-			if (fread(header.data, 1, 48, file) != (size_t)48) { return null; }
-			unsigned int format = header.readU32BE(0);
-			bool wrapped = format == 0x774f4632U || format == 0x774f4646U;
-			if (wrapped && (header.readU32BE(4) != 0x10000U || header.readU32BE(16) > 33554432U)) { return null; }
-			if (!wrapped && format != 0x10000U) { return null; }
-			if (format != 0x774f4632U && !HintedTrueTypeFace.hasHintTables(file, header, wrapped)) { return null; }
-			if (fseek(file, 0L, SEEK_END) != 0) { return null; }
-			long length = ftell(file);
-			if (length < 48L || length > 16777216L || fseek(file, 0L, SEEK_SET) != 0) { return null; }
-			var bytes = Bytes.zeros((int)length);
-			if (fread(bytes.data, 1, (size_t)length, file) != (size_t)length) { return null; }
-			return new HintedTrueTypeFace(bytes, pixels);
-		} catch (string error) { return null; }
-		finally { fclose(file); }
-	}
-
-	/* Leave bitmap, unhinted and non-TrueType files on the existing path
-	 * before allocating space for their entire contents. */
-	class bool hasHintTables(FILE* file, Bytes header, bool woff) {
-		int count = header.readU16BE(woff ? 12 : 4);
-		if (count < 1 || count > 4095 || fseek(file, woff ? 44L : 12L, SEEK_SET) != 0) { return false; }
-		int stride = woff ? 20 : 16;
-		var directory = Bytes.zeros(count * stride);
-		if (fread(directory.data, 1, (size_t)directory.length(), file) != (size_t)directory.length()) { return false; }
-		int found = 0;
-		for (int i = 0; i < count; i++) {
-			unsigned int tag = directory.readU32BE(i * stride);
-			if (tag == 0x676c7966U) { found |= 1; } // glyf
-			if (tag == 0x6670676dU) { found |= 2; } // fpgm
-			if (tag == 0x70726570U) { found |= 4; } // prep
-			if (tag == 0x63767420U) { found |= 8; } // cvt
-		}
-		return found == 15;
-	}
-
-	public HintedTrueTypeFace(Bytes bytes, int pixels, bool byGlyphIndex = false) {
-		self.source = bytes;
-		unsigned int format = bytes.readU32BE(0);
+	public HintedTrueTypeFace(Bytes bytes, int pixels, bool byGlyphIndex = false, int faceOffset = 0) {
+		self.gate.init(0u);
+		if (pixels < 1 || pixels > 65535) { throw "Invalid TrueType pixel size"; }
+		unsigned int format = bytes.length() >= 4 ? bytes.readU32BE(0) : 0U;
 		Bytes sfnt = bytes;
 		if (format == 0x774f4632U) { sfnt = WOFF2Font().unpack(bytes); }
 		else if (format == 0x774f4646U) { sfnt = WOFFFont().unpack(bytes); }
 		var data = OpenTypeData(sfnt);
-		var directory = SFNTDirectory(data);
-		self.checkTables(directory);
+		int offset = faceOffset == 0 ? SFNTDirectory.firstFaceOffset(data) : faceOffset;
+		var directory = SFNTDirectory(data, offset);
 		var head = directory.required(0x68656164LL, 54);
 		int units = data.u16(head.offset + 18);
 		int locaFormat = data.s16(head.offset + 50);
-		if (units < 16 || units > 16384 || (locaFormat != 0 && locaFormat != 1) || pixels > 65535) { throw "Unsupported TrueType size or outline locations"; }
+		if (units < 16 || units > 16384 || (locaFormat != 0 && locaFormat != 1)) { throw "Unsupported TrueType size or outline locations"; }
 		self.scale = OpenTypeFixed.div((long long)pixels * 64LL, (long long)units);
-		var maxp = directory.required(0x6d617870LL, 32);
+		var maxp = directory.required(0x6d617870LL, 6);
 		int glyphs = data.u16(maxp.offset + 4);
-		if (data.u32(maxp.offset) != 65536LL || glyphs < 1 || data.u16(maxp.offset + 26) == 0) { throw "Unsupported TrueType glyph directory"; }
+		if (glyphs < 1) { throw "Unsupported TrueType glyph directory"; }
 		var hhea = directory.required(0x68686561LL, 36);
 		int full = data.u16(hhea.offset + 34);
 		if (full < 1 || full > glyphs) { throw "Invalid TrueType horizontal metric count"; }
@@ -93,50 +47,47 @@ class HintedTrueTypeFace implements IFontFace {
 		var horizontal = OpenTypeHorizontalMetrics(data, hmtx, full);
 		var loca = directory.required(0x6c6f6361LL, (glyphs + 1) * (locaFormat == 0 ? 2 : 4));
 		self.outlines = TrueTypeGlyphs(data, directory.required(0x676c7966LL, 0), loca, horizontal, glyphs, locaFormat != 0);
-		var cmap = directory.required(0x636d6170LL, 4);
-		self.characters = OpenTypeCharacterMap(data, cmap, glyphs);
-		bool legacyBMP = false;
-		if (!byGlyphIndex && !self.characters.unambiguousUnicodeMap(cmap) && !self.characters.preferredFullUnicodeMap(cmap)) {
-			legacyBMP = self.characters.preferredBMPMap(cmap);
-			if (!legacyBMP) { throw "Unsupported TrueType character map"; }
-		}
+		var cmap = directory.find(0x636d6170LL, 4);
+		var cmapSpan = OpenTypeSpan(0, 0);
+		if (cmap != null) { cmapSpan = cmap; }
+		self.characters = OpenTypeCharacterMap(data, cmapSpan, glyphs);
 		self.lineMetrics = OpenTypeLineMetrics.scaled(data, directory, hhea, self.scale);
 
-		var cvt = directory.required(0x63767420LL, 2);
-		var prep = directory.required(0x70726570LL, 1);
-		var functions = directory.required(0x6670676dLL, 1);
-		var grid = TrueTypeProgram(data, cvt, maxp, pixels, self.scale);
-		bool usesVectors = grid.prepare(functions, prep, byGlyphIndex || legacyBMP);
-		// The raw font exposes the whole Unicode map. Its vector-hinted
-		// advances agree, while visible outlines can require more native
-		// grid-fitting behavior than the shaped text path exercises.
-		self.nativeVectorInk = usesVectors && !byGlyphIndex && grid.gridFittingEnabled();
-		self.outlines.prepare(grid);
-
-	}
-
-	/* Only table families with defined behavior in this renderer are accepted.
-	 * Layout, identification and licensing tables do not change glyph images. */
-	private void checkTables(SFNTDirectory directory) {
-		string tags = "cmapglyflocaheadhheahmtxmaxpnameOS/2postcvt fpgmprepgaspGDEFGPOSGSUBkernDSIGFFTMMATHvheavmtx";
-		for (int i = 0; i < directory.count; i++) {
-			long long tag = directory.tag(i);
-			bool known = false;
-			for (int j = 0; j < tags.length(); j += 4) {
-				long long value = 0LL;
-				for (int k = 0; k < 4; k++) { value = value * 256LL + (long long)tags[j + k]; }
-				if (tag == value) { known = true; break; }
+		if (maxp.length >= 32 && data.u32(maxp.offset) == 65536LL) {
+			var cvt = directory.find(0x63767420LL, 0);
+			var prep = directory.find(0x70726570LL, 0);
+			var functions = directory.find(0x6670676dLL, 0);
+			int maxInstructions = data.u16(maxp.offset + 26);
+			if (cvt != null || prep != null || functions != null || maxInstructions > 0) {
+				var cvtSpan = OpenTypeSpan(0, 0);
+				if (cvt != null) { cvtSpan = cvt; }
+				var prepSpan = OpenTypeSpan(0, 0);
+				if (prep != null) { prepSpan = prep; }
+				var fpgmSpan = OpenTypeSpan(0, 0);
+				if (functions != null) { fpgmSpan = functions; }
+				var grid = TrueTypeProgram(data, cvtSpan, maxp, pixels, self.scale);
+				bool usesVectors = grid.prepare(fpgmSpan, prepSpan, true);
+				self.fixedCrossings = usesVectors && !byGlyphIndex && grid.gridFittingEnabled();
+				self.outlines.prepare(grid);
 			}
-			if (!known) { throw "Unsupported table in hinted TrueType font"; }
 		}
 	}
 
 	public FontMetrics metrics() { return self.lineMetrics; }
 
+	private bool claimGlyph() {
+		uint expected = 0u;
+		return self.gate.compareExchangeStrong(&expected, 1u, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE);
+	}
+
 	public FontGlyph? glyph(int codepoint, bool render) {
 		if (codepoint < 0 || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) { throw "Invalid font Unicode scalar"; }
-		try { return self.glyphByIndex(self.characters.glyphIndex(codepoint), render); }
-		catch (string error) { return null; }
+		if (!self.claimGlyph()) { throw "FreeType face is already loading a glyph"; }
+		FontGlyph? result = null;
+		try { result = self.glyphByIndex(self.characters.glyphIndex(codepoint), render); }
+		catch (string error) { result = null; }
+		finally { self.gate.store(0u, MemoryOrder.RELEASE); }
+		return result;
 	}
 
 	public FontGlyph glyphByIndex(int glyph, bool render) {
@@ -144,7 +95,6 @@ class HintedTrueTypeFace implements IFontFace {
 		long long advance = OpenTypeFixed.pixelRound(self.outlines.load(glyph, self.scale, outline));
 		if (!render) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_UNSUPPORTED, 0, new Bytes()); }
 		if (outline.isEmpty()) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_GRAY, 256, new Bytes()); }
-		if (self.nativeVectorInk && outline.hasGlyphProgram) { throw "TrueType outline needs the native vector hinter"; }
-		return outline.rasterize(advance, self.nativeVectorInk);
+		return outline.rasterize(advance, self.fixedCrossings);
 	}
 }

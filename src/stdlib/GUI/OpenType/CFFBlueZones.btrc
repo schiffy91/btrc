@@ -1,54 +1,136 @@
 import Library.Vector;
 
 import ./CFFTables.btrc;
+import ./OpenTypeData.btrc;
 
-/* Type 2 alignment zones are pairs of delta-encoded character-space
- * coordinates. A stem touching a zone needs coordinated blue alignment. */
+class CFFBlueCapture {
+	public bool captured;
+	public bool alignTop;
+	public long long target;
+
+	public CFFBlueCapture(bool captured, bool alignTop, long long target) {
+		self.captured = captured;
+		self.alignTop = alignTop;
+		self.target = target;
+	}
+}
+
+/* Type 2 alignment zones (BlueValues, OtherBlues, FamilyBlues, FamilyOtherBlues)
+ * are pairs of delta-encoded character-space coordinates. */
 class CFFBlueZones {
-	private Vector<int> bounds = [];
+	private Vector<int> zoneLow = [];
+	private Vector<int> zoneHigh = [];
+	private Vector<bool> zoneTop = [];
+	private Vector<int> familyLow = [];
+	private Vector<int> familyHigh = [];
+	private Vector<bool> familyTop = [];
 	private int fuzz = 1;
-	private bool usable = true;
-	private bool familyZones = false;
-	private int baseline = -1;
+	private int blueShift = 7;
+	private double blueScale = 0.039625;
+
+	public CFFBlueZones() {}
 
 	public void read(CFFDict dictionary) {
-		if (dictionary.count(267) >= 0) {
-			if (dictionary.count(267) != 1) { self.usable = false; return; }
-			double n = dictionary.number(267, 0);
-			if (!(n >= 0.0 && n <= 32767.0) || (double)(int)n != n) { self.usable = false; return; }
-			self.fuzz = (int)n;
+		if (dictionary.count(265) == 1) {
+			double value = dictionary.number(265, 0);
+			if (value > 0.0 && value <= 1.0) { self.blueScale = value; }
+		}
+		if (dictionary.count(266) == 1) {
+			double value = dictionary.number(266, 0);
+			if (value >= 0.0 && value <= 32767.0) { self.blueShift = (int)value; }
+		}
+		if (dictionary.count(267) == 1) {
+			double value = dictionary.number(267, 0);
+			if (value >= 0.0 && value <= 32767.0) { self.fuzz = (int)value; }
 		}
 		for (int key = 6; key <= 9; key++) {
 			int count = dictionary.count(key);
-			if (count < 0) { continue; }
-			if (key >= 8 && count > 0) { self.familyZones = true; }
-			if ((count & 1) != 0 || count > (key == 6 || key == 8 ? 14 : 10)) { self.usable = false; return; }
+			if (count < 2 || (count & 1) != 0) { continue; }
+			int limit = key == 6 || key == 8 ? 14 : 10;
+			if (count > limit) { count = limit; }
 			int edge = 0;
+			int low = 0;
 			for (int i = 0; i < count; i++) {
 				double delta = dictionary.number(key, i);
-				if (!(delta >= -65535.0 && delta <= 65535.0) || (double)(int)delta != delta || ((i & 1) != 0 && delta < 0.0)) { self.usable = false; return; }
-				edge += (int)delta;
-				if (edge < -32768 || edge > 32767) { self.usable = false; return; }
-				self.bounds.push(edge);
-				// BlueValues begins with its bottom zone. Every OtherBlues
-				// pair is a bottom zone, with the flat edge at the higher value.
-				if ((i & 1) != 0 && edge == 0 && (key == 7 || (key == 6 && i == 1))) { self.baseline = self.bounds.size() - 2; }
+				if (!(delta >= -65535.0 && delta <= 65535.0)) { break; }
+				edge += (int)round(delta);
+				if (edge < -32768 || edge > 32767) { break; }
+				if ((i & 1) == 0) {
+					low = edge;
+				} else {
+					int high = edge < low ? low : edge;
+					// BlueValues / FamilyBlues begin with a bottom zone; subsequent pairs
+					// are top zones. Every OtherBlues / FamilyOtherBlues pair is a bottom zone.
+					bool isTop = (key == 6 || key == 8) && i > 1;
+					if (key == 6 || key == 7) {
+						self.zoneLow.push(low);
+						self.zoneHigh.push(high);
+						self.zoneTop.push(isTop);
+					} else {
+						self.familyLow.push(low);
+						self.familyHigh.push(high);
+						self.familyTop.push(isTop);
+					}
+				}
 			}
 		}
 	}
 
-	public bool allowsStem(int bottom, int top, bool allowBaseline) {
-		if (!self.usable) { return false; }
-		for (int i = 0; i < self.bounds.size(); i += 2) {
-			int low = self.bounds.get(i) - self.fuzz;
-			int high = self.bounds.get(i + 1) + self.fuzz;
-			if (low <= top && top <= high) { return false; }
-			if (low <= bottom && bottom <= high) {
-				// At zero the baseline already lies on a device pixel. A
-				// family zone can override the face's chosen flat edge.
-				if (!allowBaseline || self.familyZones || bottom != 0 || i != self.baseline) { return false; }
+	private int effectiveFlat(int flat, bool isTop, long long deviceScale) {
+		int chosen = flat;
+		long long bestDistance = 65536LL;
+		for (int i = 0; i < self.familyLow.size(); i++) {
+			if (self.familyTop.get(i) != isTop) { continue; }
+			int candidate = isTop ? self.familyLow.get(i) : self.familyHigh.get(i);
+			long long diff = (long long)(flat - candidate);
+			if (diff < 0LL) { diff = -diff; }
+			long long dsDiff = diff * deviceScale;
+			if (dsDiff < bestDistance) {
+				bestDistance = dsDiff;
+				chosen = candidate;
 			}
 		}
-		return true;
+		return chosen;
+	}
+
+	public CFFBlueCapture capture(long long bottomFixed, long long topFixed, long long deviceScale, long long fullScale) {
+		if (self.zoneLow.size() == 0) { return CFFBlueCapture(false, false, 0LL); }
+		double scaleFloat = (double)fullScale / (64.0 * 65536.0);
+		bool suppressOvershoot = scaleFloat < self.blueScale;
+		// Adobe CFF blue-zone boost below BlueScale: pushes top flat edges upward
+		// and bottom flat edges downward by up to half a pixel at small sizes.
+		double boostPixels = 0.0;
+		if (suppressOvershoot) {
+			boostPixels = 0.5 - 12.5 * scaleFloat;
+			if (boostPixels < 0.0) { boostPixels = 0.0; }
+		}
+		long long fuzzFixed = (long long)self.fuzz * 65536LL;
+
+		for (int i = 0; i < self.zoneLow.size(); i++) {
+			bool isTop = self.zoneTop.get(i);
+			long long zLow = (long long)self.zoneLow.get(i) * 65536LL;
+			long long zHigh = (long long)self.zoneHigh.get(i) * 65536LL;
+			if (isTop && topFixed >= zLow - fuzzFixed && topFixed <= zHigh + fuzzFixed) {
+				int flat = self.effectiveFlat(self.zoneLow.get(i), true, deviceScale);
+				long long dsFlat = (long long)floor((double)flat * scaleFloat + boostPixels + 0.5) * 65536LL;
+				if (suppressOvershoot) { return CFFBlueCapture(true, true, dsFlat); }
+				long long overUnits = topFixed - zLow;
+				long long dsOver = overUnits > 0LL ? OpenTypeFixed.mul(overUnits, deviceScale) : 0LL;
+				if (overUnits >= (long long)self.blueShift * 65536LL && dsOver < 65536LL) { dsOver = 65536LL; }
+				dsOver = OpenTypeFixed.floorDiv(dsOver + 32768LL, 65536LL) * 65536LL;
+				return CFFBlueCapture(true, true, dsFlat + dsOver);
+			}
+			if (!isTop && bottomFixed >= zLow - fuzzFixed && bottomFixed <= zHigh + fuzzFixed) {
+				int flat = self.effectiveFlat(self.zoneHigh.get(i), false, deviceScale);
+				long long dsFlat = (long long)floor((double)flat * scaleFloat - boostPixels + 0.5) * 65536LL;
+				if (suppressOvershoot) { return CFFBlueCapture(true, false, dsFlat); }
+				long long overUnits = zHigh - bottomFixed;
+				long long dsOver = overUnits > 0LL ? OpenTypeFixed.mul(overUnits, deviceScale) : 0LL;
+				if (overUnits >= (long long)self.blueShift * 65536LL && dsOver < 65536LL) { dsOver = 65536LL; }
+				dsOver = OpenTypeFixed.floorDiv(dsOver + 32768LL, 65536LL) * 65536LL;
+				return CFFBlueCapture(true, false, dsFlat - dsOver);
+			}
+		}
+		return CFFBlueCapture(false, false, 0LL);
 	}
 }

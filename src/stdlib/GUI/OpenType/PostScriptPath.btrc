@@ -1,11 +1,12 @@
+import Library.Bytes;
 import Library.Vector;
 
 import ./CFFBlueZones.btrc;
 import ./GlyphOutline.btrc;
 import ./OpenTypeData.btrc;
 
-/* Cubic outlines in both PostScript charstring formats use a relative pen
- * in 16.16 font units. Closing a contour preserves the current point. */
+/* Cubic outlines in PostScript Type 2 charstrings use a relative pen in
+ * 16.16 font units. Closing a contour preserves the current point. */
 class PostScriptPath {
 	public long long x = 0LL;
 	public long long y = 0LL;
@@ -14,73 +15,152 @@ class PostScriptPath {
 	private bool open = false;
 	private bool deviceSpace;
 	private long long deviceScale;
-	private Vector<int> stemEdges = [];
+	private bool useMatrix = false;
+	private double m0 = 0.0;
+	private double m1 = 0.0;
+	private double m2 = 0.0;
+	private double m3 = 0.0;
+	private double m4 = 0.0;
+	private double m5 = 0.0;
+	private double pixelSize = 0.0;
+	private Vector<long long> stemEdges = [];
 	private Vector<long long> fittedEdges = [];
 	private Vector<long long> slopes = [];
-	public bool integral = true;
 
-	public PostScriptPath(GlyphOutline outline, long long scale, bool deviceSpace) {
+	public PostScriptPath(GlyphOutline outline, long long scale, bool deviceSpace, int pixels = 0, Vector<double>? matrix = null, int unitsPerEm = 1000) {
 		self.outline = outline;
 		self.scale = scale;
 		self.deviceSpace = deviceSpace;
 		self.deviceScale = (scale + 32LL) / 64LL;
-	}
-
-	/* One free or baseline-anchored horizontal stem translates the outline.
-	 * Snap its nearer edge to the pixel grid, preferring upward motion
-	 * when equally close. An even device-space width preserves both
-	 * half-widths exactly at 16.16 precision. */
-	public bool alignStem(long long bottom, long long width, CFFBlueZones blues, bool single) {
-		if (!self.deviceSpace || self.outline.pointCount() != 0 || width <= 0LL || bottom % 65536LL != 0LL || width % 65536LL != 0LL) { return false; }
-		if (bottom < -2147483648LL || bottom + width > 2147483647LL) { return false; }
-		int low = (int)(bottom / 65536LL);
-		int high = low + (int)(width / 65536LL);
-		if (!blues.allowsStem(low, high, single)) { return false; }
-		long long a = (long long)low * self.deviceScale;
-		long long b = (long long)high * self.deviceScale;
-		if (((b - a) & 1LL) != 0LL) { return false; }
-		long long lower = OpenTypeFixed.floorDiv(a + 32768LL, 65536LL) * 65536LL - a;
-		long long upper = OpenTypeFixed.floorDiv(b + 32768LL, 65536LL) * 65536LL - b;
-		long long lowerDistance = lower < 0LL ? -lower : lower;
-		long long upperDistance = upper < 0LL ? -upper : upper;
-		long long shift = lowerDistance < upperDistance || (lowerDistance == upperDistance && lower > upper) ? lower : upper;
-		int previous = self.stemEdges.size() - 1;
-		if (previous >= 0) {
-			// Keep at least a full device pixel between stems before and
-			// after fitting. Closer stems need coordinated counter fitting.
-			if (a - (long long)self.stemEdges.get(previous) * self.deviceScale < 65536LL || a + shift - self.fittedEdges.get(previous) < 65536LL) { return false; }
+		self.pixelSize = (double)pixels;
+		if (matrix != null && matrix.size() == 6 && pixels > 0) {
+			double expected = 1.0 / (double)unitsPerEm;
+			double a = matrix.get(0);
+			double b = matrix.get(1);
+			double c = matrix.get(2);
+			double d = matrix.get(3);
+			double tx = matrix.get(4);
+			double ty = matrix.get(5);
+			double diffA = a - expected;
+			if (diffA < 0.0) { diffA = -diffA; }
+			double diffD = d - expected;
+			if (diffD < 0.0) { diffD = -diffD; }
+			bool standard = diffA <= expected * 0.001 && diffD <= expected * 0.001 && b == 0.0 && c == 0.0 && tx == 0.0 && ty == 0.0;
+			if (!standard) {
+				self.useMatrix = true;
+				self.m0 = a;
+				self.m1 = b;
+				self.m2 = c;
+				self.m3 = d;
+				self.m4 = tx;
+				self.m5 = ty;
+			}
 		}
-		self.addEdge(low, a + shift);
-		self.addEdge(high, b + shift);
-		return true;
 	}
 
-	private void addEdge(int design, long long position) {
+	private long long scaleFixed(long long design1616) {
+		if ((design1616 & 65535LL) == 0LL) { return (design1616 / 65536LL) * self.deviceScale; }
+		return OpenTypeFixed.mul(design1616, self.deviceScale);
+	}
+
+	/* Rebuild the active horizontal hint map from declared stems and an
+	 * optional hintmask bitset. Non-overlapping stems are sorted and fitted
+	 * against alignment zones or the pixel grid in monotonic order. */
+	public void rebuildHints(Vector<long long> bottoms, Vector<long long> widths, Bytes? mask, CFFBlueZones blues) {
+		self.stemEdges.clear();
+		self.fittedEdges.clear();
+		self.slopes.clear();
+		if (!self.deviceSpace || self.useMatrix || bottoms.size() == 0) { return; }
+
+		Vector<long long> activeBottoms = [];
+		Vector<long long> activeWidths = [];
+		for (int i = 0; i < bottoms.size(); i++) {
+			if (mask != null) {
+				int byteIndex = i / 8;
+				if (byteIndex >= mask.length()) { continue; }
+				if ((mask.get(byteIndex) & (128 >> (i % 8))) == 0) { continue; }
+			}
+			long long w = widths.get(i);
+			if (w <= 0LL) { continue; }
+			long long b = bottoms.get(i);
+			int insertAt = activeBottoms.size();
+			while (insertAt > 0 && activeBottoms.get(insertAt - 1) > b) { insertAt--; }
+			activeBottoms.insert(insertAt, b);
+			activeWidths.insert(insertAt, w);
+		}
+
+		for (int i = 0; i < activeBottoms.size(); i++) {
+			long long low = activeBottoms.get(i);
+			long long width = activeWidths.get(i);
+			long long high = low + width;
+			if (low < -2147483648LL || high > 2147483647LL) { continue; }
+			int previous = self.stemEdges.size() - 1;
+			if (previous >= 0 && low <= self.stemEdges.get(previous)) { continue; }
+			long long a = self.scaleFixed(low);
+			long long b = self.scaleFixed(high);
+			long long dsWidth = b - a;
+			var blue = blues.capture(low, high, self.deviceScale, self.scale);
+			long long fittedLow = a;
+			long long fittedHigh = b;
+			if (blue.captured) {
+				if (blue.alignTop) {
+					fittedHigh = blue.target;
+					fittedLow = fittedHigh - dsWidth;
+				} else {
+					fittedLow = blue.target;
+					fittedHigh = fittedLow + dsWidth;
+				}
+			} else {
+				long long lower = OpenTypeFixed.floorDiv(a + 32768LL, 65536LL) * 65536LL - a;
+				long long upper = OpenTypeFixed.floorDiv(b + 32768LL, 65536LL) * 65536LL - b;
+				long long lowerDistance = lower < 0LL ? -lower : lower;
+				long long upperDistance = upper < 0LL ? -upper : upper;
+				long long shift = lowerDistance < upperDistance || (lowerDistance == upperDistance && lower > upper) ? lower : upper;
+				fittedLow = a + shift;
+				fittedHigh = b + shift;
+			}
+			if (previous >= 0 && fittedLow < self.fittedEdges.get(previous)) {
+				fittedLow = self.fittedEdges.get(previous);
+				fittedHigh = fittedLow + dsWidth;
+			}
+			self.addEdge(low, fittedLow);
+			self.addEdge(high, fittedHigh);
+		}
+	}
+
+	private void addEdge(long long design1616, long long position) {
 		int previous = self.stemEdges.size() - 1;
 		if (previous >= 0) {
-			int span = design - self.stemEdges.get(previous);
+			long long deltaDesign = design1616 - self.stemEdges.get(previous);
 			long long rise = position - self.fittedEdges.get(previous);
-			self.slopes.set(previous, (rise + (long long)span / 2LL) / (long long)span);
+			if (deltaDesign > 0LL) {
+				if ((deltaDesign & 65535LL) == 0LL) {
+					long long span = deltaDesign / 65536LL;
+					self.slopes.set(previous, (rise + span / 2LL) / span);
+				} else {
+					self.slopes.set(previous, OpenTypeFixed.div(rise, deltaDesign));
+				}
+			}
 		}
-		self.stemEdges.push(design);
+		self.stemEdges.push(design1616);
 		self.fittedEdges.push(position);
 		self.slopes.push(self.deviceScale);
 	}
 
-	private long long pixelY(int design) {
-		if (self.stemEdges.size() == 0) { return (long long)design * self.deviceScale; }
+	private long long pixelY(long long design1616) {
+		if (self.stemEdges.size() == 0) { return self.scaleFixed(design1616); }
 		int first = 0;
 		int limit = self.stemEdges.size();
 		while (first < limit) {
 			int middle = first + (limit - first) / 2;
-			if (self.stemEdges.get(middle) <= design) { first = middle + 1; }
+			if (self.stemEdges.get(middle) <= design1616) { first = middle + 1; }
 			else { limit = middle; }
 		}
-		// An edge is the exact origin of the following segment. Using the
-		// preceding rounded slope at the edge can lose 1/64 of a pixel.
 		int edge = first == 0 ? 0 : first - 1;
 		long long slope = first == 0 ? self.deviceScale : self.slopes.get(edge);
-		return self.fittedEdges.get(edge) + (long long)(design - self.stemEdges.get(edge)) * slope;
+		long long diff = design1616 - self.stemEdges.get(edge);
+		if ((diff & 65535LL) == 0LL) { return self.fittedEdges.get(edge) + (diff / 65536LL) * slope; }
+		return self.fittedEdges.get(edge) + OpenTypeFixed.mul(diff, slope);
 	}
 
 	public void close() {
@@ -90,12 +170,19 @@ class PostScriptPath {
 
 	private void point(GlyphPointKind kind) {
 		if (self.x > 8589934592LL || self.x < -8589934592LL || self.y > 8589934592LL || self.y < -8589934592LL) { throw "PostScript outline leaves the supported coordinate range"; }
+		if (self.useMatrix) {
+			double ux = (double)self.x / 65536.0;
+			double uy = (double)self.y / 65536.0;
+			double px = (self.m0 * ux + self.m2 * uy + self.m4) * self.pixelSize * 64.0;
+			double py = (self.m1 * ux + self.m3 * uy + self.m5) * self.pixelSize * 64.0;
+			self.outline.addPoint((long long)floor(px), (long long)floor(py), kind);
+			return;
+		}
 		if (self.deviceSpace) {
 			// A Type 2 device transform uses a 16.16 pixel-per-unit scale.
 			// Floor to 26.6 after multiplying, including negative positions.
-			if (self.x % 65536LL != 0LL || self.y % 65536LL != 0LL) { self.integral = false; }
-			long long dx = OpenTypeFixed.floorDiv((self.x / 65536LL) * self.deviceScale, 1024LL);
-			long long dy = OpenTypeFixed.floorDiv(self.pixelY((int)(self.y / 65536LL)), 1024LL);
+			long long dx = OpenTypeFixed.floorDiv(self.scaleFixed(self.x), 1024LL);
+			long long dy = OpenTypeFixed.floorDiv(self.pixelY(self.y), 1024LL);
 			self.outline.addPoint(dx, dy, kind);
 		} else {
 			self.outline.addPoint(OpenTypeFixed.mul(PostScriptPath.units(self.x), self.scale), OpenTypeFixed.mul(PostScriptPath.units(self.y), self.scale), kind);

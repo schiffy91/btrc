@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
 	void* lig = btrcSystemTextShapeLine(font, "fi", 0.0, 0);
 	void* pair = btrcSystemTextShapeLine(font, "AV", 0.0, 0);
 	void* ellipsis = btrcSystemTextShapeLine(font, "AVfi", 8.0, 1);
-	void* unavailable = btrcSystemTextShapeLine(font, "F", 0.0, 0);
+	void* unavailable = btrcSystemTextShapeLine(font, "Z", 0.0, 0);
 	btrcSystemTextCloseFont(font);
 	if (lig == null || pair == null || ellipsis == null || unavailable != null) { return 4; }
 	if (btrcSystemTextAdvance(lig) != 8.0 || btrcSystemTextAdvance(pair) != 15.0 || btrcSystemTextAdvance(ellipsis) != 8.0) { return 5; }

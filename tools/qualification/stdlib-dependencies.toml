@@ -296,12 +296,6 @@ os = ["android", "linux", "macos"]
 resolution = "Android, Linux and macOS use first-party code for plain HTTP and HTTP forward proxies. Linux also supports SOCKS4/4a/5/5h for plain HTTP. An installed curl handles explicit Proxy-Authorization fields on Linux SOCKS routes and optional SOCKS5 GSSAPI. iOS uses NSURLSession. macOS uses NSURLSession for direct HTTPS and ordinary HTTP CONNECT proxies, with installed curl preserving its configured trust store and unsupported proxy or request options. Android and Linux retain curl for HTTPS and remaining proxy paths. Windows uses WinHTTP."
 
 [[pending]]
-dependency = "FreeType"
-module = "GUI/FreeType/FreeTypeFace"
-os = ["linux", "macos", "windows"]
-resolution = "A first-party TrueType reader and rasterizer in BTRC behind the same face contract."
-
-[[pending]]
 dependency = "alsa-lib"
 module = "Audio/Linux/LinuxAudioDevice"
 os = ["linux"]

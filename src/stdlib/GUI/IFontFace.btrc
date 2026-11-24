@@ -91,8 +91,8 @@ class FontGlyph {
  * returns the coverage bitmap. Null means the face could not load a glyph
  * for that codepoint; callers skip it rather than substitute another font.
  * A codepoint that is not a Unicode scalar value is rejected. A face
- * need not admit overlapping glyph calls: FreeTypeFace throws when another
- * load on the same face is in progress. */
+ * need not admit overlapping glyph calls: first-party faces throw when
+ * another load on the same face is in progress. */
 interface IFontFace {
 	FontMetrics metrics();
 	FontGlyph? glyph(int codepoint, bool render);

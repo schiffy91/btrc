@@ -5,21 +5,22 @@ import Library.Image.Pixels;
 
 import ./OpenTypeData.btrc;
 
-/* Embedded color bitmap strikes (OpenType CBLC/CBDT). The caller can
- * measure the bitmap's advance or take an owned monochrome-coverage
- * snapshot, as required by IFontFace. */
+/* Embedded bitmap strikes: OpenType CBLC/CBDT color PNG strikes as well as
+ * EBLC/EBDT and Apple bloc/bdat monochrome and grayscale strikes. */
 class BitmapStrike {
 	private OpenTypeData data;
 	private int list;
 	private int end;
 	private int tables;
 	private OpenTypeSpan images;
+	private int bitDepth;
 	public int ascender;
 	public int height;
 
-	public BitmapStrike(OpenTypeData data, OpenTypeSpan locations, OpenTypeSpan images, int record) {
+	public BitmapStrike(OpenTypeData data, OpenTypeSpan locations, OpenTypeSpan images, int record, int bitDepth) {
 		self.data = data;
 		self.images = images;
+		self.bitDepth = bitDepth;
 		long long offset = data.u32(record);
 		long long length = data.u32(record + 4);
 		long long count = data.u32(record + 8);
@@ -36,23 +37,32 @@ class BitmapStrike {
 			int last = data.u16(at + 2);
 			if (first <= previous || last < first) { throw "Invalid bitmap strike glyph ranges"; }
 			previous = last;
-			long long offset = data.u32(at + 4);
-			if (offset < (long long)self.tables * 8LL || offset > (long long)(self.end - self.list) - 8LL) { throw "Invalid bitmap strike glyph index"; }
-			int subtable = self.list + (int)offset;
+			long long subOffset = data.u32(at + 4);
+			if (subOffset < (long long)self.tables * 8LL || subOffset > (long long)(self.end - self.list) - 8LL) { throw "Invalid bitmap strike glyph index"; }
+			int subtable = self.list + (int)subOffset;
 			int index = data.u16(subtable);
 			int image = data.u16(subtable + 2);
-			if (index < 1 || index > 5 || image < 17 || image > 19 || (image == 19 && index != 2 && index != 5)) { throw "Unsupported bitmap strike format"; }
+			if (index < 1 || index > 5) { throw "Unsupported bitmap strike index format"; }
+			if (bitDepth == 32) {
+				if (image < 17 || image > 19 || (image == 19 && index != 2 && index != 5)) { throw "Unsupported color bitmap strike format"; }
+			} else {
+				bool valid = image == 1 || image == 2 || image == 5 || image == 6 || image == 7;
+				if (!valid || (image == 5 && index != 2 && index != 5)) { throw "Unsupported bitmap strike format"; }
+			}
 		}
 	}
 
-	class BitmapStrike? select(OpenTypeData data, OpenTypeSpan locations, OpenTypeSpan images, int ppem) {
-		if (locations.length < 8 || images.length < 4 || data.u32(locations.offset) != 0x30000LL || data.u32(images.offset) != 0x30000LL) { throw "Invalid color bitmap tables"; }
+	class BitmapStrike? select(OpenTypeData data, OpenTypeSpan locations, OpenTypeSpan images, int ppem, bool color) {
+		long long expectedVersion = color ? 0x30000LL : 0x20000LL;
+		if (locations.length < 8 || images.length < 4 || data.u32(locations.offset) != expectedVersion || data.u32(images.offset) != expectedVersion) { throw "Invalid embedded bitmap tables"; }
 		long long count = data.u32(locations.offset + 4);
 		if (count > (long long)(locations.length - 8) / 48LL) { throw "Truncated bitmap strikes"; }
 		for (int i = 0; i < (int)count; i++) {
 			int at = locations.offset + 8 + i * 48;
-			if (data.u8(at + 44) == ppem && data.u8(at + 45) == ppem && data.u8(at + 46) == 32 && data.u8(at + 47) == 1) {
-				return new BitmapStrike(data, locations, images, at);
+			int depth = data.u8(at + 46);
+			bool depthOk = (color && depth == 32) || (!color && (depth == 1 || depth == 2 || depth == 4 || depth == 8));
+			if (data.u8(at + 44) == ppem && data.u8(at + 45) == ppem && depthOk && (data.u8(at + 47) & 1) != 0) {
+				return new BitmapStrike(data, locations, images, at, depth);
 			}
 		}
 		return null;
@@ -93,6 +103,54 @@ class BitmapStrike {
 		 * and 16-bit Rec.709 luminance coefficients. */
 		long long light = 13937LL * (long long)(r * r) + 46868LL * (long long)(g * g) + 4731LL * (long long)(b * b);
 		return alpha - (int)(light / (65536LL * (long long)alpha));
+	}
+
+	private FontGlyph decodeRaw(int image, int length, bool bitAligned, int width, int rows, int left, int top, long long advance, bool render) {
+		if (!render) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_UNSUPPORTED, 0, new Bytes()); }
+		if (width == 0 || rows == 0) {
+			FontPixelMode mode = self.bitDepth == 1 ? FONT_PIXEL_MONO : FONT_PIXEL_GRAY;
+			return new FontGlyph(advance, left, top, 0, 0, 0, mode, self.bitDepth == 1 ? 0 : 256, new Bytes());
+		}
+		if (self.bitDepth == 1) {
+			int pitch = (width + 7) / 8;
+			var out = Bytes.zeros(pitch * rows);
+			if (!bitAligned) {
+				if (length < pitch * rows) { throw "Truncated byte-aligned bitmap"; }
+				for (int i = 0; i < pitch * rows; i++) { out.set(i, self.data.u8(image + i)); }
+			} else {
+				int totalBits = width * rows;
+				if (length < (totalBits + 7) / 8) { throw "Truncated bit-aligned bitmap"; }
+				int bitPos = 0;
+				for (int y = 0; y < rows; y++) {
+					for (int x = 0; x < width; x++) {
+						int srcByte = self.data.u8(image + bitPos / 8);
+						int bit = (srcByte >> (7 - (bitPos % 8))) & 1;
+						if (bit != 0) {
+							int dstIdx = y * pitch + x / 8;
+							out.set(dstIdx, out.get(dstIdx) | (128 >> (x % 8)));
+						}
+						bitPos++;
+					}
+				}
+			}
+			return new FontGlyph(advance, left, top, width, rows, pitch, FONT_PIXEL_MONO, 0, out);
+		}
+		var gray = Bytes.zeros(width * rows);
+		int maskBits = (1 << self.bitDepth) - 1;
+		int scale = 255 / maskBits;
+		int bitPos = 0;
+		for (int y = 0; y < rows; y++) {
+			if (!bitAligned) { bitPos = y * (((width * self.bitDepth + 7) / 8) * 8); }
+			for (int x = 0; x < width; x++) {
+				int byteIdx = bitPos / 8;
+				if (byteIdx >= length) { throw "Truncated grayscale bitmap"; }
+				int shift = 8 - self.bitDepth - (bitPos % 8);
+				int sample = (self.data.u8(image + byteIdx) >> shift) & maskBits;
+				gray.set(y * width + x, sample * scale);
+				bitPos += self.bitDepth;
+			}
+		}
+		return new FontGlyph(advance, left, top, width, rows, width, FONT_PIXEL_GRAY, 256, gray);
 	}
 
 	public FontGlyph? glyph(int id, bool render) {
@@ -140,21 +198,25 @@ class BitmapStrike {
 		if (to == from) { return null; }
 		int image = self.images.offset + (int)(base + from);
 		int length = (int)(to - from);
-		if (imageFormat == 17 || imageFormat == 18) {
-			int size = imageFormat == 17 ? 5 : 8;
+		if (imageFormat == 1 || imageFormat == 2 || imageFormat == 6 || imageFormat == 7 || imageFormat == 17 || imageFormat == 18) {
+			int size = (imageFormat == 6 || imageFormat == 7 || imageFormat == 18) ? 8 : 5;
 			if (length < size) { throw "Truncated bitmap glyph metrics"; }
 			metrics = image;
 			image += size;
 			length -= size;
-		} else if (imageFormat != 19 || metrics < 0) { throw "Unsupported bitmap glyph format"; }
-		if (length < 4) { throw "Truncated bitmap image"; }
-		long long size = self.data.u32(image);
-		if (size > (long long)(length - 4)) { throw "Truncated bitmap PNG"; }
+		} else if ((imageFormat != 5 && imageFormat != 19) || metrics < 0) { throw "Unsupported bitmap glyph format"; }
 		int rows = self.data.u8(metrics);
 		int width = self.data.u8(metrics + 1);
 		int left = self.data.s8(metrics + 2);
 		int top = self.data.s8(metrics + 3);
 		long long advance = (long long)self.data.u8(metrics + 4) * 64LL;
+		if (imageFormat < 17) {
+			bool bitAligned = imageFormat == 2 || imageFormat == 5 || imageFormat == 7;
+			return self.decodeRaw(image, length, bitAligned, width, rows, left, top, advance, render);
+		}
+		if (length < 4) { throw "Truncated bitmap image"; }
+		long long size = self.data.u32(image);
+		if (size > (long long)(length - 4)) { throw "Truncated bitmap PNG"; }
 		var png = self.data.slice(image + 4, (int)size);
 		var bitmap = PNG.decode(png, width * rows);
 		if (bitmap.width != width || bitmap.height != rows) { throw "PNG does not match its bitmap strike metrics"; }

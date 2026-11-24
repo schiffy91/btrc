@@ -2,12 +2,13 @@ import Library.Bytes;
 import Library.GUI.IFontFace;
 
 import ./BitmapStrike.btrc;
-import ./SFNTDirectory.btrc;
 import ./OpenTypeCharacterMap.btrc;
+import ./OpenTypeData.btrc;
 import ./OpenTypeHorizontalMetrics.btrc;
+import ./SFNTDirectory.btrc;
 
-/* Bitmap-only SFNTs carrying horizontal PNG strikes. Read just the offset
- * table first so ordinary outline fonts can go straight to their provider. */
+/* Bitmap-only SFNTs carrying horizontal CBLC/CBDT color PNG strikes or
+ * EBLC/EBDT / bloc/bdat monochrome and grayscale strikes. */
 class ColorBitmapFace implements IFontFace {
 	private OpenTypeCharacterMap characters;
 	private OpenTypeHorizontalMetrics horizontal;
@@ -17,41 +18,12 @@ class ColorBitmapFace implements IFontFace {
 	private Atomic<uint> gate;
 	private int grayCount = 0;
 
-	class ColorBitmapFace? tryOpen(string path, int pixels) {
-		if (path == null || pixels < 1 || pixels > 255) { return null; }
-		string name = path.toLower();
-		if (!name.endsWith(".ttf") && !name.endsWith(".otf")) { return null; }
-		FILE* file = fopen(path, "rb");
-		if (file == null) { return null; }
-		try {
-			var header = Bytes.zeros(12);
-			if (fread(header.data, 1, 12, file) != (size_t)12 || header.readU32BE(0) != 0x10000U) { return null; }
-			int count = header.readU16BE(4);
-			if (count == 0 || count > 4096) { return null; }
-			var directory = Bytes.zeros(count * 16);
-			if (fread(directory.data, 1, (size_t)directory.length(), file) != (size_t)directory.length()) { return null; }
-			bool color = false;
-			for (int i = 0; i < count; i++) {
-				unsigned int tag = directory.readU32BE(i * 16);
-				if (tag == 0x43424c43U) { color = true; } // CBLC
-				// Scalable outlines (glyf, CFF, CFF2), other bitmap tables
-				// (sbix, EBLC, bloc), and variations (fvar) stay with the SDK.
-				if (tag == 0x676c7966U || tag == 0x43464620U || tag == 0x43464632U || tag == 0x73626978U || tag == 0x45424c43U || tag == 0x626c6f63U || tag == 0x66766172U) { return null; }
-			}
-			if (!color || fseek(file, 0L, SEEK_END) != 0) { return null; }
-			long length = ftell(file);
-			if (length < 12L || length > 268435456L || fseek(file, 0L, SEEK_SET) != 0) { return null; }
-			var bytes = Bytes.zeros((int)length);
-			if (fread(bytes.data, 1, (size_t)length, file) != (size_t)length) { return null; }
-			return new ColorBitmapFace(bytes, pixels);
-		} catch (string error) { return null; }
-		finally { fclose(file); }
-	}
-
-	public ColorBitmapFace(Bytes bytes, int pixels) {
+	public ColorBitmapFace(Bytes bytes, int pixels, int faceOffset = 0) {
 		self.gate.init(0u);
+		if (pixels < 1 || pixels > 255) { throw "Invalid bitmap strike pixel size"; }
 		var data = OpenTypeData(bytes);
-		var directory = SFNTDirectory(data);
+		int offset = faceOffset == 0 ? SFNTDirectory.firstFaceOffset(data) : faceOffset;
+		var directory = SFNTDirectory(data, offset, true);
 		var head = directory.required(0x68656164LL, 54);
 		int units = data.u16(head.offset + 18);
 		if (units < 16 || units > 16384) { throw "Invalid bitmap font units"; }
@@ -64,15 +36,34 @@ class ColorBitmapFace implements IFontFace {
 		var hmtx = directory.required(0x686d7478LL, metrics * 4 + (glyphs - metrics) * 2);
 		self.horizontal = OpenTypeHorizontalMetrics(data, hmtx, metrics);
 		self.scale = OpenTypeFixed.div((long long)pixels * 64LL, (long long)units);
-		var cmap = directory.required(0x636d6170LL, 4);
-		self.characters = OpenTypeCharacterMap(data, cmap, glyphs);
-		if (!self.characters.unambiguousUnicodeMap(cmap)) { throw "No supported bitmap character map"; }
-		var locations = directory.required(0x43424c43LL, 8);
-		var images = directory.required(0x43424454LL, 4);
-		var strike = BitmapStrike.select(data, locations, images, pixels);
-		if (strike == null) { throw "No supported color bitmap strike at the requested size"; }
-		self.strike = strike;
-		self.lineMetrics = new FontMetrics((long long)strike.ascender * 64LL, (long long)strike.height * 64LL);
+		var cmap = directory.find(0x636d6170LL, 4);
+		var cmapSpan = OpenTypeSpan(0, 0);
+		if (cmap != null) { cmapSpan = cmap; }
+		self.characters = OpenTypeCharacterMap(data, cmapSpan, glyphs);
+
+		BitmapStrike? selected = null;
+		var cblc = directory.find(0x43424c43LL, 8);
+		var cbdt = directory.find(0x43424454LL, 4);
+		if (cblc != null && cbdt != null) {
+			selected = BitmapStrike.select(data, cblc, cbdt, pixels, true);
+		}
+		if (selected == null) {
+			var eblc = directory.find(0x45424c43LL, 8);
+			var ebdt = directory.find(0x45424454LL, 4);
+			if (eblc != null && ebdt != null) {
+				selected = BitmapStrike.select(data, eblc, ebdt, pixels, false);
+			}
+		}
+		if (selected == null) {
+			var bloc = directory.find(0x626c6f63LL, 8);
+			var bdat = directory.find(0x62646174LL, 4);
+			if (bloc != null && bdat != null) {
+				selected = BitmapStrike.select(data, bloc, bdat, pixels, false);
+			}
+		}
+		if (selected == null) { throw "No supported bitmap strike at the requested size"; }
+		self.strike = selected;
+		self.lineMetrics = new FontMetrics((long long)selected.ascender * 64LL, (long long)selected.height * 64LL);
 	}
 
 	public FontMetrics metrics() { return self.lineMetrics; }
@@ -94,8 +85,6 @@ class ColorBitmapFace implements IFontFace {
 		try {
 			var glyph = self.strike.glyph(id, render);
 			if (glyph != null) {
-				// The native bitmap slot retains its gray count on empty glyphs,
-				// including after a measurement-only load of a color glyph.
 				self.grayCount = 256;
 				return glyph;
 			}

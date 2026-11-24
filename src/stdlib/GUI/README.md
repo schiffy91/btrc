@@ -514,7 +514,7 @@ destruction; there is no opaque `Surface.handle` or native surface destructor.
 | `GUIInt.btrc` | Saturating integer geometry for raster measurement. |
 | `Raster.btrc` | BTRC-owned `Surface` storage, resize, clear/fill/blend, bitmap and scalable text, readback/PPM. Colors are `Library.Image` `RGBA` values. |
 | `Font.btrc` / `IFontFace.btrc` | Managed per-surface selection, the `IFontFace` contract and owned glyph/metric snapshots; scalable rasterization lives in `Raster.btrc`. |
-| `FreeType.btrc` / `FreeType/FreeTypeFace.btrc` | Optional `FreeType.load` factory and the private FreeType face (unique SDK owners, admitted glyph snapshots). |
+| `FreeType.btrc` | First-party `FreeType.load` factory dispatching by magic bytes to `OpenType/` and `Bitmap/` readers without `libfreetype`. |
 | `MacOS/` | AppKit provider: `GUIProvider`, `MacOS*` views and application, run-loop signal, composed capture, SDK headers. |
 | `Shim/` | The provider for platforms whose toolkit is reached through a C contract: `GUIProvider`, `WebViewProvider`, `Shim*` views and application, and the contract's headers. |
 | `Linux/` | The contract in GTK4: `GtkShim`, `GtkCanvas`, `GtkControls`, `GtkSurface`, `GtkWeb`. |
@@ -571,7 +571,7 @@ Two backends:
   loading or destroying another font. Native GUI controls use system fonts and
   are not affected by raster font selection.
 
-Optional loading is separate from the SDK-free raster domain:
+File loading is first-party and carries no native SDK or `libfreetype` dependency:
 
 ```btrc
 import Library.GUI.FreeType;
@@ -579,24 +579,40 @@ import Library.GUI.FreeType;
 surface.setFont(FreeType.load("/path/to/font.ttf", 18));
 ```
 
-`.pcf` and gzip-compressed `.pcf.gz` files at their stored pixel size use BTRC's PCF reader. It preserves the fixed strike's native bearings, widths, bitmap row padding, bit order and default glyph. Bitmap-only TrueType files with a horizontal CBDT/CBLC color strike also use a first-party reader at the strike size. It decodes the embedded PNG into the existing grayscale coverage API. Mixed strike formats and unsupported sizes continue through the native FreeType provider.
+`FreeType.load(path, pixelSize)` detects the font format from file header magic
+bytes rather than filename extensions and reads the file into memory at open,
+so loaded faces continue to work if the source file is later unlinked.
 
-Name-keyed CFF1 OpenType files support first-party measurement and grayscale rendering of line and cubic outlines with vertical stems, and one horizontal stem when its scaled width splits evenly in 16.16 coordinates. The horizontal stem may lie outside alignment zones or start on the flat baseline at zero at 1–128 pixels per em. The renderer accepts whole design-unit coordinates, a standard 1000-unit em and the default fill matrix. Glyphs requiring overlapping hint adjustment, other blue-zone capture, mask changes, composites or flex operators use the retained native face.
+Hinted and unhinted TrueType outlines (`.ttf`, `.ttc` face 0, `.woff`,
+`.woff2`) decode through the first-party zlib and Brotli WOFF containers, the
+TrueType bytecode interpreter (general projection and freedom vectors, twilight
+zone, control-value tables, super-rounding, deltas, and point-flag flips), and
+the anti-aliased scanline coverage rasterizer. Name-keyed and CID-keyed
+(`FDArray`/`FDSelect`) CFF1 OpenType fonts (`.otf`, `.otc` face 0, `.woff`,
+`.woff2`) support Type 2 charstrings, `BlueValues`/`OtherBlues`/`FamilyBlues`
+alignment zones with small-size blue boost, horizontal stem fitting,
+`hintmask`/`cntrmask`, `flex`, accented `endchar` (`seac`), custom
+`FontMatrix`, and arbitrary UPM and pixel sizes. Bitmap fonts support X11
+`.pcf`, gzip-compressed `.pcf.gz`, Adobe BDF 2.1/2.2 (`.bdf`), and bitmap-only
+SFNT `CBLC`/`CBDT` color PNG strikes and `EBLC`/`EBDT` (`bloc`/`bdat`)
+monochrome/grayscale strikes at their stored pixel sizes.
 
-Standalone, non-variable `.ttf`, `.woff` and `.woff2` files containing TrueType outlines and grid-fitting bytecode use BTRC's outline reader, hint interpreter and grayscale rasterizer. The web-font containers use the first-party zlib and Brotli decoders. The current reader accepts a single Unicode character map and axis-aligned hint programs. Fonts declaring general-vector instructions in their font or size programs use FreeType from the start. An unsupported glyph instruction switches the face to FreeType using its original font bytes, even after the source path changes. Fonts that require automatic hinting continue through FreeType at open.
+`FreeType.load(path, pixelSize)` throws on a missing path, an unloadable or
+corrupt file, or a nonpositive pixel size instead of silently falling back to
+the bundled 8×8 bitmap font. Face metrics are computed at load. Stateful outline
+and bitmap-strike faces admit one `glyph()` call at a time (overlapping calls
+throw) and return immutable owned snapshots with an explicit 64 MiB bitmap
+limit.
 
-`FreeType.load(path, pixelSize)` throws on a missing path, an unloadable face
-or a nonpositive size instead of silently selecting the bitmap fallback. Face
-metrics are copied at load. The native provider admits one `FT_Load_Char` at a
-time per face (an overlapping call throws) and copies the glyph, including its
-signed-pitch bitmap, into owned storage before the next load can reuse
-FreeType's glyph slot; each bitmap has an explicit 64 MiB allocation limit.
-The face owns the FreeType library and face handles privately and releases the
-face before the library. `FreeType/FreeTypeFace.btrc` records the full
-ownership and snapshot contract. Allocation fault injection and overlapping
-native-thread admission are not qualified. `FontSnapshotConformance.btrc`
-and `GUIFontConformance.btrc` in `src/tests/native/gui/` cover the snapshot
-domain and the real loader.
+Known limitations compared to `libfreetype`: legacy PostScript Type 1
+(`.pfb`/`.pfa`), CFF2 variable-font tables (`CFF2`), and `FREETYPE_PROPERTIES`
+environment tuning are not supported. Unhinted TrueType outlines are rasterized
+directly at the requested pixel size without a separate autohinter, and CFF1
+vertical stems are not grid-fitted. `FontSnapshotConformance.btrc`,
+`GUIFontConformance.btrc`, `HintedFontConformance.btrc`,
+`CFFMeasurementConformance.btrc`, `MonochromeFontConformance.btrc`,
+`LegacyBDFFontConformance.btrc`, and `ColorBitmapFontConformance.btrc` in
+`src/tests/native/gui/` cover the snapshot domain and first-party loader.
 
 ## Dynamic resizing
 

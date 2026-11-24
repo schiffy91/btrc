@@ -14,9 +14,23 @@ class SFNTDirectory {
 		self.fileLength = fileLength < 0 ? data.length() : fileLength;
 		data.need((long long)base, 12LL);
 		long long flavor = data.u32(base);
-		if (flavor != 0x10000LL && !(allowPostScript && (flavor == 0x4f54544fLL || flavor == 0x74727565LL))) { throw "Unsupported SFNT header"; }
+		bool trueType = flavor == 0x10000LL || flavor == 0x74727565LL;
+		if (!trueType && !(allowPostScript && (flavor == 0x4f54544fLL || flavor == 0x74797031LL))) { throw "Unsupported SFNT header"; }
 		self.count = data.u16(base + 4);
 		data.need((long long)base + 12LL, (long long)self.count * 16LL);
+	}
+
+	/* Returns face 0's SFNT offset in a TrueType/OpenType collection, or 0 for a standalone SFNT. */
+	class int firstFaceOffset(OpenTypeData data) {
+		data.need(0LL, 12LL);
+		if (data.u32(0) != 0x74746366LL) { return 0; }
+		long long version = data.u32(4);
+		long long count = data.u32(8);
+		if ((version != 0x10000LL && version != 0x20000LL) || count < 1LL || count > 65535LL) { throw "Unsupported font collection"; }
+		data.need(12LL, 4LL);
+		long long offset = data.u32(12);
+		if (offset < 12LL || offset + 12LL > (long long)data.length()) { throw "Invalid font collection offset"; }
+		return (int)offset;
 	}
 
 	public long long tag(int index) { return self.data.u32(self.base + 12 + index * 16); }

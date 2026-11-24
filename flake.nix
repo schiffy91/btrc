@@ -37,7 +37,7 @@
             # AT-SPI tree dumps of a headless GUI session (tools/ui/headless-session.sh).
             ps.pyatspi ps.pygobject3
           ]))
-            ruff gcc clang zig gnumake git jq gh nodejs_22 nixd freetype
+            ruff gcc clang zig gnumake git jq gh nodejs_22 nixd
             # naga validates generated WGSL in the GPU tests. wgpu-utils builds
             # the whole wgpu workspace; expose only its naga CLI, so its example
             # and xtask binaries stay off PATH and out of the container's bin.

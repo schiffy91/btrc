@@ -16,6 +16,7 @@ class TrueTypeZone {
 	public Array<int> unitsX;
 	public Array<int> unitsY;
 	public Array<int> touched;
+	public Array<int> onCurve;
 	public Vector<int> ends;
 
 	public TrueTypeZone(int count) {
@@ -27,6 +28,7 @@ class TrueTypeZone {
 		self.unitsX = new Array<int>(count);
 		self.unitsY = new Array<int>(count);
 		self.touched = new Array<int>(count);
+		self.onCurve = new Array<int>(count);
 		self.ends = [];
 	}
 
@@ -39,6 +41,7 @@ class TrueTypeZone {
 			self.unitsX.set(i, other.unitsX.get(i));
 			self.unitsY.set(i, other.unitsY.get(i));
 			self.touched.set(i, other.touched.get(i));
+			self.onCurve.set(i, other.onCurve.get(i));
 		}
 	}
 

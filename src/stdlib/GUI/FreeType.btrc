@@ -1,27 +1,9 @@
 import Library.GUI.Font;
-import Library.GUI.FreeType.FreeTypeFace;
 
-import ./FreeType/HintedFontProvider.btrc;
-import ./Bitmap/PCFFace.btrc;
-import ./Bitmap/BDFFace.btrc;
-import ./OpenType/ColorBitmapFace.btrc;
-import ./OpenType/CFFMeasuredFace.btrc;
-import ./OpenType/HintedTrueTypeFace.btrc;
+import ./OpenType/FontLoader.btrc;
 
-/* Bitmap strikes and bytecode-hinted WOFF2 files have first-party readers.
+/* First-party font loader behind the Library.GUI.FreeType contract.
  * Raster and Font can be imported independently of this factory. */
 class FreeType {
-	class Font load(string path, int pixelSize) {
-		var bitmap = PCFFace.tryOpen(path, pixelSize);
-		if (bitmap != null) { return new Font(bitmap); }
-		var bdf = BDFFace.tryOpen(path, pixelSize);
-		if (bdf != null) { return new Font(bdf); }
-		var color = ColorBitmapFace.tryOpen(path, pixelSize);
-		if (color != null) { return new Font(color); }
-		var hinted = HintedTrueTypeFace.tryOpen(path, pixelSize);
-		if (hinted != null) { return new Font(new HintedFontProvider(hinted, hinted.source, pixelSize)); }
-		var measured = CFFMeasuredFace.tryOpen(path, pixelSize);
-		if (measured != null) { return new Font(new HintedFontProvider(measured, measured.source, pixelSize)); }
-		return new Font(new FreeTypeFace(path, pixelSize));
-	}
+	class Font load(string path, int pixelSize) { return FontLoader.load(path, pixelSize); }
 }

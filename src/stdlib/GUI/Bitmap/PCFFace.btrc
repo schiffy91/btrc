@@ -1,5 +1,4 @@
 import Library.Bytes;
-import Library.Compression.Gzip;
 import Library.GUI.IFontFace;
 
 /* A PCF table starts with its own little-endian format word. The fields
@@ -70,30 +69,6 @@ class PCFFace implements IFontFace {
 	private bool unicode = false;
 	private int requested;
 	private int height;
-
-	/* The optional SDK factory probes regular PCF paths. Seek and cap the
-	 * read before allocating, and close the file before parsing. A format
-	 * variant this reader cannot open continues through the SDK provider. */
-	class PCFFace? tryOpen(string path, int pixelSize) {
-		if (path == null || pixelSize < 1) { return null; }
-		string name = path.toLower();
-		bool compressed = name.endsWith(".pcf.gz");
-		if (!compressed && !name.endsWith(".pcf")) { return null; }
-		FILE* file = fopen(path, "rb");
-		if (file == null) { return null; }
-		if (fseek(file, 0L, SEEK_END) != 0) { fclose(file); return null; }
-		long length = ftell(file);
-		if (length < 8L || length > 268435456L || fseek(file, 0L, SEEK_SET) != 0) { fclose(file); return null; }
-		var bytes = Bytes.zeros((int)length);
-		size_t read = fread(bytes.data, 1, (size_t)length, file);
-		fclose(file);
-		if (read != (size_t)length) { return null; }
-		try {
-			if (compressed) { bytes = Gzip.decode(bytes, 268435456); }
-			return new PCFFace(bytes, pixelSize);
-		}
-		catch (string error) { return null; }
-	}
 
 	public PCFFace(Bytes bytes, int pixelSize) {
 		self.bytes = bytes;

@@ -486,9 +486,10 @@ def test_optional_native_backends_only_skip_missing_dependencies():
     assert '|| echo "GPU runtime skipped' not in makefile
     assert '|| echo "GUI window backend skipped' not in makefile
     assert '|| echo "GUI font backend skipped' not in makefile
-    # Fonts resolve through pkg-config's freetype2 module (src/stdlib/GUI/btrc.toml),
-    # not through shell variables nothing reads.
-    assert " freetype" in flake
+    # Fonts use first-party BTRC readers and rasterizers with no freetype2
+    # pkg-config record, flake dev-shell package, or font build shell variables.
+    assert 'name = "freetype2"' not in (REPO_ROOT / "src/stdlib/GUI/btrc.toml").read_text()
+    assert " freetype" not in flake
     assert "FONT_CFLAGS" not in flake and "FONT_LDFLAGS" not in flake
 
 
