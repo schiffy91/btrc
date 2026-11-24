@@ -129,7 +129,10 @@ release, focus loss, detach, cancellation or close. Coordinates are view-local,
 top-left logical points. `IWindow.onKey` routes keys before the focused control.
 
 `GUI.chooseDirectory(request)` runs the provider's modal directory picker
-(see `IDirectoryPicker.btrc`). `GUI.createImageHandle(pixels)` converts decoded
+(see `IDirectoryPicker.btrc`). On Linux the application asks the desktop's
+`org.freedesktop.portal.FileChooser` service over the session bus. Desktops
+without directory selection in that service use the existing GTK chooser.
+`GUI.createImageHandle(pixels)` converts decoded
 pixels to a native image on any thread, before or after `GUI.initialize`.
 
 ## GPU views and capture
@@ -253,6 +256,52 @@ cannot. Inside the provider,
 coalesced, overflow latched and reported by `take()` after native dispatch,
 matched by `button.matches(action)`; close buttons before their queue. `MacOSScrollView` keeps AppKit's unflipped coordinates for native
 document children while its public offsets count down from the top.
+
+## Native Wayland preview on Linux
+
+Applications can opt into the first-party Wayland backend at build time. The
+same source imports `Library.GUI` and uses the usual window, view, and action
+interfaces. From a checkout with the compiler and wgpu-native SDK available:
+
+```sh
+python -m tools.ui.build_wayland_preview examples/gui/Wayland.btrc -o /tmp/btrc-wayland
+/tmp/btrc-wayland
+```
+
+Pass `--compiler /path/to/btrcc` to use the self-hosted compiler. Run the
+executable inside a Wayland session. The example mounts a label and a button
+on a panel. Clicking Quit dispatches its registered action and closes the
+window. The preview shapes printable Latin text in supported TrueType fonts.
+Noto Sans Regular is verified for this example. If the configured desktop
+sans face cannot be opened or shaped, control creation can fail. To select
+Noto Sans for just this application, point `FONTCONFIG_FILE` to a font
+configuration such as the following, using the directory where Noto Sans is
+installed on your system.
+
+```xml
+<fontconfig>
+  <dir>/usr/share/fonts/truetype/noto</dir>
+  <alias><family>sans-serif</family><prefer><family>Noto Sans</family></prefer></alias>
+</fontconfig>
+```
+
+`GUI.chooseDirectory` opens the desktop portal’s folder chooser. A compositor with
+xdg-foreign can parent the dialog to the application window. If the desktop has
+no directory portal the preview returns a backend-unavailable error.
+
+The unchanged `examples/gui/Native.btrc` also runs through the same command.
+It uses a text field and two buttons. Editing the draft and activating Apply
+changes the real window title. Text fields support grapheme-aware selection,
+deletion and undo. The current Latin renderer has limited font and script
+coverage. The preview also supports keyed selection menus through `GUI.createSelect()`.
+A click or Return opens the menu. Arrow keys move between enabled options,
+Return commits the choice, and Escape cancels. Long lists accept wheel input.
+The preview uses software rendering for these controls. Applications that
+need native alerts,
+standalone text rasterization, embedded web views, desktop accessibility, or
+shared-frame views should use the default Linux GUI build. Alerts and embedded web views report the unavailable operation.
+Shared-frame creation returns its usual unavailable result. Runtime backend
+selection is fixed when the application is built.
 
 ## The shim provider, and GTK4 on Linux
 

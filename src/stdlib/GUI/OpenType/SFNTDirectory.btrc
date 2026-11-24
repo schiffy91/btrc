@@ -2,27 +2,41 @@ import ./OpenTypeData.btrc;
 
 class SFNTDirectory {
 	private OpenTypeData data;
+	private int base;
+	private int fileLength;
 	public int count;
 
-	public SFNTDirectory(OpenTypeData data) {
+	/* A caller reading from a file may keep only the directory bytes
+	 * in memory. Table spans still refer to the complete SFNT file. */
+	public SFNTDirectory(OpenTypeData data, int base = 0, bool allowPostScript = false, int fileLength = -1) {
 		self.data = data;
-		if (data.u32(0) != 0x10000LL) { throw "Unsupported SFNT header"; }
-		self.count = data.u16(4);
-		data.need(12LL, (long long)self.count * 16LL);
+		self.base = base;
+		self.fileLength = fileLength < 0 ? data.length() : fileLength;
+		data.need((long long)base, 12LL);
+		long long flavor = data.u32(base);
+		if (flavor != 0x10000LL && !(allowPostScript && (flavor == 0x4f54544fLL || flavor == 0x74727565LL))) { throw "Unsupported SFNT header"; }
+		self.count = data.u16(base + 4);
+		data.need((long long)base + 12LL, (long long)self.count * 16LL);
 	}
 
-	public long long tag(int index) { return self.data.u32(12 + index * 16); }
+	public long long tag(int index) { return self.data.u32(self.base + 12 + index * 16); }
 
-	public OpenTypeSpan required(long long tag, int minimum) {
+	public OpenTypeSpan? find(long long tag, int minimum) {
 		for (int i = 0; i < self.count; i++) {
-			int at = 12 + i * 16;
+			int at = self.base + 12 + i * 16;
 			if (self.data.u32(at) != tag) { continue; }
 			long long offset = self.data.u32(at + 8);
 			long long length = self.data.u32(at + 12);
-			self.data.need(offset, length);
+			if (offset + length > (long long)self.fileLength) { throw "Font data is truncated"; }
 			if (length < (long long)minimum) { throw "Truncated SFNT table"; }
 			return OpenTypeSpan((int)offset, (int)length);
 		}
-		throw "Missing SFNT table";
+		return null;
+	}
+
+	public OpenTypeSpan required(long long tag, int minimum) {
+		var result = self.find(tag, minimum);
+		if (result == null) { throw "Missing SFNT table"; }
+		return result;
 	}
 }

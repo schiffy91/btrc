@@ -1,7 +1,7 @@
 # What the standard library may require, read by tools/qualification/dependencies.py.
 #
 # The rule: first-party code, and what the target's operating system supplies.
-# wgpu-native is the only third-party exception. A package a distribution or
+# wgpu-native is the only general third-party exception. A package a distribution or
 # Nix can install is not an operating-system API.
 #
 # `supplied.<os>` lists what each system provides: link-record names
@@ -29,7 +29,7 @@ libraries = ["c", "m", "pthread", "dl", "rt", "util", "resolv"]
 headers = [
 	"arpa/*", "dirent.h", "dlfcn.h", "endian.h", "fcntl.h", "fnmatch.h", "glob.h", "grp.h", "linux/*", "net/*",
 	"netdb.h", "netinet/*", "poll.h", "pthread.h", "pty.h", "pwd.h", "regex.h", "sched.h",
-	"semaphore.h", "sound/*", "spawn.h", "sys/*", "termios.h", "unistd.h", "utime.h",
+	"semaphore.h", "sound/*", "spawn.h", "strings.h", "sys/*", "termios.h", "unistd.h", "utime.h",
 ]
 programs = ["/bin/sh"]
 binaries = ["libc.so.*", "libm.so.*", "libpthread.so.*", "libdl.so.*", "librt.so.*", "libutil.so.*", "libresolv.so.2", "ld-linux*.so.*"]
@@ -58,6 +58,7 @@ frameworks = [
 ]
 headers = [
 	"IOSurface/IOSurface.h", "bsm/libbsm.h", "servers/bootstrap.h",
+	"TargetConditionals.h", "dispatch/dispatch.h",
 	"AppKit/*", "AudioToolbox/*", "AVFoundation/*", "Carbon/*", "CFNetwork/*", "CommonCrypto/*",
 	"CoreAudio/*", "CoreBluetooth/*", "CoreFoundation/*", "CoreGraphics/*", "CoreServices/*",
 	"CoreText/*", "Foundation/*", "ImageIO/*", "IOBluetooth/*", "IOKit/*", "Metal/*", "Network/*",
@@ -78,6 +79,7 @@ frameworks = [
 	"UIKit", "UniformTypeIdentifiers", "WebKit",
 ]
 headers = [
+	"TargetConditionals.h", "dispatch/dispatch.h",
 	"AudioToolbox/*", "AVFoundation/*", "CFNetwork/*", "CommonCrypto/*", "CoreAudio/*",
 	"CoreBluetooth/*", "CoreFoundation/*", "CoreGraphics/*", "CoreText/*", "Foundation/*", "ImageIO/*",
 	"Metal/*", "Network/*", "QuartzCore/*", "Security/*", "UIKit/*", "WebKit/*",
@@ -131,6 +133,14 @@ pkg-config = ["wgpu-native", "wgpu-native-windows-x86_64", "wgpu-native-windows-
 libraries = ["wgpu_native"]
 headers = ["webgpu.h", "wgpu.h"]
 binaries = ["libwgpu_native.so", "libwgpu_native.dylib", "*/libwgpu_native.dylib", "wgpu_native.dll"]
+
+# A Linux GPU driver needs actual wl_display and wl_surface objects on the
+# same connection. Ordinary Wayland windows must work without this load.
+[[feature-loads]]
+dependency = "libwayland-client"
+os = "linux"
+source = "GUI/Linux/Wayland/GPUWire.c"
+name = "libwayland-client.so.0"
 
 # Readable names for the raw records a dependency shows up as.
 [[dependencies]]
@@ -220,6 +230,17 @@ headers = ["curl/*"]
 binaries = ["libcurl.so*"]
 
 # Source in the tree under someone else's copyright.
+# Normative data compiled into the first-party Unicode algorithms. These
+# hashes cover the complete generated files, including their attribution.
+[[standard-data]]
+name = "Unicode Character Database 17.0.0"
+description = "The line-break and grapheme tables contain character properties. First-party code implements both algorithms. The audit checks the tables and their license by SHA-256."
+source = "https://github.com/unicode-org/unicodetools/tree/725fb6055cd42915c74bcf77b91aa8fb8ef18669/unicodetools/data/ucd/17.0.0"
+[standard-data.sha256]
+"src/stdlib/GUI/Text/LineBreakData.h" = "5cd56d37e98500f5e9196120f505adde2c1e70d588073ef8cb414789e1490dad"
+"src/stdlib/GUI/Text/GraphemeData.h" = "8996d4574374a85fb6576cccf0d990cd46dd45264d2151eed2e4e27b0ae38c54"
+"src/stdlib/GUI/Text/UNICODE-LICENSE.txt" = "fe5c62b543e287981db198f2acfa0ca732d12591a1024536dc8fd85dacd77104"
+
 [[bundled]]
 path = "src/runtime/windows/musl"
 dependency = "musl's regex (bundled source)"
@@ -277,7 +298,7 @@ resolution = "Only a legacy X11 session without a reachable XDG bus socket or sa
 dependency = "curl"
 module = "HTTP/HTTPCurlTransport"
 os = ["android", "linux", "macos"]
-resolution = "On Android, Linux and macOS, plain HTTP and HTTP forward proxies use first-party code. Linux plain HTTP supports SOCKS4/4a/5/5h without curl; an installed curl handles caller Proxy-Authorization fields on SOCKS routes and optional SOCKS5 GSSAPI authentication. Android applications use private platform TLS contexts for HTTPS, authenticated CONNECT and HTTPS proxies. Android supports ordinary PEM trust files, explicit file plus indexed CA directories, and SOCKS4/4a/5/5h. Standalone Android HTTPS, OpenSSL-specific trust policy, implicit custom curl CA locations, installed curl's explicit Proxy-Authorization behavior and optional SOCKS GSSAPI authentication retain curl. Linux HTTPS and macOS HTTPS await first-party TLS and NSURLSession respectively. Windows uses WinHTTP."
+resolution = "On Android, Linux and macOS, plain HTTP and HTTP forward proxies use first-party code. Linux plain HTTP supports SOCKS4/4a/5/5h without curl; an installed curl handles caller Proxy-Authorization fields on SOCKS routes and optional SOCKS5 GSSAPI authentication. Android applications use private platform TLS contexts for HTTPS, authenticated CONNECT and HTTPS proxies. Android supports ordinary PEM trust files, explicit file plus indexed CA directories, and SOCKS4/4a/5/5h. Standalone Android HTTPS, OpenSSL-specific trust policy, implicit custom curl CA locations, installed curl's explicit Proxy-Authorization behavior and optional SOCKS GSSAPI authentication retain curl. Linux HTTPS retains curl. iOS uses NSURLSession. macOS uses NSURLSession for direct HTTPS and ordinary HTTP CONNECT proxies, with installed curl preserving its configured trust store and unsupported proxy or request options. Windows uses WinHTTP."
 
 [[pending]]
 dependency = "FreeType"

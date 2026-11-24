@@ -1,0 +1,25 @@
+import Library.Strings;
+import Library.Vector;
+
+import Library.GUI.Linux.Fonts.InstalledFontCatalog;
+
+int main(int argc, char** argv) {
+	if (argc != 2) { return 2; }
+	string root = Strings.copy(argv[1]);
+	Vector<string> roots = [root, root];
+	var fonts = InstalledFontCatalog(roots);
+	Vector<int> latin = [65, 66];
+	Vector<int> symbols = [65, 0x2665];
+	Vector<int> missing = [0x10ffff];
+	Vector<string> families = ["widget", "例 🐻"];
+	var regular = fonts.match(families, 400, false, latin);
+	var medium = fonts.match(families, 450, false, latin);
+	var fallback = fonts.match(families, 400, false, symbols);
+	if (fonts.faces.size() != 3 || regular == null || regular.faceIndex != 0 || medium == null || medium.faceIndex != 1 || fallback == null || fallback.faceIndex != 2 || fonts.match(families, 400, false, missing) != null) { return 3; }
+	var dirs = InstalledFontCatalog.dataRoots("/home/test", "/personal", "relative:also-relative:/one:/two");
+	if (dirs.size() != 4 || !dirs.get(0).equals("/personal/fonts") || !dirs.get(1).equals("/home/test/.fonts") || !dirs.get(2).equals("/one/fonts") || !dirs.get(3).equals("/two/fonts")) { return 4; }
+	var defaults = InstalledFontCatalog.dataRoots("/a", "relative", "");
+	if (defaults.size() != 4 || !defaults.get(0).equals("/a/.local/share/fonts") || !defaults.get(3).equals("/usr/share/fonts")) { return 5; }
+	print("PASS: installed font collections, Unicode family fallback and XDG precedence");
+	return 0;
+}

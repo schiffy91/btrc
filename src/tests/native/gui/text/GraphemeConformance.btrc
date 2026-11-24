@@ -1,0 +1,47 @@
+#include <assert.h>
+
+int main(int argc, char** argv) {
+	if (argc != 2) { return 2; }
+	FILE* file = fopen(argv[1], "rb");
+	if (file == null) { return 2; }
+	unsigned char header[2];
+	unsigned char text[4096];
+	unsigned char expected[4097];
+	int cases = 0;
+	while (fread(header, (size_t)1, (size_t)2, file) == (size_t)2) {
+		int length = (int)header[0] * 256 + (int)header[1];
+		assert(length <= 4096);
+		assert(fread(text, (size_t)1, (size_t)length, file) == (size_t)length);
+		assert(fread(expected, (size_t)1, (size_t)(length + 1), file) == (size_t)(length + 1));
+		BtrcGraphemes clusters = {};
+		assert((int)btrcGraphemeBoundaries((char*)text, (size_t)length, &clusters) == 0);
+		int index = 0;
+		int previous = 0;
+		int next = 0;
+		for (int at = 0; at <= length; at++) {
+			if (expected[at] != 0) {
+				assert((size_t)index <= clusters.count && clusters.byteOffsets[index] == (uint)at);
+				index++;
+				previous = at;
+			}
+			if (next < at) {
+				next = at;
+				while (next < length && expected[next] == 0) { next++; }
+			}
+			assert(btrcGraphemeFloor(&clusters, (size_t)at) == (uint)previous);
+			assert(btrcGraphemeCeil(&clusters, (size_t)at) == (uint)next);
+		}
+		assert((size_t)(index - 1) == clusters.count);
+		assert(btrcGraphemeFloor(&clusters, (size_t)(length + 9)) == (uint)length);
+		btrcGraphemeDestroy(&clusters);
+		cases++;
+	}
+	assert(!ferror(file));
+	fclose(file);
+	assert(cases == 767);
+	BtrcGraphemes denied = {};
+	char invalid[3] = {(char)0xed, (char)0xa0, (char)0x80};
+	assert((int)btrcGraphemeBoundaries(invalid, (size_t)3, &denied) == 1);
+	btrcGraphemeDestroy(&denied);
+	return 0;
+}

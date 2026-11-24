@@ -108,3 +108,37 @@ language = "c"
 standard = "c11"
 modules = ["Unix.HTTPTransportProvider"]
 os = ["android"]
+
+[[native.sources]]
+path = "Apple/URLSessionTransport.m"
+language = "objective-c"
+standard = "c11"
+modules = ["Apple.HTTPURLSession"]
+os = ["macos", "ios"]
+
+[[native.include-directories]]
+path = "Apple"
+modules = ["Apple.HTTPURLSession"]
+os = ["macos", "ios"]
+
+[[native.frameworks]]
+name = "Foundation"
+modules = ["Apple.HTTPURLSession"]
+os = ["macos", "ios"]
+
+[[native.frameworks]]
+name = "CFNetwork"
+modules = ["Apple.HTTPURLSession"]
+os = ["macos"]
+
+[[native.sources]]
+path = "Apple/URLSessionTrust.m"
+language = "objective-c"
+standard = "c11"
+modules = ["Apple.HTTPURLSession"]
+os = ["macos", "ios"]
+
+[[native.frameworks]]
+name = "Security"
+modules = ["Apple.HTTPURLSession"]
+os = ["macos", "ios"]

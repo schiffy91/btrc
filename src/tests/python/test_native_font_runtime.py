@@ -296,13 +296,15 @@ def unavailable_freetype(tmp_path, env):
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
 @pytest.mark.parametrize(
-    ("consumer", "suffix", "expected"),
+    ("consumer", "fixture", "expected"),
     [
-        ("PCFFontConformance", "pcf", "PASS: PCF metrics, default glyph and packed pixels"),
-        ("ColorBitmapFontConformance", "ttf", "PASS: color bitmap native metrics and coverage"),
+        ("MonochromeFontConformance", "fixture.pcf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
+        ("MonochromeFontConformance", "mono-strike.bdf", "PASS: monochrome strike metrics, default glyph and packed pixels"),
+        ("LegacyBDFFontConformance", "legacy-strike.bdf", "PASS: BDF glyph indices and short rows"),
+        ("ColorBitmapFontConformance", "color-bitmap.ttf", "PASS: color bitmap native metrics and coverage"),
     ],
 )
-def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sanitized, consumer, suffix, expected):
+def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sanitized, consumer, fixture, expected):
     from src.tests.python.linux_provider_fixtures import (
         build_provider_program,
         provider_environment,
@@ -320,8 +322,13 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
     source = tmp_path / f"{consumer}.btrc"
     source.write_text((fixtures / source.name).read_text())
     executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
-    portable = tmp_path / f"fixture.{suffix}"
-    portable.write_bytes(_pcf_strike() if suffix == "pcf" else (fixtures / "fixtures/color-bitmap.ttf").read_bytes())
+    portable = tmp_path / fixture
+    suffix = portable.suffix[1:]
+    if suffix == "pcf":
+        portable.write_bytes(_pcf_strike())
+    else:
+        portable.write_bytes((fixtures / "fixtures" / fixture).read_bytes())
+    arguments = [suffix] if consumer == "MonochromeFontConformance" else []
     reference = tmp_path / "fixture.raw"
     reference.write_bytes(portable.read_bytes())
     env = provider_environment(sanitized)
@@ -331,7 +338,7 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
         compressed.write_bytes(gzip.compress(portable.read_bytes(), mtime=0))
         first_party.append(compressed)
     for path in [reference, *first_party]:
-        run = subprocess.run([executable, path], capture_output=True, text=True, timeout=60, env=env)
+        run = subprocess.run([executable, path, *arguments], capture_output=True, text=True, timeout=60, env=env)
         assert run.returncode == 0, run.stdout + run.stderr
         assert expected in run.stdout
 
@@ -340,9 +347,9 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
         # to prove which provider the existing public factory actually used.
         blocked = unavailable_freetype(tmp_path, env)
         for path in first_party:
-            good = subprocess.run([executable, path], capture_output=True, text=True, timeout=60, env=blocked)
+            good = subprocess.run([executable, path, *arguments], capture_output=True, text=True, timeout=60, env=blocked)
             assert good.returncode == 0, good.stdout + good.stderr
-        fallback = subprocess.run([executable, reference], capture_output=True, text=True, timeout=60, env=blocked)
+        fallback = subprocess.run([executable, reference, *arguments], capture_output=True, text=True, timeout=60, env=blocked)
         assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr
 
 
@@ -392,3 +399,70 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
     if blocked is not None:
         early = run("woff2", 5, blocked, general)
         assert early.returncode != 0 and "Cannot initialize FreeType library" in early.stderr
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_installed_font_catalog(tmp_path, request, gui_provider_root, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
+
+    require_linux_reader()
+    tests = REPO / "src/tests/native/gui"
+    executable = build_provider_program(
+        tests / "InstalledFontConformance.btrc", tmp_path, frontend, sanitized, request, data_root=gui_provider_root
+    )
+    root = tmp_path / "font root"
+    root.mkdir()
+    (root / "subdir").mkdir()
+    (root / "subdir" / "collection file.ttc").write_bytes((tests / "fixtures/installed-families.ttc").read_bytes())
+    (root / "cycle").symlink_to(root, target_is_directory=True)
+    (root / "duplicate.ttc").symlink_to(root / "subdir" / "collection file.ttc")
+    (root / "invalid.otf").write_bytes(b"OTTO")
+    result = subprocess.run(
+        [executable, root], capture_output=True, text=True, env=provider_environment(sanitized), timeout=60
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: installed font collections, Unicode family fallback and XDG precedence" in result.stdout
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_system_text_runs(tmp_path, request, gui_provider_root, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
+
+    require_linux_reader()
+    tests = REPO / "src/tests/native/gui"
+    program = build_provider_program(
+        tests / "SystemTextConformance.btrc", tmp_path, frontend, sanitized, request, data_root=gui_provider_root
+    )
+    configs = tmp_path / "font settings"
+    configs.mkdir()
+    (configs / "35-primary.conf").write_text(
+        '<fontconfig><alias binding="strong"><family>sans-serif</family><prefer><family>Test</family></prefer></alias></fontconfig>'
+    )
+    config = tmp_path / "fonts.conf"
+    config.write_text(
+        f'<fontconfig><dir>{tmp_path}</dir><include prefix="relative">font settings</include></fontconfig>'
+    )
+    # The program unlinks each font after opening it. The second lookup
+    # therefore exercises a desktop configured with only a web-format face.
+    for extension in ("ttf", "woff2"):
+        path = tmp_path / f"widgets.{extension}"
+        path.write_bytes((tests / f"fixtures/shaping-fixture.{extension}").read_bytes())
+        result = subprocess.run(
+            [program, path],
+            capture_output=True,
+            text=True,
+            env=provider_environment(sanitized, FONTCONFIG_FILE=str(config)),
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "PASS: native text ligatures, kerning, ellipsis and owned pixels" in result.stdout

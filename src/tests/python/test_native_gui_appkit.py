@@ -117,7 +117,7 @@ def test_native_window_keyboard_monitor(native_project, native_compile, gui_prov
     manifest.write_text(
         manifest.read_text() + '\n[[native.bindings]]\nmodule = "Main"\nheader = "KeyboardInput.h"\n'
         'language = "objective-c"\nstandard = "c11"\nos = ["macos"]\n'
-        'symbols = ["-[NSWindow windowNumber]", "-[NSApplication sendEvent:]", '
+        'symbols = ["NSEventTypeKeyUp", "-[NSWindow windowNumber]", "-[NSApplication sendEvent:]", '
         '"+[NSEvent keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:]"]\n'
     )
     plan = source.parent / "Keyboard.link.json"

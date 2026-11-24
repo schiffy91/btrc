@@ -1,0 +1,29 @@
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.IWindow;
+import Library.Platform;
+import Library.Timer;
+
+class PortalTestHost implements IApplicationHost {
+	public bool requestTurn() { return true; }
+	public void scheduleTurn(unsigned long long deadline) { }
+}
+
+int main() {
+	GUI.initialize();
+	var window = GUI.createWindow("BTRC portal parent", 240.0, 160.0);
+	var scope = CallbackScope();
+	var host = GUI.attachHost(PortalTestHost(), scope).attachment;
+	assert(host != null);
+	window.show();
+	for (int i = 0; i < 20; i++) { host.serviceTurn(); Timer.sleepMillis(5); }
+	var outcome = GUI.chooseDirectory(DirectoryPickerRequest(Environment.get("BTRC_PORTAL_TEST", "public"), Environment.get("BTRC_PORTAL_INITIAL", "input folder")));
+	printf("%d %s\n", (int)outcome.kind, outcome.directory);
+	assert(window.isOpen());
+	window.close();
+	scope.cancel();
+	GUI.close();
+	return 0;
+}

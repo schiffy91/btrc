@@ -1,0 +1,29 @@
+import Library.GUI.IDirectoryPicker;
+import Library.GUI.Shim.DialogPump;
+import Library.GUI.Shim.ShimWindow;
+import Library.GUI.Linux.PortalDirectoryPicker;
+import Library.Strings;
+import Library.Timer;
+
+class DirectoryPickerProvider {
+	class DirectoryPickerOutcome choose(ShimWindow? parent, IShimDialogPump pump, DirectoryPickerRequest request, IDirectoryPicker? nativePicker = null) {
+		if (parent == null) { return PortalDirectoryPicker("", pump, nativePicker).chooseDirectory(request); }
+		var exported = btrcDialogParentOpen(parent.nativeWindow());
+		if (exported == null) { return DirectoryPickerProvider.withoutParent(pump, request, nativePicker); }
+		try {
+			long long deadline = MonotonicClock.deadlineAfter(1000LL);
+			while (btrcDialogParentIdentifier(exported) == null) {
+				if (pump.quitRequested() || !parent.isOpen()) { return DirectoryPickerOutcome.cancelled(); }
+				if (!MonotonicClock.before(deadline)) { return DirectoryPickerProvider.withoutParent(pump, request, nativePicker); }
+				pump.pumpOnce(10);
+			}
+			string identifier = Strings.copy((char*)btrcDialogParentIdentifier(exported));
+			return PortalDirectoryPicker(identifier, pump, nativePicker).chooseDirectory(request);
+		} finally { btrcDialogParentRelease(exported); }
+	}
+
+	class DirectoryPickerOutcome withoutParent(IShimDialogPump pump, DirectoryPickerRequest request, IDirectoryPicker? nativePicker) {
+		if (nativePicker != null) { return nativePicker.chooseDirectory(request); }
+		return PortalDirectoryPicker("", pump).chooseDirectory(request);
+	}
+}

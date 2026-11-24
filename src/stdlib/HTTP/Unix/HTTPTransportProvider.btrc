@@ -1,5 +1,6 @@
-/* BSD socket targets share plain HTTP. Android applications can use their
- * system TLS provider for HTTPS. Other configurations retain curl. */
+/* Unix targets share the first-party plain HTTP exchange. Android app
+ * VMs provide JSSE and Apple provides NSURLSession. Each target retains
+ * curl for the installed configurations its native route cannot reproduce. */
 #if defined(__ANDROID__)
 import Library.Bytes;
 import Library.HTTP.Unix.HTTPConnect;
@@ -11,8 +12,15 @@ import Library.Platform;
 import Library.HTTP.Unix.HTTPSocks;
 import Library.Process;
 #endif
+#if defined(__APPLE__)
+import Library.HTTP.Apple.HTTPURLSession;
+import Library.Platform;
+#endif
 #if !TARGET_OS_IOS
 import Library.HTTP.HTTPCurlTransport;
+#if TARGET_OS_OSX
+import Library.Process;
+#endif
 import Library.HTTP.Unix.HTTPProxy;
 #endif
 import Library.HTTP.HTTPExchange;
@@ -152,11 +160,25 @@ class HTTPTransportProvider {
 					if (!stream.needsLegacyTrust()) { return result; }
 				}
 			}
-#endif
-#if defined(__ANDROID__)
 			return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes, deadline);
-#elif TARGET_OS_IOS
-			return HTTPExchangeResult.failed("https is not available on this system yet");
+#elif defined(__APPLE__)
+			string bundle = Environment.get("CURL_CA_BUNDLE", "");
+			if (bundle.isEmpty()) { bundle = Environment.get("SSL_CERT_FILE", ""); }
+#if TARGET_OS_OSX
+			bool bodyOnGet = !body.isEmpty() && (method.toUpper().equals("GET") || method.toUpper().equals("HEAD"));
+			bool installedBundle = !bundle.isEmpty() && !ChildProcessExecutable.resolve("curl", "", [], []).isEmpty();
+			if (installedBundle || bodyOnGet || !Environment.get("SSL_CERT_DIR", "").isEmpty()) { return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes); }
+			string setting = HTTPProxy.setting(address);
+			HTTPClientAddress? proxy = null;
+			if (!setting.isEmpty()) {
+				string proxyUrl = setting.contains("://") ? setting : "http://" + setting;
+				proxy = HTTPClientAddress.parse(proxyUrl, 1080);
+				if (proxy == null || proxy.secure || !proxy.userInfo.isEmpty() || !proxy.target.equals("/") || HTTPExchange.names(headers, "proxy-authorization")) { return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes); }
+			}
+#else
+			HTTPClientAddress? proxy = null;
+#endif
+			return HTTPURLSession.request(method, address, headers, body, timeoutSecs, maxResponseBytes, proxy, bundle);
 #else
 			return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes);
 #endif

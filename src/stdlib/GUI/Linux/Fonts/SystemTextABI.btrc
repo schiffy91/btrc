@@ -1,0 +1,84 @@
+import Library.Strings;
+
+import ./DefaultTextFont.btrc;
+import ./SystemTextFont.btrc;
+
+/* C owns opaque handles. Each holds one explicit retain; the immutable run
+ * has no back-pointer to the font. Interface declarations for C consumers
+ * are in GUI/Text/SystemText.h. */
+struct NativeTextFont { SystemTextFont value; };
+struct NativeInkRun { SystemInkRun value; };
+
+void* systemTextFaceHandle(string path, double logicalSize, double scale, bool desktop) {
+	if (path == null) { return null; }
+	try {
+		var font = SystemTextFont(path, logicalSize, scale, desktop);
+		var handle = (struct NativeTextFont*)calloc(1, sizeof(struct NativeTextFont));
+		if (handle == null) { return null; }
+		keep font;
+		handle->value = font;
+		return (void*)handle;
+	} catch (string error) { return null; }
+}
+
+void* systemTextOpenFace(const char* path, double logicalSize, double scale) { return path == null ? null : systemTextFaceHandle(Strings.copy((char*)path), logicalSize, scale, false); }
+
+void systemTextCloseFace(void* opaque) {
+	var handle = (struct NativeTextFont*)opaque;
+	if (handle != null) { release handle->value; free(handle); }
+}
+
+void* systemTextShapeLine(void* opaque, const char* utf8, double maximumWidth, int overflow) {
+	if (opaque == null || utf8 == null || strnlen(utf8, (size_t)4097) > (size_t)4096) { return null; }
+	try {
+		var font = ((struct NativeTextFont*)opaque)->value;
+		var run = font.shape(Strings.copy((char*)utf8), maximumWidth, overflow);
+		var handle = (struct NativeInkRun*)calloc(1, sizeof(struct NativeInkRun));
+		if (handle == null) { return null; }
+		keep run;
+		handle->value = run;
+		return (void*)handle;
+	} catch (string error) { return null; }
+}
+
+void systemTextCloseRun(void* opaque) {
+	var handle = (struct NativeInkRun*)opaque;
+	if (handle != null) { release handle->value; free(handle); }
+}
+
+double systemTextMeasure(void* handle, int field) {
+	var run = ((struct NativeInkRun*)handle)->value;
+	if (field == 0) { return run.advance; }
+	if (field == 1) { return run.ascent; }
+	if (field == 2) { return run.descent; }
+	if (field == 3) { return run.lineHeight; }
+	if (field == 4) { return (double)run.left; }
+	if (field == 5) { return (double)run.top; }
+	if (field == 6) { return (double)run.width; }
+	if (field == 7) { return (double)run.height; }
+	return 1.0; // MASK8
+}
+
+const unsigned char* systemTextPixels(void* handle) { return (const unsigned char*)((struct NativeInkRun*)handle)->value.pixels.data; }
+
+void* systemTextOpenDefaultFace(double logicalSize, double scale, bool bold) {
+	try {
+		string path = DefaultTextFont.path(bold, logicalSize);
+		if (path.isEmpty()) { return null; }
+		return systemTextFaceHandle(path, logicalSize, scale, true);
+	} catch (string error) { return null; }
+}
+
+typedef CFunction<void*, double, double, bool> TextOpenDefaultFn;
+typedef CFunction<void*, const char*, double, double> TextOpenFaceFn;
+typedef CFunction<void, void*> TextReleaseFn;
+typedef CFunction<void*, void*, const char*, double, int> TextShapeLineFn;
+typedef CFunction<double, void*, int> TextMeasureFn;
+typedef CFunction<const unsigned char*, void*> TextPixelsFn;
+
+extern void btrcSystemTextPublish(TextOpenDefaultFn openDefault, TextOpenFaceFn open, TextReleaseFn closeFace, TextShapeLineFn shape, TextReleaseFn closeRun, TextMeasureFn measure, TextPixelsFn pixels);
+
+class SystemTextABI {
+	class void install() { DefaultTextFont.invalidate();
+		btrcSystemTextPublish(systemTextOpenDefaultFace, systemTextOpenFace, systemTextCloseFace, systemTextShapeLine, systemTextCloseRun, systemTextMeasure, systemTextPixels); }
+}

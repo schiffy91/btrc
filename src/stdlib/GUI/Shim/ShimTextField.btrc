@@ -1,3 +1,4 @@
+import Library.GUI.Shim.Features;
 import Library.Callback;
 import Library.GUI.ControlEvents;
 import Library.GUI.ControlEventQueue;
@@ -189,10 +190,10 @@ class ShimTextField extends ShimNodeView implements ITextField, IShimTextTarget 
 		}
 	}
 
-	/* GTK's entry composes for itself: the window's own text input stays off. */
+	/* Native text-change events include the composed draft. */
 	public void textEditing(string value, int start, int length) {}
 
-	public void textInputArea(ShimViewHost host, double x, double y) { host.requestTextInput(false, 0.0, 0.0, 0.0, 0.0); }
+	public void textInputArea(ShimViewHost host, double x, double y) { host.requestTextInput(ShimFeatures.fieldUsesWindowInput(), x, y, self.node().width, self.node().height); }
 
 	/* Taking the keyboard begins an interaction; giving it up commits what
 	 * was typed, unless a composition was still in progress. */

@@ -51,6 +51,7 @@ struct RealInput {
 /* NULL when the display offers no way to send input. Each exists only where
  * its display does. */
 const RealInput *realInputWayland(void);
+bool realInputWaylandHoldReturn(void);
 const RealInput *realInputX11(void);
 const RealInput *realInputWin32(void);
 const RealInput *realInputAndroid(void);

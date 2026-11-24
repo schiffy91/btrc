@@ -1,0 +1,65 @@
+import Library.GUI.IButton;
+import Library.GUI.ISlider;
+import Library.GUI.Linux.Fonts.SystemTextABI;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.ShimButton;
+import Library.GUI.Shim.ShimContext;
+import Library.GUI.Shim.ShimControls;
+import Library.GUI.Shim.ShimPainter;
+import Library.GUI.Shim.ShimSlider;
+
+extern int tooltipCommand();
+extern void tooltipReady();
+extern void tooltipBackground(BtrcShimWindow* window);
+
+int main() {
+	SystemTextABI.install();
+	assert(btrcShimInit());
+	var window = btrcShimWindowCreate("btrc input and pixels", 180, 100);
+	assert(window != null);
+	var context = ShimContext(16);
+	var nativeSlider = ShimSlider(context, 0.0, 10.0, 10);
+	ISlider slider = nativeSlider;
+	slider.setValue(4.0);
+	assert(slider.value() == 4.0 && slider.fittingHeight() == 40.0);
+	slider.setRange(2.0, 6.0, 2.0);
+	slider.setValue(3.1);
+	assert(slider.value() == 4.0);
+	slider.setToolTip("AVfi\nfi");
+	assert(slider.toolTip().equals("AVfi\nfi"));
+	var nativeButton = ShimButton(context, "A");
+	IButton button = nativeButton;
+	button.setTitle("AV");
+	assert(button.title().equals("AV"));
+	button.setToolTip("AVfi");
+	assert(button.toolTip().equals("AVfi"));
+	nativeSlider.arrange(0.0, 0.0, 100.0, 40.0);
+	nativeButton.arrange(0.0, 0.0, 44.0, 34.0);
+	var placer = ShimPlacer(180.0, 100.0, null);
+	nativeSlider.paint(placer, 8.0, 24.0);
+	nativeButton.paint(placer, 121.0, 24.0);
+	btrcShimWindowBeginPlacement(window);
+	for placement in placer.placements() {
+		var clip = placement.clip;
+		btrcShimWindowPlace(window, placement.control, placement.x, placement.y, placement.width, placement.height, clip.x, clip.y, clip.width, clip.height);
+	}
+	btrcShimWindowEndPlacement(window);
+	tooltipBackground(window);
+	assert(btrcShimWindowShow(window));
+	bool done = false;
+	while (!done) {
+		BtrcShimEvent event;
+		btrcShimWaitEvent(&event, 15);
+		int command = tooltipCommand();
+		if (command == (int)'d') { slider.setEnabled(false); assert(!slider.isEnabled()); }
+		else if (command == (int)'e') { slider.setEnabled(true); }
+		else if (command == (int)'c') { button.setToolTip(""); assert(button.toolTip().isEmpty()); }
+		else if (command == (int)'r') { button.setToolTip("AVfi\nfi"); }
+		else if (command == (int)'q') { done = true; }
+		if (command > 0) { tooltipReady(); }
+	}
+	button.close();
+	slider.close();
+	btrcShimWindowDestroy(window);
+	return 0;
+}

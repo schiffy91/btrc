@@ -1,0 +1,60 @@
+import Library.Bytes;
+import Library.Vector;
+
+import ./OpenTypeData.btrc;
+
+/* Family aliases from the sfnt 'name' table. Keep typographic (16) and
+ * legacy (1) names in every available Unicode locale; desktop settings may
+ * use either spelling. The strings are copied, so the font can be released. */
+class OpenTypeFamilyNames {
+	public Vector<string> values = [];
+
+	public OpenTypeFamilyNames(OpenTypeData data, OpenTypeSpan name) {
+		if (name.length < 6 || data.u16(name.offset) > 1) { throw "Invalid font name table"; }
+		int count = data.u16(name.offset + 2);
+		int storage = data.u16(name.offset + 4);
+		if (count > (name.length - 6) / 12 || storage < 6 + count * 12 || storage > name.length) { throw "Invalid font name records"; }
+		for (int i = 0; i < count; i++) {
+			int record = name.offset + 6 + i * 12;
+			int id = data.u16(record + 6);
+			int platform = data.u16(record);
+			int encoding = data.u16(record + 2);
+			if ((id != 1 && id != 16) || (platform != 0 && !(platform == 3 && (encoding == 0 || encoding == 1 || encoding == 10)))) { continue; }
+			int length = data.u16(record + 8);
+			int offset = storage + data.u16(record + 10);
+			if (length == 0 || length > 4096 || (length & 1) != 0 || offset > name.length - length) { continue; }
+			string value = self.decode(data, name.offset + offset, length);
+			if (!value.isEmpty() && self.values.indexOf(value) < 0) { self.values.push(value); }
+		}
+	}
+
+	private string decode(OpenTypeData data, int offset, int length) {
+		var bytes = Bytes();
+		int end = offset + length;
+		while (offset < end) {
+			int scalar = data.u16(offset);
+			offset += 2;
+			if (scalar >= 0xd800 && scalar <= 0xdbff) {
+				if (offset == end) { return ""; }
+				int low = data.u16(offset);
+				if (low < 0xdc00 || low > 0xdfff) { return ""; }
+				scalar = 0x10000 + (scalar - 0xd800) * 1024 + low - 0xdc00;
+				offset += 2;
+			} else if (scalar == 0 || (scalar >= 0xdc00 && scalar <= 0xdfff)) { return ""; }
+			if (scalar < 128) { bytes.append(scalar); }
+			else {
+				if (scalar < 2048) { bytes.append(192 | (scalar >> 6)); }
+				else {
+					if (scalar < 65536) { bytes.append(224 | (scalar >> 12)); }
+					else {
+						bytes.append(240 | (scalar >> 18));
+						bytes.append(128 | ((scalar >> 12) & 63));
+					}
+					bytes.append(128 | ((scalar >> 6) & 63));
+				}
+				bytes.append(128 | (scalar & 63));
+			}
+		}
+		return bytes.toString();
+	}
+}

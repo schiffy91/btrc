@@ -1,0 +1,135 @@
+import Library.Strings;
+import Library.Vector;
+
+/* Read the local declarative font settings. Only predefined XML entities
+ * are expanded. DTDs are never loaded and unknown entities reject the file. */
+class FontConfigElement {
+	public string name;
+	public string prefix = "";
+	public string binding = "";
+	public string target = "";
+	public string field = "";
+	public string mode = "";
+	public string compare = "";
+	public string text = "";
+	public Vector<FontConfigElement> children = [];
+
+	public FontConfigElement(string name) { self.name = name; }
+}
+
+class FontConfigTree {
+	private string source;
+	private int size;
+	private int at = 0;
+	private int nodes = 0;
+
+	public FontConfigTree(string source) { self.source = source; self.size = source.length(); }
+
+	private bool starts(string token) {
+		int n = token.length();
+		return n <= self.size - self.at && memcmp((char*)self.source + self.at, token, (size_t)n) == 0;
+	}
+
+	private void skipTo(string token) {
+		while (self.at < self.size && !self.starts(token)) { self.at++; }
+		if (self.at == self.size) { throw "Unclosed font configuration markup"; }
+		self.at += token.length();
+	}
+
+	private void spaces() { while (self.at < self.size && Strings.isSpace(self.source[self.at])) { self.at++; } }
+
+	private string word() {
+		int start = self.at;
+		while (self.at < self.size) {
+			char c = self.source[self.at];
+			if (!(Strings.isAlnum(c) || c == '_' || c == '-' || c == ':')) { break; }
+			self.at++;
+		}
+		if (start == self.at) { throw "Invalid font configuration element"; }
+		return self.source.substring(start, self.at - start);
+	}
+
+	private string unescape(string s) {
+		if (!s.contains("&")) { return s; }
+		var result = StringBuilder();
+		for (int i = 0; i < s.length(); i++) {
+			if (s[i] != '&') { result.appendChar(s[i]); continue; }
+			int start = i + 1;
+			while (i < s.length() && s[i] != ';' && i - start < 8) { i++; }
+			if (i >= s.length() || s[i] != ';') { throw "Unsupported font configuration entity"; }
+			string entity = s.substring(start, i - start);
+			if (entity.equals("amp")) { result.appendChar('&'); }
+			else if (entity.equals("lt")) { result.appendChar('<'); }
+			else if (entity.equals("gt")) { result.appendChar('>'); }
+			else if (entity.equals("quot")) { result.appendChar('"'); }
+			else if (entity.equals("apos")) { result.appendChar('\''); }
+			else { throw "Unsupported font configuration entity"; }
+		}
+		return result.toString();
+	}
+
+	private FontConfigElement element(int depth) {
+		if (depth > 32 || self.nodes++ >= 32768 || !self.starts("<")) { throw "Invalid font configuration structure"; }
+		self.at++;
+		var entry = FontConfigElement(self.word());
+		self.spaces();
+		while (self.at < self.size && !self.starts(">") && !self.starts("/>")) {
+			string key = self.word();
+			self.spaces();
+			if (!self.starts("=")) { throw "Invalid font configuration attribute"; }
+			self.at++;
+			self.spaces();
+			if (self.at >= self.size || (self.source[self.at] != '"' && self.source[self.at] != '\'')) { throw "Unquoted font configuration attribute"; }
+			char quote = self.source[self.at];
+			self.at++;
+			int from = self.at;
+			while (self.at < self.size && self.source[self.at] != quote) { self.at++; }
+			if (self.at >= self.size) { throw "Unclosed font configuration attribute"; }
+			string value = self.unescape(self.source.substring(from, self.at - from));
+			self.at++;
+			if (key.equals("prefix")) { entry.prefix = value; }
+			else if (key.equals("binding")) { entry.binding = value; }
+			else if (key.equals("target")) { entry.target = value; }
+			else if (key.equals("name")) { entry.field = value; }
+			else if (key.equals("mode")) { entry.mode = value; }
+			else if (key.equals("compare")) { entry.compare = value; }
+			self.spaces();
+		}
+		if (self.starts("/>")) { self.at += 2; return entry; }
+		if (!self.starts(">")) { throw "Unclosed font configuration tag"; }
+		self.at++;
+		var content = StringBuilder();
+		while (!self.starts("</")) {
+			if (self.at >= self.size) { throw "Unclosed font configuration element"; }
+			if (self.starts("<!--")) { self.skipTo("-->"); }
+			else if (self.starts("<")) { entry.children.push(self.element(depth + 1)); }
+			else {
+				int from = self.at;
+				while (self.at < self.size && self.source[self.at] != '<') { self.at++; }
+				content.append(self.unescape(self.source.substring(from, self.at - from)));
+			}
+		}
+		self.at += 2;
+		string close = self.word();
+		self.spaces();
+		if (!close.equals(entry.name) || !self.starts(">")) { throw "Mismatched font configuration element"; }
+		self.at++;
+		entry.text = content.toString().trim();
+		return entry;
+	}
+
+	public FontConfigElement parse() {
+		self.spaces();
+		while (self.starts("<?") || self.starts("<!--") || self.starts("<!DOCTYPE")) {
+			if (self.starts("<?")) { self.skipTo("?>"); }
+			else if (self.starts("<!--")) { self.skipTo("-->"); }
+			else { self.skipTo(">"); }
+			self.spaces();
+		}
+		var root = self.element(0);
+		self.spaces();
+		while (self.starts("<!--")) { self.skipTo("-->"); self.spaces(); }
+		if (self.at != self.size || !root.name.equals("fontconfig")) { throw "Invalid font configuration root"; }
+		return root;
+	}
+}

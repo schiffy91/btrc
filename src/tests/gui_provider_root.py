@@ -46,6 +46,8 @@ class GUIProviderRoot:
         for name in (
             "ControlEvents",
             "ControlEventQueue",
+            "Linux.Fonts.InstalledFontCatalog",
+            "Linux.Fonts.SystemTextABI",
             "ActionMailbox",
             "SliderValue",
             "SliderInteraction",

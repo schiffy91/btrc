@@ -86,9 +86,10 @@ public final class Input {
     public static boolean key(int code, boolean control) {
         long now = android.os.SystemClock.uptimeMillis();
         int meta = control ? KeyEvent.META_CTRL_ON | KeyEvent.META_CTRL_LEFT_ON : 0;
+        int scan = code == KeyEvent.KEYCODE_ESCAPE ? 1 : 0;
         try {
-            instrumentation().sendKeySync(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta));
-            instrumentation().sendKeySync(new KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta));
+            instrumentation().sendKeySync(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta, -1, scan, 0, InputDevice.SOURCE_KEYBOARD));
+            instrumentation().sendKeySync(new KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta, -1, scan, 0, InputDevice.SOURCE_KEYBOARD));
             return true;
         } catch (RuntimeException refused) {
             android.util.Log.e("btrc-probe", "input refused", refused);

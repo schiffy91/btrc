@@ -1,0 +1,78 @@
+import Library.Callback;
+import Library.Console;
+import Library.GUI;
+import Library.GUI.ISelect;
+import Library.GUI.ControlEvents;
+import Library.Image;
+
+#include <assert.h>
+
+class MenuObservation implements ISelectionControlEventHandler {
+	public ISelect select;
+	public int changes = 0;
+	public int commits = 0;
+	public int cancels = 0;
+	public long long sequence = 0LL;
+	public MenuObservation(ISelect select) { self.select = select; }
+
+	public void selectionEvent(SelectionControlEvent event) {
+		assert(event.context.sequence > self.sequence);
+		self.sequence = event.context.sequence;
+		if (event.phase == CONTROL_PHASE_CHANGE) {
+			assert(event.context.origin == CONTROL_ORIGIN_USER && event.acceptedKey == self.select.selectedKey());
+			self.changes++;
+			if (self.commits == 0 && event.candidateKey == "k2") {
+				// Shrink and reorder the list while preserving both stable keys.
+				var model = self.select.optionsState();
+				model.options = [model.options.get(2), model.options.get(0)];
+				self.select.setOptions(model);
+				Console.log("reordered");
+			} else if (self.cancels == 2 && event.candidateKey == "k0") {
+				self.select.setItems(["New"], 0);
+			}
+		} else if (event.phase == CONTROL_PHASE_COMMIT) {
+			assert(event.context.origin == CONTROL_ORIGIN_USER && event.previousKey == "k0");
+			assert(event.candidateKey == "k2" && event.acceptedKey == "k2" && self.select.selectedIndex() == 0);
+			assert(self.select.selectedTitle() == "Duplicate");
+			self.commits++;
+			Console.log("committed");
+		} else {
+			assert(event.phase == CONTROL_PHASE_CANCEL && self.commits == 1 && event.previousKey == "k2");
+			if (self.cancels == 0) { assert(event.cancelReason == CONTROL_CANCEL_ESCAPE); }
+			if (self.cancels == 1) { assert(event.cancelReason == CONTROL_CANCEL_CAPTURE_LOSS); }
+			if (self.cancels == 2) {
+				assert(event.cancelReason == CONTROL_CANCEL_MODEL_REPLACEMENT && event.context.origin == CONTROL_ORIGIN_MODEL);
+				assert(self.select.selectedTitle() == "New");
+			}
+			self.cancels++;
+			Console.log("cancelled");
+			if (self.cancels == 3) { GUI.requestQuit(); }
+		}
+	}
+}
+
+int main() {
+	GUI.initialize();
+	var owner = CallbackScope();
+	try {
+		var window = GUI.createWindow("btrc input and pixels", 240.0, 150.0);
+		var panel = GUI.createPanel(RGBA(37,179,125));
+		var choice = GUI.createSelect();
+		window.attachRoot(panel); panel.attach(choice);
+		choice.arrange(12.0,10.0,145.0,34.0);
+		var model = SelectModel(); model.options = []; model.selectedKey = "k0";
+		model.statusText = ""; model.availability = SELECT_AVAILABILITY_READY;
+		for (int index=0; index<18; index++) {
+			var option=SelectOption(); option.key=f"k{index}";
+			option.title = index==0 || index==2 ? "Duplicate" : f"Route {index}";
+			option.enabled=index!=1; model.options.push(option);
+		}
+		choice.setOptions(model);
+		assert(choice.fittingWidth() > 80 && choice.fittingHeight() >= 34);
+		var receiver = MenuObservation(choice);
+		choice.onChanged(receiver,owner); choice.onCommit(receiver,owner); choice.onCancel(receiver,owner);
+		window.show(); GUI.run();
+		assert(receiver.changes >= 2 && receiver.commits == 1 && receiver.cancels == 3);
+	} finally { owner.cancel(); GUI.close(); }
+	return 0;
+}
