@@ -1,5 +1,6 @@
 """Mount and click a public Library.GUI application on a real compositor in an empty runtime root."""
 
+import ctypes.util
 import os
 import platform
 import re
@@ -64,11 +65,15 @@ def build_app(frontend, source, tmp_path, request, *, timeout=600):
     return executable
 
 
-@pytest.mark.parametrize("frontend", ["python", "selfhost"])
-def test_preview(frontend, input_device, tmp_path, request):  # noqa: F811
+@pytest.fixture(scope="module", params=["python", "selfhost"])
+def preview_app(request, tmp_path_factory):
+    return build_app(request.param, SAMPLE, tmp_path_factory.mktemp("native-wayland-" + request.param), request)
+
+
+def test_preview(preview_app, input_device, tmp_path):  # noqa: F811
     if not shutil.which("grim"):
         pytest.skip("observing the window pixels requires grim")
-    executable = build_app(frontend, SAMPLE, tmp_path, request)
+    executable = preview_app
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, executable, input_device, tmp_path],
         check=True,
@@ -87,6 +92,17 @@ def test_preview_directory_picker(frontend, tmp_path, request):
     executable = build_app(frontend, source, tmp_path, request)
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, "--portal", executable, tmp_path],
+        check=True,
+        timeout=45,
+    )
+
+
+def test_preview_accessibility(preview_app, tmp_path):
+    if not ctypes.util.find_library("atspi") or not os.environ.get("BTRC_ATSPI_LIBEXEC"):
+        pytest.skip("requires the desktop's AT-SPI client library and bus launcher")
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, "-m", "src.tests.native.gui.wayland_atspi", preview_app, tmp_path],
+        cwd=ROOT,
         check=True,
         timeout=45,
     )

@@ -1,5 +1,6 @@
 """Dismiss real public window alerts and verify the owner's input stays blocked."""
 
+import ctypes.util
 import os
 import pty
 import re
@@ -74,11 +75,37 @@ def test_optional_modal_protocol(tmp_path):
         ]
 
 
-@pytest.mark.parametrize("frontend", ["python", "selfhost"])
-def test_public_alert(frontend, input_device, tmp_path, request):  # noqa: F811
-    app = build_app(frontend, ROOT / "src/tests/native/gui/WaylandAlert.btrc", tmp_path, request, timeout=1200)
+@pytest.fixture(scope="module", params=["python", "selfhost"])
+def alert_app(request, tmp_path_factory):
+    work = tmp_path_factory.mktemp("wayland-alert-" + request.param)
+    return build_app(request.param, ROOT / "src/tests/native/gui/WaylandAlert.btrc", work, request, timeout=1200)
+
+
+def test_public_alert(alert_app, input_device, tmp_path):  # noqa: F811
+    app = alert_app
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, app, input_device, tmp_path], check=True, timeout=90
+    )
+
+
+def test_accessible_modal_alerts(alert_app, tmp_path):
+    if not ctypes.util.find_library("atspi") or not os.environ.get("BTRC_ATSPI_LIBEXEC"):
+        pytest.skip("requires the desktop's AT-SPI client library and bus launcher")
+    subprocess.run(
+        [
+            SESSION,
+            "--wayland",
+            "--",
+            sys.executable,
+            "-m",
+            "src.tests.native.gui.wayland_atspi",
+            alert_app,
+            tmp_path,
+            "--alerts",
+        ],
+        cwd=ROOT,
+        check=True,
+        timeout=90,
     )
 
 

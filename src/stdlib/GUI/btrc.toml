@@ -1352,3 +1352,11 @@ language = "c"
 standard = "c11"
 modules = ["Linux.Fonts.SystemTextABI"]
 os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.Wayland.Accessibility"
+header = "Linux/Wayland/Accessibility.h"
+language = "c"
+standard = "c11"
+symbols = ["BtrcWaylandAccessible", "btrcWaylandAccessibleChild", "btrcWaylandAccessibleAction", "btrcWaylandAccessibilityRevision"]
+os = ["linux"]

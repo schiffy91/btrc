@@ -32,6 +32,7 @@ struct BtrcWaylandWire {
     int socket;
     int wake;
     int auxiliary;
+    int accessibility;
     BtrcWaylandGPUWire *gpu;
     char error[256];
     Object *objects;

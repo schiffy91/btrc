@@ -128,6 +128,7 @@ BtrcWaylandWire *btrcWaylandConnect(void) {
     w->socket = connectSocket();
     w->wake = -1;
     w->auxiliary = -1;
+    w->accessibility = -1;
     if (w->socket >= 0) {
         int flags = fcntl(w->socket, F_GETFL);
         if (flags >= 0 && fcntl(w->socket, F_SETFL, flags | O_NONBLOCK) == 0) {
@@ -404,8 +405,8 @@ bool btrcWaylandWake(BtrcWaylandWire *w) {
 int btrcWaylandPoll(BtrcWaylandWire *w, int timeout) {
     if (w->gpu) { return w->error[0] ? -1 : btrcWaylandGPUPoll(w->gpu, timeout); }
     if (!btrcWaylandFlush(w)) { return -1; }
-    struct pollfd fds[] = {{w->socket, POLLIN | (w->first ? POLLOUT : 0), 0}, {w->wake, POLLIN, 0}, {w->auxiliary, POLLIN, 0}};
-    int ready = poll(fds, 3, timeout);
+    struct pollfd fds[] = {{w->socket, POLLIN | (w->first ? POLLOUT : 0), 0}, {w->wake, POLLIN, 0}, {w->auxiliary, POLLIN, 0}, {w->accessibility, POLLIN, 0}};
+    int ready = poll(fds, 4, timeout);
     if (ready < 0 && errno == EINTR) { return 0; }
     if (ready < 0) { btrcWaylandWireFail(w, "Wayland poll failed"); return -1; }
     if (!ready) { return 0; }
