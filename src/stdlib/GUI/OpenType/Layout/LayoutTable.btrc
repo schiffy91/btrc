@@ -1,0 +1,112 @@
+import Library.Vector;
+
+import ../OpenTypeData.btrc;
+
+/* Offsets in a Layout table are relative to their owning structure. Keep
+ * every read within that one table, including extension subtable offsets. */
+class LayoutTable {
+	public OpenTypeData data;
+	private int list;
+	public Vector<int> order = [];
+	public bool hasKerning = false;
+
+	public LayoutTable(OpenTypeData data, Vector<long long> active, long long script) {
+		self.data = data;
+		if (data.u16(0) != 1 || data.u16(2) > 1) { throw "Unsupported layout table"; }
+		if (data.u16(2) == 1 && data.u32(10) != 0LL) { throw "Unsupported variable layout"; }
+		int scripts = data.u16(4);
+		int features = data.u16(6);
+		self.list = data.u16(8);
+		int scriptBase = self.record(scripts, script);
+		if (scriptBase == 0) { scriptBase = self.record(scripts, 0x44464c54LL); } // DFLT
+		if (scriptBase == 0) { return; }
+		int language = data.u16(scriptBase);
+		if (language == 0) { return; }
+		language += scriptBase;
+		int required = data.u16(language + 2);
+		int count = data.u16(language + 4);
+		int featureCount = data.u16(features);
+		data.need((long long)features + 2LL, (long long)featureCount * 6LL);
+		for (int i = -1; i < count; i++) {
+			int n = i < 0 ? required : data.u16(language + 6 + 2 * i);
+			if (i < 0 && n == 0xffff) { continue; }
+			if (n >= featureCount) { throw "Invalid layout feature index"; }
+			int at = features + 2 + 6 * n;
+			if (i >= 0 && active.indexOf(data.u32(at)) < 0) { continue; }
+			if (data.u32(at) == 0x6b65726eLL) { self.hasKerning = true; }
+			int feature = features + data.u16(at + 4);
+			int indices = data.u16(feature + 2);
+			for (int j = 0; j < indices; j++) {
+				int index = data.u16(feature + 4 + j * 2);
+				if (self.order.indexOf(index) < 0) { self.order.push(index); }
+			}
+		}
+		self.order.sort();
+	}
+
+	private int record(int base, long long tag) {
+		int count = self.data.u16(base);
+		self.data.need((long long)base + 2LL, (long long)count * 6LL);
+		for (int i = 0; i < count; i++) {
+			int at = base + 2 + i * 6;
+			if (self.data.u32(at) == tag) { return base + self.data.u16(at + 4); }
+		}
+		return 0;
+	}
+
+	public int lookup(int index) {
+		if (index < 0 || index >= self.data.u16(self.list)) { throw "Invalid layout lookup index"; }
+		return self.list + self.data.u16(self.list + 2 + index * 2);
+	}
+
+	public int subtable(int base, int index) { return base + self.data.u16(base + 6 + index * 2); }
+
+	public int extension(int base) {
+		if (self.data.u16(base) != 1) { throw "Unsupported layout extension format"; }
+		long long offset = self.data.u32(base + 4);
+		self.data.need((long long)base + offset, 2LL);
+		return base + (int)offset;
+	}
+
+	/* Coverage formats use sorted glyphs or sorted disjoint ranges. The
+	 * returned index addresses the parallel subtable record. */
+	public int coverage(int base, int id) {
+		int format = self.data.u16(base);
+		if (format != 1 && format != 2) { throw "Unsupported layout coverage"; }
+		int count = self.data.u16(base + 2);
+		int stride = format == 1 ? 2 : 6;
+		self.data.need((long long)base + 4LL, (long long)count * (long long)stride);
+		int low = 0;
+		int high = count;
+		while (low < high) {
+			int mid = low + (high - low) / 2;
+			int at = base + 4 + mid * stride;
+			int first = self.data.u16(at);
+			int last = format == 1 ? first : self.data.u16(at + 2);
+			if (id < first) { high = mid; }
+			else if (id > last) { low = mid + 1; }
+			else { return format == 1 ? mid : self.data.u16(at + 4) + id - first; }
+		}
+		return -1;
+	}
+
+	class int glyphClass(OpenTypeData data, int base, int glyph) {
+		int format = data.u16(base);
+		if (format == 1) {
+			int index = glyph - data.u16(base + 2);
+			return index >= 0 && index < data.u16(base + 4) ? data.u16(base + 6 + index * 2) : 0;
+		}
+		if (format != 2) { throw "Unsupported layout class definition"; }
+		int low = 0;
+		int high = data.u16(base + 2);
+		data.need((long long)base + 4LL, (long long)high * 6LL);
+		while (low < high) {
+			int mid = low + (high - low) / 2;
+			int at = base + 4 + mid * 6;
+			if (glyph < data.u16(at)) { high = mid; }
+			else if (glyph > data.u16(at + 2)) { low = mid + 1; }
+			else { return data.u16(at + 4); }
+		}
+		return 0;
+	}
+}

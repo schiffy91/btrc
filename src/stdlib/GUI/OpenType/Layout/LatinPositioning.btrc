@@ -1,0 +1,107 @@
+import ./GlyphRun.btrc;
+import ./LayoutTable.btrc;
+
+class LatinPositioning {
+	private LayoutTable table;
+	private LayoutGlyphRun run;
+
+	public LatinPositioning(LayoutTable table, LayoutGlyphRun run) {
+		self.table = table;
+		self.run = run;
+		var data = table.data;
+		for lookup in table.order {
+			int base = table.lookup(lookup);
+			int flags = data.u16(base + 2);
+			for (int p = 0; p < run.glyphs.size();) {
+				int used = 0;
+				for (int i = 0; i < data.u16(base + 4) && used == 0; i++) {
+					int kind = data.u16(base);
+					int sub = table.subtable(base, i);
+					if (kind == 9) {
+						kind = data.u16(sub + 2);
+						sub = table.extension(sub);
+					}
+					used = self.adjust(kind, sub, p, flags);
+				}
+				p += used == 0 ? 1 : used;
+			}
+		}
+	}
+
+	private int valueBytes(int format) {
+		if ((format & ~255) != 0) { throw "Invalid Latin position value format"; }
+		int size = 0;
+		for (int bit = 1; bit < 256; bit *= 2) { if ((format & bit) != 0) { size += 2; } }
+		return size;
+	}
+
+	private void value(int at, int format, LayoutGlyph glyph) {
+		for (int bit = 1; bit < 256; bit *= 2) {
+			if ((format & bit) == 0) { continue; }
+			int value = self.table.data.s16(at);
+			at += 2;
+			if (bit == 1) { glyph.xOffset += value; }
+			else if (bit == 2) { glyph.yOffset += value; }
+			else if (bit == 4) { glyph.advance += value; }
+			else if (value != 0) { throw "Unsupported device or vertical position adjustment"; }
+		}
+	}
+
+	private int adjust(int kind, int sub, int p, int flags) {
+		var data = self.table.data;
+		int format = data.u16(sub);
+		var glyph = self.run.glyphs.get(p);
+		int coverage = 0;
+		if (kind == 8 && format == 3) {
+			int input = sub + 4 + 2 * data.u16(sub + 2);
+			if (data.u16(input) < 1) { throw "Invalid contextual positioning"; }
+			coverage = sub + data.u16(input + 2);
+		} else {
+			if ((kind == 7 && format == 3) || kind < 1 || kind > 8) { throw "Unsupported Latin positioning"; }
+			coverage = sub + data.u16(sub + 2);
+		}
+		int index = self.table.coverage(coverage, glyph.id);
+		if (index < 0) { return 0; }
+		if ((flags & ~0xff18) != 0) { throw "Unsupported Latin positioning flags"; }
+		int first = data.u16(sub + 4);
+		if (kind == 1) {
+			if (format == 1) { self.value(sub + 6, first, glyph); }
+			else if (format == 2 && index < data.u16(sub + 6)) { self.value(sub + 8 + index * self.valueBytes(first), first, glyph); }
+			else { throw "Invalid single positioning format"; }
+			return 1;
+		}
+		if (kind != 2) { throw "Unsupported Latin position on selected glyph"; }
+		if (p + 1 >= self.run.glyphs.size()) { return 0; }
+		int second = data.u16(sub + 6);
+		int firstSize = self.valueBytes(first);
+		int stride = firstSize + self.valueBytes(second);
+		var neighbor = self.run.glyphs.get(p + 1);
+		int at = 0;
+		if (format == 1) {
+			if (index >= data.u16(sub + 8)) { throw "Invalid Latin pair set"; }
+			int set = sub + data.u16(sub + 10 + 2 * index);
+			int low = 0;
+			int high = data.u16(set);
+			while (low < high) {
+				int mid = low + (high - low) / 2;
+				int record = set + 2 + mid * (stride + 2);
+				int id = data.u16(record);
+				if (neighbor.id < id) { high = mid; }
+				else if (neighbor.id > id) { low = mid + 1; }
+				else { at = record + 2; break; }
+			}
+			if (at == 0) { return 0; }
+		} else if (format == 2) {
+			int a = LayoutTable.glyphClass(data, sub + data.u16(sub + 8), glyph.id);
+			int b = LayoutTable.glyphClass(data, sub + data.u16(sub + 10), neighbor.id);
+			int columns = data.u16(sub + 14);
+			if (a >= data.u16(sub + 12) || b >= columns) { throw "Invalid Latin spacing class"; }
+			long long record = (long long)sub + 16LL + ((long long)a * (long long)columns + (long long)b) * (long long)stride;
+			data.need(record, (long long)stride);
+			at = (int)record;
+		} else { throw "Unsupported Latin pair format"; }
+		self.value(at, first, glyph);
+		self.value(at + firstSize, second, neighbor);
+		return second == 0 ? 1 : 2;
+	}
+}

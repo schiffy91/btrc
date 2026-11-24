@@ -134,13 +134,13 @@ class HintedTrueTypeFace implements IFontFace {
 
 	public FontGlyph? glyph(int codepoint, bool render) {
 		if (codepoint < 0 || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) { throw "Invalid font Unicode scalar"; }
-		try { return self.loadGlyph(codepoint, render); }
+		try { return self.glyphByIndex(self.characters.glyphIndex(codepoint), render); }
 		catch (string error) { return null; }
 	}
 
-	private FontGlyph loadGlyph(int codepoint, bool render) {
+	public FontGlyph glyphByIndex(int glyph, bool render) {
 		var outline = GlyphOutline();
-		long long advance = OpenTypeFixed.pixelRound(self.outlines.load(self.characters.glyphIndex(codepoint), self.scale, outline));
+		long long advance = OpenTypeFixed.pixelRound(self.outlines.load(glyph, self.scale, outline));
 		if (!render) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_UNSUPPORTED, 0, new Bytes()); }
 		if (outline.isEmpty()) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_GRAY, 256, new Bytes()); }
 		var box = outline.controlBox();

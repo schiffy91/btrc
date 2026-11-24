@@ -1,0 +1,42 @@
+import Library.Bytes;
+import Library.GUI.Linux.Fonts.SystemTextABI;
+
+extern void* btrcSystemTextOpenFont(const char* path, double logicalSize, double scale);
+extern void btrcSystemTextCloseFont(void* font);
+extern void* btrcSystemTextShapeLine(void* font, const char* text, double width, int overflow);
+extern void btrcSystemTextCloseRun(void* run);
+extern double btrcSystemTextAdvance(void* run);
+extern double btrcSystemTextAscent(void* run);
+extern double btrcSystemTextDescent(void* run);
+extern double btrcSystemTextLineHeight(void* run);
+extern int btrcSystemTextInkLeft(void* run);
+extern int btrcSystemTextInkTop(void* run);
+extern int btrcSystemTextInkWidth(void* run);
+extern int btrcSystemTextInkHeight(void* run);
+extern int btrcSystemTextPixelFormat(void* run);
+extern const unsigned char* btrcSystemTextPixels(void* run);
+
+int main(int argc, char** argv) {
+	if (argc != 2) { return 2; }
+	SystemTextABI.install();
+	void* font = btrcSystemTextOpenFont(argv[1], 8.0, 1.0);
+	if (font == null || remove(argv[1]) != 0) { return 3; }
+	void* lig = btrcSystemTextShapeLine(font, "fi", 0.0, 0);
+	void* pair = btrcSystemTextShapeLine(font, "AV", 0.0, 0);
+	void* ellipsis = btrcSystemTextShapeLine(font, "AVfi", 8.0, 1);
+	void* unavailable = btrcSystemTextShapeLine(font, "F", 0.0, 0);
+	btrcSystemTextCloseFont(font);
+	if (lig == null || pair == null || ellipsis == null || unavailable != null) { return 4; }
+	if (btrcSystemTextAdvance(lig) != 8.0 || btrcSystemTextAdvance(pair) != 15.0 || btrcSystemTextAdvance(ellipsis) != 8.0) { return 5; }
+	if (btrcSystemTextAscent(lig) != 6.0 || btrcSystemTextDescent(lig) != 3.0 || btrcSystemTextInkLeft(lig) != 0 || btrcSystemTextInkTop(lig) != -4 || btrcSystemTextInkWidth(lig) != 6 || btrcSystemTextInkHeight(lig) != 4 || btrcSystemTextPixelFormat(lig) != 1) { return 6; }
+	var expected = Bytes.fromHex("5f2e05000000fffff9cd9b2dffffee8f2600cb6209000000");
+	const unsigned char* pixels = btrcSystemTextPixels(lig);
+	if (expected == null || pixels == null) { return 7; }
+	for (int i = 0; i < expected.length(); i++) { if ((int)pixels[i] != expected.get(i)) { return 8; } }
+	if (btrcSystemTextInkHeight(ellipsis) != 3 || btrcSystemTextInkWidth(pair) != 13) { return 9; }
+	btrcSystemTextCloseRun(lig);
+	btrcSystemTextCloseRun(pair);
+	btrcSystemTextCloseRun(ellipsis);
+	print("PASS: native text ligatures, kerning, ellipsis and owned pixels");
+	return 0;
+}

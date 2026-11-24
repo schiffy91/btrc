@@ -17,7 +17,7 @@ class SFNTDirectory {
 
 	public long long tag(int index) { return self.data.u32(self.base + 12 + index * 16); }
 
-	public OpenTypeSpan required(long long tag, int minimum) {
+	public OpenTypeSpan? find(long long tag, int minimum) {
 		for (int i = 0; i < self.count; i++) {
 			int at = self.base + 12 + i * 16;
 			if (self.data.u32(at) != tag) { continue; }
@@ -27,6 +27,12 @@ class SFNTDirectory {
 			if (length < (long long)minimum) { throw "Truncated SFNT table"; }
 			return OpenTypeSpan((int)offset, (int)length);
 		}
-		throw "Missing SFNT table";
+		return null;
+	}
+
+	public OpenTypeSpan required(long long tag, int minimum) {
+		var result = self.find(tag, minimum);
+		if (result == null) { throw "Missing SFNT table"; }
+		return result;
 	}
 }

@@ -427,3 +427,26 @@ def test_linux_installed_font_catalog(tmp_path, request, gui_provider_root, fron
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS: installed font collections, Unicode family fallback and XDG precedence" in result.stdout
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_system_text_runs(tmp_path, request, gui_provider_root, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
+
+    require_linux_reader()
+    tests = REPO / "src/tests/native/gui"
+    program = build_provider_program(
+        tests / "SystemTextConformance.btrc", tmp_path, frontend, sanitized, request, data_root=gui_provider_root
+    )
+    path = tmp_path / "widgets.ttf"
+    path.write_bytes((tests / "fixtures/shaping-fixture.ttf").read_bytes())
+    result = subprocess.run(
+        [program, path], capture_output=True, text=True, env=provider_environment(sanitized), timeout=60
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: native text ligatures, kerning, ellipsis and owned pixels" in result.stdout

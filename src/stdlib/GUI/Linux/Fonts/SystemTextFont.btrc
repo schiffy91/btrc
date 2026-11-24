@@ -1,0 +1,141 @@
+import Library.Bytes;
+import Library.FileSystem.FileSystemHandles;
+import Library.GUI.IFontFace;
+import Library.Strings;
+import Library.Vector;
+
+import ../../OpenType/HintedTrueTypeFace.btrc;
+import ../../OpenType/Layout/GlyphRun.btrc;
+import ../../OpenType/Layout/LatinLayout.btrc;
+import ../../OpenType/OpenTypeData.btrc;
+import ../../OpenType/SFNTDirectory.btrc;
+import ../../OpenType/WOFF2Font.btrc;
+import ../../OpenType/WOFFFont.btrc;
+
+class SystemPaintedGlyph {
+	public FontGlyph glyph;
+	public int x;
+	public int y;
+
+	public SystemPaintedGlyph(FontGlyph glyph, int x, int y) { self.glyph = glyph; self.x = x; self.y = y; }
+}
+
+class SystemInkRun {
+	public double advance;
+	public double ascent;
+	public double descent;
+	public double lineHeight;
+	public int left = 0;
+	public int top = 0;
+	public int width = 0;
+	public int height = 0;
+	public Bytes pixels = Bytes();
+}
+
+class SystemTextFont {
+	private HintedTrueTypeFace outlines;
+	private LatinLayout layout;
+	private int ppem;
+	private double scale;
+	private double descent;
+
+	public SystemTextFont(string path, double logicalSize, double scale) {
+		if (path == null || !(scale > 0.0 && scale <= 16.0 && logicalSize > 0.0 && logicalSize <= 512.0)) { throw "Invalid system font size"; }
+		self.scale = scale;
+		self.ppem = (int)(logicalSize * scale + 0.5);
+		if (self.ppem < 1 || self.ppem > 1024) { throw "Unsupported system font backing size"; }
+		var opened = RegularFileSnapshot.open(path, 16777216LL);
+		if (!opened.ok()) { throw "Cannot open system font"; }
+		var file = opened.value();
+		var read = file.readExactAt(0LL, (int)file.size());
+		file.close();
+		if (!read.ok()) { throw "Cannot read system font"; }
+		var bytes = read.value();
+		unsigned int format = bytes.readU32BE(0);
+		if (format == 0x774f4632U || format == 0x774f4646U) {
+			if (bytes.readU32BE(16) > 33554432U) { throw "System font exceeds decoded limit"; }
+			bytes = format == 0x774f4632U ? WOFF2Font().unpack(bytes) : WOFFFont().unpack(bytes);
+		}
+		var data = OpenTypeData(bytes);
+		var dir = SFNTDirectory(data);
+		var head = dir.required(0x68656164LL, 54);
+		var os2 = dir.required(0x4f532f32LL, 78);
+		var hhea = dir.required(0x68686561LL, 36);
+		int below = (data.u16(os2.offset + 62) & 128) != 0 ? data.s16(os2.offset + 70) : data.s16(hhea.offset + 6);
+		long long factor = OpenTypeFixed.div((long long)self.ppem * 64LL, (long long)data.u16(head.offset + 18));
+		self.descent = (double)OpenTypeFixed.pixelCeil(OpenTypeFixed.mul((long long)(-below), factor)) / (64.0 * scale);
+		self.outlines = HintedTrueTypeFace(bytes, self.ppem);
+		self.layout = LatinLayout(data);
+	}
+
+	private long long advanceUnits(LayoutGlyphRun run) {
+		long long advance = 0LL;
+		for g in run.glyphs { advance += (long long)g.advance; }
+		return advance;
+	}
+
+	private double logicalAdvance(LayoutGlyphRun run) { return (double)self.advanceUnits(run) * (double)self.ppem / ((double)run.unitsPerEm * self.scale); }
+
+	private int rounded(long long units, int em) {
+		long long n = units * (long long)self.ppem;
+		long long value = OpenTypeFixed.floorDiv(n * 2LL + (long long)em, (long long)em * 2LL);
+		if (value < -65536LL || value > 65536LL) { throw "Text position exceeds the run limit"; }
+		return (int)value;
+	}
+
+	public SystemInkRun shape(string text, double maximumWidth, int overflow) {
+		var run = self.layout.shape(text);
+		if (overflow != 0 && overflow != 1) { throw "Unsupported text overflow mode"; }
+		if (overflow == 1 && !(maximumWidth >= 0.0)) { throw "Invalid text width"; }
+		if (overflow == 1 && self.logicalAdvance(run) > maximumWidth) {
+			var marks = self.layout.shape("…");
+			run = marks;
+			// Reshape each surviving prefix: removing a letter may break a
+			// ligature or change the adjustment against the ellipsis.
+			int pos = text.length();
+			while (pos > 0) {
+				pos = UTF8.previous(text, text.length(), pos);
+				var candidate = self.layout.shape(text.substring(0, pos) + "…");
+				if (self.logicalAdvance(candidate) <= maximumWidth) { run = candidate; break; }
+			}
+		}
+		var result = SystemInkRun();
+		result.advance = self.logicalAdvance(run);
+		var metrics = self.outlines.metrics();
+		result.ascent = (double)metrics.ascenderFixed() / (64.0 * self.scale);
+		result.descent = self.descent;
+		result.lineHeight = (double)metrics.heightFixed() / (64.0 * self.scale);
+		Vector<SystemPaintedGlyph> glyphs = [];
+		long long pen = 0LL;
+		int right = 0;
+		int bottom = 0;
+		for g in run.glyphs {
+			var ink = self.outlines.glyphByIndex(g.id, true);
+			if (ink.width() > 0 && ink.rows() > 0) {
+				int x = self.rounded(pen + (long long)g.xOffset, run.unitsPerEm) + ink.bitmapLeft();
+				int y = -self.rounded((long long)g.yOffset, run.unitsPerEm) - ink.bitmapTop();
+				if (glyphs.isEmpty() || x < result.left) { result.left = x; }
+				if (glyphs.isEmpty() || y < result.top) { result.top = y; }
+				if (glyphs.isEmpty() || x + ink.width() > right) { right = x + ink.width(); }
+				if (glyphs.isEmpty() || y + ink.rows() > bottom) { bottom = y + ink.rows(); }
+				glyphs.push(new SystemPaintedGlyph(ink, x, y));
+			}
+			pen += (long long)g.advance;
+		}
+		result.width = right - result.left;
+		result.height = bottom - result.top;
+		if (result.width > 8192 || result.height > 4096 || (long long)result.width * (long long)result.height > 16777216LL) { throw "Text raster exceeds the run limit"; }
+		result.pixels = Bytes.zeros(result.width * result.height);
+		for part in glyphs {
+			for (int y = 0; y < part.glyph.rows(); y++) {
+				int at = (part.y - result.top + y) * result.width + part.x - result.left;
+				for (int x = 0; x < part.glyph.width(); x++) {
+					int a = part.glyph.coverage(y, x);
+					int under = result.pixels.get(at + x);
+					result.pixels.set(at + x, a + ((255 - a) * under + 127) / 255);
+				}
+			}
+		}
+		return result;
+	}
+}
