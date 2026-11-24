@@ -22,6 +22,7 @@ void btrcWaylandWindowDestroy(BtrcWaylandWindow *window);
 uint32_t btrcWaylandWindowId(const BtrcWaylandWindow *window);
 bool btrcWaylandWindowShow(BtrcWaylandWindow *window);
 bool btrcWaylandWindowHide(BtrcWaylandWindow *window);
+bool btrcWaylandWindowMakeDialog(BtrcWaylandWindow *window, BtrcWaylandWindow *parent);
 bool btrcWaylandWindowTitle(BtrcWaylandWindow *window, const char *title);
 bool btrcWaylandWindowResize(BtrcWaylandWindow *window, int width, int height);
 bool btrcWaylandWindowMinimum(BtrcWaylandWindow *window, int width, int height);

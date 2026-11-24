@@ -44,6 +44,7 @@ struct BtrcShimWindow {
 };
 
 BtrcShimWindow *btrcWaylandPlatformWindows(void);
+bool btrcWaylandSceneDark(void);
 void btrcWaylandSceneClose(BtrcShimWindow *window);
 int btrcWaylandSceneAdvance(int timeout);
 bool btrcWaylandScenePresent(BtrcShimWindow *window);

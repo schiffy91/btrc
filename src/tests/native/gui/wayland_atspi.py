@@ -115,6 +115,55 @@ def wait_for_speech(log, expected, iterate):
     raise AssertionError(f"Orca did not send {expected!r} to Speech Dispatcher")
 
 
+def drive_modal_alerts(app, root, children, identity, state, click, iterate):
+    def eventually(read):
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            while iterate(None, False):
+                pass
+            value = read()
+            if value:
+                return value
+            time.sleep(0.05)
+        raise AssertionError("accessible modal state did not arrive")
+
+    def frames():
+        return {identity(window): window for application in children(root) for window in children(application)}
+
+    def button(parent, title):
+        return next((node for node in children(parent) if identity(node) == (43, title)), None)
+
+    for title, detail in (
+        ("Keyboard alert", "Press Escape to dismiss this message."),
+        ("Pointer alert", "Click the Close button."),
+        ("Long alert", "Final line of the alert"),
+    ):
+        dialog = eventually(lambda title=title: frames().get((16, title)))
+        assert state(dialog, 16)  # ATSPI_STATE_MODAL
+        parent = frames()[(23, "btrc input and pixels")]
+        owner_button = eventually(lambda parent=parent: button(parent, "Parent action"))
+        assert not state(owner_button, 24) and not click(owner_button)
+        labels = [name for role, name in map(identity, children(dialog)) if role == 29]
+        assert title in labels and any(detail in name for name in labels)
+        close = eventually(lambda dialog=dialog: button(dialog, "Close"))
+        assert state(close, 24) and click(close)
+
+    def enabled_parent_button():
+        parent = frames().get((23, "btrc input and pixels"))
+        control = button(parent, "Parent action") if parent else None
+        return control if control and state(control, 24) else None
+
+    assert click(eventually(enabled_parent_button))
+    output, _ = app.communicate(timeout=8)
+    assert app.returncode == 0 and output.splitlines() == [
+        "keyboard dismissed",
+        "pointer dismissed",
+        "close requested",
+        "parent click",
+    ]
+    print("AT-SPI dismissed three native modal dialogs and restored the owner action", flush=True)
+
+
 def main(executable, directory, option=None, orca_trace=None):
     field_test = option == "--field"
     if not field_test:
@@ -162,6 +211,17 @@ def main(executable, directory, option=None, orca_trace=None):
     assert root
     with subprocess.Popen(command, stdout=subprocess.PIPE, text=True) as app:
         try:
+            if orca_trace == "--alerts":
+                drive_modal_alerts(
+                    app,
+                    root,
+                    lambda obj: [child(obj, i, None) for i in range(count(obj, None))],
+                    lambda obj: (role(obj, None), (name(obj, None) or b"").decode()),
+                    lambda obj, flag: has_state(states(obj), flag),
+                    lambda obj: perform(action(obj), 0, None),
+                    iterate,
+                )
+                return
             end = time.monotonic() + 15
             button = None
             while time.monotonic() < end:

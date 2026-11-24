@@ -220,6 +220,8 @@ void btrcShimControlSetFont(BtrcShimControl *control, double size, bool bold) {
     }
 }
 
+bool btrcWaylandSceneDark(void) { return darkTheme; }
+
 void btrcShimSetDarkAppearance(bool dark) {
     if (darkTheme == dark) { return; }
     darkTheme = dark;
@@ -912,10 +914,12 @@ bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessibl
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
         if (!w->native->visible) { continue; }
         unsigned wid = btrcShimWindowId(w);
+        BtrcWaylandWindow *modal = w->native->display->modalWindow;
+        bool enabled = !modal || w->native == modal;
         unsigned state = (1u << 25) | (1u << 30); // AT-SPI showing, visible
         if (!window) {
             if (index-- != 0) { continue; }
-            *out = (BtrcWaylandAccessible){.window=wid, .role=23, .state=state | (w->native->activated ? (1u << 1) : 0u) | (1u<<8) | (1u<<24),
+            *out = (BtrcWaylandAccessible){.window=wid, .role=w->native == modal ? 16u : 23u, .state=state | (w->native->activated ? (1u << 1) : 0u) | (enabled ? (1u<<8) | (1u<<24) : 0u) | (w->native == modal ? (1u<<16) : 0u),
                 .name=w->native->title, .description="", .width=btrcShimWindowWidth(w), .height=btrcShimWindowHeight(w)};
             return true;
         }
@@ -925,16 +929,16 @@ bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessibl
             BtrcShimControl *c = p->control;
             if (!c || c->closed || (c->type != LABEL && c->type != BUTTON && c->type != TEXT_FIELD)) { continue; }
             if (index-- != 0) { continue; }
-            if (c->enabled) { state |= (1u << 8) | (1u << 24); }
-            if ((c->type == BUTTON || c->type == TEXT_FIELD) && c->enabled) { state |= 1u << 11; }
-            if (w->focused == c) { state |= 1u << 12; }
+            if (enabled && c->enabled) { state |= (1u << 8) | (1u << 24); }
+            if (enabled && (c->type == BUTTON || c->type == TEXT_FIELD) && c->enabled) { state |= 1u << 11; }
+            if (enabled && w->focused == c) { state |= 1u << 12; }
             *out = (BtrcWaylandAccessible){.window=wid, .control=c->id, .role=c->type == TEXT_FIELD ? 79u : c->type == BUTTON ? 43u : 29u,
                 .state=state, .name=c->type == BUTTON ? btrcWaylandButtonAccessibleName(c->button) : c->label ? btrcWaylandLabelAccessibleName(c->label) : "",
                 .description=c->tooltip ? c->tooltip : "", .x=(int)p->frame.x, .y=(int)p->frame.y,
                 .width=(int)p->frame.width, .height=(int)p->frame.height};
             if (c->field) {
                 out->state |= 1u << 26;  /* single line */
-                if (c->enabled) { out->state |= 1u << 7; } /* editable */
+                if (enabled && c->enabled) { out->state |= 1u << 7; } /* editable */
                 btrcWaylandDescribeField(out, c->field);
             }
             return true;
@@ -946,6 +950,7 @@ bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessibl
 BtrcShimControl *btrcWaylandAccessibleControl(unsigned window, unsigned control, BtrcShimWindow **owner) {
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
         if (!w->native->visible || btrcShimWindowId(w) != window) { continue; }
+        if (w->native->display->modalWindow && w->native->display->modalWindow != w->native) { return NULL; }
         for (size_t i = 0; i < w->visible.count; ++i) {
             BtrcShimControl *c = w->visible.items[i].control;
             if (c && c->id == control && c->enabled && !c->closed) {

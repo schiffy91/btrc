@@ -46,6 +46,7 @@ WAYLAND_UNITS = (
     "Button",
     "ControlText",
     "Tooltip",
+    "Alert",
     "Label",
     "Select",
     "TextLines",

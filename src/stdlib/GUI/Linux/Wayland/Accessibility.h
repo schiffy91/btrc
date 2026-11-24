@@ -18,5 +18,5 @@ bool btrcWaylandAccessibleSelect(unsigned window, unsigned id, int anchor, int c
 bool btrcWaylandAccessibleReplace(unsigned window, unsigned id, int start, int end, const char *value);
 void btrcWaylandAccessibilityChanged(void);
 unsigned long long btrcWaylandAccessibilityRevision(void);
-void btrcWaylandAccessibilityInstall(int (*service)(void));
+void btrcWaylandAccessibilityInstall(int (*service)(int *));
 #endif
