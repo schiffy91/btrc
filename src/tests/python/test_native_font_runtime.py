@@ -348,7 +348,7 @@ def test_linux_bitmap_factory_matches_freetype(tmp_path, request, frontend, sani
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
-def test_linux_hinted_woff2_after_unlink(tmp_path, request, frontend, sanitized):
+def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitized):
     from src.tests.python.linux_provider_fixtures import (
         build_provider_program,
         provider_environment,
@@ -365,28 +365,30 @@ def test_linux_hinted_woff2_after_unlink(tmp_path, request, frontend, sanitized)
     source = tmp_path / "HintedFontConformance.btrc"
     source.write_text((tests / source.name).read_text())
     executable = build_provider_program(source, tmp_path, frontend, sanitized, request)
-    data = (tests / "fixtures/hinted-mixed.woff2").read_bytes()
     env = provider_environment(sanitized)
 
-    def run(suffix, count, environment, fixture=data):
+    def run(suffix, count, environment, fixture):
         path = tmp_path / f"input.{suffix}"
         path.write_bytes(fixture)
         return subprocess.run(
             [executable, path, str(count)], capture_output=True, text=True, env=environment, timeout=60
         )
 
-    for suffix in ("woff2", "raw"):
-        result = run(suffix, 6, env)
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert "PASS: hinted WOFF2 snapshots after unlink" in result.stdout
+    blocked = None if sanitized else unavailable_freetype(tmp_path, env)
+    for extension in ("ttf", "woff", "woff2"):
+        mixed = (tests / f"fixtures/hinted-mixed.{extension}").read_bytes()
+        for suffix in (extension, "raw"):
+            result = run(suffix, 6, env, mixed)
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert "PASS: hinted outline snapshots after unlink" in result.stdout
+        if blocked is not None:
+            supported = run(extension, 5, blocked, mixed)
+            assert supported.returncode == 0, supported.stdout + supported.stderr
+            fallback = run(extension, 6, blocked, mixed)
+            assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr
     general = (tests / "fixtures/hinted-general.woff2").read_bytes()
     result = run("woff2", 6, env, general)
     assert result.returncode == 0, result.stdout + result.stderr
-    if not sanitized:
-        blocked = unavailable_freetype(tmp_path, env)
+    if blocked is not None:
         early = run("woff2", 5, blocked, general)
         assert early.returncode != 0 and "Cannot initialize FreeType library" in early.stderr
-        supported = run("woff2", 5, blocked)
-        assert supported.returncode == 0, supported.stdout + supported.stderr
-        fallback = run("woff2", 6, blocked)
-        assert fallback.returncode != 0 and "Cannot initialize FreeType library" in fallback.stderr

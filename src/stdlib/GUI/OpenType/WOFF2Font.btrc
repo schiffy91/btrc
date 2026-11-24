@@ -2,6 +2,7 @@ import Library.Bytes;
 import Library.Vector;
 
 import ./Brotli/Decoder.btrc;
+import ./SFNTHeader.btrc;
 import ./WOFF2Glyphs.btrc;
 import ./WOFF2Stream.btrc;
 
@@ -110,15 +111,7 @@ class WOFF2Font {
 
 	private Bytes sfnt(unsigned int flavor) {
 		int count = self.tables.size();
-		int power = 1;
-		int selector = 0;
-		while (power * 2 <= count) { power *= 2; selector++; }
-		var result = Bytes();
-		result.appendU32BE(flavor);
-		result.appendU16BE(count);
-		result.appendU16BE(power * 16);
-		result.appendU16BE(selector);
-		result.appendU16BE((count - power) * 16);
+		var result = SFNTHeader.create(flavor, count);
 		int offset = 12 + count * 16;
 		int adjustment = -1;
 		for (int i = 0; i < count; i++) {
