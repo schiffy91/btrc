@@ -120,6 +120,12 @@ bool btrcEditReplace(BtrcEditBuffer *edit, const char *text) {
     return apply(edit, edge(edit, false), edge(edit, true), text);
 }
 
+bool btrcEditReplaceRange(BtrcEditBuffer *edit, size_t begin, size_t end, const char *text) {
+    if (!text || begin > end || btrcGraphemeFloor(&edit->clusters, begin) != begin ||
+        btrcGraphemeFloor(&edit->clusters, end) != end) { return false; }
+    return apply(edit, begin, end, text);
+}
+
 bool btrcEditDelete(BtrcEditBuffer *edit, bool forward) {
     size_t begin = edge(edit, false), end = edge(edit, true);
     if (begin == end) {
@@ -143,4 +149,41 @@ bool btrcEditUndo(BtrcEditBuffer *edit, bool redo) {
     *target = entry;
     trim(target);
     return true;
+}
+
+static bool utf8Boundary(const char *text, size_t position) {
+    return ((unsigned char)text[position] & 0xc0) != 0x80;
+}
+
+bool btrcEditContext(const BtrcEditBuffer *edit, BtrcEditContext *context) {
+    size_t length = edit->clusters.byteOffsets[edit->clusters.count];
+    size_t begin = edge(edit, false), end = edge(edit, true);
+    if (end - begin > sizeof(context->text) - 1) { return false; }
+    size_t spare = sizeof(context->text) - 1 - (end - begin);
+    size_t after = length - end < spare / 2 ? length - end : spare / 2;
+    size_t before = begin < spare - after ? begin : spare - after;
+    begin -= before;
+    end += length - end < spare - before ? length - end : spare - before;
+    while (!utf8Boundary(edit->text, begin)) { ++begin; }
+    while (!utf8Boundary(edit->text, end)) { --end; }
+    memcpy(context->text, edit->text + begin, end - begin);
+    context->text[end - begin] = 0;
+    context->cursor = (int)(edit->caret - begin);
+    context->anchor = (int)(edit->anchor - begin);
+    return true;
+}
+
+bool btrcEditDeleteAround(BtrcEditBuffer *edit, size_t before, size_t after) {
+    size_t left = edge(edit, false), right = edge(edit, true);
+    size_t length = edit->clusters.byteOffsets[edit->clusters.count];
+    if (before > left || after > length - right || !utf8Boundary(edit->text, left - before) ||
+        !utf8Boundary(edit->text, right + after)) { return true; }
+    if (!before && !after) { return true; }
+    size_t anchor = edit->anchor - before, caret = edit->caret - before;
+    char *selected = btrcEditSelection(edit);
+    if (!selected) { return false; }
+    bool ok = apply(edit, left - before, right + after, selected);
+    free(selected);
+    if (ok) { btrcEditSelect(edit, anchor, caret); }
+    return ok;
 }

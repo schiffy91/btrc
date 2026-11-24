@@ -512,6 +512,29 @@ static BtrcShimControl *tabControl(const BtrcShimWindow *w, bool backwards) {
     return NULL;
 }
 
+void btrcWaylandFieldModelChanged(BtrcShimControl *control) {
+    for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
+        if (w->focused == control && w->native->textInput) { btrcWaylandUpdateTextInputs(w->native, false); }
+    }
+}
+
+static BtrcShimWindow *editing(BtrcWaylandWindow *native) {
+    for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
+        if (w->native == native && w->focused && w->focused->field) { return w; }
+    }
+    return NULL;
+}
+
+bool btrcWaylandSceneEditContext(BtrcWaylandWindow *native, struct BtrcEditContext *context) {
+    BtrcShimWindow *w = editing(native);
+    return w && btrcWaylandFieldContext(w->focused->field, context);
+}
+
+bool btrcWaylandSceneDeleteAround(BtrcWaylandWindow *native, unsigned before, unsigned after) {
+    BtrcShimWindow *w = editing(native);
+    return !w || btrcWaylandFieldDeleteAround(w->focused->field, w, w->focused->id, before, after);
+}
+
 static bool controlKey(BtrcShimWindow *w, const BtrcShimEvent *e, bool *handled) {
     if (w->menu) { *handled = true; return btrcWaylandSelectKey(w->menu, e); }
     if (e->key == BTRC_SHIM_KEY_TAB && e->down) {
@@ -631,6 +654,7 @@ bool btrcWaylandSceneInput(BtrcWaylandDisplay *display, const BtrcShimEvent *eve
             w->pressed = NULL;
         } else { return true; }
         w->sceneDirty = true;
+        btrcWaylandFieldModelChanged(c);
         *handled = true;
         return true;
     }

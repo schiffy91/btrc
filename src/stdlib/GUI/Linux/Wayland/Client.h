@@ -9,8 +9,12 @@ typedef struct BtrcWaylandBuffer BtrcWaylandBuffer;
 typedef struct BtrcWaylandEntered BtrcWaylandEntered;
 typedef struct BtrcWaylandQueuedEvent BtrcWaylandQueuedEvent;
 
+struct BtrcEditContext;
+
 struct BtrcWaylandDisplay {
     BtrcWaylandWire *wire;
+    bool (*editContext)(BtrcWaylandWindow *, struct BtrcEditContext *);
+    bool (*deleteAround)(BtrcWaylandWindow *, unsigned, unsigned);
     bool (*routeInput)(BtrcWaylandDisplay *, const BtrcShimEvent *, bool *);
     uint32_t registry;
     uint32_t compositor;
