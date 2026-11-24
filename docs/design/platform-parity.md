@@ -122,8 +122,8 @@ one record per operation and target slice, in the qualification ledger format
 (`tools/qualification/schema.py`, written compactly as one row per operation
 with a cell per slice). The seed, [supervisor supplement](platform-inventory/windows-supervisor.toml),
 [image supplement](platform-inventory/windows-supervisor-image.toml), and
-[daemon file supplement](platform-inventory/windows-daemon-files.toml) hold 414 operations: the
-140 exports of the root and group stdlib manifests outside UI0's groups, the
+[daemon file supplement](platform-inventory/windows-daemon-files.toml) hold 421 operations: the
+147 exports of the root and group stdlib manifests outside UI0's groups, the
 258 helpers of the runtime manifest and the 16 corpus topic directories.
 `src/tests/python/test_platform_inventory.py` recomputes that set from the
 manifests, exports and corpus and fails on drift, and the `operation` entry of
@@ -139,12 +139,12 @@ been ingested, so no row is `passed`.
 
 | Slice | Slots | Equivalent | Adapted | OS-restricted | Missing |
 | --- | --- | --- | --- | --- | --- |
-| `windows-x64` | 414 | 313 | 75 | 16 | 10 |
-| `windows-arm64` | 414 | 313 | 75 | 16 | 10 |
-| `ios-device` | 414 | 359 | 16 | 38 | 1 |
-| `ios-simulator` | 414 | 359 | 16 | 38 | 1 |
-| `android-arm64` | 414 | 369 | 20 | 21 | 4 |
-| `android-x86_64` | 414 | 369 | 20 | 21 | 4 |
+| `windows-x64` | 421 | 320 | 75 | 16 | 10 |
+| `windows-arm64` | 421 | 320 | 75 | 16 | 10 |
+| `ios-device` | 421 | 366 | 16 | 38 | 1 |
+| `ios-simulator` | 421 | 366 | 16 | 38 | 1 |
+| `android-arm64` | 421 | 376 | 20 | 21 | 4 |
+| `android-x86_64` | 421 | 376 | 20 | 21 | 4 |
 
 The `App`, `GUI`, `Tray` and `UI` groups are UI0's: their operations are
 referenced through the frozen family-cell, ui-operation and ui-case
