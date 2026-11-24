@@ -152,6 +152,9 @@ int main(void)
 	    btrc_win_pos_match(positions, "x", 0, NULL) != REG_NOMATCH ||
 	    btrc_win_pos_match(positions, "xxxaa", 1, span) != btrc_win_pos_competing_starts) return 1;
 	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "x((a{2})?b)?") || ((uintptr_t)compiled.__opaque & 3u) != 3 ||
+	    regexec(&compiled, "xab", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 3) return 1;
+	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;
 	int globbed = glob("no-such-directory-*/x", 0, NULL, &found);

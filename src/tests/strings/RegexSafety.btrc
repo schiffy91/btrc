@@ -91,6 +91,9 @@ int main() {
 	assert(Regex.first("(|a+)", "aaa").equals("aaa"));
 	assert(Regex.first("([a-z]+)-([0-9]+)", "!test-42.").equals("test-42"));
 	assert(Regex.first("((a*)b+):([0-9]*)", "bb:17").equals("bb:17"));
+	assert(Regex.fullMatch("x((a{2})?b)?", "xab"));
+	assert(Regex.fullMatch("item([[:digit:]])+", "item42"));
+	assert(Regex.first("[[:space:]]*(cat|dog)", "xx dog").equals(" dog"));
 	assert(Regex.first("((a){2})", "aaaa").equals("aa"));
 
 	/* The repeated capture changes the Windows start offset when two

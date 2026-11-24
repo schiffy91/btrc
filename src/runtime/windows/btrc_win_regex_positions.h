@@ -243,7 +243,7 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 
 static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, size_t *groups)
 {
-	if (*pattern != '(' || strlen(pattern) > 255) return NULL;
+	if (strlen(pattern) > 255) return NULL;
 	const char *escape = strchr(pattern, '\\');
 	if (escape && ((escape[1] != 'B' && escape[1] != 'b') || strchr(escape + 1, '\\'))) return NULL;
 	btrc_win_rx_program parsed = {0};

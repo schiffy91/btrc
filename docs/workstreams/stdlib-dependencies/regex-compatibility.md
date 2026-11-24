@@ -67,3 +67,5 @@ Flat sequences and alternatives also support subject and word assertions. In new
 Empty patterns, empty alternatives and captures around an empty expression retain their zero-length spans in the flat matcher.
 
 Variable-width interior captures can use the tagged matcher when each variable-width atom has a disjoint boundary with the next reachable byte sets. This covers separated fields such as `([a-z]+)-([0-9]+)` and preserves the actual offsets of both captures. Overlapping fields keep their previous routing.
+
+Groups may also follow an initial byte sequence, as in `item([[:digit:]])+`, or appear in a later top-level alternative. The position matcher applies the same expansion and origin checks to the entire expression.
