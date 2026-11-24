@@ -23,7 +23,7 @@ failure names the module, the target and the dependency.
 | libX11 | `GUI/Shim/Shim` | linux | headers `X11/Xlib.h`; pkg-config `x11` | Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend. |
 | libwayland-client | `GUI/Shim/Shim` | linux | headers `wayland-client.h`; pkg-config `wayland-client` | The Wayland wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects. |
 | musl's regex (bundled source) | `Regex` | windows | bundled `src/runtime/windows/musl` | A first-party matcher; Windows supplies no POSIX regex. |
-| the WebView2 SDK (header and loader DLL) | `GUI/Shim/ShimWeb` | windows | loads `WebView2Loader.dll` | The COM declarations are first-party. The supported Win32 activation API is supplied by Microsoft's SDK loader. Decide whether to retain the loader or rely on the runtime's changeable internal export. |
+| the WebView2 SDK (header and loader DLL) | `GUI/Shim/ShimWeb` | windows | loads `WebView2Loader.dll` | Windows web views use first-party COM declarations and the system Evergreen runtime. Only applications that use the embedded web feature ship Microsoft's supported loader. The optional embedded-web package stages the pinned DLL. The loader remains pending until Windows offers a documented SDK-free activation API. |
 
 ## Standards data used by first-party implementations
 

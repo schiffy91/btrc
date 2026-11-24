@@ -23,6 +23,7 @@ import pytest
 from src.tests.native_bindings import NativeBindingPackage
 from src.tests.python import test_native_ui_shell_windows as shell
 from src.tests.python.native_ui_shell_fixtures import transpile
+from tools.qualification.dependencies import DependencyAudit
 
 REPO = Path(__file__).resolve().parents[3]
 SUITE = REPO / "src/tests/native/gui/conformance"
@@ -35,6 +36,9 @@ NEEDS = {case["name"]: case["needs"] for case in CASES if "needs" in case}
 HAS = {"web", "modal", "wheel"}
 
 
+NATIVE_WINDOWS_ONLY = "requires Windows: windows.yml's win32-native job runs the executables the build tests publish"
+
+
 def suite_name(frontend, target, sanitized):
     return f"gui-conformance-{shell.FRONTENDS[frontend]}-{target}{'-ubsan' if sanitized else ''}.exe"
 
@@ -42,6 +46,47 @@ def suite_name(frontend, target, sanitized):
 def published(target):
     evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
     return Path(evidence) / f"gui-conformance-{target}" if evidence else None
+
+
+@pytest.mark.parametrize("target", sorted(shell.TARGETS))
+@pytest.mark.parametrize("frontend", sorted(shell.FRONTENDS))
+def test_plain_windows_gui_builds_without_webview(tmp_path, request, monkeypatch, frontend, target):
+    if sys.platform == "win32":
+        pytest.skip("the Linux build job supplies the exe")
+    NativeBindingPackage.require_reader()
+    dll = shell.cross_environment(target, tmp_path, monkeypatch)
+    generated, plan = tmp_path / "NativeControls.c", tmp_path / "NativeControls.json"
+    source = REPO / "src/tests/native/gui/plain/NativeControls.btrc"
+    result = transpile(source, generated, plan, frontend, request, shell.TARGETS[target][0])
+    assert result.returncode == 0, result.stderr
+    assert "Win32Web.c" not in plan.read_text(encoding="utf-8")
+    name = f"native-controls-{shell.FRONTENDS[frontend]}.exe"
+    executable = shell.link(plan, generated, tmp_path / name, [])
+    assert DependencyAudit().binary_problems(executable, shell.TARGETS[target][0]) == []
+    binary = executable.read_bytes().lower()
+    for encoding in ("ascii", "utf-16-le"):
+        assert "webview2loader.dll".encode(encoding) not in binary
+    evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
+    if evidence:
+        destination = Path(evidence) / f"native-controls-{target}"
+        destination.mkdir(parents=True, exist_ok=True)
+        for file in (dll, executable):
+            shutil.copy2(file, destination / file.name)
+
+
+@pytest.mark.parametrize("target", sorted(shell.TARGETS))
+@pytest.mark.parametrize("frontend", sorted(shell.FRONTENDS))
+def test_windows_conformance_case_native_controls(frontend, target):
+    if sys.platform != "win32":
+        pytest.skip(NATIVE_WINDOWS_ONLY)
+    evidence = os.environ.get("BTRC_WIN32_EVIDENCE_DIR")
+    if not evidence:
+        pytest.skip("BTRC_WIN32_EVIDENCE_DIR names no published native controls")
+    directory = Path(evidence) / f"native-controls-{target}"
+    assert not (directory / "WebView2Loader.dll").exists()
+    program = directory / f"native-controls-{shell.FRONTENDS[frontend]}.exe"
+    result = shell.run_shell([str(program.resolve())], os.environ.copy(), 120)
+    assert result.returncode == 0 and "PASS native controls" in result.stdout, result.stderr
 
 
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "ubsan"])
@@ -79,7 +124,7 @@ def test_windows_conformance_builds(tmp_path, request, monkeypatch, frontend, ta
 @pytest.mark.parametrize("name", [name for name in NAMES if name not in NEEDS or NEEDS[name] in HAS])
 def test_windows_conformance_case(name, frontend, target, sanitized):
     if sys.platform != "win32":
-        pytest.skip("requires Windows: windows.yml's win32-native job runs the executables the build tests publish")
+        pytest.skip(NATIVE_WINDOWS_ONLY)
     directory = published(target)
     if directory is None:
         pytest.skip("BTRC_WIN32_EVIDENCE_DIR names no published Windows conformance executables")

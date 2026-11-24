@@ -14,3 +14,15 @@ Applications with existing calls to `WebView.create()` can keep those calls. Imp
 On Linux, install the WebKitGTK 6.0 development package when building the application and the matching runtime when distributing it. Native GUI applications that do not use a web view need no WebKitGTK package.
 
 Start the optional Linux development environment with `nix develop .#embedded-web`.
+
+## Deploying an embedded web view on Windows
+
+`Library.GUI.WebView.create()` uses the Windows Evergreen WebView2 runtime. Applications that call it ship Microsoft's architecture-specific loader beside the executable. The existing Windows API needs no package import or installation call. Ordinary native controls build and run without the loader.
+
+Download the pinned Microsoft.Web.WebView2 NuGet archive and extract the loader into the web application's distribution directory. Use `arm64` for Windows on Arm.
+
+```sh
+python packages/embedded-web/stage_loader.py Microsoft.Web.WebView2.1.0.2903.40.nupkg x64 path/to/application
+```
+
+The helper verifies the archive digest against the package pin before writing `WebView2Loader.dll`. [Pinned NuGet package](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.2903.40)

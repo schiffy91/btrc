@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 import urllib.request
 import zipfile
 from collections import Counter
@@ -243,14 +244,13 @@ def wgpu_native(target, directory):
     return pkgconfig, dll
 
 
-WEBVIEW2 = REPO / "nix/webview2-sdk-prebuilt.nix"
+WEBVIEW2 = REPO / "packages/embedded-web/webview2-sdk.toml"
 
 
 def webview2_package():
-    """The WebView2 SDK package, fetched once and checked against its pin (nix/webview2-sdk-prebuilt.nix)."""
-    text = WEBVIEW2.read_text(encoding="utf-8")
-    version = re.search(r'version = "([^"]+)";', text)[1]
-    digest = base64.b64decode(re.search(r'hash = "sha256-([^"]+)";', text)[1]).hex()
+    """The optional package's pinned SDK, used for its loader and the independent ABI oracle."""
+    pin = tomllib.loads(WEBVIEW2.read_text(encoding="utf-8"))
+    version, digest = pin["version"], pin["sha256"]
     cache = REPO / "build/webview2" / f"Microsoft.Web.WebView2.{version}.nupkg"
     cache.parent.mkdir(parents=True, exist_ok=True)
     with (cache.parent / f"{cache.name}.lock").open("a") as lock:
@@ -356,9 +356,10 @@ def webview2_loader(target, directory):
     package, _ = webview2_package()
     architecture = "x64" if target == "windows-x64" else "arm64"
     loader = directory / "webview2" / architecture / "WebView2Loader.dll"
-    loader.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(package) as bundle:
-        loader.write_bytes(bundle.read(f"build/native/{architecture}/WebView2Loader.dll"))
+    subprocess.run(
+        [sys.executable, REPO / "packages/embedded-web/stage_loader.py", package, architecture, loader.parent],
+        check=True,
+    )
     return loader
 
 

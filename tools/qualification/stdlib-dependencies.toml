@@ -334,7 +334,7 @@ resolution = "Use native Wayland, including GPU presentation. Preserve inexpensi
 dependency = "the WebView2 SDK (header and loader DLL)"
 module = "GUI/Shim/ShimWeb"
 os = ["windows"]
-resolution = "The COM declarations are first-party. The supported Win32 activation API is supplied by Microsoft's SDK loader. Decide whether to retain the loader or rely on the runtime's changeable internal export."
+resolution = "Windows web views use first-party COM declarations and the system Evergreen runtime. Only applications that use the embedded web feature ship Microsoft's supported loader. The optional embedded-web package stages the pinned DLL. The loader remains pending until Windows offers a documented SDK-free activation API."
 
 [[pending]]
 dependency = "musl's regex (bundled source)"
