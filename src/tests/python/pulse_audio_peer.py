@@ -7,6 +7,7 @@ import select
 import socket
 import socketserver
 import struct
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -248,7 +249,16 @@ class PulseTestServer(socketserver.ThreadingUnixStreamServer):
         self.errors = []
         self.cookie_path = directory / "cookie"
         self.cookie_path.write_bytes(self.cookie)
-        super().__init__(str(directory / "native"), PulseTestPeer)
+        # A caller's pytest worktree and node ID can exceed Linux's 108-byte
+        # sockaddr_un.sun_path. Keep the socket itself under a short private path.
+        self.socket_directory = tempfile.TemporaryDirectory(prefix="btrc-pulse-", dir="/tmp")
+        super().__init__(str(Path(self.socket_directory.name) / "native"), PulseTestPeer)
+
+    def server_close(self):
+        try:
+            super().server_close()
+        finally:
+            self.socket_directory.cleanup()
 
     def handle_error(self, request, client_address):
         import traceback
