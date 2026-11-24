@@ -1041,11 +1041,16 @@ standard = "c11"
 modules = ["Shim.ShimSurface"]
 os = ["windows"]
 
-# First-party COM declarations, activated by the supported WebView2 loader.
+# First-party COM declarations and Evergreen WebView2 Runtime discovery.
 [[native.sources]]
 path = "Windows/Win32Web.c"
 language = "c"
 standard = "c11"
+modules = ["Shim.ShimWeb"]
+os = ["windows"]
+
+[[native.libraries]]
+name = "advapi32"
 modules = ["Shim.ShimWeb"]
 os = ["windows"]
 

@@ -19,7 +19,6 @@ failure names the module, the target and the dependency.
 | curl | `HTTP/HTTPCurlTransport` | android, linux, macos | programs `curl` | Android, Linux and macOS use first-party code for plain HTTP and HTTP forward proxies. Linux also supports SOCKS4/4a/5/5h for plain HTTP. An installed curl handles explicit Proxy-Authorization fields on Linux SOCKS routes and optional SOCKS5 GSSAPI. iOS uses NSURLSession. macOS uses NSURLSession for direct HTTPS and ordinary HTTP CONNECT proxies, with installed curl preserving its configured trust store and unsupported proxy or request options. Android and Linux retain curl for HTTPS and remaining proxy paths. Windows uses WinHTTP. |
 | libX11 | `GUI/Shim/Shim` | linux | headers `X11/Xlib.h`; pkg-config `x11` | Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend. |
 | libwayland-client | `GUI/Shim/Shim` | linux | headers `wayland-client.h`; pkg-config `wayland-client` | The Wayland wire protocol from first-party code, except where wgpu-native's surface needs the library's own objects. |
-| the WebView2 SDK (header and loader DLL) | `GUI/Shim/ShimWeb` | windows | loads `WebView2Loader.dll` | The COM declarations are first-party. The supported Win32 activation API is supplied by Microsoft's SDK loader. Decide whether to retain the loader or rely on the runtime's changeable internal export. |
 
 ## Standards data used by first-party implementations
 
@@ -81,4 +80,4 @@ Keep the current working transport while qualification and review are pending.
 - **ios**: frameworks: `CoreFoundation`, `CoreGraphics`, `CoreImage`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `Metal`, `QuartzCore`, `Security`, `UIKit`, `Vision`, `WebKit`
 - **linux**: libraries: `util`; programs: `/bin/sh`
 - **macos**: frameworks: `AVFoundation`, `AppKit`, `AudioToolbox`, `CFNetwork`, `CoreAudio`, `CoreFoundation`, `CoreGraphics`, `CoreMedia`, `CoreServices`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `QuartzCore`, `Security`, `Vision`, `WebKit`; libraries: `bsm`; programs: `/bin/sh`
-- **windows**: libraries: `bcrypt`, `comctl32`, `dwmapi`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `winhttp`, `ws2_32`
+- **windows**: libraries: `advapi32`, `bcrypt`, `comctl32`, `dwmapi`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `winhttp`, `ws2_32`

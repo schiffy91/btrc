@@ -1,7 +1,7 @@
 # The ABI tests compare btrc's first-party COM declarations against the header
-# in this Microsoft NuGet package. Windows apps that embed web content ship
-# its architecture-specific WebView2Loader.dll alongside the executable.
-# The system Edge WebView2 runtime supplies the browser engine.
+# in this Microsoft NuGet package. Win32Web.c loads the installed Evergreen
+# WebView2 runtime directly without shipping WebView2Loader.dll alongside the
+# executable. The system Edge WebView2 runtime supplies the browser engine.
 #
 # The hash is the SHA-256 of the package file as downloaded from
 # https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/<version>

@@ -4,15 +4,17 @@ On a host with the dev shell, the build tests compile the suite
 (src/tests/native/gui/conformance) for windows-x86_64 and windows-aarch64
 through both compilers, plain and under UBSan, the way the shell rows are
 built (test_native_ui_shell_windows.py). With BTRC_WIN32_EVIDENCE_DIR set,
-each row's executable, the wgpu-native DLL, the WebView2 loader and the
-suite's web bundle are copied into gui-conformance-<target> there. On Windows, each case of each
-published executable runs as its own process, with real input: the probe
-moves the session's pointer and types on its keyboard (SendInput), so the
+each row's executable, the wgpu-native DLL and the suite's web bundle are
+copied into gui-conformance-<target> there; WebView2 runs directly against the
+system Evergreen runtime without shipping WebView2Loader.dll. On Windows, each
+case of each published executable runs as its own process, with real input: the
+probe moves the session's pointer and types on its keyboard (SendInput), so the
 rows run only in a session made for tests. windows.yml's win32-native job
 is one; the local guest is another (tools/target_hosts/windows/vm.py).
 """
 
 import os
+import re
 import shutil
 import sys
 import tomllib
@@ -23,6 +25,7 @@ import pytest
 from src.tests.native_bindings import NativeBindingPackage
 from src.tests.python import test_native_ui_shell_windows as shell
 from src.tests.python.native_ui_shell_fixtures import transpile
+from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
 REPO = Path(__file__).resolve().parents[3]
 SUITE = REPO / "src/tests/native/gui/conformance"
@@ -59,17 +62,27 @@ def test_windows_conformance_builds(tmp_path, request, monkeypatch, frontend, ta
     executable = shell.link(
         plan, generated, tmp_path / suite_name(frontend, target, sanitized), [], shell.UBSAN if sanitized else []
     )
+    target_label = shell.TARGETS[target][0]
+    assert DependencyAudit().binary_problems(executable, target_label) == []
+    imports = {name.lower() for name in BinaryImports.read(executable)}
+    assert "advapi32.dll" in imports and "webview2loader.dll" not in imports, sorted(imports)
+    binary = executable.read_bytes()
+    assert b"webview2loader" not in binary.lower()
+    assert re.search(b"w\x00e\x00b\x00v\x00i\x00e\x00w\x002\x00l\x00o\x00a\x00d\x00e\x00r\x00", binary, re.I) is None
+    architecture = "x64" if target == "windows-x64" else "arm64"
+    assert f"EBWebView\\{architecture}\\EmbeddedBrowserWebView.dll".encode("utf-16le") in binary
+    assert b"CreateWebViewEnvironmentWithOptionsInternal" in binary
     directory = published(target)
     if directory is None:
         return
     directory.mkdir(parents=True, exist_ok=True)
-    # The web view's loader ships beside the program, as wgpu-native does.
-    for path in (
-        executable,
-        dll,
-        shell.webview2_loader(target, tmp_path),
-    ):
+    # Only wgpu-native ships beside the executable; WebView2 activates the
+    # system Evergreen runtime directly without WebView2Loader.dll.
+    for path in (executable, dll):
         shutil.copy2(path, directory / path.name)
+    stale_loader = directory / "WebView2Loader.dll"
+    if stale_loader.exists():
+        stale_loader.unlink()
     shutil.copytree(SUITE / "web", directory / "web", dirs_exist_ok=True)
 
 
@@ -84,6 +97,7 @@ def test_windows_conformance_case(name, frontend, target, sanitized):
     if directory is None:
         pytest.skip("BTRC_WIN32_EVIDENCE_DIR names no published Windows conformance executables")
     directory = directory.resolve()
+    assert not (directory / "WebView2Loader.dll").exists()
     executable = directory / suite_name(frontend, target, sanitized)
     assert executable.is_file(), sorted(path.name for path in directory.iterdir()) if directory.is_dir() else directory
     environment = {

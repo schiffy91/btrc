@@ -351,17 +351,6 @@ def test_windows_webview_com_abi(tmp_path, target):
     )
 
 
-def webview2_loader(target, directory):
-    """Stage the supported Microsoft loader for Windows conformance execution."""
-    package, _ = webview2_package()
-    architecture = "x64" if target == "windows-x64" else "arm64"
-    loader = directory / "webview2" / architecture / "WebView2Loader.dll"
-    loader.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(package) as bundle:
-        loader.write_bytes(bundle.read(f"build/native/{architecture}/WebView2Loader.dll"))
-    return loader
-
-
 def cross_environment(target, tmp_path, monkeypatch):
     """Point the header reader and the native plan at the row's sysroot and wgpu-native."""
     pkgconfig, dll = wgpu_native(target, tmp_path / "wgpu")

@@ -374,10 +374,11 @@ On Windows the same provider runs over `Windows/Win32*.c`:
   placed before it.
 - Common Controls 6 comes from an activation context (the manifest
   `shell32.dll` carries), so a program needs no manifest of its own.
-- The web view is WebView2, the system's engine, reached through
-  `WebView2Loader.dll`, which a program ships beside itself as it does
-  `wgpu_native.dll`. Without the loader or the engine, `WebView.create()`
-  throws and says which is missing.
+- The web view is the system's Evergreen WebView2 Runtime (supplied by
+  Windows 11), discovered directly via `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER`
+  or the EdgeUpdate registry keys and loaded by absolute path without
+  shipping `WebView2Loader.dll` beside the program. Without the runtime,
+  `WebView.create()` throws with the discovery or activation error.
 - A slider, a select and a scroll bar show what the program gives them and
   never change it themselves: the shim reads the mouse and keys and reports
   what a person asked for.
