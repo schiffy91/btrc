@@ -1,0 +1,46 @@
+import Library.Audio;
+import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
+import Library.Console;
+import Library.Strings;
+import Library.Timer;
+
+#include <assert.h>
+
+struct PulseLog { int blocks; int inputGaps; int outputGaps; };
+
+@realtime void pulseProcess(void* context, struct AudioBlockView block, RealtimeAudioInputSamples input, RealtimeAudioOutputSamples output) {
+	struct PulseLog* log = (struct PulseLog*)context;
+	log->blocks++;
+	if ((block.flags & (uint)AUDIO_BLOCK_INPUT_DISCONTINUITY) != 0u) { log->inputGaps++; }
+	if ((block.flags & (uint)AUDIO_BLOCK_OUTPUT_DISCONTINUITY) != 0u) { log->outputGaps++; }
+}
+
+int main() {
+	string fault = Strings.copy(getenv("BTRC_TEST_PULSE_FAULT"));
+	var opened = Audio.createDevice();
+	assert(opened.succeeded());
+	var provider = opened.provider();
+	var inventory = provider.inventory().inventory();
+	var channels = AudioChannelSelection.leading(2);
+	var request = DuplexAudioOpenRequest.duplex(inventory.generation(), "pulse", channels, "pulse", channels, AudioStreamRequest(48000, 128));
+	struct PulseLog log = {};
+	var opening = provider.openDuplex(request, RealtimeAudioProgram(pulseProcess, &log));
+	assert(opening.succeeded());
+	var session = opening.session();
+	assert(session.start().succeeded());
+	Timer.sleepMillis(400);
+	assert(session.suspend().succeeded());
+	var drained = session.drain();
+	if (fault == "underflow" || fault == "overflow") {
+		assert(drained.succeeded() && log.blocks > 12);
+		if (fault == "underflow") { assert(log.outputGaps > 1); }
+		else { assert(log.inputGaps > 1); }
+	} else {
+		assert(drained.status() == AUDIO_DEVICE_UNAVAILABLE && log.blocks > 0);
+	}
+	assert(session.close().succeeded());
+	assert(provider.close().succeeded());
+	Console.log("PASS: Pulse stream fault");
+	return 0;
+}

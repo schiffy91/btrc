@@ -1,13 +1,12 @@
 """The Linux stdlib providers on real SDKs: the GTK4 GUI with WebGPU,
-first-party PNG and JPEG decoding, and ALSA duplex sessions. The GUI's portable
+first-party PNG and JPEG decoding, and Linux audio duplex sessions. The GUI's portable
 contract is held by the conformance suite (test_native_ui_conformance.py);
 here are the provider's own boundaries.
 
 Each program compiles through both frontends against the Linux target, links
 through the native plan, and runs optimized and under ASan/UBSan. Display and
-audio cases skip where the session offers neither, except that the devcontainer
-always offers a PCM: its image installs nix/asound.conf, a null default PCM, so
-CI's Linux shards run the audio sessions without hardware."""
+hardware loopback cases are opt-in. The standard Linux audio sessions use a clocked
+Pulse native peer and a kernel ioctl fault fixture without host audio packages."""
 
 import os
 import subprocess
@@ -18,7 +17,6 @@ from pathlib import Path
 import pytest
 
 from src.tests.native_bindings import NativeBindingPackage
-from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.linux_provider_fixtures import (
     ROOT,
     TARGET,
@@ -26,11 +24,10 @@ from src.tests.python.linux_provider_fixtures import (
     provider_environment,
     require_linux_reader,
 )
-from src.tests.runner_capabilities import linux_audio_backend_error, linux_display_error
+from src.tests.python.pulse_audio_peer import PulseTestServer
+from src.tests.runner_capabilities import linux_display_error
 from tools.qualification.dependencies import DependencyAudit
 
-# The devcontainer image installs this as /etc/asound.conf.
-DEVCONTAINER_ALSA_CONFIG = ROOT / "nix/asound.conf"
 # The fault fixture's test controls LinuxAudioFaults.btrc binds from AlsaFaults.h.
 ALSA_FAULT_CONTROLS = (
     "unitReset",
@@ -46,19 +43,6 @@ ALSA_FAULT_CONTROLS = (
     "unitConfiguredChannels",
     "unitExclusive",
 )
-
-
-def _require_audio_backend():
-    """Skip without a PCM, except in the devcontainer, whose image provides one:
-    there a missing PCM is a broken image, not an absent capability."""
-    error = linux_audio_backend_error()
-    if error is None:
-        return
-    if os.environ.get("DEVCONTAINER") == "true" and not os.environ.get("BTRC_SKIP_AUDIO_TESTS"):
-        pytest.fail(
-            f"the devcontainer image installs nix/asound.conf as /etc/asound.conf; run make devcontainer: {error}"
-        )
-    pytest.skip(error)
 
 
 def _build_and_run(
@@ -100,33 +84,50 @@ def test_linux_image_decoding(tmp_path, request, frontend, sanitized):
 @pytest.mark.parametrize("sanitized", [False, True])
 def test_linux_audio_session(tmp_path, request, frontend, sanitized):
     require_linux_reader()
-    _require_audio_backend()
-    _build_and_run(
-        ROOT / "src/tests/native/audio/linux/LinuxAudioSession.btrc",
-        tmp_path,
-        frontend,
-        sanitized,
-        request,
-        "PASS: linux audio session",
-    )
+    executable = build_provider_program(ROOT / "src/tests/native/audio/linux/LinuxAudioSession.btrc", tmp_path, frontend, sanitized, request)
+    assert DependencyAudit().binary_problems(executable, TARGET) == []
+    with PulseTestServer(tmp_path) as server:
+        result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30, env=provider_environment(sanitized, **server.environment))
+        assert result.returncode == 0, result.stderr
+        assert "PASS: linux audio session" in result.stdout
+        assert len(server.playback) > 100 and all(len(block) == 1024 for block in server.playback)
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="requires ALSA")
-@pytest.mark.parametrize("available", [True, False])
-def test_audio_capability_opens_the_configured_pcm(tmp_path, monkeypatch, available):
-    """The devcontainer's own configuration opens a default PCM; an empty one does not."""
-    if subprocess.run(["pkg-config", "--exists", "alsa"], capture_output=True, timeout=TOOL_TIMEOUT).returncode:
-        pytest.skip("requires ALSA development files")
-    config = DEVCONTAINER_ALSA_CONFIG if available else tmp_path / "asound.conf"
-    if not available:
-        config.write_text("")
-    monkeypatch.setenv("ALSA_CONFIG_PATH", str(config))
-    monkeypatch.delenv("BTRC_SKIP_AUDIO_TESTS", raising=False)
-    error = linux_audio_backend_error()
-    if available:
-        assert error is None
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_pulse_faults(tmp_path, request, frontend, sanitized):
+    require_linux_reader()
+    executable = build_provider_program(ROOT / "src/tests/native/audio/linux/LinuxPulseFaults.btrc", tmp_path, frontend, sanitized, request)
+    assert DependencyAudit().binary_problems(executable, TARGET) == []
+    for fault in ("underflow", "overflow", "disconnect", "malformed"):
+        directory = tmp_path / fault
+        directory.mkdir()
+        with PulseTestServer(directory, fault) as server:
+            environment = provider_environment(sanitized, **server.environment, BTRC_TEST_PULSE_FAULT=fault)
+            result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30, env=environment)
+            assert result.returncode == 0, f"{fault}: {result.stdout}{result.stderr}"
+            assert "PASS: Pulse stream fault" in result.stdout
+
+
+@pytest.mark.parametrize("backend", ["alsa-loopback", "pulse-monitor"])
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_linux_audio_loopback(tmp_path, request, frontend, backend):
+    """Round-trip the public API's distinct left/right samples through a real Linux audio service or driver."""
+    require_linux_reader()
+    if backend == "alsa-loopback":
+        if not os.environ.get("BTRC_TEST_AUDIO_HARDWARE") or not list(Path("/dev/snd").glob("pcmC*D*p")):
+            pytest.skip("requires BTRC_TEST_AUDIO_HARDWARE=1 and snd-aloop")
+        environment = provider_environment(False)
+        environment.pop("BTRC_TEST_PULSE_MONITOR", None)
     else:
-        assert error is not None and "cannot open default ALSA PCM" in error
+        if not os.environ.get("BTRC_TEST_PULSE_MONITOR"):
+            pytest.skip("requires BTRC_TEST_PULSE_MONITOR=1 with a default sink and its monitor source")
+        environment = provider_environment(False)
+    executable = build_provider_program(ROOT / "src/tests/native/audio/linux/LinuxAudioLoopback.btrc", tmp_path, frontend, False, request)
+    assert DependencyAudit().binary_problems(executable, TARGET) == []
+    result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=30, env=environment)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: Linux audio loopback" in result.stdout
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
@@ -149,8 +150,10 @@ def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
         request,
         faults=faults,
     )
+    assert DependencyAudit().binary_problems(executable, TARGET) == []
+    environment = provider_environment(sanitized, PULSE_SERVER=f"unix:{tmp_path}/absent")
     result = subprocess.run(
-        [str(executable)], capture_output=True, text=True, timeout=120, env=provider_environment(sanitized)
+        [str(executable)], capture_output=True, text=True, timeout=120, env=environment
     )
     assert result.returncode == 0, result.stderr
     assert "PASS: linux audio faults" in result.stdout
@@ -159,7 +162,7 @@ def test_linux_audio_faults(tmp_path, request, frontend, sanitized):
         capture_output=True,
         text=True,
         timeout=120,
-        env=provider_environment(sanitized, BTRC_ALSA_FAULT_TERMINAL="1"),
+        env={**environment, "BTRC_ALSA_FAULT_TERMINAL": "1"},
     )
     assert terminal.returncode != 0
     assert "PASS: indeterminate ALSA close is retained and never retried" in terminal.stderr

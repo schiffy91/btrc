@@ -1,0 +1,58 @@
+/* snd-aloop connects device 0 playback to device 1 capture. Signs and
+ * amplitudes differ by channel so silence and channel swaps both fail. */
+import Library.Audio.Audio;
+import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
+import Library.Console;
+import Library.Timer;
+
+#include <assert.h>
+
+struct LoopbackLog { unsigned long long blocks; unsigned long long matched; unsigned long long incorrect; int badFrames; };
+
+@realtime void loopbackProcess(void* context, struct AudioBlockView block, RealtimeAudioInputSamples input, RealtimeAudioOutputSamples output) {
+	struct LoopbackLog* log = (struct LoopbackLog*)context;
+	if (block.frameCount != 2048 || block.inputChannelCount != 2 || block.outputChannelCount != 2) { log->badFrames++; }
+	int frames = block.frameCount;
+	for (int frame = 0; frame < frames; frame++) {
+		float left = 0.0f; float right = 0.0f;
+		size_t offset = (size_t)frame * (size_t)2;
+		input.tryGet(offset, &left);
+		input.tryGet(offset + (size_t)1, &right);
+		if (left == -0.5f && right == 0.25f) { log->matched++; }
+		else if (left != 0.0f || right != 0.0f) { log->incorrect++; }
+		output.trySet(offset, -0.5f);
+		output.trySet(offset + (size_t)1, 0.25f);
+	}
+	log->blocks++;
+}
+
+int main() {
+	var opened = Audio.createDevice();
+	assert(opened.succeeded());
+	var provider = opened.provider();
+	var result = provider.inventory();
+	assert(result.succeeded());
+	var inventory = result.inventory();
+	bool server = getenv("BTRC_TEST_PULSE_MONITOR") != null;
+	string playback = server ? "pulse" : "plughw:CARD=Loopback,DEV=0";
+	string capture = server ? "pulse" : "plughw:CARD=Loopback,DEV=1";
+	assert(inventory.find(playback) != null && inventory.find(capture) != null);
+	var channels = AudioChannelSelection.leading(2);
+	var request = DuplexAudioOpenRequest.duplex(inventory.generation(), capture, channels, playback, channels, AudioStreamRequest(48000, 2048));
+	struct LoopbackLog log = {};
+	var opening = provider.openDuplex(request, RealtimeAudioProgram(loopbackProcess, &log));
+	if (!opening.succeeded()) { Console.error(opening.message()); }
+	assert(opening.succeeded());
+	var session = opening.session();
+	assert(session.start().succeeded());
+	Timer.sleepMillis(1600);
+	assert(session.suspend().succeeded());
+	assert(session.drain().succeeded());
+	assert(session.close().succeeded());
+	assert(provider.close().succeeded());
+	Console.log(f"loopback received {log.matched} matching samples, {log.incorrect} incorrect, {log.blocks} blocks");
+	assert(log.badFrames == 0 && log.blocks > 8ULL && log.matched > 2048ULL && log.incorrect == 0ULL);
+	Console.log("PASS: Linux audio loopback");
+	return 0;
+}
