@@ -216,9 +216,12 @@ headers = ["jni.h"]
 binaries = ["libjvm.so", "libjvm.dylib", "*/libjvm.dylib", "jvm.dll"]
 
 [[dependencies]]
-name = "the WebView2 SDK (header and loader DLL)"
+name = "the WebView2 SDK headers"
 pkg-config = ["webview2-windows-x86_64", "webview2-windows-aarch64"]
 headers = ["WebView2.h"]
+
+[[dependencies]]
+name = "the WebView2 loader DLL"
 loads = ["WebView2Loader.dll"]
 binaries = ["webview2loader.dll"]
 
@@ -331,7 +334,7 @@ os = ["linux"]
 resolution = "Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend."
 
 [[pending]]
-dependency = "the WebView2 SDK (header and loader DLL)"
+dependency = "the WebView2 loader DLL"
 module = "GUI/Shim/ShimWeb"
 os = ["windows"]
 resolution = "Windows web views use first-party COM declarations and the system Evergreen runtime. Only applications that use the embedded web feature ship Microsoft's supported loader. The optional embedded-web package stages the pinned DLL. The loader remains pending until Windows offers a documented SDK-free activation API."
