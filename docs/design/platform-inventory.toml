@@ -5171,3 +5171,94 @@ ios-device = { parity = "equivalent", implementation = "implemented", owner = "P
 ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE over bounded byte ranges" }
 android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE over bounded byte ranges" }
 android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party DEFLATE over bounded byte ranges" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.AESGCM"
+group = "stdlib/Crypto"
+title = "AES-128 and AES-256 GCM with the TLS 96-bit nonce"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/AESGCM.btrc holds it to its published vectors on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/AESGCM.btrc holds it to its published vectors on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/AESGCM.btrc holds it to its published vectors on the slice" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/AESGCM.btrc holds it to its published vectors on the slice" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/AESGCM.btrc holds it to its published vectors on the slice" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/AESGCM.btrc holds it to its published vectors on the slice" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.HKDF"
+group = "stdlib/Crypto"
+title = "HMAC and HKDF using SHA-256 or SHA-384"
+regression = ["src/tests/runner.py::test_btrc_file", "src/tests/python/test_crypto_runtime.py::test_the_primitives_and_base64_are_btrc_on_every_system"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "btrc over raw buffers with no I/O and no native code; src/tests/stdlib/CryptoPrimitives.btrc holds it to its published vectors on the slice" }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.ECDH"
+group = "stdlib/Crypto"
+title = "P-256 and P-384 ECDH key agreement"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "src/tests/stdlib/ECDHKeys.btrc checks NIST P-256 and P-384 public keys and ECDH shared secrets." }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "src/tests/stdlib/ECDHKeys.btrc checks NIST P-256 and P-384 public keys and ECDH shared secrets." }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "src/tests/stdlib/ECDHKeys.btrc checks NIST P-256 and P-384 public keys and ECDH shared secrets." }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "src/tests/stdlib/ECDHKeys.btrc checks NIST P-256 and P-384 public keys and ECDH shared secrets." }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "src/tests/stdlib/ECDHKeys.btrc checks NIST P-256 and P-384 public keys and ECDH shared secrets." }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "src/tests/stdlib/ECDHKeys.btrc checks NIST P-256 and P-384 public keys and ECDH shared secrets." }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.ECDSA"
+group = "stdlib/Crypto"
+title = "P-256 and P-384 ECDSA signature verification"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party verifier checks published NIST P-256 and P-384 signatures in src/tests/stdlib/ECDSASignatures.btrc." }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party verifier checks published NIST P-256 and P-384 signatures in src/tests/stdlib/ECDSASignatures.btrc." }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party verifier checks published NIST P-256 and P-384 signatures in src/tests/stdlib/ECDSASignatures.btrc." }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party verifier checks published NIST P-256 and P-384 signatures in src/tests/stdlib/ECDSASignatures.btrc." }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party verifier checks published NIST P-256 and P-384 signatures in src/tests/stdlib/ECDSASignatures.btrc." }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party verifier checks published NIST P-256 and P-384 signatures in src/tests/stdlib/ECDSASignatures.btrc." }
+
+[[rows]]
+kind = "operation"
+id = "Library.Crypto.Primitives.RSA"
+group = "stdlib/Crypto"
+title = "RSA signature verification with PKCS#1 v1.5 and PSS"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party public-key verifier checks RSA signatures against OpenSSL known answers and malformed encodings in src/tests/stdlib/RSASignatures.btrc." }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party public-key verifier checks RSA signatures against OpenSSL known answers and malformed encodings in src/tests/stdlib/RSASignatures.btrc." }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party public-key verifier checks RSA signatures against OpenSSL known answers and malformed encodings in src/tests/stdlib/RSASignatures.btrc." }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party public-key verifier checks RSA signatures against OpenSSL known answers and malformed encodings in src/tests/stdlib/RSASignatures.btrc." }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party public-key verifier checks RSA signatures against OpenSSL known answers and malformed encodings in src/tests/stdlib/RSASignatures.btrc." }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The first-party public-key verifier checks RSA signatures against OpenSSL known answers and malformed encodings in src/tests/stdlib/RSASignatures.btrc." }
+
+[[rows]]
+kind = "operation"
+id = "Library.TLS.TLS13Keys"
+group = "stdlib/TLS"
+title = "TLS 1.3 key schedule"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The TLS 1.3 key schedule derives bytes from the RFC 8446 transcript using the first-party SHA-2 and HKDF primitives on every target." }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The TLS 1.3 key schedule derives bytes from the RFC 8446 transcript using the first-party SHA-2 and HKDF primitives on every target." }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The TLS 1.3 key schedule derives bytes from the RFC 8446 transcript using the first-party SHA-2 and HKDF primitives on every target." }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The TLS 1.3 key schedule derives bytes from the RFC 8446 transcript using the first-party SHA-2 and HKDF primitives on every target." }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The TLS 1.3 key schedule derives bytes from the RFC 8446 transcript using the first-party SHA-2 and HKDF primitives on every target." }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "The TLS 1.3 key schedule derives bytes from the RFC 8446 transcript using the first-party SHA-2 and HKDF primitives on every target." }
+
+[[rows]]
+kind = "operation"
+id = "Library.TLS.TLS13Records"
+group = "stdlib/TLS"
+title = "TLS 1.3 authenticated records and traffic-key updates"
+regression = ["src/tests/runner.py::test_btrc_file"]
+windows-x64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party TLS record framing, authenticated encryption and traffic-key changes use the same wire format on each target. The TLSRecords corpus checks all three cipher suites." }
+windows-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party TLS record framing, authenticated encryption and traffic-key changes use the same wire format on each target. The TLSRecords corpus checks all three cipher suites." }
+ios-device = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party TLS record framing, authenticated encryption and traffic-key changes use the same wire format on each target. The TLSRecords corpus checks all three cipher suites." }
+ios-simulator = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party TLS record framing, authenticated encryption and traffic-key changes use the same wire format on each target. The TLSRecords corpus checks all three cipher suites." }
+android-arm64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party TLS record framing, authenticated encryption and traffic-key changes use the same wire format on each target. The TLSRecords corpus checks all three cipher suites." }
+android-x86_64 = { parity = "equivalent", implementation = "implemented", owner = "P2", status = "implemented-unverified", reason = "First-party TLS record framing, authenticated encryption and traffic-key changes use the same wire format on each target. The TLSRecords corpus checks all three cipher suites." }

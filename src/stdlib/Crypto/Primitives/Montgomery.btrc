@@ -1,0 +1,109 @@
+/* Montgomery arithmetic on odd, public RSA moduli and elliptic-curve fields.
+ * Operations are variable-time and must only process public inputs. */
+class Montgomery {
+	/* Base 2^32, least significant word first. The largest modulus is 8192 bits. */
+	private unsigned int modulus[256];
+	public int words;
+	private unsigned int negativeInverse;
+
+	public void initializeModulus(unsigned char* n, int length) {
+		self.words = (length + 3) / 4;
+		for (int i = 0; i < self.words; i++) { self.modulus[i] = 0U; }
+		for (int i = 0; i < length; i++) {
+			self.modulus[i / 4] |= (unsigned int)n[length - 1 - i] << (8 * (i % 4));
+		}
+		/* Newton's iteration doubles the number of correct low bits. */
+		unsigned int inverse = 1U;
+		for (int i = 0; i < 5; i++) { inverse *= 2U - self.modulus[0] * inverse; }
+		self.negativeInverse = 0U - inverse;
+	}
+
+	public bool atLeastModulus(unsigned int* value) {
+		for (int i = self.words - 1; i >= 0; i--) {
+			if (value[i] != self.modulus[i]) { return value[i] > self.modulus[i]; }
+		}
+		return true;
+	}
+
+	public void subtractModulus(unsigned int* value) {
+		unsigned long long borrow = 0ULL;
+		for (int i = 0; i < self.words; i++) {
+			unsigned long long subtrahend = (unsigned long long)self.modulus[i] + borrow;
+			unsigned long long word = (unsigned long long)value[i];
+			value[i] = (unsigned int)(word - subtrahend);
+			borrow = word < subtrahend ? 1ULL : 0ULL;
+		}
+	}
+
+	public void doubleModulo(unsigned int* value) {
+		unsigned int carry = 0U;
+		for (int i = 0; i < self.words; i++) {
+			unsigned int current = value[i];
+			value[i] = (current << 1) | carry;
+			carry = current >> 31;
+		}
+		if (carry != 0U || self.atLeastModulus(value)) { self.subtractModulus(value); }
+	}
+
+	/* Montgomery REDC: cancel one low product word per pass, then divide
+	 * by R = 2^(32*words). Reduced inputs give a result strictly below 2n.
+	 * Each inner sum fits a 64-bit word, even with maximal limbs and carry. */
+	public void multiply(unsigned int* out, unsigned int* a, unsigned int* b) {
+		unsigned int product[513] = {0};
+		int count = self.words;
+		for (int i = 0; i < count; i++) {
+			unsigned long long carry = 0ULL;
+			for (int j = 0; j < count; j++) {
+				unsigned long long sum = (unsigned long long)a[i] * b[j] + product[i + j] + carry;
+				product[i + j] = (unsigned int)sum;
+				carry = sum >> 32;
+			}
+			product[i + count] = (unsigned int)carry;
+		}
+		for (int i = 0; i < count; i++) {
+			unsigned int factor = product[i] * self.negativeInverse;
+			unsigned long long carry = 0ULL;
+			for (int j = 0; j < count; j++) {
+				unsigned long long sum = (unsigned long long)factor * self.modulus[j] + product[i + j] + carry;
+				product[i + j] = (unsigned int)sum;
+				carry = sum >> 32;
+			}
+			for (int j = i + count; carry != 0ULL; j++) {
+				unsigned long long sum = (unsigned long long)product[j] + carry;
+				product[j] = (unsigned int)sum;
+				carry = sum >> 32;
+			}
+		}
+		for (int i = 0; i < count; i++) { out[i] = product[count + i]; }
+		if (product[2 * count] != 0U || self.atLeastModulus(out)) { self.subtractModulus(out); }
+	}
+
+	public void add(unsigned int* out, unsigned int* a, unsigned int* b) {
+		unsigned long long carry = 0ULL;
+		for (int i = 0; i < self.words; i++) {
+			unsigned long long sum = (unsigned long long)a[i] + b[i] + carry;
+			out[i] = (unsigned int)sum; carry = sum >> 32;
+		}
+		if (carry != 0ULL || self.atLeastModulus(out)) { self.subtractModulus(out); }
+	}
+
+	public void subtract(unsigned int* out, unsigned int* a, unsigned int* b) {
+		unsigned long long borrow = 0ULL;
+		for (int i = 0; i < self.words; i++) {
+			unsigned long long word = (unsigned long long)a[i];
+			unsigned long long subtrahend = (unsigned long long)b[i] + borrow;
+			out[i] = (unsigned int)(word - subtrahend); borrow = word < subtrahend ? 1ULL : 0ULL;
+		}
+		if (borrow != 0ULL) {
+			unsigned long long carry = 0ULL;
+			for (int i = 0; i < self.words; i++) {
+				unsigned long long sum = (unsigned long long)out[i] + self.modulus[i] + carry;
+				out[i] = (unsigned int)sum; carry = sum >> 32;
+			}
+		}
+	}
+
+	public void encode(unsigned int* value) {
+		for (int i = 0; i < self.words * 32; i++) { self.doubleModulo(value); }
+	}
+}

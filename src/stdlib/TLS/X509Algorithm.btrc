@@ -1,0 +1,136 @@
+import ./DER.btrc;
+
+/* Supported signature identifiers use the TLS SignatureScheme values.
+ * Legacy signature identifiers are retained for self-signed trust anchors.
+ * Parsing a scheme never authorizes it for a certificate below an anchor. */
+enum X509KeyKind { X509_RSA, X509_P256, X509_P384, X509_ED25519, X509_RSA_PSS };
+
+struct X509PublicKey {
+	X509KeyKind kind;
+	int bits;
+	int pssHash;
+	int pssMaskHash;
+	int pssMinimumSalt;
+	struct DERElement material;
+	struct DERElement modulus;
+	struct DERElement exponent;
+};
+
+class X509Algorithm {
+	class int digest(struct DERCursor* reader) {
+		struct DERCursor algorithm = {};
+		struct DERElement id = {};
+		if (!DER.enter(reader, 48, &algorithm) || !DER.oid(&algorithm, &id)) { return 0; }
+		if (!DER.exhausted(&algorithm) && !DER.nullParameter(&algorithm)) { return 0; }
+		if (!DER.exhausted(&algorithm)) { return 0; }
+		if (DER.oidIs(algorithm.bytes, &id, "608648016503040201")) { return 32; }
+		if (DER.oidIs(algorithm.bytes, &id, "608648016503040202")) { return 48; }
+		if (DER.oidIs(algorithm.bytes, &id, "608648016503040203")) { return 64; }
+		return 0;
+	}
+
+	/* RFC 4055 §3.1 PSS key constraints differ from signature parameters.
+	 * No parameters permit every PSS scheme. An encoded empty sequence
+	 * restricts the key to SHA-1/MGF1-SHA1; SHA-1 is never negotiated. */
+	class bool keyPSS(struct DERCursor* algorithm, struct X509PublicKey* key) {
+		if (DER.exhausted(algorithm)) { return true; }
+		struct DERCursor params = {}; struct DERCursor field = {}; struct DERCursor mask = {};
+		struct DERElement oid = {};
+		if (!DER.enter(algorithm, 48, &params) || !DER.exhausted(algorithm)) { return false; }
+		key->pssHash = 20; key->pssMaskHash = 20; key->pssMinimumSalt = 20;
+		if (DER.peek(&params) == 160) {
+			if (!DER.enter(&params, 160, &field)) { return false; }
+			key->pssHash = X509Algorithm.digest(&field);
+			if (key->pssHash == 0 || !DER.exhausted(&field)) { return false; }
+		}
+		if (DER.peek(&params) == 161) {
+			if (!DER.enter(&params, 161, &field) || !DER.enter(&field, 48, &mask) || !DER.exhausted(&field)) { return false; }
+			if (!DER.oid(&mask, &oid) || !DER.oidIs(mask.bytes, &oid, "2a864886f70d010108")) { return false; }
+			key->pssMaskHash = X509Algorithm.digest(&mask);
+			if (key->pssMaskHash == 0 || !DER.exhausted(&mask)) { return false; }
+		}
+		if (DER.peek(&params) == 162) {
+			if (!DER.enter(&params, 162, &field)) { return false; }
+			key->pssMinimumSalt = DER.small(&field);
+			if (key->pssMinimumSalt < 0 || key->pssMinimumSalt == 20 || !DER.exhausted(&field)) { return false; }
+		}
+		return DER.exhausted(&params);
+	}
+
+	/* RFC 4055 / RFC 8446: one of SHA-256/384/512, MGF1 with the same
+	 * digest, digest-length salt, default trailerField (omitted in DER). */
+	class int pss(struct DERCursor* algorithm) {
+		struct DERCursor params = {}; struct DERCursor field = {}; struct DERCursor mgf = {};
+		struct DERElement id = {};
+		if (!DER.enter(algorithm, 48, &params) || !DER.exhausted(algorithm) || !DER.enter(&params, 160, &field)) { return 0; }
+		int digest = X509Algorithm.digest(&field);
+		if (digest == 0 || !DER.exhausted(&field) || !DER.enter(&params, 161, &field) || !DER.enter(&field, 48, &mgf) || !DER.exhausted(&field)) { return 0; }
+		if (!DER.oid(&mgf, &id) || !DER.oidIs(mgf.bytes, &id, "2a864886f70d010108") || X509Algorithm.digest(&mgf) != digest || !DER.exhausted(&mgf)) { return 0; }
+		if (!DER.enter(&params, 162, &field) || DER.small(&field) != digest || !DER.exhausted(&field) || !DER.exhausted(&params)) { return 0; }
+		return digest == 32 ? 0x0804 : (digest == 48 ? 0x0805 : 0x0806);
+	}
+
+	class int signature(struct DERCursor* algorithm) {
+		struct DERElement id = {};
+		if (!DER.oid(algorithm, &id)) { return 0; }
+		if (DER.oidIs(algorithm->bytes, &id, "2a864886f70d01010a")) { return X509Algorithm.pss(algorithm); }
+		int scheme = 0;
+		if (DER.oidIs(algorithm->bytes, &id, "2a864886f70d010104")) { scheme = 0x0101; }
+		if (DER.oidIs(algorithm->bytes, &id, "2a864886f70d010105")) { scheme = 0x0201; }
+		if (DER.oidIs(algorithm->bytes, &id, "2a864886f70d01010b")) { scheme = 0x0401; }
+		if (DER.oidIs(algorithm->bytes, &id, "2a864886f70d01010c")) { scheme = 0x0501; }
+		if (DER.oidIs(algorithm->bytes, &id, "2a864886f70d01010d")) { scheme = 0x0601; }
+		if (scheme != 0) {
+			if (!DER.exhausted(algorithm) && !DER.nullParameter(algorithm)) { return 0; }
+		} else {
+			if (DER.oidIs(algorithm->bytes, &id, "2a8648ce3d040302")) { scheme = 0x0403; }
+			if (DER.oidIs(algorithm->bytes, &id, "2a8648ce3d040303")) { scheme = 0x0503; }
+			if (DER.oidIs(algorithm->bytes, &id, "2a8648ce3d040304")) { scheme = 0x0603; }
+			if (DER.oidIs(algorithm->bytes, &id, "2b6570")) { scheme = 0x0807; }
+		}
+		return DER.exhausted(algorithm) ? scheme : 0;
+	}
+
+	class bool rsa(struct DERCursor* reader, struct X509PublicKey* key) {
+		struct DERCursor pair = {};
+		if (!DER.enter(reader, 48, &pair) || !DER.exhausted(reader) || !DER.integer(&pair, &key->modulus) || !DER.integer(&pair, &key->exponent) || !DER.exhausted(&pair)) { return false; }
+		int at = key->modulus.content;
+		if (pair.bytes[at] == 0) { at++; }
+		if (at == key->modulus.end || (pair.bytes[key->modulus.end - 1] & 1) == 0) { return false; }
+		int leading = (int)pair.bytes[at];
+		int bits = 8 * (key->modulus.end - at - 1);
+		while (leading != 0) { bits++; leading >>= 1; }
+		if (bits < 2048 || bits > 8192 || (pair.bytes[key->exponent.end - 1] & 1) == 0) { return false; }
+		int exponentLength = key->exponent.end - key->exponent.content;
+		if (exponentLength == 1 && pair.bytes[key->exponent.content] < 3) { return false; }
+		int modulusLength = key->modulus.end - key->modulus.content;
+		if (exponentLength > modulusLength || (exponentLength == modulusLength && memcmp(pair.bytes + key->exponent.content, pair.bytes + key->modulus.content, (size_t)modulusLength) >= 0)) { return false; }
+		key->kind = X509_RSA; key->bits = bits;
+		return true;
+	}
+
+	class bool publicKey(struct DERCursor* spki, struct X509PublicKey* key) {
+		struct DERCursor algorithm = {}; struct DERElement id = {};
+		if (!DER.enter(spki, 48, &algorithm) || !DER.oid(&algorithm, &id) || !DER.bits(spki, 3, &key->material) || !DER.exhausted(spki) || spki->bytes[key->material.content] != 0) { return false; }
+		key->material.content++;
+		var raw = DER.contents(spki, &key->material);
+		if (DER.oidIs(spki->bytes, &id, "2a864886f70d01010a")) {
+			if (!X509Algorithm.keyPSS(&algorithm, key) || !X509Algorithm.rsa(&raw, key)) { return false; }
+			key->kind = X509_RSA_PSS;
+			return true;
+		}
+		if (DER.oidIs(spki->bytes, &id, "2a864886f70d010101")) {
+			if (!DER.nullParameter(&algorithm) || !DER.exhausted(&algorithm)) { return false; }
+			return X509Algorithm.rsa(&raw, key);
+		}
+		if (DER.oidIs(spki->bytes, &id, "2b6570")) {
+			key->kind = X509_ED25519; key->bits = 256;
+			return DER.exhausted(&algorithm) && raw.end - raw.at == 32;
+		}
+		if (!DER.oidIs(spki->bytes, &id, "2a8648ce3d0201") || !DER.oid(&algorithm, &id) || !DER.exhausted(&algorithm)) { return false; }
+		if (DER.oidIs(spki->bytes, &id, "2a8648ce3d030107")) { key->kind = X509_P256; key->bits = 256; }
+		else if (DER.oidIs(spki->bytes, &id, "2b81040022")) { key->kind = X509_P384; key->bits = 384; }
+		else { return false; }
+		return raw.end - raw.at == 1 + key->bits / 4 && raw.bytes[raw.at] == 4;
+	}
+}

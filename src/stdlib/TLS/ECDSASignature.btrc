@@ -1,0 +1,21 @@
+import Library.Bytes;
+import Library.Crypto.Primitives.ECDSA;
+
+import ./DER.btrc;
+
+class ECDSASignature {
+	class Bytes magnitude(struct DERCursor* cursor, struct DERElement value) {
+		int start = value.content;
+		if (cursor->bytes[start] == 0 && start + 1 < value.end) { start++; }
+		return Bytes.fromRaw((char*)cursor->bytes + start, value.end - start);
+	}
+
+	class bool verify(int group, int scheme, Bytes publicPoint, Bytes message, Bytes signature) {
+		if (signature == null || signature.length() > 104) { return false; }
+		struct DERCursor outer = {}; struct DERCursor pair = {};
+		struct DERElement r = {}; struct DERElement s = {};
+		if (!DER.open(&outer, (unsigned char*)signature.data, signature.length()) || !DER.enter(&outer, 48, &pair) || !DER.exhausted(&outer)) { return false; }
+		if (!DER.integer(&pair, &r) || !DER.integer(&pair, &s) || !DER.exhausted(&pair)) { return false; }
+		return ECDSA.verify(group, scheme, publicPoint, message, ECDSASignature.magnitude(&pair, r), ECDSASignature.magnitude(&pair, s));
+	}
+}

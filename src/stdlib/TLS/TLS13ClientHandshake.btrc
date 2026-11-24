@@ -1,0 +1,244 @@
+/* A full certificate-authenticated TLS 1.3 client. The transport owns I/O
+ * and deadlines. This state admits application records only after validating
+ * the local trust store, peer identity, CertificateVerify and Finished. */
+import Library.Bytes;
+import Library.Crypto.Sodium;
+import Library.Vector;
+
+import ./TLSAlert.btrc;
+import ./TLS13CertificateRequest.btrc;
+import ./TLS13HandshakeKeys.btrc;
+import ./TLS13Hello.btrc;
+import ./TLS13PeerAuthentication.btrc;
+import ./TLS13PeerMessages.btrc;
+import ./X509PeerName.btrc;
+import ./X509TrustBundle.btrc;
+
+enum TLS13FlightState { TLS13_WAIT_HELLO, TLS13_RETRY, TLS13_EXTENSIONS, TLS13_CERTIFICATE, TLS13_SIGNATURE, TLS13_FINISHED, TLS13_VERIFY_PATH, TLS13_ESTABLISHED, TLS13_FAILED };
+
+class TLS13ClientHandshake {
+	private TLS13Hello hello;
+	private X509PeerName identity;
+	private long long now;
+	private bool sentName;
+	private bool clientCertificateRequested;
+	private TLS13FlightState state = TLS13_WAIT_HELLO;
+	private TLS13HandshakeStream messages;
+	private Vector<X509Certificate> certificates = [];
+	private TLS13HandshakeKeys? keys;
+	private TLS13Records? protectedHandshake;
+	private TLS13Records? reader;
+	private TLS13Records? writer;
+	private int errorAlert = TLS_UNEXPECTED_MESSAGE;
+	private Bytes? pendingAlert;
+
+	private bool reject(int description) { self.errorAlert = description; return false; }
+
+	public Bytes? takeAlert() {
+		var result = self.pendingAlert; self.pendingAlert = null; return result;
+	}
+
+	/* Seal once before erasing secrets. Before client Finished the client
+	 * has not sent a protected record, so its handshake sequence is zero. */
+	public void fail(int description) {
+		if (self.state != TLS13_FAILED && description != TLS_NO_ALERT) {
+			var alert = TLSAlert.fatal(description);
+			if (self.established()) { self.pendingAlert = self.sendRecord(21, alert); }
+			else if (self.keys != null) {
+				var writer = self.keys.handshakeRecords(true);
+				if (writer != null) { self.pendingAlert = writer.seal(21, alert); }
+			} else { self.pendingAlert = TLSAlert.plaintext(alert); }
+		}
+		self.close();
+	}
+
+	/* hello owns the exact ClientHello already sent, including the client's
+	 * ephemeral private key. No regeneration is allowed during dispatch. */
+	public TLS13ClientHandshake(TLS13Hello hello, X509PeerName identity, bool sentName, long long now) {
+		self.hello = hello;
+		self.identity = identity;
+		self.sentName = sentName;
+		self.now = now;
+		self.messages = TLS13HandshakeStream();
+	}
+
+	class Bytes? clientHelloRecord(TLS13Hello hello) {
+		var msg = hello.clientHello();
+		if (msg == null) { return null; }
+		/* A cookie in ClientHello2 can exceed one TLSPlaintext fragment.
+		 * The transcript already contains the single handshake message. */
+		Bytes wire = Bytes();
+		int offset = 0;
+		while (offset < msg.length()) {
+			int length = msg.length() - offset;
+			if (length > 16384) { length = 16384; }
+			wire.append(22);
+			wire.appendU16BE(0x0303);
+			wire.appendU16BE(length);
+			wire.appendRaw(msg.data + offset, length);
+			offset += length;
+		}
+		return wire;
+	}
+
+	public bool wantsRetry() { return self.state == TLS13_RETRY; }
+
+	public bool wantsClientFlight() { return self.state == TLS13_VERIFY_PATH; }
+
+	public bool established() { return self.state == TLS13_ESTABLISHED; }
+
+	public Bytes? retryFlight() {
+		if (!self.wantsRetry()) { return null; }
+		self.state = TLS13_WAIT_HELLO;
+		return TLS13ClientHandshake.clientHelloRecord(self.hello);
+	}
+
+	private bool serverHello(Bytes message) {
+		if (!self.messages.empty()) { return false; }
+		var shared = self.hello.serverHello(message);
+		if (shared == null) { return self.reject(TLS_ILLEGAL_PARAMETER); }
+		if (self.hello.retryRequested()) { self.state = TLS13_RETRY; return true; }
+		self.keys = TLS13HandshakeKeys.derive(self.hello.suite, shared, self.hello.transcript);
+		Sodium.wipe((unsigned char*)shared.data, shared.length());
+		if (self.keys == null) { return self.reject(TLS_INTERNAL_ERROR); }
+		self.protectedHandshake = self.keys.handshakeRecords(false);
+		self.state = TLS13_EXTENSIONS;
+		return self.protectedHandshake != null;
+	}
+
+	private bool serverMessage(Bytes message) {
+		int kind = message.get(0);
+		Bytes body = message.slice(4, message.length());
+		if (self.state == TLS13_EXTENSIONS && kind == 8) {
+			if (!TLS13PeerMessages.encryptedExtensions(body, self.sentName)) { return self.reject(TLS_ILLEGAL_PARAMETER); }
+			self.state = TLS13_CERTIFICATE;
+		} else if (self.state == TLS13_CERTIFICATE && kind == 13) {
+			if (self.clientCertificateRequested) { return false; }
+			if (!TLS13CertificateRequest.valid(body)) { return self.reject(TLS_DECODE_ERROR); }
+			self.clientCertificateRequested = true;
+		} else if (self.state == TLS13_CERTIFICATE && kind == 11) {
+			var peers = TLS13PeerMessages.certificates(body);
+			if (peers == null) { return self.reject(TLS_BAD_CERTIFICATE); }
+			self.certificates = peers;
+			self.state = TLS13_SIGNATURE;
+		} else if (self.state == TLS13_SIGNATURE && kind == 15) {
+			if (!TLS13PeerAuthentication.certificateVerify(self.certificates.get(0), self.hello.suite, self.hello.transcript, body)) { return self.reject(TLS_DECRYPT_ERROR); }
+			self.state = TLS13_FINISHED;
+		} else if (self.state == TLS13_FINISHED && kind == 20) {
+			if (self.keys == null || !TLS13PeerAuthentication.serverFinished(self.keys, self.hello.transcript, body)) { return self.reject(TLS_DECRYPT_ERROR); }
+			if (!self.messages.empty()) { return false; }
+			self.state = TLS13_VERIFY_PATH;
+		} else { return false; }
+		self.hello.transcript.appendBytes(message);
+		return true;
+	}
+
+	private bool accept(Bytes wire) {
+		if (self.state == TLS13_RETRY || self.wantsClientFlight() || self.established() || self.state == TLS13_FAILED || wire == null || wire.length() < 6 || wire.length() > 16645 || wire.readU16BE(1) != 0x0303 || wire.readU16BE(3) != wire.length() - 5) { return false; }
+		int kind = wire.get(0);
+		if (kind == 20) { return wire.length() == 6 && wire.get(5) == 1; }
+		if (self.state == TLS13_WAIT_HELLO) {
+			if (kind == 21) { return self.reject(wire.length() == 7 ? TLS_NO_ALERT : TLS_DECODE_ERROR); }
+			if (kind != 22 || wire.length() > 16389 || !self.messages.push(wire.slice(5, wire.length()))) { return false; }
+			var msg = self.messages.next();
+			return self.messages.valid() && (msg == null || self.serverHello(msg));
+		}
+		if (self.protectedHandshake == null) { return false; }
+		var plain = self.protectedHandshake.open(wire);
+		if (plain == null) { return self.reject(TLS_BAD_RECORD_MAC); }
+		if (plain.contentType == 21) {
+			var action = TLSAlert.disposition(plain.content);
+			if (action == TLS_ALERT_CONTINUE) { return true; }
+			return self.reject(action == TLS_ALERT_INVALID ? TLS_DECODE_ERROR : TLS_NO_ALERT);
+		}
+		if (plain.contentType != 22 || !self.messages.push(plain.content)) { return false; }
+		while (true) {
+			var msg = self.messages.next();
+			if (msg == null) { break; }
+			if (!self.serverMessage(msg)) { return false; }
+		}
+		return self.messages.valid();
+	}
+
+	public bool feed(Bytes wire) {
+		self.errorAlert = TLS_UNEXPECTED_MESSAGE;
+		if (self.accept(wire)) { return true; }
+		self.fail(self.errorAlert);
+		return false;
+	}
+
+	/* Present copies of the list, so store lookup cannot replace the leaf
+	 * whose CertificateVerify signature has been authenticated. */
+	public Vector<X509Certificate> peerChain() {
+		Vector<X509Certificate> peers = [];
+		if (self.wantsClientFlight()) { for cert in self.certificates { peers.push(cert); } }
+		return peers;
+	}
+
+	public Bytes? clientFlight(X509TrustBundle trust, long long deadline) {
+		var keys = self.keys;
+		if (!self.wantsClientFlight() || keys == null) { self.close(); return null; }
+		if (trust == null) { self.fail(TLS_UNKNOWN_CA); return null; }
+		if (!trust.verifyPresented(self.certificates, self.identity, self.now, deadline)) {
+			self.fail(TLSAlert.certificate(self.certificates, trust, self.identity, self.now, deadline)); return null;
+		}
+		/* Application secrets end at server Finished. Client Finished also
+		 * authenticates the newly sent empty Certificate when one is requested. */
+		self.reader = keys.applicationRecords(false, self.hello.transcript);
+		self.writer = keys.applicationRecords(true, self.hello.transcript);
+		var handshakeWriter = keys.handshakeRecords(true);
+		Bytes response = Bytes();
+		if (self.clientCertificateRequested) {
+			response = TLS13Hello.message(11, Bytes.zeros(4));
+			self.hello.transcript.appendBytes(response);
+		}
+		var finished = keys.finished(false, self.hello.transcript);
+		if (finished == null || handshakeWriter == null) { self.close(); return null; }
+		response.appendBytes(TLS13Hello.message(20, finished));
+		var wire = handshakeWriter.seal(22, response);
+		keys.close();
+		self.protectedHandshake = null;
+		if (wire == null || self.reader == null || self.writer == null) { self.close(); return null; }
+		self.state = TLS13_ESTABLISHED;
+		return wire;
+	}
+
+	/* Seal KeyUpdate using the old sending keys. The following record must
+	 * use the new key and restart its sequence at zero. */
+	public Bytes? keyUpdate(bool requestPeer) {
+		var writer = self.writer;
+		if (!self.established() || writer == null) { return null; }
+		Bytes request = Bytes(); request.append(requestPeer ? 1 : 0);
+		var wire = writer.seal(22, TLS13Hello.message(24, request));
+		if (wire == null || !writer.updateKey()) { self.close(); return null; }
+		return wire;
+	}
+
+	public Bytes? sendRecord(int kind, Bytes content) {
+		var writer = self.writer;
+		if (!self.established() || writer == null) { return null; }
+		if (!writer.needsWriteUpdate()) { return writer.seal(kind, content); }
+		var update = self.keyUpdate(false);
+		if (update == null) { return null; }
+		var record = writer.seal(kind, content);
+		if (record == null) { self.close(); return null; }
+		update.appendBytes(record); return update;
+	}
+
+	public TLS13Plaintext? receiveRecord(Bytes wire) {
+		if (!self.established() || self.reader == null) { return null; }
+		var clear = self.reader.open(wire);
+		if (clear == null) { self.fail(TLS_BAD_RECORD_MAC); }
+		return clear;
+	}
+
+	public bool updateReadKey() { return self.established() && self.reader != null && self.reader.updateKey(); }
+
+	public void close() {
+		self.state = TLS13_FAILED;
+		if (self.keys != null) { self.keys.close(); }
+		self.protectedHandshake = null;
+		self.reader = null;
+		self.writer = null;
+	}
+}

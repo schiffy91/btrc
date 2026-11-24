@@ -1,0 +1,83 @@
+import Library.Bytes;
+import Library.Console;
+import Library.Strings;
+import Library.Crypto.Primitives.HKDF;
+
+import ./TLS12Records.btrc;
+import ./TLS12Keys.btrc;
+
+class TLS12Probe {
+	class Bytes argument(char* input) {
+		Bytes? value = Bytes.fromHex(Strings.copy(input));
+		if (value == null) { throw "Invalid hex argument"; }
+		return value;
+	}
+
+	class Bytes transcript(int suite, Bytes prefix, Bytes suffix) {
+		bool sha384 = TLS12Keys.sha384(suite);
+		IBinaryDigest state = HMAC.newDigest(sha384);
+		state.update((unsigned char*)prefix.data, prefix.length()); state.update((unsigned char*)suffix.data, suffix.length());
+		var result = Bytes.zeros(sha384 ? 48 : 32); state.finish((unsigned char*)result.data);
+		return result;
+	}
+
+	class int exchange(int suite, Bytes master, Bytes clientRandom, Bytes serverRandom, Bytes clientFinished, Bytes serverFinished, Bytes encrypted, Bytes message, Bytes transcript) {
+		var clientReader = TLS12Records.create(suite, master, clientRandom, serverRandom, true, false);
+		var clientWriter = TLS12Records.create(suite, master, clientRandom, serverRandom, true, true);
+		var serverReader = TLS12Records.create(suite, master, clientRandom, serverRandom, false, false);
+		if (clientReader == null || clientWriter == null || serverReader == null) { return 2; }
+		var first = clientReader.open(clientFinished);
+		var second = serverReader.open(serverFinished);
+		if (first == null || second == null || first.length() != 16 || second.length() != 16 || first.readU32BE(0) != 0x1400000cU || second.readU32BE(0) != 0x1400000cU) { return 3; }
+		var clientCheck = TLS12Keys.finished(suite, master, TLS12Probe.transcript(suite, transcript, Bytes.zeros(0)), true);
+		var serverCheck = TLS12Keys.finished(suite, master, TLS12Probe.transcript(suite, transcript, first), false);
+		if (clientCheck == null || serverCheck == null || !first.slice(4, 16).equals(clientCheck) || !second.slice(4, 16).equals(serverCheck)) { return 4; }
+		if (clientWriter.seal(22, first) == null) { return 5; }
+		var received = serverReader.open(encrypted); var sent = clientWriter.seal(23, message);
+		if (received == null || sent == null) { return 6; }
+		Console.log(received.toHex()); Console.log(sent.toHex());
+		if (serverReader.open(encrypted) != null || serverReader.open(encrypted) != null) { return 7; }
+		return 0;
+	}
+
+	class int rejection(int suite, Bytes master, Bytes clientRandom, Bytes serverRandom, Bytes valid, Bytes bad) {
+		var reader = TLS12Records.create(suite, master, clientRandom, serverRandom, false, false);
+		if (reader == null || reader.open(bad) != null || reader.open(valid) != null) { return 1; }
+		return 0;
+	}
+
+	class int empty(int suite, Bytes master, Bytes clientRandom, Bytes serverRandom) {
+		var reader = TLS12Records.create(suite, master, clientRandom, serverRandom, true, false);
+		var writer = TLS12Records.create(suite, master, clientRandom, serverRandom, true, true);
+		if (reader == null || writer == null) { return 1; }
+		var empty = Bytes.zeros(0); var large = Bytes.zeros(16384);
+		if (writer.seal(22, empty) != null || writer.seal(20, large) != null || writer.seal(23, Bytes.zeros(16385)) != null) { return 2; }
+		var wire = writer.seal(23, empty); var full = writer.seal(23, large);
+		if (wire == null || full == null) { return 3; }
+		var opened = reader.open(wire); var maximum = reader.open(full);
+		if (opened == null || maximum == null || opened.length() != 0 || !maximum.equals(large)) { return 4; }
+		return 0;
+	}
+}
+
+int main(int argc, char** argv) {
+	if (argc < 4) { return 2; }
+	int mode = atoi(argv[1]); int suite = atoi(argv[2]);
+	if (mode == 1 && argc == 11) {
+		return TLS12Probe.exchange(suite, TLS12Probe.argument(argv[3]), TLS12Probe.argument(argv[4]), TLS12Probe.argument(argv[5]), TLS12Probe.argument(argv[6]), TLS12Probe.argument(argv[7]), TLS12Probe.argument(argv[8]), TLS12Probe.argument(argv[9]), TLS12Probe.argument(argv[10]));
+	}
+	if (mode == 2 && argc == 5) {
+		var master = TLS12Keys.masterSecret(suite, TLS12Probe.argument(argv[3]), TLS12Probe.argument(argv[4]));
+		if (master == null) { return 1; } Console.log(master.toHex()); return 0;
+	}
+	if (mode == 3 && argc == 8) { return TLS12Probe.rejection(suite, TLS12Probe.argument(argv[3]), TLS12Probe.argument(argv[4]), TLS12Probe.argument(argv[5]), TLS12Probe.argument(argv[6]), TLS12Probe.argument(argv[7])); }
+	if (mode == 4 && argc == 7) {
+		Bytes secret = TLS12Probe.argument(argv[3]); Bytes seed = TLS12Probe.argument(argv[4]); int count = atoi(argv[5]);
+		if (count < 1 || count > 256) { return 2; }
+		var output = Bytes.zeros(count);
+		if (!TLS12Keys.prf(TLS12Keys.sha384(suite), (unsigned char*)output.data, count, (unsigned char*)secret.data, secret.length(), Strings.copy(argv[6]), (unsigned char*)seed.data, seed.length())) { return 1; }
+		Console.log(output.toHex()); return 0;
+	}
+	if (mode == 5 && argc == 6) { return TLS12Probe.empty(suite, TLS12Probe.argument(argv[3]), TLS12Probe.argument(argv[4]), TLS12Probe.argument(argv[5])); }
+	return 2;
+}

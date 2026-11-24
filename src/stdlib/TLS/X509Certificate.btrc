@@ -1,0 +1,138 @@
+import Library.Bytes;
+import Library.OwnedBuffer;
+
+import ./DER.btrc;
+import ./X509Algorithm.btrc;
+import ./X509DistinguishedName.btrc;
+import ./X509Extensions.btrc;
+import ./X509Identity.btrc;
+
+/* Parsed RFC 5280 v3 fields. Every offset refers to the same private copy of
+ * the certificate, including the exact TBS DER bytes signed by the issuer.
+ * A parsed certificate still needs path, time, purpose, identity and
+ * cryptographic verification before its public key can authenticate a peer. */
+class X509Certificate {
+	private OwnedBuffer<unsigned char> _storage;
+	private int _length;
+	private Bytes _issuerName;
+	private Bytes _subjectName;
+	public struct DERElement tbs;
+	public struct DERElement serial;
+	public struct DERElement issuer;
+	public struct DERElement subject;
+	public struct DERElement spki;
+	public struct DERElement signature;
+	public int signatureScheme;
+	public long long notBefore;
+	public long long notAfter;
+	public struct X509PublicKey key;
+	public X509Extensions extensions;
+
+	private X509Certificate(int length) {
+		self._storage = OwnedBuffer((size_t)length); self._length = length;
+		self.extensions = X509Extensions();
+	}
+
+	public int length() { return self._length; }
+
+	public const unsigned char* bytes() { return (const unsigned char*)self._storage.borrow(); }
+
+	public Bytes copyRange(int start, int end) {
+		if (start < 0 || end < start || end > self._length) { return Bytes(); }
+		return Bytes.fromRaw((char*)(self._storage.borrow() + start), end - start);
+	}
+
+	public Bytes signedBytes() { return self.copyRange(self.tbs.start, self.tbs.end); }
+
+	public Bytes signatureBytes() { return self.copyRange(self.signature.content, self.signature.end); }
+
+	public Bytes publicKeyBytes() { return self.copyRange(self.key.material.content, self.key.material.end); }
+
+	public Bytes issuerName() { return self._issuerName; }
+
+	public Bytes subjectName() { return self._subjectName; }
+
+	public Bytes issuerDER() { return self.copyRange(self.issuer.start, self.issuer.end); }
+
+	public Bytes subjectDER() { return self.copyRange(self.subject.start, self.subject.end); }
+
+	private Bytes unsignedValue(struct DERElement value) {
+		int start = value.content;
+		if (start < 0 || start >= value.end || value.end > self._length) { return Bytes(); }
+		if (self._storage.borrow()[start] == 0) { start++; }
+		return self.copyRange(start, value.end);
+	}
+
+	public Bytes rsaModulus() { return self.unsignedValue(self.key.modulus); }
+
+	public Bytes rsaExponent() { return self.unsignedValue(self.key.exponent); }
+
+	class X509Certificate? parse(unsigned char* der, int length) { return X509Certificate.readCertificate(der, length, false); }
+
+	/* A trust store supplies out-of-band anchors (RFC 5280 section 6.1.1).
+	 * Some deployed roots predate profile conventions enforced on peers. */
+	class X509Certificate? parseTrustAnchor(unsigned char* der, int length) { return X509Certificate.readCertificate(der, length, true); }
+
+	class X509Certificate? readCertificate(unsigned char* der, int length, bool trustAnchor) {
+		if (der == null || length < 1 || length > 131072) { return null; }
+		var certificate = X509Certificate(length);
+		if (!certificate._storage.opened()) { return null; }
+		unsigned char* copy = certificate._storage.borrow();
+		memcpy(copy, der, (size_t)length);
+		struct DERCursor root = {};
+		if (!DER.open(&root, copy, length) || !certificate.decode(&root, trustAnchor)) { return null; }
+		return certificate;
+	}
+
+	private bool validSignature(struct DERCursor* raw) {
+		int length = raw->end - raw->at;
+		if (self.signatureScheme == 0x0807) { return length == 64; }
+		if ((self.signatureScheme & 255) != 3) { return length >= 256 && length <= 1024; }
+		struct DERCursor pair = {}; struct DERElement r = {}; struct DERElement s = {};
+		if (!DER.enter(raw, 48, &pair) || !DER.exhausted(raw) || !DER.integer(&pair, &r) || !DER.integer(&pair, &s) || !DER.exhausted(&pair)) { return false; }
+		return r.end - r.content <= 49 && s.end - s.content <= 49 && (r.end - r.content > 1 || pair.bytes[r.content] != 0) && (s.end - s.content > 1 || pair.bytes[s.content] != 0);
+	}
+
+	private bool decode(struct DERCursor* root, bool trustAnchor) {
+		struct DERElement tbs = {}; struct DERElement signature = {}; struct DERElement serial = {};
+		struct DERElement issuer = {}; struct DERElement subject = {}; struct DERElement spki = {};
+		struct X509PublicKey key = {}; long long notBefore = 0LL; long long notAfter = 0LL;
+		struct DERCursor outer = {}; struct DERCursor alg = {};
+		if (!DER.enter(root, 48, &outer) || !DER.exhausted(root) || !DER.read(&outer, 48, &tbs) || !DER.enter(&outer, 48, &alg)) { return false; }
+		self.signatureScheme = X509Algorithm.signature(&alg);
+		if (self.signatureScheme == 0 || !DER.bits(&outer, 3, &signature) || !DER.exhausted(&outer) || outer.bytes[signature.content] != 0) { return false; }
+		signature.content++;
+		var signedValue = DER.contents(&outer, &signature);
+		if (!self.validSignature(&signedValue)) { return false; }
+		var fields = DER.contents(&outer, &tbs);
+		struct DERCursor version = {};
+		if (!DER.enter(&fields, 160, &version) || DER.small(&version) != 2 || !DER.exhausted(&version)) { return false; }
+		if (!DER.integer(&fields, &serial) || serial.end - serial.content > 20 || (!trustAnchor && serial.end - serial.content == 1 && fields.bytes[serial.content] == 0)) { return false; }
+		if (!DER.enter(&fields, 48, &alg) || X509Algorithm.signature(&alg) != self.signatureScheme || !DER.read(&fields, 48, &issuer)) { return false; }
+		var name = DER.contents(&fields, &issuer);
+		if (DER.exhausted(&name) || !X509Identity.name(&name)) { return false; }
+		struct DERCursor validity = {};
+		if (!DER.enter(&fields, 48, &validity) || !X509Identity.timeValue(&validity, &notBefore, trustAnchor) || !X509Identity.timeValue(&validity, &notAfter, trustAnchor) || !DER.exhausted(&validity) || notBefore > notAfter) { return false; }
+		if (!DER.read(&fields, 48, &subject)) { return false; }
+		name = DER.contents(&fields, &subject);
+		bool emptySubject = DER.exhausted(&name);
+		if (!X509Identity.name(&name) || !DER.read(&fields, 48, &spki)) { return false; }
+		var keyInfo = DER.contents(&fields, &spki);
+		if (!X509Algorithm.publicKey(&keyInfo, &key)) { return false; }
+		struct DERElement unique = {};
+		if (DER.peek(&fields) == 129 && !DER.bits(&fields, 129, &unique)) { return false; }
+		if (DER.peek(&fields) == 130 && !DER.bits(&fields, 130, &unique)) { return false; }
+		if (DER.peek(&fields) == 163) {
+			struct DERCursor extensions = {};
+			if (!DER.enter(&fields, 163, &extensions) || !self.extensions.parse(&extensions, trustAnchor)) { return false; }
+		}
+		if (!DER.exhausted(&fields) || (emptySubject && !self.extensions.criticalSAN)) { return false; }
+		self.tbs = tbs; self.signature = signature; self.serial = serial; self.issuer = issuer; self.subject = subject; self.spki = spki;
+		self.notBefore = notBefore; self.notAfter = notAfter; self.key = key;
+		var issuerName = X509DistinguishedName.canonical(self.issuerDER());
+		var subjectName = X509DistinguishedName.canonical(self.subjectDER());
+		if (issuerName == null || subjectName == null) { return false; }
+		self._issuerName = issuerName; self._subjectName = subjectName;
+		return true;
+	}
+}

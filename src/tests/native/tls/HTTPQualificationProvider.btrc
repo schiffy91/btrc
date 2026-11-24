@@ -1,0 +1,60 @@
+/* Installed only in the test's private source tree. This exercises HTTPClient
+ * and the ordinary DNS/socket/HTTP exchange with the candidate TLS stream. */
+import Library.HTTP.HTTPExchange;
+import Library.HTTP.HTTPCurlTransport;
+import Library.HTTP.Unix.HTTPConnect;
+import Library.HTTP.Unix.HTTPPlainTransport;
+import Library.HTTP.Unix.HTTPProxy;
+import Library.HTTP.Unix.HTTPSocks;
+import Library.Process;
+import Library.Timer;
+import Library.TLS.Linux.HTTPStream;
+import Library.Vector;
+
+class HTTPTransportProvider {
+	class HTTPExchangeResult request(string method, string url, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes) {
+		var address = HTTPClientAddress.parse(url);
+		if (address == null || !address.secure) { return HTTPExchangeResult.failed("invalid HTTPS URL"); }
+		if (HTTPProxy.needsLegacyHeaders(headers)) { return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes); }
+		long long deadline = MonotonicClock.deadlineAfter((long long)timeoutSecs * 1000LL);
+		string setting = HTTPProxy.setting(address);
+		string socks = HTTPSocks.scheme(setting);
+		HTTPClientAddress endpoint = address;
+		if (!setting.isEmpty()) {
+			string urlText = setting.contains("://") ? setting : "http://" + setting;
+			/* A curl installation can negotiate GSSAPI on SOCKS5. Keep its
+			 * Kerberos credentials available when that executable is present. */
+			if (socks.startsWith("socks5") && !ChildProcessExecutable.resolve("curl", "", [], []).isEmpty()) {
+				return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes);
+			}
+			HTTPClientAddress? proxy = socks.isEmpty() ? HTTPClientAddress.parse(urlText, 1080) : HTTPSocks.endpoint(setting, socks);
+			if (proxy == null) { return HTTPCurlTransport.request(method, url, headers, body, timeoutSecs, maxResponseBytes); }
+			endpoint = proxy;
+		}
+		int fd = HTTPPlainTransport.connectTo(endpoint.resolvable(), endpoint.port, deadline);
+		if (fd < 0) { return HTTPExchangeResult.failed(MonotonicClock.before(deadline) ? "could not connect" : "request timed out"); }
+		IHTTPByteStream transport = HTTPSocketStream(fd);
+		if (!socks.isEmpty()) {
+			if (!HTTPSocks.connect(transport, address, endpoint.userInfo, socks, deadline)) {
+				transport.close();
+				return HTTPExchangeResult.failed(MonotonicClock.before(deadline) ? "SOCKS negotiation failed" : "request timed out");
+			}
+		} else if (!setting.isEmpty()) {
+			if (endpoint.secure) {
+				var outer = LinuxTLSStream.connect(transport, endpoint.resolvable(), deadline, true);
+				if (outer == null) { return HTTPExchangeResult.failed(MonotonicClock.before(deadline) ? "proxy TLS handshake failed" : "request timed out"); }
+				transport = outer;
+			}
+			string error = HTTPConnect.establish(transport, address, endpoint, headers, deadline);
+			if (!error.isEmpty()) {
+				transport.close();
+				return HTTPExchangeResult.failed(MonotonicClock.before(deadline) ? error : "request timed out");
+			}
+		}
+		var tls = LinuxTLSStream.connect(transport, address.resolvable(), deadline);
+		if (tls == null) { return HTTPExchangeResult.failed(MonotonicClock.before(deadline) ? "TLS handshake failed" : "request timed out"); }
+		var response = HTTPExchange.run(tls, method, address, HTTPConnect.originHeaders(headers), body, maxResponseBytes, deadline);
+		tls.close();
+		return response;
+	}
+}

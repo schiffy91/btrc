@@ -1,0 +1,34 @@
+/* Exercise both the transport-facing handshake reader and retry-flight writer. */
+import Library.Bytes;
+import Library.Console;
+import ./TLS13ClientHandshake.btrc;
+import ./TLS13Hello.btrc;
+import ./X509PeerName.btrc;
+
+void writeBytes(Bytes? data) {
+	if (data == null || fwrite(data.data, (size_t)1, (size_t)data.length(), stdout) != (size_t)data.length()) {
+		throw "cannot write handshake bytes";
+	}
+	Console.flush();
+}
+
+int main() {
+	var name = X509PeerName.dns("localhost");
+	if (name == null) { throw "no peer name"; }
+	var hello = TLS13Hello("localhost");
+	var state = TLS13ClientHandshake(hello, name, true, 0LL);
+	writeBytes(TLS13ClientHandshake.clientHelloRecord(hello));
+	while (!state.wantsRetry()) {
+		Bytes frame = Bytes.zeros(5);
+		if (fread(frame.data, (size_t)1, (size_t)5, stdin) != (size_t)5) { throw "missing record"; }
+		int length = frame.readU16BE(3);
+		if (length < 1 || length > 16640) { throw "invalid fragment"; }
+		Bytes body = Bytes.zeros(length);
+		if (fread(body.data, (size_t)1, (size_t)length, stdin) != (size_t)length) { throw "truncated fragment"; }
+		frame.appendBytes(body);
+		if (!state.feed(frame)) { throw "invalid retry"; }
+	}
+	writeBytes(state.retryFlight());
+	writeBytes(TLS13Hello.hash(true, hello.transcript));
+	return 0;
+}

@@ -1,0 +1,124 @@
+import Library.Bytes;
+import Library.Platform;
+import Library.Timer;
+import Library.Strings;
+import Library.Vector;
+
+import ./DirectoryHash.btrc;
+import ./PeerIdentity.btrc;
+import ../X509Certificate.btrc;
+import ../X509TrustBundle.btrc;
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+class LinuxTrustFiles {
+	/* Distribution CA bundles commonly use symlinks. Validate the opened
+	 * descriptor and use nonblocking open so a configured FIFO cannot wait
+	 * for a writer. The handshake owns the overall deadline. */
+	class X509TrustBundle? bundle(string path, long long deadline) {
+		if (path == null || path.isEmpty() || !MonotonicClock.before(deadline)) { return null; }
+		int fd = open(path, (int)O_RDONLY | (int)O_CLOEXEC | (int)O_NONBLOCK);
+		if (fd < 0) { return null; }
+		struct stat metadata;
+		if (fstat(fd, &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_size <= 0 || metadata.st_size > 16777216) { close(fd); return null; }
+		int length = (int)metadata.st_size;
+		var file = Bytes.zeros(length);
+		int at = 0;
+		while (at < length && MonotonicClock.before(deadline)) {
+			int left = length - at;
+			ssize_t got = read(fd, file.data + at, (size_t)(left > 65536 ? 65536 : left));
+			if (got < (ssize_t)0 && errno == EINTR) { continue; }
+			if (got <= (ssize_t)0) { close(fd); return null; }
+			at += (int)got;
+		}
+		unsigned char extra = 0;
+		bool complete = at == length && read(fd, &extra, (size_t)1) == (ssize_t)0;
+		close(fd);
+		return complete ? X509TrustBundle.parse(file, deadline) : null;
+	}
+
+	/* Only consecutive subject_hash.N entries qualify as trusted directory
+	 * members. Unrelated PEM files and subjects in a hash collision cannot
+	 * become anchors by being present in the same directory. */
+	class bool lookup(string directory, Bytes wanted, X509TrustBundle target, long long deadline) {
+		if (directory.isEmpty() || !MonotonicClock.before(deadline)) { return false; }
+		struct stat info;
+		if (stat(directory, &info) != 0 || !S_ISDIR(info.st_mode)) { return false; }
+		string prefix = directory + "/" + LinuxDirectoryHash.of(wanted) + ".";
+		for (int index = 0; index < 256; index++) {
+			string path = prefix + Strings.fromInt(index);
+			if (stat(path, &info) != 0) { return errno == ENOENT; }
+			var file = LinuxTrustFiles.bundle(path, deadline);
+			if (file == null) { return false; }
+			for entry in file.entries {
+				if (entry.certificate.subjectName().equals(wanted)) {
+					if (target.entries.len >= 4096) { return false; }
+					target.entries.push(entry);
+				}
+			}
+		}
+		return false;
+	}
+
+	class X509TrustBundle? forChain(string file, string directories, Vector<X509Certificate> peers, long long deadline) {
+		if (peers == null || peers.len < 1 || peers.len > 17 || file == null || directories == null) { return null; }
+		var result = file.isEmpty() ? X509TrustBundle() : LinuxTrustFiles.bundle(file, deadline);
+		if (result == null) { return null; }
+		if (!directories.isEmpty()) {
+			var paths = Strings.split(directories, ":");
+			if (paths.len > 64) { return null; }
+			Vector<Bytes> names = [];
+			for peer in peers {
+				if (peer == null) { return null; }
+				for (int part = 0; part < 2; part++) {
+					var wanted = part == 0 ? peer.issuerName() : peer.subjectName();
+
+					bool seen = false;
+					for previous in names { if (previous.equals(wanted)) { seen = true; break; } }
+					if (seen) { continue; }
+					names.push(wanted);
+					for path in paths {
+						if (!LinuxTrustFiles.lookup(path, wanted, result, deadline)) { return null; }
+					}
+				}
+			}
+		}
+		return result.entries.len > 0 && MonotonicClock.before(deadline) ? result : null;
+	}
+
+	class string defaultFile() {
+		Vector<string> candidates = ["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
+			"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", "/etc/ssl/ca-bundle.pem", "/etc/ssl/cert.pem"];
+		struct stat info;
+		for path in candidates {
+			if (stat(path, &info) == 0 || (errno != ENOENT && errno != ENOTDIR)) { return path; }
+		}
+		return "";
+	}
+
+	class X509TrustBundle? configured(Vector<X509Certificate> peers, long long deadline, bool proxyTrust = false) {
+		/* curl configures HTTPS-proxy trust independently of the origin's CA overrides. */
+		string file = "";
+		string directories = "";
+		if (!proxyTrust) {
+			string custom = Environment.get("CURL_CA_BUNDLE", "");
+			file = custom.isEmpty() ? Environment.get("SSL_CERT_FILE", "") : custom;
+			directories = custom.isEmpty() ? Environment.get("SSL_CERT_DIR", "") : "";
+		}
+		if (file.isEmpty()) { file = LinuxTrustFiles.defaultFile(); }
+		if (directories.isEmpty()) {
+			struct stat info;
+			if (stat("/etc/ssl/certs", &info) == 0 && S_ISDIR(info.st_mode)) { directories = "/etc/ssl/certs"; }
+		}
+		return LinuxTrustFiles.forChain(file, directories, peers, deadline);
+	}
+
+	class bool verifyServer(Vector<X509Certificate> presented, string host, long long at, long long deadline) {
+		var name = LinuxPeerIdentity.parse(host);
+		if (name == null) { return false; }
+		var store = LinuxTrustFiles.configured(presented, deadline);
+		return store != null && store.verifyPresented(presented, name, at, deadline);
+	}
+}

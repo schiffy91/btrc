@@ -1,0 +1,120 @@
+/* The driver relays TLS records between this handshake fixture and an
+ * independent TLS server. This fixture pins the exact test certificate. */
+import Library.Bytes;
+import Library.Console;
+import Library.Strings;
+import Library.Crypto.Sodium;
+
+import ./TLS13HandshakeKeys.btrc;
+import ./TLS13Hello.btrc;
+import ./TLS13PeerMessages.btrc;
+import ./TLS13PeerAuthentication.btrc;
+
+Bytes nextRecord() {
+	Bytes frame = Bytes();
+	for (int index = 0; index < 5; index++) {
+		int value = getchar();
+		if (value < 0) { throw "missing record header"; }
+		frame.append(value);
+	}
+	int length = frame.readU16BE(3);
+	if (length > 16640) { throw "oversized record"; }
+	for (int index = 0; index < length; index++) {
+		int value = getchar();
+		if (value < 0) { throw "truncated record"; }
+		frame.append(value);
+	}
+	return frame;
+}
+
+void sendHello(TLS13Hello hello) {
+	var msg = hello.clientHello();
+	if (msg == null) { throw "no ClientHello"; }
+	Bytes frame = Bytes();
+	frame.append(22);
+	frame.appendU16BE(0x0303);
+	frame.appendU16BE(msg.length());
+	frame.appendBytes(msg);
+	fwrite(frame.data, (size_t)1, (size_t)frame.length(), stdout);
+	Console.flush();
+}
+
+void sendFrame(Bytes? frame) {
+	if (frame == null) { throw "cannot seal record"; }
+	fwrite(frame.data, (size_t)1, (size_t)frame.length(), stdout);
+	Console.flush();
+}
+
+int main(int argc, char** argv) {
+	if (argc != 3) { throw "missing test peer pin or mutation"; }
+	string pin = Strings.copy(argv[1]);
+	string mutation = Strings.copy(argv[2]);
+	TLS13Hello hello = TLS13Hello("localhost", true);
+	sendHello(hello);
+	Bytes frame = nextRecord();
+	if (frame.get(0) != 22) { throw "expected ServerHello"; }
+	var shared = hello.serverHello(frame.slice(5, frame.length()));
+	if (hello.retryRequested()) {
+		sendHello(hello);
+		frame = nextRecord();
+		if (frame.toHex().equals("140303000101")) { frame = nextRecord(); }
+		if (frame.get(0) != 22) { throw "expected ServerHello after retry"; }
+		shared = hello.serverHello(frame.slice(5, frame.length()));
+	}
+	if (shared == null || (shared.length() != 32 && shared.length() != 48)) { throw "invalid ServerHello"; }
+	var keys = TLS13HandshakeKeys.derive(hello.suite, shared, hello.transcript);
+	Sodium.wipe((unsigned char*)shared.data, shared.length());
+	if (keys == null) { throw "failed to derive handshake keys"; }
+	var inbound = keys.handshakeRecords(false);
+	if (inbound == null) { throw "failed to derive record keys"; }
+	TLS13HandshakeStream stream = TLS13HandshakeStream();
+	int phase = 0;
+	X509Certificate? leaf = null;
+	bool sawCCS = false;
+	while (phase < 4) {
+		frame = nextRecord();
+		if (phase == 0 && !sawCCS && frame.toHex().equals("140303000101")) { sawCCS = true; frame = nextRecord(); }
+		var plain = inbound.open(frame);
+		if (plain == null || plain.contentType != 22) { throw "failed to authenticate server record"; }
+		/* Exercise splits inside the four-byte handshake header as well as
+		 * boundaries between real server records. */
+		int cut = plain.content.length() < 3 ? plain.content.length() : 3;
+		if (!stream.push(plain.content.slice(0, cut))) { throw "invalid handshake fragment"; }
+		if (cut < plain.content.length() && !stream.push(plain.content.slice(cut, plain.content.length()))) { throw "invalid handshake fragment"; }
+		while (true) {
+			var msg = stream.next();
+			if (msg == null) { break; }
+			Bytes body = msg.slice(4, msg.length());
+			if (phase == 0 && msg.get(0) == 8) {
+				if (!TLS13PeerMessages.encryptedExtensions(body, true)) { throw "invalid EncryptedExtensions"; }
+			} else if (phase == 1 && msg.get(0) == 11) {
+				var chain = TLS13PeerMessages.certificates(body);
+				if (chain == null || chain.len != 1) { throw "invalid peer certificate list"; }
+				int size = (body.get(4) << 16) | body.readU16BE(5);
+				if (!TLS13Hello.hash(false, body.slice(7, 7 + size)).toHex().equals(pin)) { throw "untrusted test certificate"; }
+				leaf = chain.get(0);
+			} else if (phase == 2 && msg.get(0) == 15) {
+				if (mutation.equals("signature")) { body.set(body.length() - 1, body.get(body.length() - 1) ^ 1); }
+				if (leaf == null || !TLS13PeerAuthentication.certificateVerify(leaf, hello.suite, hello.transcript, body)) { throw "invalid CertificateVerify"; }
+			} else if (phase == 3 && msg.get(0) == 20) {
+				if (mutation.equals("finished")) { body.set(0, body.get(0) ^ 1); }
+				if (!TLS13PeerAuthentication.serverFinished(keys, hello.transcript, body)) { throw "invalid Finished"; }
+				if (!stream.empty()) { throw "trailing handshake data"; }
+			} else { throw "unexpected server handshake message"; }
+			hello.transcript.appendBytes(msg);
+			phase++;
+		}
+		if (!stream.valid()) { throw "oversized handshake message"; }
+	}
+	var finished = keys.finished(false, hello.transcript);
+	var handshake = keys.handshakeRecords(true);
+	var outgoing = keys.applicationRecords(true, hello.transcript);
+	var incoming = keys.applicationRecords(false, hello.transcript);
+	if (finished == null || handshake == null || outgoing == null || incoming == null) { throw "failed to derive application keys"; }
+	sendFrame(handshake.seal(22, TLS13Hello.message(20, finished)));
+	sendFrame(outgoing.seal(23, Bytes.fromString("GET / HTTP/1.0\r\n\r\n")));
+	var reply = incoming.open(nextRecord());
+	if (reply == null || reply.contentType != 23 || !reply.content.toString().startsWith("HTTP/1.0 200")) { throw "invalid HTTP response"; }
+	print("PASS TLS HTTP exchange");
+	return 0;
+}

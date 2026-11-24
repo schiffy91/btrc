@@ -1,0 +1,46 @@
+/* TLS 1.3 main-handshake client authentication (RFC 8446 section 4.3.2).
+ * This client has no certificate to offer. Validate the mandatory signature
+ * algorithms and framing of the hints without selecting a client credential. */
+import Library.Bytes;
+
+class TLS13CertificateRequest {
+	class bool valid(Bytes body) {
+		if (body == null || body.length() < 3 || body.get(0) != 0 || body.readU16BE(1) != body.length() - 3) { return false; }
+		unsigned char seen[8192] = {0};
+		bool signatures = false;
+		int at = 3;
+		while (at < body.length()) {
+			if (body.length() - at < 4) { return false; }
+			int kind = body.readU16BE(at); int size = body.readU16BE(at + 2); at += 4;
+			unsigned char bit = (unsigned char)(1U << (kind & 7));
+			if (size > body.length() - at || (seen[kind >> 3] & bit) != 0) { return false; }
+			seen[kind >> 3] |= bit;
+			if (kind == 13 || kind == 50) {
+				if (size < 4 || (size & 1) != 0 || body.readU16BE(at) != size - 2) { return false; }
+				if (kind == 13) { signatures = true; }
+			} else if (kind == 5) {
+				if (size != 0) { return false; }
+			} else if (kind == 47 || kind == 48) {
+				if (size < 2 || body.readU16BE(at) != size - 2 || (kind == 47 && size < 5)) { return false; }
+				int cursor = at + 2; int end = at + size;
+				while (cursor < end) {
+					if (kind == 48) {
+						int oid = body.get(cursor++);
+						if (oid == 0 || oid > end - cursor) { return false; }
+						cursor += oid;
+					}
+					if (end - cursor < 2) { return false; }
+					int item = body.readU16BE(cursor); cursor += 2;
+					if ((kind == 47 && item == 0) || item > end - cursor) { return false; }
+					cursor += item;
+				}
+			} else if (kind == 0 || kind == 1 || kind == 10 || kind == 14 || kind == 15 || kind == 16 || kind == 17 || kind == 19 || kind == 20 || kind == 21 || (kind >= 41 && kind <= 45) || kind == 49 || kind == 51 || kind == 0xff01) {
+				/* Known TLS 1.3 extensions not permitted in CertificateRequest. */
+				return false;
+			}
+			/* Unknown request hints are ignored, as required by RFC 8446. */
+			at += size;
+		}
+		return signatures;
+	}
+}

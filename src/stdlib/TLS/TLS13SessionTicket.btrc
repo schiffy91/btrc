@@ -1,0 +1,29 @@
+/* RFC 8446 section 4.6.1. This client does not resume sessions or send
+ * early data. Validate the complete ticket before discarding it. */
+import Library.Bytes;
+
+class TLS13SessionTicket {
+	class bool valid(Bytes message) {
+		if (message == null || message.length() < 18 || message.get(0) != 4 || ((message.get(1) << 16) | message.readU16BE(2)) != message.length() - 4) { return false; }
+		int at = 13 + message.get(12);
+		if (at + 2 > message.length()) { return false; }
+		int size = message.readU16BE(at); at += 2;
+		if (size == 0 || size > message.length() - at - 2) { return false; }
+		at += size;
+		if (message.readU16BE(at) == 65535 || message.readU16BE(at) != message.length() - at - 2) { return false; }
+		at += 2;
+		unsigned char seen[8192] = {0};
+		while (at < message.length()) {
+			if (message.length() - at < 4) { return false; }
+			int kind = message.readU16BE(at); size = message.readU16BE(at + 2); at += 4;
+			unsigned char bit = (unsigned char)(1U << (kind & 7));
+			if (size > message.length() - at || (seen[kind >> 3] & bit) != 0) { return false; }
+			seen[kind >> 3] |= bit;
+			if (kind == 42) { if (size != 4) { return false; } }
+			else if (kind == 0 || kind == 1 || kind == 5 || kind == 10 || kind == 13 || (kind >= 14 && kind <= 21) || kind == 41 || (kind >= 43 && kind <= 45) || (kind >= 47 && kind <= 51) || kind == 0xff01) { return false; }
+			/* Unknown ticket extensions are ignored. */
+			at += size;
+		}
+		return true;
+	}
+}

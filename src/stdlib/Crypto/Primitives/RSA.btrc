@@ -1,0 +1,129 @@
+/* RFC 8017 public-key verification. Every operand of the modular arithmetic
+ * is public; these routines must never be used with a private exponent. */
+import Library.Bytes;
+import Library.Crypto.Primitives.Montgomery;
+import Library.Crypto.Primitives.SHA512;
+import Library.Digest.SHA256;
+
+class RSA {
+	private Montgomery arithmetic = Montgomery();
+
+	private bool recover(unsigned char* out, unsigned char* signature, int length, unsigned char* exponent, int exponentLength) {
+		unsigned int base[256] = {0};
+		unsigned int result[256];
+		for (int i = 0; i < length; i++) {
+			base[i / 4] |= (unsigned int)signature[length - 1 - i] << (8 * (i % 4));
+		}
+		if (self.arithmetic.atLeastModulus(base)) { return false; }
+		self.arithmetic.encode(base);
+		for (int i = 0; i < self.arithmetic.words; i++) { result[i] = base[i]; }
+		/* The leading exponent bit put base into result. */
+		int firstBit = 7;
+		while (((int)exponent[0] & (1 << firstBit)) == 0) { firstBit--; }
+		for (int i = 0; i < exponentLength; i++) {
+			for (int bit = i == 0 ? firstBit - 1 : 7; bit >= 0; bit--) {
+				self.arithmetic.multiply(result, result, result);
+				if (((int)exponent[i] & (1 << bit)) != 0) { self.arithmetic.multiply(result, result, base); }
+			}
+		}
+		unsigned int one[256] = {1U};
+		self.arithmetic.multiply(result, result, one);
+		for (int i = 0; i < length; i++) { out[length - 1 - i] = (unsigned char)(result[i / 4] >> (8 * (i % 4))); }
+		return true;
+	}
+
+	private IBinaryDigest newHash(int length) {
+		if (length == 32) { return SHA256State(); }
+		if (length == 48) { return SHA384(); }
+		return SHA512();
+	}
+
+	/* Match the complete DigestInfo, including algorithm identifier, NULL
+	 * parameters and exact OCTET STRING length, and every padding byte. */
+	private bool matchesPKCS1(unsigned char* em, int size, unsigned char* digest, int hlen) {
+		unsigned char prefix[19] = {0x30, 0, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0, 0x05, 0, 0x04, 0};
+		prefix[1] = (unsigned char)(17 + hlen);
+		prefix[14] = (unsigned char)(hlen == 32 ? 1 : hlen == 48 ? 2 : 3);
+		prefix[18] = (unsigned char)hlen;
+		int separator = size - hlen - 20;
+		if (separator < 10 || em[0] != 0 || em[1] != 1 || em[separator] != 0) { return false; }
+		for (int i = 2; i < separator; i++) { if (em[i] != 255) { return false; } }
+		for (int i = 0; i < 19; i++) { if (em[separator + 1 + i] != prefix[i]) { return false; } }
+		return memcmp(em + size - hlen, digest, (size_t)hlen) == 0;
+	}
+
+	/* RFC 8017 section 9.1.2. TLS uses MGF1 with the signature hash and
+	 * a salt of exactly the digest size (RFC 8446 section 4.2.3). */
+	private bool matchesPSS(unsigned char* em, int bits, unsigned char* digest, int hlen) {
+		int size = (bits + 7) / 8;
+		int dbLength = size - hlen - 1;
+		int unused = size * 8 - bits;
+		int mask = 255 >> unused;
+		if (dbLength <= hlen || em[size - 1] != 0xbc || (((int)em[0] & ~mask) != 0)) { return false; }
+		unsigned char* h = em + dbLength;
+		unsigned char block[64];
+		for (int offset = 0; offset < dbLength; offset += hlen) {
+			/* The 8192-bit upper bound permits at most 32 MGF1 blocks. */
+			unsigned char counter[4] = {0, 0, 0, (unsigned char)(offset / hlen)};
+			IBinaryDigest mgf = self.newHash(hlen);
+			mgf.update(h, hlen);
+			mgf.update(counter, 4);
+			mgf.finish(block);
+			for (int i = 0; i < hlen && i + offset < dbLength; i++) { em[i + offset] ^= block[i]; }
+		}
+		em[0] &= (unsigned char)mask;
+		int separator = dbLength - hlen - 1;
+		for (int i = 0; i < separator; i++) { if (em[i] != 0) { return false; } }
+		if (em[separator] != 1) { return false; }
+		unsigned char zeros[8] = {0};
+		IBinaryDigest check = self.newHash(hlen);
+		check.update(zeros, 8);
+		check.update(digest, hlen);
+		check.update(em + separator + 1, hlen);
+		check.finish(block);
+		return memcmp(h, block, (size_t)hlen) == 0;
+	}
+
+	/* Verify a TLS SignatureScheme (rsa_pkcs1 or rsa_pss_rsae with SHA-256,
+	 * SHA-384 or SHA-512). The modulus and exponent are unsigned big-endian
+	 * integers. A DER sign octet, if present, is accepted only where needed. */
+	class bool verify(int scheme, Bytes modulus, Bytes exponent, Bytes message, Bytes signature) {
+		RSA operation = RSA();
+		return operation.verifySignature(scheme, modulus, exponent, message, signature);
+	}
+
+	private bool verifySignature(int scheme, Bytes modulus, Bytes exponent, Bytes message, Bytes signature) {
+		int hlen;
+		bool pss = scheme >= 0x0804 && scheme <= 0x0806;
+		if (scheme == 0x0401 || scheme == 0x0804) { hlen = 32; }
+		else if (scheme == 0x0501 || scheme == 0x0805) { hlen = 48; }
+		else if (scheme == 0x0601 || scheme == 0x0806) { hlen = 64; }
+		else { return false; }
+		if (modulus == null || exponent == null || message == null || signature == null) { return false; }
+		int size = modulus.length();
+		int eSize = exponent.length();
+		if (size < 256 || size > 1025 || eSize < 1 || eSize > 1025) { return false; }
+		unsigned char* n = (unsigned char*)modulus.data;
+		unsigned char* e = (unsigned char*)exponent.data;
+		if (n[0] == 0 && n[1] >= 128) { n++; size--; }
+		if (eSize > 1 && e[0] == 0 && e[1] >= 128) { e++; eSize--; }
+		if (n[0] == 0 || e[0] == 0 || size > 1024 || eSize > size || signature.length() != size) { return false; }
+		if ((n[size - 1] & 1) == 0 || (e[eSize - 1] & 1) == 0 || (eSize == 1 && e[0] < 3)) { return false; }
+		if (eSize == size && memcmp(e, n, (size_t)size) >= 0) { return false; }
+		int bits = 8 * size;
+		for (int bit = 128; ((int)n[0] & bit) == 0; bit >>= 1) { bits--; }
+		if (bits < 2048) { return false; }
+		unsigned char em[1024];
+		self.arithmetic.initializeModulus(n, size);
+		if (!self.recover(em, (unsigned char*)signature.data, size, e, eSize)) { return false; }
+		unsigned char digest[64];
+		IBinaryDigest hash = self.newHash(hlen);
+		hash.update((unsigned char*)message.data, message.length());
+		hash.finish(digest);
+		if (!pss) { return self.matchesPKCS1(em, size, digest, hlen); }
+		/* When modBits is 1 modulo 8 the encoded message is one byte shorter
+		 * than the signature. I2OSP must still represent the recovered integer. */
+		int offset = size - ((bits - 1 + 7) / 8);
+		return (offset == 0 || em[0] == 0) && self.matchesPSS(em + offset, bits - 1, digest, hlen);
+	}
+}

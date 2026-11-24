@@ -1,0 +1,48 @@
+import Library.Bytes;
+import Library.Console;
+import Library.Strings;
+import Library.Timer;
+import Library.Vector;
+
+import ./Linux/TrustFiles.btrc;
+import ./Linux/PeerIdentity.btrc;
+import ./Linux/DirectoryHash.btrc;
+import ./X509Certificate.btrc;
+import ./X509PeerName.btrc;
+import ./X509ServerPath.btrc;
+
+int main(int argc, char** argv) {
+	if (argc < 3) { return 2; }
+	long long deadline = MonotonicClock.deadlineAfter(10000LL);
+	string action = Strings.copy(argv[1]);
+	if (action == "sni") {
+		var identity = LinuxPeerIdentity.parse(Strings.copy(argv[2]));
+		if (identity == null) { return 1; }
+		Console.log(identity.serverName()); return 0;
+	}
+	if (action == "hashes" || action == "expired") {
+		var bundle = LinuxTrustFiles.bundle(Strings.copy(argv[2]), action == "expired" ? 0LL : deadline);
+		if (bundle == null) { return 1; }
+		for entry in bundle.entries { Console.log(LinuxDirectoryHash.of(entry.certificate.subjectName())); }
+		return 0;
+	}
+	if ((action != "verify" && action != "configured" && action != "server" && action != "timeout") || argc < 7) { return 2; }
+	Vector<X509Certificate> peers = [];
+	Vector<X509Certificate> intermediates = [];
+	for (int i = 6; i < argc; i++) {
+		var certificates = LinuxTrustFiles.bundle(Strings.copy(argv[i]), deadline);
+		if (certificates == null || certificates.entries.len != 1) { return 1; }
+		var raw = certificates.entries.get(0).certificate;
+		var peer = X509Certificate.parse((unsigned char*)raw.bytes(), raw.length());
+		if (peer == null) { return 1; }
+		peers.push(peer); if (i > 6) { intermediates.push(peer); }
+	}
+	if (action == "server" || action == "timeout") {
+		long long now = strtoll(argv[5], null, 10);
+		return LinuxTrustFiles.verifyServer(peers, Strings.copy(argv[4]), now, action == "timeout" ? 0LL : deadline) ? 0 : 1;
+	}
+	var anchors = action == "configured" ? LinuxTrustFiles.configured(peers, deadline) : LinuxTrustFiles.forChain(Strings.copy(argv[2]), Strings.copy(argv[3]), peers, deadline);
+	var name = X509PeerName.dns(Strings.copy(argv[4]));
+	if (anchors == null || name == null) { return 1; }
+	return anchors.verify(peers.get(0), intermediates, name, strtoll(argv[5], null, 10)) ? 0 : 1;
+}

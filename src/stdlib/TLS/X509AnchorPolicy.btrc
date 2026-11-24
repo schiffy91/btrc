@@ -1,0 +1,59 @@
+import Library.Bytes;
+
+import ./DER.btrc;
+import ./X509Certificate.btrc;
+import ./X509Identity.btrc;
+
+/* A TRUSTED CERTIFICATE concatenates a DER certificate with optional
+ * OpenSSL X509_CERT_AUX data. Explicit distrust must travel with the
+ * store even when another file contains the same ordinary certificate. */
+class X509AnchorEntry {
+	public X509Certificate certificate;
+	public bool serverAllowed;
+	public X509AnchorEntry(X509Certificate certificate, bool serverAllowed) {
+		self.certificate = certificate; self.serverAllowed = serverAllowed;
+	}
+}
+
+class X509AnchorPolicy {
+	class int purposes(struct DERCursor* aux, int tag) {
+		struct DERCursor list = {};
+		if (!DER.enter(aux, tag, &list)) { return -1; }
+		int count = 0;
+		bool server = false;
+		while (!DER.exhausted(&list)) {
+			struct DERElement purpose = {};
+			if (++count > 128 || !DER.oid(&list, &purpose)) { return -1; }
+			if (DER.oidIs(list.bytes, &purpose, "2b06010505070301") || DER.oidIs(list.bytes, &purpose, "551d2500")) { server = true; }
+		}
+		return server ? 1 : 0;
+	}
+
+	class X509AnchorEntry? parse(Bytes record, bool auxiliary) {
+		if (record == null || record.len == 0 || record.len > 196608) { return null; }
+		struct DERCursor outer = {(unsigned char*)record.data, 0, record.len};
+		struct DERElement der = {};
+		if (!DER.read(&outer, 48, &der)) { return null; }
+		var cert = X509Certificate.parseTrustAnchor((unsigned char*)record.data, der.end);
+		if (cert == null) { return null; }
+		if (DER.exhausted(&outer)) { return X509AnchorEntry(cert, true); }
+		struct DERCursor policy = {};
+		if (!auxiliary || !DER.enter(&outer, 48, &policy) || !DER.exhausted(&outer)) { return null; }
+		bool allowed = true;
+		if (DER.peek(&policy) == 48) {
+			int trust = X509AnchorPolicy.purposes(&policy, 48);
+			if (trust < 0) { return null; }
+			allowed = trust == 1;
+		}
+		if (DER.peek(&policy) == 160) {
+			int reject = X509AnchorPolicy.purposes(&policy, 160);
+			if (reject < 0) { return null; }
+			if (reject == 1) { allowed = false; }
+		}
+		struct DERElement field = {};
+		if (DER.peek(&policy) == 12 && (!DER.read(&policy, 12, &field) || !X509Identity.utf8(policy.bytes, field.content, field.end))) { return null; }
+		if (DER.peek(&policy) == 4 && !DER.read(&policy, 4, &field)) { return null; }
+		if (!DER.exhausted(&policy)) { return null; }
+		return X509AnchorEntry(cert, allowed);
+	}
+}

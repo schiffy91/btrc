@@ -1,0 +1,99 @@
+/* TLS 1.2 AEAD records (RFC 5246, RFC 5288, RFC 7905). Each protected
+ * direction starts at sequence zero when ChangeCipherSpec takes effect. */
+import Library.Bytes;
+import Library.Crypto.Primitives.AESGCM;
+import Library.Crypto.Primitives.ChaCha20;
+import Library.Crypto.Sodium;
+
+import ./TLS12Keys.btrc;
+
+struct TLS12RecordSecrets { unsigned char key[32]; unsigned char fixedIV[12]; };
+
+class TLS12Records {
+	private struct TLS12RecordSecrets material;
+	private int suite;
+	private bool writing;
+	private bool active;
+	private unsigned long long sequence;
+
+	private TLS12Records(int suite, bool writing) {
+		self.suite = suite; self.writing = writing; self.sequence = 0ULL; self.active = true;
+	}
+
+	class TLS12Records? create(int suite, Bytes master, Bytes clientRandom, Bytes serverRandom, bool clientTraffic, bool writing) {
+		var records = TLS12Records(suite, writing);
+		if (!TLS12Keys.trafficKey(suite, master, clientRandom, serverRandom, clientTraffic, records.material.key, records.material.fixedIV)) { records.close(); return null; }
+		return records;
+	}
+
+	public void close() {
+		Sodium.wipe(self.material.key, 32); Sodium.wipe(self.material.fixedIV, 12); self.active = false;
+	}
+
+	public void __del__() { self.close(); }
+
+	private bool contentAllowed(int type, int size) { return size >= 0 && size <= 16384 && (type == 23 || (size > 0 && (type == 21 || type == 22))); }
+
+	private void associated(unsigned char* aad, int type, int size) {
+		for (int i = 0; i < 8; i++) { aad[7 - i] = (unsigned char)(self.sequence >> (8 * i)); }
+		aad[8] = (unsigned char)type; aad[9] = 3; aad[10] = 3;
+		aad[11] = (unsigned char)(size >> 8); aad[12] = (unsigned char)size;
+	}
+
+	private void nonce(unsigned char* out, unsigned char* sequenceBytes, unsigned char* explicitNonce) {
+		if (TLS12Keys.chacha(self.suite)) {
+			memcpy(out, self.material.fixedIV, 12);
+			for (int i = 0; i < 8; i++) { out[4 + i] ^= sequenceBytes[i]; }
+		} else {
+			memcpy(out, self.material.fixedIV, 4); memcpy(out + 4, explicitNonce, 8);
+		}
+	}
+
+	/* A conservative per-key cap also precludes sequence rollover. TLS 1.2
+	 * has no KeyUpdate and this client refuses renegotiation. */
+	public Bytes? seal(int type, Bytes plain) {
+		if (!self.active || !self.writing || plain == null || !self.contentAllowed(type, plain.length())) { return null; }
+		if (self.sequence >= 16777216ULL) { self.close(); return null; }
+		bool chacha = TLS12Keys.chacha(self.suite);
+		int size = plain.length();
+		int explicitSize = chacha ? 0 : 8;
+		int length = explicitSize + size + 16;
+		Bytes wire = Bytes.zeros(length + 5);
+		unsigned char* body = (unsigned char*)wire.data + 5;
+		unsigned char* ciphertext = body + explicitSize;
+		wire.set(0, type); wire.set(1, 3); wire.set(2, 3); wire.set(3, length >> 8); wire.set(4, length);
+		unsigned char aad[13]; unsigned char iv[12];
+		self.associated(aad, type, size);
+		if (!chacha) { memcpy(body, aad, 8); }
+		self.nonce(iv, aad, body);
+		bool ok;
+		if (chacha) { ok = ChaCha20Poly1305.seal(ciphertext, ciphertext + size, (unsigned char*)plain.data, size, aad, 13, iv, self.material.key); }
+		else { ok = AESGCM.seal(ciphertext, ciphertext + size, (unsigned char*)plain.data, size, aad, 13, iv, self.material.key, TLS12Keys.keyLength(self.suite)); }
+		Sodium.wipe(iv, 12);
+		if (!ok) { self.close(); return null; }
+		self.sequence++; return wire;
+	}
+
+	/* On success the content type in wire[0] has been authenticated along
+	 * with the returned plaintext. Every peer error permanently closes the
+	 * read direction. */
+	public Bytes? open(Bytes wire) {
+		if (!self.active || self.writing) { return null; }
+		bool chacha = TLS12Keys.chacha(self.suite);
+		int explicitSize = chacha ? 0 : 8;
+		if (self.sequence >= 16777216ULL || wire == null || wire.length() < 5 + explicitSize + 16 || wire.length() > 5 + explicitSize + 16 + 16384 || wire.get(1) != 3 || wire.get(2) != 3 || wire.readU16BE(3) != wire.length() - 5) { self.close(); return null; }
+		int size = wire.length() - 5 - explicitSize - 16;
+		if (!self.contentAllowed(wire.get(0), size)) { self.close(); return null; }
+		unsigned char* body = (unsigned char*)wire.data + 5;
+		unsigned char* ciphertext = body + explicitSize;
+		unsigned char aad[13]; unsigned char iv[12];
+		self.associated(aad, wire.get(0), size); self.nonce(iv, aad, body);
+		var plain = Bytes.zeros(size);
+		bool ok;
+		if (chacha) { ok = ChaCha20Poly1305.open((unsigned char*)plain.data, ciphertext, size, ciphertext + size, aad, 13, iv, self.material.key); }
+		else { ok = AESGCM.open((unsigned char*)plain.data, ciphertext, size, ciphertext + size, aad, 13, iv, self.material.key, TLS12Keys.keyLength(self.suite)); }
+		Sodium.wipe(iv, 12);
+		if (!ok) { self.close(); return null; }
+		self.sequence++; return plain;
+	}
+}

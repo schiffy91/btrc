@@ -105,7 +105,7 @@ Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
 (`Linux/`, `MacOS/`, `Unix/`), `Bluetooth` (`Linux/`, `MacOS/`, `Unix/`), `Compression`, `Crypto` (`Apple/`, `Primitives/`, `Unix/`, `Windows/`), `DBus` (`Linux/`), `Daemon`, `Digest` (`MacOS/`), `FileSystem`,
 `GPU`, `Graph`, `GUI` (`FreeType/`, `Linux/`, `MacOS/`, `Windows/`), `HID`, `HTTP`, `Image`
 (`Apple/`, `Linux/`, `Portable/`), `LocalApplicationChannel` (`Linux/`, `MacOS/`), `Network`
-(`Unix/`), `Realtime`, `Steam`, `Terminal` (`Unix/`, `Windows/`), `Testing`, `Tray` (`Linux/`, `MacOS/`), `UI`,
+(`Unix/`), `Realtime`, `Steam`, `TLS`, `Terminal` (`Unix/`, `Windows/`), `Testing`, `Tray` (`Linux/`, `MacOS/`), `UI`,
 `USB` (`Apple/`, `Linux/`, `Unix/`).
 Each group with behavior worth explaining has its own `README.md`.
 

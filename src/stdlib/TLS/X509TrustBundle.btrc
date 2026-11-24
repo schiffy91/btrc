@@ -1,0 +1,72 @@
+import Library.Bytes;
+import Library.Crypto.Base64;
+import Library.Timer;
+import Library.Vector;
+
+import ./X509Certificate.btrc;
+import ./X509AnchorPolicy.btrc;
+import ./X509PeerName.btrc;
+import ./X509ServerPath.btrc;
+
+/* A local trust store retains each certificate's server purpose. A local
+ * rejection overrides a second copy without explicit policy. */
+class X509TrustBundle {
+	public Vector<X509AnchorEntry> entries = [];
+
+	public bool verify(X509Certificate leaf, Vector<X509Certificate> intermediates, X509PeerName name, long long at, long long deadline = 9223372036854775807LL) {
+		Vector<X509Certificate> anchors = [];
+		Vector<X509Certificate> rejected = [];
+		for entry in self.entries {
+			if (entry.serverAllowed) { anchors.push(entry.certificate); }
+			else { rejected.push(entry.certificate); }
+		}
+		return X509ServerPath.verify(leaf, intermediates, anchors, name, at, rejected, deadline);
+	}
+
+	public bool verifyPresented(Vector<X509Certificate> presented, X509PeerName name, long long at, long long deadline = 9223372036854775807LL) {
+		if (presented == null || presented.len < 1 || presented.len > 17) { return false; }
+		Vector<X509Certificate> intermediates = [];
+		for (int i = 1; i < presented.len; i++) { intermediates.push(presented.get(i)); }
+		return self.verify(presented.get(0), intermediates, name, at, deadline);
+	}
+
+	class X509TrustBundle? parse(Bytes file, long long deadline) {
+		if (file == null || file.len < 1 || file.len > 16777216) { return null; }
+		var bundle = X509TrustBundle();
+		int body = -1;
+		string closing = "";
+		bool auxiliary = false;
+		int position = 0;
+		while (position < file.len) {
+			if (!MonotonicClock.before(deadline)) { return null; }
+			int start = position;
+			while (position < file.len && file.data[position] != '\n') {
+				if (file.data[position] == 0 || position - start > 196608) { return null; }
+				position++;
+			}
+			int end = position;
+			if (position < file.len) { position++; }
+			if (end > start && file.data[end - 1] == '\r') { end--; }
+			while (end > start && (file.data[end - 1] == ' ' || file.data[end - 1] == '\t')) { end--; }
+			if (end <= start || file.data[start] != '-') { continue; }
+			string marker = file.slice(start, end).toStringLossy();
+			if (marker == "-----BEGIN CERTIFICATE-----" || marker == "-----BEGIN TRUSTED CERTIFICATE-----" || marker == "-----BEGIN X509 CERTIFICATE-----") {
+				if (body >= 0) { return null; }
+				body = position;
+				auxiliary = marker == "-----BEGIN TRUSTED CERTIFICATE-----";
+				closing = "-----END " + marker.substring(11, marker.len() - 11);
+			} else if (body >= 0 && marker == closing) {
+				if (body < 0 || start <= body || start - body > 196608 || bundle.entries.len >= 4096) { return null; }
+				var encoded = file.slice(body, start).toStringLossy();
+				var decoded = Base64.decode(encoded);
+				if (decoded == null) { return null; }
+				var anchor = X509AnchorPolicy.parse(decoded, auxiliary);
+				if (anchor == null) { return null; }
+				bundle.entries.push(anchor);
+				body = -1;
+			} else if (body >= 0 || marker.startsWith("-----BEGIN ") || marker.startsWith("-----END ")) { return null; }
+		}
+		if (body >= 0 || bundle.entries.len == 0 || !MonotonicClock.before(deadline)) { return null; }
+		return bundle;
+	}
+}

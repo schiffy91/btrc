@@ -1,0 +1,20 @@
+import Library.Bytes;
+import Library.Console;
+import Library.Crypto.Primitives.ECDH;
+import Library.Strings;
+
+int main(int argc, char** argv) {
+	if (argc < 3 || argc > 4) { return 2; }
+	int group = atoi(argv[1]);
+	Bytes? scalar = Bytes.fromHex(Strings.copy(argv[2]));
+	if (scalar == null) { return 2; }
+	Bytes? output = null;
+	if (argc == 3) { output = ECDH.publicKey(group, scalar); }
+	else {
+		Bytes? point = Bytes.fromHex(Strings.copy(argv[3]));
+		if (point == null) { return 2; }
+		output = ECDH.sharedSecret(group, scalar, point);
+	}
+	Console.log(output == null ? "invalid" : output.toHex());
+	return 0;
+}

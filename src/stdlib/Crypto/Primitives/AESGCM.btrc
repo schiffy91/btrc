@@ -1,0 +1,173 @@
+/* FIPS 197 encryption for the 128- and 256-bit TLS keys. The S-box uses
+ * field arithmetic so the memory addresses do not depend on secret bytes. */
+import Library.Crypto.Primitives.ConstantTime;
+
+class AESBlock {
+	class unsigned int doubleByte(unsigned int value) { return ((value << 1) & 255U) ^ (0x1bU & (0U - (value >> 7))); }
+
+	class unsigned int product(unsigned int left, unsigned int right) {
+		unsigned int result = 0U;
+		for (int bit = 0; bit < 8; bit++) {
+			result ^= left & (0U - (right & 1U));
+			left = AESBlock.doubleByte(left);
+			right >>= 1;
+		}
+		return result;
+	}
+
+	class unsigned char substitute(unsigned int value) {
+		/* In GF(256), x^254 is the inverse for every nonzero x and maps zero to zero. */
+		unsigned int inverse = value;
+		for (int bit = 0; bit < 6; bit++) {
+			inverse = AESBlock.product(AESBlock.product(inverse, inverse), value);
+		}
+		inverse = AESBlock.product(inverse, inverse);
+		unsigned int repeated = inverse | (inverse << 8);
+		return (unsigned char)((inverse ^ (repeated >> 7) ^ (repeated >> 6) ^ (repeated >> 5) ^ (repeated >> 4) ^ 0x63U) & 255U);
+	}
+
+	class int expand(unsigned char* schedule, unsigned char* key, int keyLength) {
+		if (keyLength != 16 && keyLength != 32) { return 0; }
+		int rounds = keyLength == 16 ? 10 : 14;
+		for (int index = 0; index < keyLength; index++) { schedule[index] = key[index]; }
+		unsigned int constant = 1U;
+		unsigned char word[4];
+		for (int offset = keyLength; offset < 16 * (rounds + 1); offset += 4) {
+			for (int col = 0; col < 4; col++) { word[col] = schedule[offset - 4 + col]; }
+			if (offset % keyLength == 0) {
+				unsigned char first = word[0];
+				word[0] = (unsigned char)(AESBlock.substitute(word[1]) ^ constant);
+				word[1] = AESBlock.substitute(word[2]);
+				word[2] = AESBlock.substitute(word[3]);
+				word[3] = AESBlock.substitute(first);
+				constant = AESBlock.doubleByte(constant);
+			} else if (keyLength == 32 && offset % 32 == 16) {
+				for (int col = 0; col < 4; col++) { word[col] = AESBlock.substitute(word[col]); }
+			}
+			for (int col = 0; col < 4; col++) { schedule[offset + col] = (unsigned char)(schedule[offset - keyLength + col] ^ word[col]); }
+		}
+		ConstantTime.wipe(word, 4);
+		return rounds;
+	}
+
+	class void encrypt(unsigned char* out, unsigned char* input, unsigned char* schedule, int rounds) {
+		unsigned char state[16];
+		unsigned char shifted[16];
+		for (int index = 0; index < 16; index++) { state[index] = (unsigned char)(input[index] ^ schedule[index]); }
+		for (int round = 1; round <= rounds; round++) {
+			for (int col = 0; col < 4; col++) {
+				for (int row = 0; row < 4; row++) { shifted[4 * col + row] = AESBlock.substitute(state[4 * ((col + row) & 3) + row]); }
+			}
+			for (int col = 0; col < 4; col++) {
+				int offset = 4 * col;
+				unsigned int sum = (unsigned int)(shifted[offset] ^ shifted[offset + 1] ^ shifted[offset + 2] ^ shifted[offset + 3]);
+				for (int row = 0; row < 4; row++) {
+					unsigned int value = shifted[offset + row];
+					if (round < rounds) { value ^= sum ^ AESBlock.doubleByte(value ^ shifted[offset + ((row + 1) & 3)]); }
+					state[offset + row] = (unsigned char)(value ^ schedule[16 * round + offset + row]);
+				}
+			}
+		}
+		for (int index = 0; index < 16; index++) { out[index] = state[index]; }
+		ConstantTime.wipe(state, 16);
+		ConstantTime.wipe(shifted, 16);
+	}
+}
+
+/* NIST SP 800-38D, restricted to the 96-bit nonce and 128-bit tag used by
+ * TLS. Each (key, nonce) pair must be unique. Input and output may coincide. */
+class AESGCM {
+	class void multiply(unsigned char* y, unsigned char* hashKey) {
+		unsigned char result[16] = {0};
+		unsigned char factor[16];
+		for (int index = 0; index < 16; index++) { factor[index] = hashKey[index]; }
+		for (int bit = 0; bit < 128; bit++) {
+			unsigned int mask = 0U - ((unsigned int)(y[bit >> 3] >> (7 - (bit & 7))) & 1U);
+			unsigned int carry = 0U;
+			for (int index = 0; index < 16; index++) {
+				result[index] ^= (unsigned char)(mask & factor[index]);
+				unsigned int previous = factor[index];
+				factor[index] = (unsigned char)((previous >> 1) | (carry << 7));
+				carry = previous & 1U;
+			}
+			factor[0] ^= (unsigned char)(0xe1U & (0U - carry));
+		}
+		for (int index = 0; index < 16; index++) { y[index] = result[index]; }
+		ConstantTime.wipe(factor, 16);
+		ConstantTime.wipe(result, 16);
+	}
+
+	class void absorb(unsigned char* y, unsigned char* hashKey, unsigned char* data, int length) {
+		int offset = 0;
+		while (offset < length) {
+			int count = length - offset < 16 ? length - offset : 16;
+			for (int index = 0; index < count; index++) { y[index] ^= data[offset + index]; }
+			AESGCM.multiply(y, hashKey);
+			offset += count;
+		}
+	}
+
+	class void counterBlock(unsigned char* out, unsigned char* nonce, unsigned int counter) {
+		for (int index = 0; index < 12; index++) { out[index] = nonce[index]; }
+		for (int index = 0; index < 4; index++) { out[15 - index] = (unsigned char)((counter >> (index * 8)) & 255U); }
+	}
+
+	class void crypt(unsigned char* out, unsigned char* input, int length, unsigned char* nonce, unsigned char* schedule, int rounds) {
+		unsigned char block[16];
+		unsigned int counter = 2U;
+		int offset = 0;
+		while (offset < length) {
+			AESGCM.counterBlock(block, nonce, counter++);
+			AESBlock.encrypt(block, block, schedule, rounds);
+			int count = length - offset < 16 ? length - offset : 16;
+			for (int index = 0; index < count; index++) { out[offset + index] = (unsigned char)(input[offset + index] ^ block[index]); }
+			offset += count;
+		}
+		ConstantTime.wipe(block, 16);
+	}
+
+	class void authenticate(unsigned char* tag, unsigned char* ciphertext, int length, unsigned char* associated, int associatedLength, unsigned char* nonce, unsigned char* schedule, int rounds) {
+		unsigned char hashKey[16] = {0};
+		unsigned char y[16] = {0};
+		unsigned char block[16];
+		AESBlock.encrypt(hashKey, hashKey, schedule, rounds);
+		AESGCM.absorb(y, hashKey, associated, associatedLength);
+		AESGCM.absorb(y, hashKey, ciphertext, length);
+		unsigned long long aadBits = (unsigned long long)associatedLength * 8ULL;
+		unsigned long long cipherBits = (unsigned long long)length * 8ULL;
+		for (int index = 0; index < 8; index++) {
+			y[7 - index] ^= (unsigned char)((aadBits >> (8 * index)) & 255ULL);
+			y[15 - index] ^= (unsigned char)((cipherBits >> (8 * index)) & 255ULL);
+		}
+		AESGCM.multiply(y, hashKey);
+		AESGCM.counterBlock(block, nonce, 1U);
+		AESBlock.encrypt(block, block, schedule, rounds);
+		for (int index = 0; index < 16; index++) { tag[index] = (unsigned char)(y[index] ^ block[index]); }
+		ConstantTime.wipe(block, 16);
+		ConstantTime.wipe(y, 16);
+		ConstantTime.wipe(hashKey, 16);
+	}
+
+	class bool seal(unsigned char* ciphertext, unsigned char* tag, unsigned char* plaintext, int length, unsigned char* associated, int associatedLength, unsigned char* nonce, unsigned char* key, int keyLength) {
+		if ((keyLength != 16 && keyLength != 32) || length < 0 || associatedLength < 0) { return false; }
+		unsigned char schedule[240];
+		int rounds = AESBlock.expand(schedule, key, keyLength);
+		AESGCM.crypt(ciphertext, plaintext, length, nonce, schedule, rounds);
+		AESGCM.authenticate(tag, ciphertext, length, associated, associatedLength, nonce, schedule, rounds);
+		ConstantTime.wipe(schedule, 240);
+		return true;
+	}
+
+	class bool open(unsigned char* plaintext, unsigned char* ciphertext, int length, unsigned char* tag, unsigned char* associated, int associatedLength, unsigned char* nonce, unsigned char* key, int keyLength) {
+		if ((keyLength != 16 && keyLength != 32) || length < 0 || associatedLength < 0) { return false; }
+		unsigned char schedule[240];
+		unsigned char expected[16];
+		int rounds = AESBlock.expand(schedule, key, keyLength);
+		AESGCM.authenticate(expected, ciphertext, length, associated, associatedLength, nonce, schedule, rounds);
+		bool verified = ConstantTime.equal(tag, expected, 16);
+		if (verified) { AESGCM.crypt(plaintext, ciphertext, length, nonce, schedule, rounds); }
+		ConstantTime.wipe(schedule, 240);
+		ConstantTime.wipe(expected, 16);
+		return verified;
+	}
+}

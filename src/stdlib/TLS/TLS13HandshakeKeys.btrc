@@ -1,0 +1,105 @@
+/* The full-handshake key schedule. The client advances to application keys
+ * only after the server's Finished has authenticated the transcript. */
+import Library.Bytes;
+import Library.Crypto.Primitives.HKDF;
+import Library.Crypto.Sodium;
+import Library.TLS.TLS13Keys;
+import Library.TLS.TLS13Records;
+
+import ./TLS13Hello.btrc;
+
+struct TLS13HandshakeMaterial {
+	unsigned char handshake[48];
+	unsigned char clientTraffic[48];
+	unsigned char serverTraffic[48];
+};
+
+class TLS13HandshakeKeys {
+	private struct TLS13HandshakeMaterial material;
+	private int suite;
+	private int size;
+	private bool sha384;
+	private bool active;
+
+	private TLS13HandshakeKeys(int suite) {
+		self.suite = suite;
+		self.sha384 = suite == 0x1302;
+		self.size = self.sha384 ? 48 : 32;
+		self.active = true;
+	}
+
+	public void close() {
+		self.active = false;
+		Sodium.wipe(self.material.handshake, 48);
+		Sodium.wipe(self.material.clientTraffic, 48);
+		Sodium.wipe(self.material.serverTraffic, 48);
+	}
+
+	public void __del__() { self.close(); }
+
+	private bool label(unsigned char* out, unsigned char* secret, string label, Bytes digest) { return TLS13Keys.expandLabel(self.sha384, out, self.size, secret, label, (unsigned char*)digest.data, digest.length()); }
+
+	class TLS13HandshakeKeys? derive(int suite, Bytes shared, Bytes transcript) {
+		if (suite < 0x1301 || suite > 0x1303 || shared == null || (shared.length() != 32 && shared.length() != 48) || transcript == null) { return null; }
+		TLS13HandshakeKeys keys = TLS13HandshakeKeys(suite);
+		unsigned char zeros[48] = {0};
+		unsigned char early[48];
+		unsigned char salt[48];
+		HKDF.extract(keys.sha384, early, zeros, keys.size, zeros, keys.size);
+		bool ok = keys.label(salt, early, "derived", TLS13Hello.hash(keys.sha384, Bytes()));
+		if (ok) {
+			HKDF.extract(keys.sha384, keys.material.handshake, salt, keys.size, (unsigned char*)shared.data, shared.length());
+			Bytes digest = TLS13Hello.hash(keys.sha384, transcript);
+			ok = keys.label(keys.material.clientTraffic, keys.material.handshake, "c hs traffic", digest) && keys.label(keys.material.serverTraffic, keys.material.handshake, "s hs traffic", digest);
+		}
+		Sodium.wipe(early, 48);
+		Sodium.wipe(salt, 48);
+		if (!ok) { keys.close(); return null; }
+		return keys;
+	}
+
+	public TLS13Records? handshakeRecords(bool writing) {
+		if (!self.active) { return null; }
+		Bytes secret = Bytes.fromRaw(writing ? (char*)self.material.clientTraffic : (char*)self.material.serverTraffic, self.size);
+		var records = TLS13Records.create(self.suite, secret, writing);
+		Sodium.wipe((unsigned char*)secret.data, self.size);
+		return records;
+	}
+
+	public Bytes? finished(bool server, Bytes transcript) {
+		if (!self.active || transcript == null) { return null; }
+		unsigned char key[48];
+		unsigned char* traffic = server ? self.material.serverTraffic : self.material.clientTraffic;
+		bool ok = self.label(key, traffic, "finished", Bytes());
+		Bytes result = Bytes.zeros(self.size);
+		if (ok) {
+			Bytes digest = TLS13Hello.hash(self.sha384, transcript);
+			HMAC mac = HMAC(self.sha384, key, self.size);
+			mac.update((unsigned char*)digest.data, self.size);
+			mac.finish((unsigned char*)result.data);
+		}
+		Sodium.wipe(key, 48);
+		if (!ok) { return null; }
+		return result;
+	}
+
+	public TLS13Records? applicationRecords(bool writing, Bytes throughServerFinished) {
+		if (!self.active || throughServerFinished == null) { return null; }
+		unsigned char zeros[48] = {0};
+		unsigned char salt[48];
+		unsigned char master[48];
+		Bytes secret = Bytes.zeros(self.size);
+		bool ok = self.label(salt, self.material.handshake, "derived", TLS13Hello.hash(self.sha384, Bytes()));
+		if (ok) {
+			HKDF.extract(self.sha384, master, salt, self.size, zeros, self.size);
+			Bytes digest = TLS13Hello.hash(self.sha384, throughServerFinished);
+			ok = self.label((unsigned char*)secret.data, master, writing ? "c ap traffic" : "s ap traffic", digest);
+		}
+		Sodium.wipe(salt, 48);
+		Sodium.wipe(master, 48);
+		TLS13Records? records = null;
+		if (ok) { records = TLS13Records.create(self.suite, secret, writing); }
+		Sodium.wipe((unsigned char*)secret.data, self.size);
+		return records;
+	}
+}

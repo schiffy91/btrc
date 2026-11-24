@@ -1,0 +1,88 @@
+/* The record layer can split a handshake message over records or coalesce
+ * several messages in a record. Preserve its exact handshake encoding for
+ * the transcript. The 1 MiB limit accommodates the supported bounded chain. */
+import Library.Bytes;
+import Library.Vector;
+
+import ./X509Certificate.btrc;
+
+class TLS13HandshakeStream {
+	private Bytes pending;
+	private int offset = 0;
+	private bool failed = false;
+
+	public TLS13HandshakeStream() { self.pending = Bytes(); }
+
+	public bool push(Bytes fragment) {
+		if (self.failed || fragment == null || fragment.isEmpty() || fragment.length() > 16384) { self.failed = true; return false; }
+		int used = self.pending.length() - self.offset;
+		if (used > 1048580) { self.failed = true; return false; }
+		if (self.offset > 0) {
+			self.pending = self.pending.slice(self.offset, self.pending.length());
+			self.offset = 0;
+		}
+		self.pending.appendBytes(fragment);
+		return true;
+	}
+
+	public bool valid() { return !self.failed; }
+
+	public Bytes? next() {
+		int available = self.pending.length() - self.offset;
+		if (self.failed || available < 4) { return null; }
+		int size = (self.pending.get(self.offset + 1) << 16) | self.pending.readU16BE(self.offset + 2);
+		if (size > 1048576) { self.failed = true; return null; }
+		if (size + 4 > available) { return null; }
+		int start = self.offset;
+		self.offset += size + 4;
+		return self.pending.slice(start, self.offset);
+	}
+
+	public bool empty() { return self.valid() && self.offset == self.pending.length(); }
+}
+
+class TLS13PeerMessages {
+	/* Only extensions advertised by our ClientHello are legal here. ALPN
+	 * may be omitted; if present, exactly the offered protocol must win. */
+	class bool encryptedExtensions(Bytes body, bool sentName) {
+		if (body == null || body.length() < 2 || body.readU16BE(0) != body.length() - 2) { return false; }
+		bool name = false;
+		bool alpn = false;
+		bool groups = false;
+		int at = 2;
+		while (at < body.length()) {
+			if (body.length() - at < 4) { return false; }
+			int kind = body.readU16BE(at);
+			int size = body.readU16BE(at + 2);
+			at += 4;
+			if (size > body.length() - at) { return false; }
+			if (kind == 0 && sentName && !name && size == 0) { name = true; }
+			else if (kind == 16 && !alpn && size == 11 && body.readU16BE(at) == 9 && body.get(at + 2) == 8 && body.slice(at + 3, at + 11).equals(Bytes.fromString("http/1.1"))) { alpn = true; }
+			else if (kind == 10 && !groups && size >= 4 && (size & 1) == 0 && body.readU16BE(at) == size - 2) { groups = true; }
+			else { return false; }
+			at += size;
+		}
+		return true;
+	}
+
+	/* This client requests neither OCSP staples nor SCTs, so no per-entry
+	 * extensions are solicited. Parsing the chain does not establish trust. */
+	class Vector<X509Certificate>? certificates(Bytes body) {
+		if (body == null || body.length() < 4 || body.get(0) != 0) { return null; }
+		int length = (body.get(1) << 16) | body.readU16BE(2);
+		if (length == 0 || length != body.length() - 4 || length > 1048572) { return null; }
+		Vector<X509Certificate> chain = [];
+		int at = 4;
+		while (at < body.length()) {
+			if (chain.len >= 10 || body.length() - at < 5) { return null; }
+			int size = (body.get(at) << 16) | body.readU16BE(at + 1);
+			at += 3;
+			if (size == 0 || size > 131072 || size > body.length() - at - 2 || body.readU16BE(at + size) != 0) { return null; }
+			var certificate = X509Certificate.parse((unsigned char*)body.data + at, size);
+			if (certificate == null) { return null; }
+			chain.push(certificate);
+			at += size + 2;
+		}
+		return chain;
+	}
+}

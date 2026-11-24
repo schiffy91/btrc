@@ -1,0 +1,49 @@
+import Library.Bytes;
+import Library.Strings;
+import Library.Vector;
+
+import ./X509Certificate.btrc;
+import ./X509PeerName.btrc;
+import ./X509ServerPath.btrc;
+
+X509Certificate? readPathCertificate(char* fileName, bool anchor) {
+	FILE* file = fopen(fileName, "rb");
+	if (file == null) { return null; }
+	unsigned char data[131073];
+	size_t count = fread(data, (size_t)1, sizeof(data), file);
+	bool failed = ferror(file) != 0;
+	fclose(file);
+	if (failed || count == sizeof(data)) { return null; }
+	return anchor ? X509Certificate.parseTrustAnchor(data, (int)count) : X509Certificate.parse(data, (int)count);
+}
+
+int main(int argc, char** argv) {
+	if (argc < 5) { return 2; }
+	if (strcmp(argv[1], "--signature") == 0) {
+		int scheme = (int)strtoll(argv[2], null, 0);
+		var issuer = readPathCertificate(argv[3], false);
+		var child = readPathCertificate(argv[4], false);
+		if (issuer == null || child == null) { return 1; }
+		return X509ServerPath.signature(scheme, issuer, child.signedBytes(), child.signatureBytes()) ? 0 : 1;
+	}
+	string reference = Strings.copy(argv[1]);
+	var name = X509PeerName.dns(reference);
+	if (reference.startsWith("ip:")) {
+		var address = Bytes.fromHex(reference.substring(3, reference.len() - 3));
+		if (address == null) { return 2; }
+		name = X509PeerName.ip(address);
+	}
+	long long at = strtoll(argv[2], null, 10);
+	var leaf = readPathCertificate(argv[3], false);
+	Vector<X509Certificate> intermediates = [];
+	Vector<X509Certificate> anchors = [];
+	bool trust = false;
+	for (int i = 4; i < argc; i++) {
+		if (strcmp(argv[i], "--anchors") == 0) { trust = true; continue; }
+		var cert = readPathCertificate(argv[i], trust);
+		if (cert == null) { return 1; }
+		if (trust) { anchors.push(cert); } else { intermediates.push(cert); }
+	}
+	if (leaf == null || name == null) { return 1; }
+	return X509ServerPath.verify(leaf, intermediates, anchors, name, at) ? 0 : 1;
+}

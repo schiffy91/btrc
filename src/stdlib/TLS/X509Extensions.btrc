@@ -1,0 +1,222 @@
+import Library.Vector;
+
+import ./DER.btrc;
+import ./X509Identity.btrc;
+
+class X509GeneralName {
+	public int kind;
+	public int start;
+	public int end;
+
+	public X509GeneralName(int kind, int start, int end) { self.kind = kind; self.start = start; self.end = end; }
+}
+
+class X509Extensions {
+	public bool hasBasicConstraints = false;
+	public bool ca = false;
+	public int pathLength = -1;
+	public bool hasKeyUsage = false;
+	public int keyUsage = 0;
+	public bool hasExtendedUsage = false;
+	public bool serverAuth = false;
+	public bool anyExtendedUsage = false;
+	public bool criticalSAN = false;
+	public struct DERElement subjectKeyId;
+	public struct DERElement authorityKeyId;
+	public struct DERElement authoritySerial;
+	public Vector<X509GeneralName> authorityNames = [];
+	public bool hasNameConstraints = false;
+	public Vector<X509GeneralName> subjectAltNames = [];
+	public Vector<X509GeneralName> permitted = [];
+	public Vector<X509GeneralName> excluded = [];
+
+	class bool dns(unsigned char* data, int start, int end, bool constraint) {
+		if (end <= start || end - start > 253) { return false; }
+		if (constraint && data[start] == '.') { start++; }
+		if (!constraint && end - start >= 2 && data[start] == '*' && data[start + 1] == '.') { start += 2; }
+		if (start == end) { return false; }
+		int label = 0;
+		for (int at = start; at < end; at++) {
+			int byte = (int)data[at];
+			if (byte == '.') {
+				if (label == 0 || data[at - 1] == '-') { return false; }
+				label = 0; continue;
+			}
+			bool alnum = (byte >= '0' && byte <= '9') || (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z');
+			if ((!alnum && byte != '-') || (byte == '-' && label == 0)) { return false; }
+			label++; if (label > 63) { return false; }
+		}
+		return label != 0 && data[end - 1] != '-';
+	}
+
+	class bool ip(unsigned char* data, int start, int end, bool constraint) {
+		int length = end - start;
+		if (!constraint) { return length == 4 || length == 16; }
+		if (length != 8 && length != 32) { return false; }
+		bool zero = false;
+		for (int at = start + length / 2; at < end; at++) {
+			int mask = (int)data[at];
+			for (int bit = 128; bit != 0; bit >>= 1) {
+				if ((mask & bit) == 0) { zero = true; }
+				else if (zero) { return false; }
+			}
+		}
+		return true;
+	}
+
+	class bool generalName(struct DERCursor* reader, Vector<X509GeneralName> names, bool constraint) {
+		struct DERElement value = {};
+		if (names.len >= 128 || !DER.read(reader, -1, &value)) { return false; }
+		int kind = value.tag & 31;
+		if (value.tag == 130) {
+			if (!X509Extensions.dns(reader->bytes, value.content, value.end, constraint)) { return false; }
+		} else if (value.tag == 135) {
+			if (!X509Extensions.ip(reader->bytes, value.content, value.end, constraint)) { return false; }
+		} else {
+			// A validator must enforce every constraint. In particular an
+			// unsupported constrained name form cannot be silently discarded.
+			if (constraint) { return false; }
+			if (value.tag == 129 || value.tag == 134) {
+				if (value.end == value.content) { return false; }
+				for (int at = value.content; at < value.end; at++) { if (reader->bytes[at] <= 32 || reader->bytes[at] > 126) { return false; } }
+			} else if (value.tag == 164) {
+				var raw = DER.contents(reader, &value); struct DERCursor name = {};
+				if (!DER.enter(&raw, 48, &name) || !DER.exhausted(&raw) || !X509Identity.name(&name)) { return false; }
+			} else if (value.tag == 160) {
+				var raw = DER.contents(reader, &value); struct DERElement id = {}; struct DERCursor field = {}; struct DERElement inner = {};
+				if (!DER.oid(&raw, &id) || !DER.enter(&raw, 160, &field) || !DER.exhausted(&raw) || !DER.read(&field, -1, &inner) || !DER.exhausted(&field)) { return false; }
+			} else if (value.tag == 136) {
+				bool start = true;
+				if (value.end == value.content || value.end - value.content > 128) { return false; }
+				for (int at = value.content; at < value.end; at++) {
+					int byte = (int)reader->bytes[at]; if (start && byte == 128) { return false; } start = (byte & 128) == 0;
+				}
+				if (!start) { return false; }
+			} else { return false; }
+		}
+		names.push(X509GeneralName(kind, value.content, value.end));
+		return true;
+	}
+
+	private bool identifier(struct DERCursor* raw, int tag, struct DERElement* identifier) { return DER.read(raw, tag, identifier) && identifier->end > identifier->content; }
+
+	private bool authority(struct DERCursor* raw) {
+		struct DERCursor fields = {};
+		if (!DER.enter(raw, 48, &fields) || !DER.exhausted(raw) || DER.exhausted(&fields)) { return false; }
+		struct DERElement keyId = {}; struct DERElement serial = {};
+		if (DER.peek(&fields) == 128 && !self.identifier(&fields, 128, &keyId)) { return false; }
+		if (DER.peek(&fields) == 161) {
+			struct DERCursor names = {};
+			if (!DER.enter(&fields, 161, &names) || DER.exhausted(&names)) { return false; }
+			while (!DER.exhausted(&names)) {
+				if (!X509Extensions.generalName(&names, self.authorityNames, false)) { return false; }
+			}
+			if (!DER.taggedInteger(&fields, 130, &serial) || serial.end - serial.content > 20) { return false; }
+		}
+		if (!DER.exhausted(&fields)) { return false; }
+		self.authorityKeyId = keyId; self.authoritySerial = serial;
+		return true;
+	}
+
+	private bool basic(struct DERCursor* raw) {
+		struct DERCursor fields = {};
+		if (!DER.enter(raw, 48, &fields) || !DER.exhausted(raw)) { return false; }
+		self.hasBasicConstraints = true;
+		if (DER.peek(&fields) == 1) {
+			struct DERElement flag = {};
+			if (!DER.read(&fields, 1, &flag) || flag.end - flag.content != 1 || fields.bytes[flag.content] != 255) { return false; }
+			self.ca = true;
+		}
+		if (!DER.exhausted(&fields)) {
+			self.pathLength = DER.small(&fields);
+			if (!self.ca || self.pathLength < 0) { return false; }
+		}
+		return DER.exhausted(&fields);
+	}
+
+	private bool usage(struct DERCursor* raw, bool trustAnchor) {
+		struct DERElement value = {};
+		if (!DER.bits(raw, 3, &value) || !DER.exhausted(raw)) { return false; }
+		int bitCount = (value.end - value.content - 1) * 8 - (int)raw->bytes[value.content];
+		if (bitCount < 1 || bitCount > 9) { return false; }
+		for (int bit = 0; bit < bitCount; bit++) {
+			if (((int)raw->bytes[value.content + 1 + bit / 8] & (128 >> (bit % 8))) != 0) { self.keyUsage |= 1 << bit; }
+		}
+		self.hasKeyUsage = true;
+		if ((self.keyUsage & (1 << (bitCount - 1))) != 0) { return true; }
+		// Two deployed Trustwave roots encode {keyCertSign,cRLSign}
+		// with an extra zero ninth bit. Keep the decoded mask unchanged.
+		return trustAnchor && bitCount == 9 && self.keyUsage == 96;
+	}
+
+	private bool extended(struct DERCursor* raw) {
+		struct DERCursor ids = {};
+		if (!DER.enter(raw, 48, &ids) || !DER.exhausted(raw) || DER.exhausted(&ids)) { return false; }
+		self.hasExtendedUsage = true;
+		int count = 0;
+		while (!DER.exhausted(&ids)) {
+			struct DERElement id = {};
+			if (++count > 64 || !DER.oid(&ids, &id)) { return false; }
+			if (DER.oidIs(ids.bytes, &id, "2b06010505070301")) { self.serverAuth = true; }
+			if (DER.oidIs(ids.bytes, &id, "551d2500")) { self.anyExtendedUsage = true; }
+		}
+		return true;
+	}
+
+	private bool subtrees(struct DERCursor* fields, int tag, Vector<X509GeneralName> destination) {
+		struct DERCursor group = {};
+		if (!DER.enter(fields, tag, &group) || DER.exhausted(&group)) { return false; }
+		while (!DER.exhausted(&group)) {
+			struct DERCursor subtree = {};
+			if (!DER.enter(&group, 48, &subtree) || !X509Extensions.generalName(&subtree, destination, true) || !DER.exhausted(&subtree)) { return false; }
+		}
+		return true;
+	}
+
+	private bool constraints(struct DERCursor* raw) {
+		struct DERCursor fields = {};
+		if (!DER.enter(raw, 48, &fields) || !DER.exhausted(raw) || DER.exhausted(&fields)) { return false; }
+		self.hasNameConstraints = true;
+		if (DER.peek(&fields) == 160 && !self.subtrees(&fields, 160, self.permitted)) { return false; }
+		if (DER.peek(&fields) == 161 && !self.subtrees(&fields, 161, self.excluded)) { return false; }
+		return DER.exhausted(&fields);
+	}
+
+	public bool parse(struct DERCursor* container, bool trustAnchor) {
+		struct DERCursor extensions = {};
+		if (!DER.enter(container, 48, &extensions) || !DER.exhausted(container) || DER.exhausted(&extensions)) { return false; }
+		struct DERElement seen[64] = {};
+		int count = 0;
+		while (!DER.exhausted(&extensions)) {
+			struct DERCursor entry = {}; struct DERElement id = {}; struct DERElement octets = {};
+			if (count == 64 || !DER.enter(&extensions, 48, &entry) || !DER.oid(&entry, &id)) { return false; }
+			for (int index = 0; index < count; index++) { if (DER.same(entry.bytes, &id, &seen[index])) { return false; } }
+			seen[count++] = id;
+			bool critical = false;
+			if (DER.peek(&entry) == 1) {
+				struct DERElement flag = {};
+				if (!DER.read(&entry, 1, &flag) || flag.end - flag.content != 1 || entry.bytes[flag.content] != 255) { return false; }
+				critical = true;
+			}
+			if (!DER.read(&entry, 4, &octets) || !DER.exhausted(&entry)) { return false; }
+			var raw = DER.contents(&entry, &octets);
+			if (DER.oidIs(entry.bytes, &id, "551d0e")) {
+				struct DERElement identifier = {};
+				if (critical || !self.identifier(&raw, 4, &identifier) || !DER.exhausted(&raw)) { return false; }
+				self.subjectKeyId = identifier;
+			} else if (DER.oidIs(entry.bytes, &id, "551d23")) {
+				if (critical || !self.authority(&raw)) { return false; }
+			} else if (DER.oidIs(entry.bytes, &id, "551d13")) { if (!self.basic(&raw)) { return false; } }
+			else if (DER.oidIs(entry.bytes, &id, "551d0f")) { if (!self.usage(&raw, trustAnchor)) { return false; } }
+			else if (DER.oidIs(entry.bytes, &id, "551d25")) { if (!self.extended(&raw)) { return false; } }
+			else if (DER.oidIs(entry.bytes, &id, "551d11")) {
+				struct DERCursor names = {};
+				if (!DER.enter(&raw, 48, &names) || !DER.exhausted(&raw) || DER.exhausted(&names)) { return false; }
+				self.criticalSAN = critical;
+				while (!DER.exhausted(&names)) { if (!X509Extensions.generalName(&names, self.subjectAltNames, false)) { return false; } }
+			} else if (DER.oidIs(entry.bytes, &id, "551d1e")) { if (!self.constraints(&raw)) { return false; } }
+			else if (critical) { return false; }
+		}
+		return true;
+	}
+}

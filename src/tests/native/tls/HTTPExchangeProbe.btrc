@@ -1,0 +1,19 @@
+import Library.HTTP.HTTPClient;
+import Library.Strings;
+import Library.Vector;
+
+int main(int argc, char** argv) {
+	if (argc != 3) { return 2; }
+	string url = Strings.copy(argv[1]);
+	string mode = Strings.copy(argv[2]);
+	HTTPClient client = HTTPClient().timeout(mode.equals("header-limit") ? 15 : 2);
+	if (mode.equals("limit")) { client.maxResponseBytes = 3; }
+	Vector<string> headers = ["X-Test: trust"];
+	if (mode.equals("explicit") || mode.equals("direct") || mode.equals("legacy")) { headers.push("pRoXy-AuThOrIzAtIoN: Bearer tunnel"); }
+	var result = client.post(url, headers, "payload");
+	if (mode.equals("ok") || mode.equals("explicit") || mode.equals("direct")) {
+		if (result.status != 201 || !result.body.equals("trust:payload")) { print(result.error); return 1; }
+	} else if (result.status != 0 || !result.body.isEmpty()) { return 1; }
+	else { print(result.error); }
+	return 0;
+}

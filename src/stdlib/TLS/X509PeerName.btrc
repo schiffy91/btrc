@@ -1,0 +1,98 @@
+import Library.Bytes;
+import Library.Strings;
+import Library.Vector;
+
+import ./X509Certificate.btrc;
+import ./X509Extensions.btrc;
+
+/* RFC 9525 reference identity. The HTTP URL parser supplies a DNS A-label
+ * or the binary address of an IP literal. A DNS SAN never authenticates an IP. */
+class X509PeerName {
+	private string _dns;
+	private Bytes _ip;
+	private X509PeerName(string dns, Bytes ip) { self._dns = dns; self._ip = ip; }
+
+	public string serverName() { return self._dns; }
+
+	class X509PeerName? dns(string input) {
+		if (input == null || input.isEmpty() || input.len() > 254 || input.startsWith("*")) { return null; }
+		string value = input.endsWith(".") ? input.substring(0, input.len() - 1) : input;
+		var raw = Bytes.fromString(value);
+		if (!X509Extensions.dns((unsigned char*)raw.data, 0, raw.len, false)) { return null; }
+		// Unix resolvers can also interpret integer, octal and hexadecimal
+		// IPv4 forms. Keep all numeric host references out of DNS matching.
+		bool numeric = true;
+		for label in Strings.split(value.toLower(), ".") {
+			bool hex = label.startsWith("0x") && label.len() > 2;
+			for (int i = hex ? 2 : 0; i < label.len(); i++) {
+				int c = label[i];
+				if ((c < '0' || c > '9') && (!hex || c < 'a' || c > 'f')) { numeric = false; }
+			}
+		}
+		if (numeric) { return null; }
+		return X509PeerName(value.toLower(), Bytes());
+	}
+
+	class X509PeerName? ip(Bytes address) {
+		if (address == null || (address.len != 4 && address.len != 16)) { return null; }
+		return X509PeerName("", address.slice(0, address.len));
+	}
+
+	private bool matchesDNS(string candidate) {
+		if (!candidate.startsWith("*.")) { return self._dns == candidate; }
+		string suffix = candidate.substring(2, candidate.len() - 2);
+		int dot = self._dns.indexOf(".");
+		return dot > 0 && suffix.indexOf(".") >= 0 && self._dns.substring(dot + 1, self._dns.len() - dot - 1) == suffix;
+	}
+
+	public bool matches(X509Certificate certificate) {
+		for name in certificate.extensions.subjectAltNames {
+			var value = certificate.copyRange(name.start, name.end);
+			if (name.kind == 7 && !self._ip.isEmpty() && self._ip.equals(value)) { return true; }
+			if (name.kind == 2 && !self._dns.isEmpty() && self.matchesDNS(value.toStringLossy().toLower())) { return true; }
+		}
+		return false;
+	}
+
+	class bool subtree(Bytes value, Bytes rule, int kind, bool excluded) {
+		if (kind == 7) {
+			if (value.len * 2 != rule.len) { return false; }
+			for (int i = 0; i < value.len; i++) {
+				if (((value.get(i) ^ rule.get(i)) & rule.get(i + value.len)) != 0) { return false; }
+			}
+			return true;
+		}
+		string name = value.toStringLossy().toLower();
+		string base = rule.toStringLossy().toLower();
+		bool childrenOnly = base.startsWith(".");
+		if (childrenOnly) { base = base.substring(1, base.len() - 1); }
+		if (name.endsWith("." + base) || (name == base && !childrenOnly)) { return true; }
+		// A wildcard can include an explicitly excluded child even when the
+		// textual suffix of the wildcard does not itself name that child.
+		if (excluded && !childrenOnly && name.startsWith("*.")) {
+			int dot = base.indexOf(".");
+			return dot > 0 && base.substring(dot + 1, base.len() - dot - 1) == name.substring(2, name.len() - 2);
+		}
+		return false;
+	}
+
+	class bool allowedBy(X509Certificate child, X509Certificate issuer) {
+		if (!issuer.extensions.hasNameConstraints) { return true; }
+		for name in child.extensions.subjectAltNames {
+			if (name.kind != 7 && name.kind != 2) { continue; }
+			var raw = child.copyRange(name.start, name.end);
+			for excluded in issuer.extensions.excluded {
+				if (excluded.kind == name.kind && X509PeerName.subtree(raw, issuer.copyRange(excluded.start, excluded.end), name.kind, true)) { return false; }
+			}
+			bool constrained = false;
+			bool permitted = false;
+			for allowed in issuer.extensions.permitted {
+				if (allowed.kind != name.kind) { continue; }
+				constrained = true;
+				if (X509PeerName.subtree(raw, issuer.copyRange(allowed.start, allowed.end), name.kind, false)) { permitted = true; break; }
+			}
+			if (constrained && !permitted) { return false; }
+		}
+		return true;
+	}
+}

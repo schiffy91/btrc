@@ -52,6 +52,7 @@ LocalApplicationChannel = { path = "LocalApplicationChannel" }
 Network = { path = "Network" }
 Realtime = { path = "Realtime" }
 Steam = { path = "Steam" }
+TLS = { path = "TLS" }
 Terminal = { path = "Terminal" }
 Testing = { path = "Testing" }
 Tray = { path = "Tray" }

@@ -1,0 +1,46 @@
+import Library.Bytes;
+import Library.Crypto.Primitives.AESGCM;
+import Library.Testing;
+
+class GCMVector {
+	class Bytes hex(string value) {
+		Bytes? bytes = Bytes.fromHex(value);
+		if (bytes == null) { throw "invalid AES-GCM vector"; }
+		return bytes;
+	}
+
+	class void check(string keyHex, string nonceHex, string aadHex, string plainHex, string cipherHex, string tagHex) {
+		Bytes key = GCMVector.hex(keyHex);
+		Bytes nonce = GCMVector.hex(nonceHex);
+		Bytes aad = GCMVector.hex(aadHex);
+		Bytes plain = GCMVector.hex(plainHex);
+		Bytes cipher = Bytes.zeros(plain.length());
+		Bytes tag = Bytes.zeros(16);
+		unsigned char* output = (unsigned char*)cipher.data;
+		unsigned char* mac = (unsigned char*)tag.data;
+		unsigned char* associated = (unsigned char*)aad.data;
+		unsigned char* iv = (unsigned char*)nonce.data;
+		unsigned char* secret = (unsigned char*)key.data;
+		Expect.isTrue(AESGCM.seal(output, mac, (unsigned char*)plain.data, plain.length(), associated, aad.length(), iv, secret, key.length()));
+		Expect.isTrue(cipher.equals(GCMVector.hex(cipherHex)));
+		Expect.isTrue(tag.equals(GCMVector.hex(tagHex)));
+		mac[15] ^= 1;
+		Expect.isFalse(AESGCM.open(output, output, cipher.length(), mac, associated, aad.length(), iv, secret, key.length()));
+		Expect.isTrue(cipher.equals(GCMVector.hex(cipherHex)));
+		mac[15] ^= 1;
+		Expect.isTrue(AESGCM.open(output, output, cipher.length(), mac, associated, aad.length(), iv, secret, key.length()));
+		Expect.isTrue(cipher.equals(plain));
+		Expect.isFalse(AESGCM.seal(output, mac, output, cipher.length(), associated, aad.length(), iv, secret, 24));
+	}
+}
+
+int main() {
+	string key = "00000000000000000000000000000000";
+	string nonce = "000000000000000000000000";
+	GCMVector.check(key, nonce, "", "", "", "58e2fccefa7e3061367f1d57a4e7455a");
+	GCMVector.check(key, nonce, "", key, "0388dace60b6a392f328c2b971b2fe78", "ab6e47d42cec13bdf53a67b21257bddf");
+	GCMVector.check(key + key, nonce, "", key, "cea7403d4d606b6e074ec5d3baf39d18", "d0d1c8a799996bf0265b98b5d48ab919");
+	GCMVector.check("feffe9928665731c6d6a8f9467308308", "cafebabefacedbaddecaf888", "feedfacedeadbeeffeedfacedeadbeefabaddad2", "d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39", "42831ec2217774244b7221b784d0d49ce3aa212f2c02a4e035c17e2329aca12e21d514b25466931c7d8f6a5aac84aa051ba30b396a0aac973d58e091", "5bc94fbc3221a5db94fae95ae7121a47");
+	print("PASS AES-GCM");
+	return 0;
+}

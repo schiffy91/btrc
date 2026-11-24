@@ -1,0 +1,65 @@
+import Library.Bytes;
+import Library.Strings;
+import Library.Vector;
+
+import ../X509PeerName.btrc;
+#include <arpa/inet.h>
+
+/* A reference identity comes from the original URL, independently of DNS
+ * results, proxies, SNI and peer-supplied certificate names. */
+class LinuxPeerIdentity {
+	class Bytes? legacyIPv4(string host) {
+		var parts = Strings.split(host, ".");
+		if (parts.len < 1 || parts.len > 4) { return null; }
+		uint address = 0u;
+		for (int i = 0; i < parts.len; i++) {
+			string part = parts.get(i);
+			if (part.isEmpty()) { return null; }
+			bool hex = part.startsWith("0x") || part.startsWith("0X");
+			uint radix = hex ? 16u : (part.len() > 1 && part[0] == '0' ? 8u : 10u);
+			if (hex && part.len() == 2) { return null; }
+			uint limit = i + 1 == parts.len ? 0xffffffffu >> (8 * i) : 255u;
+			uint value = 0u;
+			for (int j = hex ? 2 : 0; j < part.len(); j++) {
+				int c = part[j];
+				int digit = c >= '0' && c <= '9' ? c - (int)'0' : (c >= 'a' && c <= 'f' ? c - (int)'a' + 10 : (c >= 'A' && c <= 'F' ? c - (int)'A' + 10 : -1));
+				if (digit < 0 || (uint)digit >= radix || value > (limit - (uint)digit) / radix) { return null; }
+				value = value * radix + (uint)digit;
+			}
+			address |= i + 1 == parts.len ? value : value << (24 - 8 * i);
+		}
+		var bytes = Bytes();
+		bytes.appendU32BE(address);
+		return bytes;
+	}
+
+	class X509PeerName? parse(string host) {
+		if (host == null || host.isEmpty() || host.len() > 254) { return null; }
+		bool brackets = host.startsWith("[");
+		if (brackets && !host.endsWith("]")) { return null; }
+		string text = brackets ? host.substring(1, host.len() - 2) : host;
+		if (text.contains(":")) {
+			int percent = text.indexOf("%");
+			if (percent >= 0) {
+				int zone = percent + 1;
+				if (brackets && text.substring(zone, text.len() - zone).startsWith("25")) { zone += 2; }
+				if (zone >= text.len()) { return null; }
+				for (int i = zone; i < text.len(); i++) {
+					int c = text[i];
+					bool alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+					if (!alnum && c != '.' && c != '_' && c != '~' && c != '-') { return null; }
+				}
+				text = text.substring(0, percent);
+			}
+			char spelling[255] = {};
+			size_t length = (size_t)text.len();
+			memcpy(spelling, text, length);
+			unsigned char address[16];
+			if (inet_pton((int)AF_INET6, spelling, address) != 1) { return null; }
+			return X509PeerName.ip(Bytes.fromRaw((char*)address, 16));
+		}
+		if (brackets) { return null; }
+		var ipv4 = LinuxPeerIdentity.legacyIPv4(text);
+		return ipv4 == null ? X509PeerName.dns(text) : X509PeerName.ip(ipv4);
+	}
+}

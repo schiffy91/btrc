@@ -1,0 +1,98 @@
+import Library.Bytes;
+import Library.Vector;
+
+import ./DER.btrc;
+import ./X509Identity.btrc;
+
+/* Distinguished-name canonical form used by OpenSSL X509_NAME_cmp and
+ * subject_hash. Each RDN retains its position; canonical attributes within
+ * a multi-valued RDN are DER-sorted. The outer SEQUENCE is omitted. */
+class X509DistinguishedName {
+	class void header(Bytes output, int tag, int length) {
+		output.append(tag);
+		if (length < 128) { output.append(length); return; }
+		int count = length <= 255 ? 1 : (length <= 65535 ? 2 : 3);
+		output.append(128 + count);
+		for (int i = count - 1; i >= 0; i--) { output.append((length >> (8 * i)) & 255); }
+	}
+
+	class void codePoint(Bytes output, int value) {
+		if (value < 128) { output.append(value); return; }
+		if (value < 2048) { output.append(192 | (value >> 6)); }
+		else if (value < 65536) { output.append(224 | (value >> 12)); output.append(128 | ((value >> 6) & 63)); }
+		else {
+			output.append(240 | (value >> 18)); output.append(128 | ((value >> 12) & 63)); output.append(128 | ((value >> 6) & 63));
+		}
+		output.append(128 | (value & 63));
+	}
+
+	class Bytes attribute(unsigned char* data, struct DERElement value) {
+		int tag = value.tag;
+		if (tag != 12 && tag != 19 && tag != 20 && tag != 22 && tag != 28 && tag != 30) {
+			return Bytes.fromRaw((char*)data + value.start, value.end - value.start);
+		}
+		var utf8 = Bytes();
+		if (tag == 12 || tag == 19 || tag == 22) { utf8.appendRaw((char*)data + value.content, value.end - value.content); }
+		else {
+			int width = tag == 28 ? 4 : (tag == 30 ? 2 : 1);
+			for (int i = value.content; i < value.end; i += width) {
+				int code = 0;
+				for (int j = 0; j < width; j++) { code = (code << 8) | (int)data[i + j]; }
+				X509DistinguishedName.codePoint(utf8, code);
+			}
+		}
+		var normalized = Bytes();
+		bool whitespace = false;
+		for (int i = 0; i < utf8.len; i++) {
+			int c = utf8.get(i);
+			if (c == 32 || (c >= 9 && c <= 13)) { whitespace = true; continue; }
+			if (whitespace && normalized.len > 0) { normalized.append(32); }
+			whitespace = false;
+			normalized.append(c >= 'A' && c <= 'Z' ? c + 32 : c);
+		}
+		var encoded = Bytes();
+		X509DistinguishedName.header(encoded, 12, normalized.len);
+		encoded.appendBytes(normalized);
+		return encoded;
+	}
+
+	class bool before(Bytes a, Bytes b) {
+		int n = a.len < b.len ? a.len : b.len;
+		int cmp = memcmp(a.data, b.data, (size_t)n);
+		return cmp < 0 || (cmp == 0 && a.len < b.len);
+	}
+
+	class Bytes? canonical(Bytes encoded) {
+		if (encoded == null) { return null; }
+		struct DERCursor outer = {}; struct DERCursor name = {};
+		if (!DER.open(&outer, (unsigned char*)encoded.data, encoded.len) || !DER.enter(&outer, 48, &name) || !DER.exhausted(&outer)) { return null; }
+		struct DERCursor checked = name;
+		if (!X509Identity.name(&checked)) { return null; }
+		var output = Bytes();
+		while (!DER.exhausted(&name)) {
+			struct DERCursor set = {};
+			if (!DER.enter(&name, 49, &set)) { return null; }
+			Vector<Bytes> items = [];
+			int size = 0;
+			while (!DER.exhausted(&set)) {
+				struct DERCursor pair = {}; struct DERElement oid = {}; struct DERElement value = {};
+				if (!DER.enter(&set, 48, &pair) || !DER.oid(&pair, &oid) || !DER.read(&pair, -1, &value) || !DER.exhausted(&pair)) { return null; }
+				var attribute = X509DistinguishedName.attribute(pair.bytes, value);
+				var item = Bytes();
+				X509DistinguishedName.header(item, 48, oid.end - oid.start + attribute.len);
+				item.appendRaw((char*)pair.bytes + oid.start, oid.end - oid.start);
+				item.appendBytes(attribute);
+				int position = items.len;
+				items.push(item);
+				while (position > 0 && X509DistinguishedName.before(item, items.get(position - 1))) {
+					items.set(position, items.get(position - 1)); position--;
+				}
+				items.set(position, item);
+				size += item.len;
+			}
+			X509DistinguishedName.header(output, 49, size);
+			for item in items { output.appendBytes(item); }
+		}
+		return output;
+	}
+}

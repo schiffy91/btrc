@@ -1,0 +1,121 @@
+/* SEC 1 ECDH for the TLS named groups secp256r1 (23) and secp384r1 (24).
+ * Scalars, uncompressed public points and shared x coordinates are big-endian. */
+import Library.Bytes;
+import Library.Crypto.Primitives.ConstantTime;
+import Library.Crypto.Primitives.ECDHField;
+
+struct ECDHPoint { struct ECDHValue x; struct ECDHValue y; struct ECDHValue z; };
+
+class ECDH {
+	private ECDHField field;
+	private struct ECDHValue order;
+	private struct ECDHValue b;
+	private struct ECDHPoint generator;
+
+	private ECDH(int group) {
+		if (group == 23) {
+			self.field = ECDHField("ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 8);
+			self.order = ECDHField.constant("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
+			self.b = self.field.encode(ECDHField.constant("5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b"));
+			self.generator.x = self.field.encode(ECDHField.constant("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"));
+			self.generator.y = self.field.encode(ECDHField.constant("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"));
+		} else {
+			self.field = ECDHField("fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000ffffffff", 12);
+			self.order = ECDHField.constant("ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973");
+			self.b = self.field.encode(ECDHField.constant("b3312fa7e23ee7e4988e056be3f82d19181d9c6efe8141120314088f5013875ac656398d8a2ed19d2a85c8edd3ec2aef"));
+			self.generator.x = self.field.encode(ECDHField.constant("aa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7"));
+			self.generator.y = self.field.encode(ECDHField.constant("3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f"));
+		}
+		self.generator.z = self.field.one;
+	}
+
+	/* Complete homogeneous addition of Renes, Costello and Batina,
+	 * https://eprint.iacr.org/2015/1060, Appendix A.1, specialized to
+	 * a=-3. It also handles equal points, inverses and (0:1:0). */
+	private struct ECDHPoint addPoints(struct ECDHPoint p, struct ECDHPoint q) {
+		var f = self.field;
+		var xx = f.mul(p.x, q.x);
+		var yy = f.mul(p.y, q.y);
+		var zz = f.mul(p.z, q.z);
+		var xy = f.sub(f.mul(f.add(p.x, p.y), f.add(q.x, q.y)), f.add(xx, yy));
+		var xz = f.sub(f.mul(f.add(p.x, p.z), f.add(q.x, q.z)), f.add(xx, zz));
+		var yz = f.sub(f.mul(f.add(p.y, p.z), f.add(q.y, q.z)), f.add(yy, zz));
+		var diagonal = f.triple(f.sub(f.mul(self.b, zz), xz));
+		var lower = f.sub(yy, diagonal);
+		var upper = f.add(yy, diagonal);
+		var slope = f.triple(f.sub(xx, zz));
+		var cross = f.triple(f.sub(f.mul(self.b, xz), f.add(xx, f.triple(zz))));
+		struct ECDHPoint sum = {};
+		sum.x = f.sub(f.mul(xy, lower), f.mul(yz, cross));
+		sum.y = f.add(f.mul(lower, upper), f.mul(slope, cross));
+		sum.z = f.add(f.mul(yz, upper), f.mul(xy, slope));
+		return sum;
+	}
+
+	private bool peerPoint(Bytes encoded, struct ECDHPoint* point) {
+		var f = self.field;
+		int size = f.count * 4;
+		if (encoded == null || encoded.length() != 1 + 2 * size || encoded.data[0] != 4) { return false; }
+		unsigned char* source = (unsigned char*)encoded.data + 1;
+		var x = ECDHField.load(source, size);
+		var y = ECDHField.load(source + size, size);
+		if ((f.less(x, f.modulus) & f.less(y, f.modulus)) == 0U) { return false; }
+		x = f.encode(x); y = f.encode(y);
+		var rhs = f.add(f.sub(f.mul(x, f.mul(x, x)), f.triple(x)), self.b);
+		if (f.nonzero(f.sub(f.mul(y, y), rhs)) != 0U) { return false; }
+		/* These curves have cofactor 1. On-curve, finite coordinates
+		 * therefore suffice to establish membership of the subgroup. */
+		point->x = x; point->y = y; point->z = f.one;
+		return true;
+	}
+
+	private Bytes? multiply(Bytes scalar, struct ECDHPoint base, bool includeY) {
+		var f = self.field;
+		int size = f.count * 4;
+		if (scalar == null || scalar.length() != size) { return null; }
+		unsigned char* bytes = (unsigned char*)scalar.data;
+		var secret = ECDHField.load(bytes, size);
+		unsigned int valid = f.nonzero(secret) & f.less(secret, self.order);
+		ConstantTime.wipe((unsigned char*)&secret, sizeof(secret));
+		if (valid == 0U) { return null; }
+		struct ECDHPoint result = {}; result.y = f.one;
+		struct ECDHPoint doubled = {}; struct ECDHPoint added = {};
+		for (int i = 0; i < size * 8; i++) {
+			unsigned int bit = ((unsigned int)bytes[i / 8] >> (7 - i % 8)) & 1U;
+			doubled = self.addPoints(result, result);
+			added = self.addPoints(doubled, base);
+			result.x = f.choose(bit, doubled.x, added.x);
+			result.y = f.choose(bit, doubled.y, added.y);
+			result.z = f.choose(bit, doubled.z, added.z);
+		}
+		var zi = f.inverse(result.z);
+		unsigned char output[97];
+		int skip = includeY ? 1 : 0;
+		output[0] = 4;
+		ECDHField.store(output + skip, size, f.decode(f.mul(result.x, zi)));
+		if (includeY) { ECDHField.store(output + 1 + size, size, f.decode(f.mul(result.y, zi))); }
+		var material = Bytes.fromRaw((char*)output, includeY ? 1 + 2 * size : size);
+		ConstantTime.wipe(output, sizeof(output));
+		ConstantTime.wipe((unsigned char*)&zi, sizeof(zi));
+		ConstantTime.wipe((unsigned char*)&result, sizeof(result));
+		ConstantTime.wipe((unsigned char*)&doubled, sizeof(doubled));
+		ConstantTime.wipe((unsigned char*)&added, sizeof(added));
+		return material;
+	}
+
+	/* Require the full-width unsigned scalar in [1,n-1]. Do not reduce a
+	 * caller's random input: rejection sampling preserves a uniform scalar. */
+	class Bytes? publicKey(int group, Bytes scalar) {
+		if (group != 23 && group != 24) { return null; }
+		var curve = ECDH(group);
+		return curve.multiply(scalar, curve.generator, true);
+	}
+
+	class Bytes? sharedSecret(int group, Bytes scalar, Bytes peer) {
+		if (group != 23 && group != 24) { return null; }
+		var curve = ECDH(group);
+		struct ECDHPoint point = {};
+		if (!curve.peerPoint(peer, &point)) { return null; }
+		return curve.multiply(scalar, point, false);
+	}
+}
