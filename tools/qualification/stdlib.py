@@ -30,6 +30,7 @@ from src.compiler.python.frontend.packages import (
 from src.compiler.python.frontend.sources import (
     ConditionalEnvironment,
     SourceConditionals,
+    SourceDirective,
     SourceDirectiveScanner,
     StdlibRepository,
 )
@@ -74,6 +75,8 @@ class StdlibInventory:
         self.resolver = ImportResolver(StdlibRepository(directory=str(self.root)))
         self.scanner = SourceDirectiveScanner()
         self._dependencies: dict[tuple[str, Path], tuple[Path, ...]] = {}
+        self._policies: dict[str, PackageImportPolicy] = {}
+        self._directives: dict[str, list[SourceDirective]] = {}
 
     @staticmethod
     def fingerprint(root: Path, runtime_root: Path) -> str:
@@ -108,8 +111,15 @@ class StdlibInventory:
         key = target.label, module
         if key not in self._dependencies:
             conditioned = SourceConditionals(ConditionalEnvironment(target)).condition(module.read_text(), str(module))
-            paths = list(PackageImportPolicy(target).provider_for(str(module)))
-            for directive in self.scanner.scan(conditioned.text):
+            # PackageImportPolicy already caches parsed manifests for an invocation.
+            # Provider selection stays target-specific; the lexer's input is often
+            # byte-identical across targets even when a module has providers.
+            if target.label not in self._policies:
+                self._policies[target.label] = PackageImportPolicy(target)
+            paths = list(self._policies[target.label].provider_for(str(module)))
+            if conditioned.text not in self._directives:
+                self._directives[conditioned.text] = self.scanner.scan(conditioned.text)
+            for directive in self._directives[conditioned.text]:
                 spec = RelativePath(path=directive.payload) if directive.kind == "btrc_include" else directive.payload
                 paths.extend(self.resolver.import_paths(spec, str(module.parent), ResolvedPackages.empty(target)))
             dependencies = tuple(sorted({Path(path).resolve() for path in paths if path.endswith(".btrc")}))
