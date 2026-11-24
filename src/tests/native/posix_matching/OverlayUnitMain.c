@@ -38,8 +38,18 @@ int main(void)
 	literal[0] = 'z';
 	if (regexec(&compiled, "abababaca", 1, span, 0) || span[0].rm_so != 2 || span[0].rm_eo != 9) return 1;
 	regfree(&compiled);
-	if (overlay_helper_compile(&compiled, "((a{2})?b)?") != 0 || ((uintptr_t)compiled.__opaque & 3u)) return 1;
+	char nested[] = "((a{2})?b)?";
+	if (overlay_helper_compile(&compiled, nested) != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3 || compiled.re_nsub != 2) return 1;
+	nested[2] = 'z';
+	regmatch_t groups[3];
+	if (regexec(&compiled, "ab", 3, groups, 0) || groups[0].rm_so != 0 || groups[0].rm_eo != 2 ||
+	    groups[1].rm_so != 0 || groups[1].rm_eo != 2 || groups[2].rm_so != -1 || groups[2].rm_eo != -1) return 1;
 	if (regexec(&compiled, "ab", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 2) return 1;
+	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "((b{1,3}){2,3}|.x){0,2}") != 0 || ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
+	if (regexec(&compiled, "ab", 0, NULL, REG_NOTBOL | REG_NOTEOL) || regexec(&compiled, "ab", 1, span, 0) || span[0].rm_eo != 2) return 1;
+	regfree(&compiled);
+	if (overlay_helper_compile(&compiled, "((a{255})?b)?") != 0 || ((uintptr_t)compiled.__opaque & 3u)) return 1;
 	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;

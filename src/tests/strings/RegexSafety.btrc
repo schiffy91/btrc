@@ -51,9 +51,12 @@ int main() {
 	assert(Regex.replaceAll("[0-9]+|[a-z]+", "ab42-CD", "X").equals("XX-CD"));
 	assert(Regex.replaceAll("Content-Type", "Content-Type: Content-Type", "H").equals("H: H"));
 
-	/* Keep the legacy provider for nested Windows intervals until their
-	 * observable whole-span semantics have a compatible replacement. */
+	/* Nested Windows intervals can match prefixes outside the usual ERE language. */
 	assert(Regex.fullMatch("((a{2})?b)?", "ab"));
+	assert(Regex.fullMatch("((a{4})?b)?", "aaab"));
+	assert(!Regex.fullMatch("((a{4})?b)?", "aab"));
+	assert(Regex.first("(((a){1,3}){2}ab)?", "aab").equals("aab"));
+	assert(Regex.replace("((a{2})?b)?", "ab", "X").equals("X"));
 	assert(Regex.first("((b{1,3}){2,3}|.x){0,2}", "ab").equals("ab"));
 #endif
 

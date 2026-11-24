@@ -4,7 +4,7 @@
 
 ## A public difference
 
-`Regex.fullMatch("((a{2})?b)?", "ab")` returns true on the legacy Windows provider. Under the written ERE the only complete strings are the empty string, `b`, and `aab`. The full first-party candidate returns false. The incremental dispatcher continues to return the legacy result for this pattern.
+`Regex.fullMatch("((a{2})?b)?", "ab")` returns true on the legacy Windows provider. Under the written ERE the only complete strings are the empty string, `b`, and `aab`. The full first-party candidate returns false. The bounded first-party position matcher returns the legacy result for this pattern.
 
 The following case also shows the effect on an existing caller's output. Each column was exercised through the reference and self-host compilers in separate Windows x64 executables under Wine. Each executable passed the binary import audit.
 
@@ -29,9 +29,13 @@ A broader compatibility engine would need to model which repeated consuming posi
 
 ## Current dispatch
 
-For `REG_EXTENDED`, single byte sets, plain literal searches and their start/end assertions use first-party byte matching. This includes one simple or counted quantifier on a set. Capture-free sequences and nonempty alternatives made entirely from consuming byte atoms and one quantifier per atom can use the bounded first-party Thompson matcher. Its current eligibility check limits this latter class to expressions of up to 255 bytes and routes parentheses, escapes, assertions, stacked quantifiers and other syntax to the legacy provider. The two public examples above therefore preserve the existing Windows answers.
+For `REG_EXTENDED`, single byte sets, plain literal searches and their start/end assertions use first-party byte matching. This includes one simple or counted quantifier on a set. Capture-free sequences and nonempty alternatives made entirely from consuming byte atoms and one quantifier per atom can use the bounded first-party Thompson matcher. Its current eligibility check limits this latter class to expressions of up to 255 bytes and routes parentheses, escapes, assertions, stacked quantifiers and other syntax to the legacy provider. Those bounds apply to the capture-free Thompson matcher.
 
 The compiled regex owns its pattern data. If the Thompson matcher exhausts its working memory or per-input work allowance, the dispatcher retries with the legacy provider. Both execution paths maintain the public `regex_t` layout and support compiling in one translation unit and matching and freeing in another. The dependency audit continues to name bundled Windows regex while this fallback remains.
 
 
 The independently qualified bracket fix covers punctuation ranges that the Windows dialect accepts, including `[a-z--@]`. It restores a capability without changing nested-repetition semantics.
+
+An unasserted ERE consisting of an outer optional or zero-minimum repeated group always supplies a match at byte zero. Within this class the first-party position matcher handles literals, dots, groups, alternatives and bounded or unbounded repetition. Each repeated byte carries its consuming position. A suffix inside another repetition can share a position with an earlier copy, which lets either occurrence consume a byte and select its own following positions. This reproduces both public examples above.
+
+This implementation handles up to 63 consuming positions and 255 intermediate nodes. Brackets, escapes, subject assertions, zero-count removals, stacked quantifiers, requests for subgroup offsets and larger trees retain the legacy provider. It computes the longest reachable prefix with one read-only compiled table and a 64-bit active-position set. The optional empty prefix also lets a caller asking only whether anything matched receive its answer immediately.

@@ -85,6 +85,7 @@ static size_t btrc_win_legacy_regerror(int, const regex_t *restrict, char *restr
 #include "btrc_win_regex_literal.h"
 #include "btrc_win_regex_compile.h"
 #include "btrc_win_regex_exec.h"
+#include "btrc_win_regex_positions.h"
 
 typedef struct {
 	regex_t compiled;
@@ -102,6 +103,16 @@ static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *re
 		memset(re, 0, sizeof *re);
 		re->__opaque = (void *)((uintptr_t)program | (uintptr_t)1);
 		return 0;
+	}
+	if (flags == REG_EXTENDED && *pattern == '(') {
+		size_t groups = 0;
+		btrc_win_pos_program *positions = btrc_win_pos_compile(pattern, &groups);
+		if (positions) {
+			memset(re, 0, sizeof *re);
+			re->re_nsub = groups;
+			re->__opaque = (void *)((uintptr_t)positions | (uintptr_t)3);
+			return 0;
+		}
 	}
 	if (flags == REG_EXTENDED && !strpbrk(pattern, "()\\")) {
 		size_t length = strlen(pattern);
@@ -123,10 +134,26 @@ static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *re
 	return btrc_win_legacy_regcomp(re, pattern, flags);
 }
 
+static inline int btrc_win_regex_retry(const char *pattern, const char *subject,
+                                       size_t count, regmatch_t *matches, int flags)
+{
+	regex_t legacy;
+	int status = btrc_win_legacy_regcomp(&legacy, pattern, REG_EXTENDED);
+	if (status) return status;
+	status = btrc_win_legacy_regexec(&legacy, subject, count, matches, flags);
+	btrc_win_legacy_regfree(&legacy);
+	return status;
+}
+
 static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const char *restrict subject,
                                             size_t count, regmatch_t *restrict matches, int flags)
 {
 	uintptr_t pointer = (uintptr_t)re->__opaque;
+	if ((pointer & (uintptr_t)3) == 3) {
+		const btrc_win_pos_program *p = (const btrc_win_pos_program *)(pointer - 3);
+		if (count <= 1) return btrc_win_pos_match(p, subject, count, matches);
+		return btrc_win_regex_retry(p->pattern, subject, count, matches, flags);
+	}
 	if ((pointer & (uintptr_t)3) == 2) {
 		const btrc_win_regex_flat *flat = (const btrc_win_regex_flat *)(pointer - 2);
 		int status = btrc_win_regexec(&flat->compiled, subject, count, matches, flags);
@@ -134,12 +161,7 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 		/* A bounded execution may exhaust its work or memory allowance.
 		   Preserve the previous answer and keep the compiled object read-only
 		   for concurrent callers. */
-		regex_t legacy;
-		status = btrc_win_legacy_regcomp(&legacy, flat->pattern, REG_EXTENDED);
-		if (status) return status;
-		status = btrc_win_legacy_regexec(&legacy, subject, count, matches, flags);
-		btrc_win_legacy_regfree(&legacy);
-		return status;
+		return btrc_win_regex_retry(flat->pattern, subject, count, matches, flags);
 	}
 	if (!(pointer & (uintptr_t)1)) return btrc_win_legacy_regexec(re, subject, count, matches, flags);
 	const btrc_win_regex_simple *program = (const btrc_win_regex_simple *)(pointer - 1);
@@ -152,7 +174,10 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 static inline void btrc_win_dispatch_regfree(regex_t *re)
 {
 	uintptr_t pointer = (uintptr_t)re->__opaque;
-	if ((pointer & (uintptr_t)3) == 2) {
+	if ((pointer & (uintptr_t)3) == 3) {
+		free((void *)(pointer - 3));
+		re->__opaque = NULL;
+	} else if ((pointer & (uintptr_t)3) == 2) {
 		btrc_win_regex_flat *flat = (btrc_win_regex_flat *)(pointer - 2);
 		btrc_win_regfree(&flat->compiled);
 		free(flat);
