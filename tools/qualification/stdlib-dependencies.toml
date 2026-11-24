@@ -102,7 +102,7 @@ libraries = [
 	"user32", "userenv", "uuid", "uxtheme", "version", "windowscodecs", "winhttp", "winmm", "ws2_32",
 ]
 headers = [
-	"bcrypt.h", "commctrl.h", "commdlg.h", "direct.h", "dwmapi.h", "io.h", "objbase.h", "ole2.h",
+	"bcrypt.h", "commctrl.h", "commdlg.h", "direct.h", "dwmapi.h", "io.h", "objbase.h", "objidl.h", "ole2.h",
 	"oleauto.h", "process.h", "shellapi.h", "shlobj.h", "shlwapi.h", "shobjidl.h", "tlhelp32.h",
 	"uxtheme.h", "winbase.h", "wincrypt.h", "windef.h", "windows.h", "windowsx.h", "winhttp.h",
 	"winioctl.h", "winnls.h", "winsock2.h", "winternl.h", "ws2tcpip.h",
@@ -334,7 +334,7 @@ resolution = "Use native Wayland, including GPU presentation. Preserve inexpensi
 dependency = "the WebView2 SDK (header and loader DLL)"
 module = "GUI/Shim/ShimWeb"
 os = ["windows"]
-resolution = "First-party declarations of the COM interfaces used and a first-party lookup of the system's WebView2 runtime, in place of the SDK's header and WebView2Loader.dll."
+resolution = "The COM declarations are first-party. The supported Win32 activation API is supplied by Microsoft's SDK loader. Decide whether to retain the loader or rely on the runtime's changeable internal export."
 
 [[pending]]
 dependency = "musl's regex (bundled source)"

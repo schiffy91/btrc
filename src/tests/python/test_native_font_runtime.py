@@ -466,3 +466,19 @@ def test_linux_system_text_runs(tmp_path, request, gui_provider_root, frontend, 
         )
         assert result.returncode == 0, result.stdout + result.stderr
         assert "PASS: native text ligatures, kerning, ellipsis and owned pixels" in result.stdout
+    contextual = subprocess.run(
+        [program, "--context", tests / "fixtures/shaping-classes.ttf"],
+        capture_output=True,
+        text=True,
+        env=provider_environment(sanitized),
+        timeout=60,
+    )
+    assert contextual.returncode == 0, contextual.stdout + contextual.stderr
+    vectors = subprocess.run(
+        [program, "--vectors", tests / "fixtures/shaping-vectors.ttf"],
+        capture_output=True,
+        text=True,
+        env=provider_environment(sanitized),
+        timeout=60,
+    )
+    assert vectors.returncode == 0, vectors.stdout + vectors.stderr
