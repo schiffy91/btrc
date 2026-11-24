@@ -19,6 +19,9 @@ int main(void)
 	int matched = regexec(&compiled, "abbbc", 1, match, 0) == 0;
 	regfree(&compiled);
 	regmatch_t span[1];
+	if (overlay_helper_compile(&compiled, "[a-z]{2,3}") != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
+	if (regexec(&compiled, "5x1abcd", 1, span, 0) || span[0].rm_so != 3 || span[0].rm_eo != 6) return 1;
+	regfree(&compiled);
 	char literal[] = "ababaca";
 	if (overlay_helper_compile(&compiled, literal) != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
 	literal[0] = 'z';

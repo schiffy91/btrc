@@ -32,6 +32,10 @@ int main() {
 	assert(prefix.find("abababaca") == 2);
 	assert(!prefix.test("abababab"));
 	delete prefix;
+	assert(Regex.first("[0-9]{2,4}", "x1-123456").equals("1234"));
+	assert(Regex.find("[a-b]{3,}", "a-b-ab-baaba") == 7);
+	assert(Regex.replaceAll("[a-b]{2,4}", "a ababa abb", "X").equals("a Xa X"));
+	assert(Regex.fullMatch("z{0}", ""));
 	assert(Regex.replaceAll("Content-Type", "Content-Type: Content-Type", "H").equals("H: H"));
 
 	/* Keep the legacy provider for nested Windows intervals until their
