@@ -15,7 +15,7 @@ struct BtrcWaylandDisplay {
     BtrcWaylandWire *wire;
     bool (*editContext)(BtrcWaylandWindow *, struct BtrcEditContext *);
     bool (*deleteAround)(BtrcWaylandWindow *, unsigned, unsigned);
-    void (*activationChanged)(void);
+    void (*accessibilityChanged)(void);
     bool (*routeInput)(BtrcWaylandDisplay *, const BtrcShimEvent *, bool *);
     uint32_t registry;
     uint32_t compositor;

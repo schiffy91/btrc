@@ -905,6 +905,8 @@ void btrcShimWindowShowPicture(BtrcShimWindow *window, const unsigned char *rgba
 extern const char *btrcWaylandButtonAccessibleName(BtrcWaylandButton *);
 extern const char *btrcWaylandLabelAccessibleName(BtrcWaylandLabel *);
 
+void btrcWaylandDescribeField(BtrcWaylandAccessible *out, const BtrcWaylandTextField *field);
+
 bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessible *out) {
     if (index < 0 || !out) { return false; }
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
@@ -921,30 +923,43 @@ bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessibl
         for (size_t i = 0; i < w->visible.count; ++i) {
             BtrcWaylandPlacement *p = &w->visible.items[i];
             BtrcShimControl *c = p->control;
-            if (!c || c->closed || (c->type != LABEL && c->type != BUTTON)) { continue; }
+            if (!c || c->closed || (c->type != LABEL && c->type != BUTTON && c->type != TEXT_FIELD)) { continue; }
             if (index-- != 0) { continue; }
             if (c->enabled) { state |= (1u << 8) | (1u << 24); }
-            if (c->type == BUTTON && c->enabled) { state |= 1u << 11; }
+            if ((c->type == BUTTON || c->type == TEXT_FIELD) && c->enabled) { state |= 1u << 11; }
             if (w->focused == c) { state |= 1u << 12; }
-            *out = (BtrcWaylandAccessible){.window=wid, .control=c->id, .role=c->type == BUTTON ? 43u : 29u,
-                .state=state, .name=c->type == BUTTON ? btrcWaylandButtonAccessibleName(c->button) : btrcWaylandLabelAccessibleName(c->label),
+            *out = (BtrcWaylandAccessible){.window=wid, .control=c->id, .role=c->type == TEXT_FIELD ? 79u : c->type == BUTTON ? 43u : 29u,
+                .state=state, .name=c->type == BUTTON ? btrcWaylandButtonAccessibleName(c->button) : c->label ? btrcWaylandLabelAccessibleName(c->label) : "",
                 .description=c->tooltip ? c->tooltip : "", .x=(int)p->frame.x, .y=(int)p->frame.y,
                 .width=(int)p->frame.width, .height=(int)p->frame.height};
+            if (c->field) {
+                out->state |= 1u << 26;  /* single line */
+                if (c->enabled) { out->state |= 1u << 7; } /* editable */
+                btrcWaylandDescribeField(out, c->field);
+            }
             return true;
         }
     }
     return false;
 }
 
-bool btrcWaylandAccessibleAction(unsigned window, unsigned control, bool focusOnly) {
+BtrcShimControl *btrcWaylandAccessibleControl(unsigned window, unsigned control, BtrcShimWindow **owner) {
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
         if (!w->native->visible || btrcShimWindowId(w) != window) { continue; }
         for (size_t i = 0; i < w->visible.count; ++i) {
             BtrcShimControl *c = w->visible.items[i].control;
-            if (c && c->id == control && c->type == BUTTON && c->enabled && !c->closed) {
-                return setFocus(w, c) && (focusOnly || controlEvent(w, c, BTRC_SHIM_EVENT_CONTROL_ACTIVATED));
+            if (c && c->id == control && c->enabled && !c->closed) {
+                *owner = w;
+                return c;
             }
         }
     }
-    return false;
+    return NULL;
+}
+
+bool btrcWaylandAccessibleAction(unsigned window, unsigned control, bool focusOnly) {
+    BtrcShimWindow *w = NULL;
+    BtrcShimControl *c = btrcWaylandAccessibleControl(window, control, &w);
+    if (!c || (c->type != BUTTON && !(focusOnly && c->type == TEXT_FIELD))) { return false; }
+    return setFocus(w, c) && (focusOnly || controlEvent(w, c, BTRC_SHIM_EVENT_CONTROL_ACTIVATED));
 }

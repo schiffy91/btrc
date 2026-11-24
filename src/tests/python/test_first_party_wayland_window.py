@@ -48,6 +48,7 @@ PLATFORM_SOURCES = tuple(
         "TextLines",
         "EditBuffer",
         "TextField",
+        "AccessibleField",
     )
 ) + (PROVIDER.parent.parent / "Text/LineBreak.c", PROVIDER.parent.parent / "Text/Grapheme.c")
 SYSTEM_TEXT = PROVIDER.parent.parent / "Text/SystemText.c"

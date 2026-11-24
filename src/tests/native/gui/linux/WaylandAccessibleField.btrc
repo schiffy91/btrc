@@ -1,0 +1,44 @@
+import Library.Callback;
+import Library.Console;
+import Library.GUI;
+import Library.GUI.ControlEvents;
+import Library.GUI.IButton;
+import Library.GUI.ITextField;
+import Library.Image;
+
+class AccessibleFieldObserver implements ITextControlEventHandler {
+	public void textEvent(TextControlEvent event) { Console.log("Draft " + event.text); }
+}
+
+class AccessibleFieldQuit implements IButtonAction {
+	private ITextField field;
+
+	public AccessibleFieldQuit(ITextField field) { self.field = field; }
+
+	public void invoke() {
+		Console.log("Final " + self.field.text());
+		Console.log("Clicked Quit");
+		GUI.requestQuit();
+	}
+}
+
+int main() {
+	GUI.initialize();
+	var handlers = CallbackScope();
+	try {
+		var window = GUI.createWindow("Accessible editor", 260.0, 170.0);
+		var panel = GUI.createPanel(RGBA(37, 179, 125));
+		var label = GUI.createLabel("Native Wayland");
+		var field = GUI.createTextField("Aé🌿Z", "Message");
+		var quit = GUI.createButton("Quit");
+		window.attachRoot(panel);
+		panel.attach(label); panel.attach(field); panel.attach(quit);
+		label.arrange(16.0, 8.0, 180.0, 30.0);
+		field.arrange(16.0, 48.0, 220.0, 36.0);
+		quit.arrange(16.0, 100.0, 96.0, 36.0);
+		field.onDraftChanged(AccessibleFieldObserver(), handlers);
+		quit.onAction(AccessibleFieldQuit(field), handlers);
+		window.show(); GUI.run();
+	} finally { handlers.cancel(); GUI.close(); }
+	return 0;
+}

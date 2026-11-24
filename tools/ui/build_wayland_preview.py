@@ -51,6 +51,7 @@ WAYLAND_UNITS = (
     "TextLines",
     "EditBuffer",
     "TextField",
+    "AccessibleField",
     "Surface",
 )
 PROVIDERS = {

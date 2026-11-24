@@ -108,6 +108,29 @@ def test_preview_accessibility(preview_app, tmp_path):
     )
 
 
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_accessible_editor(frontend, tmp_path, request):
+    if not ctypes.util.find_library("atspi") or not os.environ.get("BTRC_ATSPI_LIBEXEC"):
+        pytest.skip("requires the desktop's AT-SPI client library and bus launcher")
+    executable = build_app(frontend, ROOT / "src/tests/native/gui/linux/WaylandAccessibleField.btrc", tmp_path, request)
+    subprocess.run(
+        [
+            SESSION,
+            "--wayland",
+            "--",
+            sys.executable,
+            "-m",
+            "src.tests.native.gui.wayland_atspi",
+            executable,
+            tmp_path,
+            "--field",
+        ],
+        cwd=ROOT,
+        check=True,
+        timeout=45,
+    )
+
+
 def controls_visible(pixels, width, left, top, background):
     def pixel(x, y):
         at = ((top + y) * width + left + x) * 3

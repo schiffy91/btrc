@@ -61,6 +61,7 @@ struct BtrcWaylandQueuedEvent {
 static bool redraw(BtrcWaylandWindow *window);
 
 bool btrcWaylandQueueEvent(BtrcWaylandDisplay *d, BtrcShimEvent event) {
+    if (event.type == BTRC_SHIM_EVENT_CONTROL_TEXT_CHANGED && d->accessibilityChanged) { d->accessibilityChanged(); }
     if (event.type != BTRC_SHIM_EVENT_USER && event.type != BTRC_SHIM_EVENT_WINDOW_EXPOSED) { ++d->arrivals; }
     if (d->routeInput && event.window && event.type < BTRC_SHIM_EVENT_CONTROL_ACTIVATED) {
         bool handled = false;
@@ -452,7 +453,7 @@ static bool xdgEvent(void *owner, uint32_t id, unsigned opcode, BtrcWaylandEvent
     w->configured = true;
     if (w->activated != w->configuredActivated) {
         w->activated = w->configuredActivated;
-        if (w->display->activationChanged) { w->display->activationChanged(); }
+        if (w->display->accessibilityChanged) { w->display->accessibilityChanged(); }
     }
     if (w->suspended != w->configuredSuspended) {
         w->suspended = w->configuredSuspended;

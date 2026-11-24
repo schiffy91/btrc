@@ -3,12 +3,14 @@ import Library.Platform;
 import Library.Strings;
 import Library.Vector;
 
+import ./AccessibleText.btrc;
 #include <unistd.h>
 
 class WaylandAccessible {
 	public unsigned window; public unsigned control; public unsigned role; public unsigned state;
 	public string path; public string parent; public string name; public string description;
 	public int index; public int count;
+	public WaylandAccessibleText? text;
 	public int x; public int y; public int width; public int height;
 
 	public WaylandAccessible(string path, string parent, string name, unsigned role, int index) {
@@ -19,7 +21,7 @@ class WaylandAccessible {
 		if (self.role == 75) { return "application"; }
 		if (self.role == 23) { return "frame"; }
 		if (self.role == 43) { return "push button"; }
-		return "label";
+		return self.role == 79 ? "entry" : "label";
 	}
 
 	public void interfaces(DBusWriter writer) {
@@ -27,6 +29,7 @@ class WaylandAccessible {
 		list.appendString("org.a11y.atspi.Accessible");
 		if (self.role == 75) { list.appendString("org.a11y.atspi.Application"); }
 		else { list.appendString("org.a11y.atspi.Component"); }
+		if (self.role == 79) { list.appendString("org.a11y.atspi.Text"); list.appendString("org.a11y.atspi.EditableText"); }
 		if (self.role == 43) { list.appendString("org.a11y.atspi.Action"); }
 		list.close();
 	}
@@ -68,6 +71,7 @@ class WaylandAccessibility {
 				var item = WaylandAccessible(path, parent.path, Strings.copy((string)native.name), native.role, child);
 				item.window = native.window; item.control = native.control; item.state = native.state;
 				item.description = Strings.copy((string)native.description);
+				if (item.role == 79) { item.text = WaylandAccessibleText(item.window, item.control, Strings.copy((string)native.text), native.anchor, native.caret); }
 				item.x = native.x; item.y = native.y; item.width = native.width; item.height = native.height;
 				nodes.push(item); parent.count++;
 				if (parent.role == 75 && child == 0) { parent.name = item.name; }
@@ -96,6 +100,7 @@ class WaylandAccessibility {
 			return ["Name", "Description", "Parent", "ChildCount", "Locale", "AccessibleId", "HelpText"];
 		}
 		if (iface == "org.a11y.atspi.Application" && role == 75) { return ["ToolkitName", "ToolkitVersion", "AtspiVersion", "Version", "Id"]; }
+		if (iface == "org.a11y.atspi.Text" && role == 79) { return ["CharacterCount", "CaretOffset"]; }
 		if (iface == "org.a11y.atspi.Action" && role == 43) { return ["NActions"]; }
 		return [];
 	}
@@ -116,6 +121,8 @@ class WaylandAccessibility {
 				out.variantString(key == "ToolkitName" ? "BTRC" : key == "AtspiVersion" ? "2.1" : "1.0"); return true;
 			}
 		}
+		var text = node.text;
+		if (text != null && iface == "org.a11y.atspi.Text" && (key == "CharacterCount" || key == "CaretOffset")) { out.variantInt32(key == "CharacterCount" ? text.count : text.caret); return true; }
 		if (iface == "org.a11y.atspi.Action" && key == "NActions" && node.role == 43) { out.variantInt32(1); return true; }
 		return false;
 	}
@@ -129,6 +136,7 @@ class WaylandAccessibility {
 		}
 		for node in nodes {
 			if (node.path != call.path()) { continue; }
+			var text = node.text; if (text != null && text.dispatch(call, out)) { return reply; }
 			if (iface == "org.freedesktop.DBus.Properties") {
 				string target = args.readString();
 				if (member == "GetAll" && call.signature() == "s") {
@@ -232,6 +240,8 @@ class WaylandAccessibility {
 				WaylandAccessibility.changed(bus, after, "StateChanged", "active", (after.state & 2u) != 0 ? 1 : 0);
 				WaylandAccessibility.windowEvent(bus, after, (after.state & 2u) != 0);
 			}
+			var oldText = before.text; var newText = after.text;
+			if (oldText != null && newText != null) { newText.changes(bus, after.path, oldText); }
 			if (before.name != after.name) { WaylandAccessibility.changed(bus, after, "PropertyChange", "accessible-name", 0); }
 			if (before.description != after.description) { WaylandAccessibility.changed(bus, after, "PropertyChange", "accessible-description", 0); }
 			if (before.state != after.state) {
@@ -264,6 +274,17 @@ class WaylandAccessibility {
 		return connection;
 	}
 
+	class Vector<WaylandAccessible> snapshot(DBusConnection channel) {
+		unsigned long long revision = btrcWaylandAccessibilityRevision();
+		var nodes = WaylandAccessibility.previous;
+		if (nodes == null || WaylandAccessibility.revision != revision) {
+			nodes = WaylandAccessibility.tree();
+			WaylandAccessibility.synchronize(channel, nodes);
+			WaylandAccessibility.revision = revision;
+		}
+		return nodes;
+	}
+
 	class int turn() {
 		if (!WaylandAccessibility.attempted) {
 			WaylandAccessibility.attempted = true;
@@ -272,13 +293,7 @@ class WaylandAccessibility {
 		var channel = WaylandAccessibility.bus;
 		if (channel == null) { return -1; }
 		if (!channel.readWrite(0)) { channel.close(); WaylandAccessibility.bus = null; return -1; }
-		unsigned long long revision = btrcWaylandAccessibilityRevision();
-		var nodes = WaylandAccessibility.previous;
-		if (nodes == null || WaylandAccessibility.revision != revision) {
-			nodes = WaylandAccessibility.tree();
-			WaylandAccessibility.synchronize(channel, nodes);
-			WaylandAccessibility.revision = revision;
-		}
+		WaylandAccessibility.snapshot(channel);
 		var message = channel.popMessage();
 		if (message != null) {
 			while (message != null) {
@@ -288,7 +303,7 @@ class WaylandAccessibility {
 					parent.next(); WaylandAccessibility.desktopPath = parent.readObjectPath();
 				}
 				if (message.type() == DBUS_MESSAGE_TYPE_METHOD_CALL) {
-					var answer = WaylandAccessibility.dispatch(channel, message, nodes);
+					var answer = WaylandAccessibility.dispatch(channel, message, WaylandAccessibility.snapshot(channel));
 					if (!message.noReply()) { channel.send(answer); }
 				}
 				message = channel.popMessage();
