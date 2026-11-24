@@ -77,6 +77,21 @@ class MacOSGPUSurface {
 
 	public double backingScale() { self.nativeView(); return self._backingScale; }
 
+	/* Enable macOS Extended Dynamic Range (EDR) output on XDR/HDR displays. */
+	public void setExtendedDynamicRange(bool enabled) {
+		self.nativeView();
+		var layer = self._layer;
+		if (layer == null) { throw "GPU surface is closed"; }
+		layer.setWantsExtendedDynamicRangeContent(enabled);
+	}
+
+	public bool extendedDynamicRangeEnabled() {
+		self.nativeView();
+		var layer = self._layer;
+		if (layer == null) { throw "GPU surface is closed"; }
+		return layer.wantsExtendedDynamicRangeContent();
+	}
+
 	public void refreshBackingSize() {
 		var view = self.nativeView();
 		var bounds = view.bounds();

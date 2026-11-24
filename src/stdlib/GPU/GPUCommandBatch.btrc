@@ -1,0 +1,189 @@
+import Library.Callback;
+import Library.GPU.GPUCompletionPump;
+import Library.GPU.GPUComputeProgram;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUProgram;
+import Library.GPU.GPUStorageBuffer;
+import Library.GPU.GPUTexture;
+import Library.GPU.WebGPU;
+
+class GPUQueueWorkDoneCompletion implements IGPUQueueWorkDoneCompletion {
+	public int status = 0;
+	public bool delivered = false;
+	public void invoke(WGPUQueueWorkDoneStatus status) {
+		self.status = (int)status;
+		self.delivered = true;
+	}
+}
+
+/* Single-encoder multi-pass command batch for compute dispatches, offscreen
+ * render passes, texture/buffer copies, and optional queue synchronization. */
+class GPUCommandBatch {
+	private GPUDevice _device;
+	private WGPUCommandEncoder _encoder = null;
+	private WGPUComputePassEncoder _computePass = null;
+	private WGPURenderPassEncoder _renderPass = null;
+	private bool _submitted = false;
+
+	private GPUCommandBatch(GPUDevice device) {
+		if (device.state() != GPU_DEVICE_READY) { throw "GPU command batch requires a ready device"; }
+		self._device = device;
+		self._encoder = wgpuDeviceCreateCommandEncoder(device.nativeDevice(), null);
+		if (self._encoder == null) { throw "Cannot create GPU command encoder"; }
+	}
+
+	class GPUCommandBatch begin(GPUDevice device) { return GPUCommandBatch(device); }
+
+	private void requireOpen() {
+		if (self._encoder == null || self._submitted) { throw "GPU command batch is closed or already submitted"; }
+	}
+
+	public void endComputePass() {
+		if (self._computePass != null) {
+			wgpuComputePassEncoderEnd(self._computePass);
+			wgpuComputePassEncoderRelease(self._computePass);
+			self._computePass = null;
+		}
+	}
+
+	public void endRenderPass() {
+		if (self._renderPass != null) {
+			wgpuRenderPassEncoderEnd(self._renderPass);
+			wgpuRenderPassEncoderRelease(self._renderPass);
+			self._renderPass = null;
+		}
+	}
+
+	/* Record one WGSL compute dispatch. Adjacent dispatches share a compute pass
+	 * unless separated by endComputePass(), copy, or render commands. */
+	public void dispatchCompute(GPUComputeProgram program, GPUBindResources resources, int groupsX, int groupsY = 1, int groupsZ = 1) {
+		self.requireOpen();
+		if (program.device() != self._device) { throw "GPU compute program belongs to another device"; }
+		if (groupsX <= 0 || groupsY <= 0 || groupsZ <= 0) { throw "GPU dispatch workgroup counts must be positive"; }
+		self.endRenderPass();
+		if (self._computePass == null) {
+			WGPUComputePassDescriptor desc;
+			memset(&desc, 0, sizeof(WGPUComputePassDescriptor));
+			self._computePass = wgpuCommandEncoderBeginComputePass(self._encoder, &desc);
+			if (self._computePass == null) { throw "Cannot begin GPU compute pass"; }
+		}
+		WGPUBindGroup group = resources.buildNative(self._device, program.nativeBindGroupLayout());
+		wgpuComputePassEncoderSetPipeline(self._computePass, program.nativePipeline());
+		wgpuComputePassEncoderSetBindGroup(self._computePass, 0u, group, (size_t)0, null);
+		wgpuComputePassEncoderDispatchWorkgroups(self._computePass, (uint32_t)groupsX, (uint32_t)groupsY, (uint32_t)groupsZ);
+		wgpuBindGroupRelease(group);
+	}
+
+	/* End any active compute pass so subsequent passes observe written storage textures/buffers. */
+	public void computeBarrier() {
+		self.requireOpen();
+		self.endComputePass();
+	}
+
+	public void copyTextureToTexture(GPUTexture src, int srcX, int srcY, int srcLayer, GPUTexture dst, int dstX, int dstY, int dstLayer, int width, int height) {
+		self.requireOpen();
+		if (src.device() != self._device || dst.device() != self._device) { throw "GPU copy textures belong to another device"; }
+		if (width <= 0 || height <= 0) { throw "GPU texture copy dimensions must be positive"; }
+		self.endComputePass();
+		self.endRenderPass();
+		WGPUTexelCopyTextureInfo srcInfo = {null};
+		srcInfo.texture = src.nativeTexture();
+		srcInfo.aspect = WGPUTextureAspect_All;
+		srcInfo.origin.x = (uint32_t)srcX;
+		srcInfo.origin.y = (uint32_t)srcY;
+		srcInfo.origin.z = (uint32_t)srcLayer;
+		WGPUTexelCopyTextureInfo dstInfo = {null};
+		dstInfo.texture = dst.nativeTexture();
+		dstInfo.aspect = WGPUTextureAspect_All;
+		dstInfo.origin.x = (uint32_t)dstX;
+		dstInfo.origin.y = (uint32_t)dstY;
+		dstInfo.origin.z = (uint32_t)dstLayer;
+		WGPUExtent3D extent = {(uint32_t)width, (uint32_t)height, 1u};
+		wgpuCommandEncoderCopyTextureToTexture(self._encoder, &srcInfo, &dstInfo, &extent);
+	}
+
+	public void copyBufferToBuffer(GPUStorageBuffer src, int srcOffset, GPUStorageBuffer dst, int dstOffset, int byteCount) {
+		self.requireOpen();
+		if (src.device() != self._device || dst.device() != self._device) { throw "GPU copy buffers belong to another device"; }
+		if (srcOffset < 0 || dstOffset < 0 || byteCount <= 0 || (byteCount % 4) != 0) { throw "GPU buffer copy parameters are invalid"; }
+		self.endComputePass();
+		self.endRenderPass();
+		wgpuCommandEncoderCopyBufferToBuffer(self._encoder, src.nativeBuffer(), (unsigned long long)srcOffset, dst.nativeBuffer(), (unsigned long long)dstOffset, (unsigned long long)byteCount);
+	}
+
+	public void beginRenderPass(GPUTexture target, double red = 0.0, double green = 0.0, double blue = 0.0, double alpha = 1.0, int layer = 0) {
+		self.requireOpen();
+		if (target.device() != self._device) { throw "GPU render target belongs to another device"; }
+		self.endComputePass();
+		self.endRenderPass();
+		WGPURenderPassColorAttachment color = {null};
+		color.view = target.nativeLayerView(layer);
+		color.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+		color.loadOp = WGPULoadOp_Clear;
+		color.storeOp = WGPUStoreOp_Store;
+		color.clearValue.r = red;
+		color.clearValue.g = green;
+		color.clearValue.b = blue;
+		color.clearValue.a = alpha;
+		WGPURenderPassDescriptor desc = {null};
+		desc.colorAttachmentCount = (size_t)1;
+		desc.colorAttachments = &color;
+		self._renderPass = wgpuCommandEncoderBeginRenderPass(self._encoder, &desc);
+		if (self._renderPass == null) { throw "Cannot begin GPU offscreen render pass"; }
+	}
+
+	public void drawProgram(GPUProgram program, GPUBindResources resources, int vertexCount, int instanceCount = 1) {
+		self.requireOpen();
+		if (self._renderPass == null) { throw "GPU render pass is not active in command batch"; }
+		if (vertexCount <= 0 || instanceCount <= 0) { throw "GPU draw vertex and instance counts must be positive"; }
+		WGPUBindGroup group = resources.buildNative(self._device, program.nativeBindGroupLayout());
+		wgpuRenderPassEncoderSetPipeline(self._renderPass, program.nativePipeline());
+		wgpuRenderPassEncoderSetBindGroup(self._renderPass, 0u, group, (size_t)0, null);
+		wgpuRenderPassEncoderDraw(self._renderPass, (uint32_t)vertexCount, (uint32_t)instanceCount, 0u, 0u);
+		wgpuBindGroupRelease(group);
+	}
+
+	public void submit() {
+		self.requireOpen();
+		self.endComputePass();
+		self.endRenderPass();
+		const WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(self._encoder, null);
+		wgpuCommandEncoderRelease(self._encoder);
+		self._encoder = null;
+		self._submitted = true;
+		if (cmd == null) { throw "Cannot finish GPU command batch"; }
+		wgpuQueueSubmit(self._device.nativeQueue(), (size_t)1, &cmd);
+		wgpuCommandBufferRelease(cmd);
+	}
+
+	public void submitAndWait() {
+		self.submit();
+		var pump = GPUCompletionPump(self._device.nativeInstance());
+		var completion = GPUQueueWorkDoneCompletion();
+		var cb = WGPUQueueWorkDoneCallbackInfoInput();
+		cb.mode = WGPUCallbackMode_AllowProcessEvents;
+		cb.callback = completion;
+		wgpuQueueOnSubmittedWorkDone(self._device.nativeQueue(), cb, pump.scope());
+		try {
+			for (int spin = 0; spin < 2000000; spin++) {
+				pump.pump();
+				if (completion.delivered) { break; }
+			}
+			if (!completion.delivered || completion.status != (int)WGPUQueueWorkDoneStatus_Success) {
+				throw f"GPU queue synchronization failed ({completion.status})";
+			}
+		} finally {
+			pump.cancel();
+			while (!pump.drained()) { pump.pump(); }
+		}
+	}
+
+	public void close() {
+		self.endComputePass();
+		self.endRenderPass();
+		if (self._encoder != null) { wgpuCommandEncoderRelease(self._encoder); self._encoder = null; }
+		self._submitted = true;
+	}
+
+	public void __del__() { self.close(); }
+}

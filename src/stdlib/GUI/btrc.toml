@@ -800,7 +800,8 @@ standard = "c11"
 symbols = [
 	"+[NSThread isMainThread]", "+[NSView new]", "-[NSView frame]", "-[NSView setFrame:]", "-[NSView bounds]",
 	"-[NSView setWantsLayer:]", "-[NSView setClipsToBounds:]", "-[NSView setLayer:]", "-[NSView removeFromSuperview]",
-	"-[NSView convertRectToBacking:]", "+[CAMetalLayer layer]", "-[CAMetalLayer setDrawableSize:]", "-[CAMetalLayer setContentsScale:]"
+	"-[NSView convertRectToBacking:]", "+[CAMetalLayer layer]", "-[CAMetalLayer setDrawableSize:]", "-[CAMetalLayer setContentsScale:]",
+	"-[CAMetalLayer setWantsExtendedDynamicRangeContent:]", "-[CAMetalLayer wantsExtendedDynamicRangeContent]"
 ]
 os = ["macos"]
 

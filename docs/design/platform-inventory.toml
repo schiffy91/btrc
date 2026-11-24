@@ -758,6 +758,19 @@ android-x86_64 = { parity = "os-restricted", implementation = "missing", owner =
 
 [[rows]]
 kind = "operation"
+id = "Library.GPU.GPUCommandBatch"
+group = "stdlib/GPU"
+title = "Single-encoder multi-pass GPU compute, copy, and render batching"
+regression = ["src/tests/python/test_gpu_compute_pipeline.py::test_headless_gpu_compute_and_instanced_atlas_pipeline"]
+windows-x64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native D3D12/Vulkan Windows build unwired" }
+windows-arm64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native D3D12/Vulkan Windows build unwired" }
+ios-device = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); portable WebGPU command encoder and queue sync" }
+ios-simulator = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); portable WebGPU command encoder and queue sync" }
+android-arm64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native Vulkan on Android unwired" }
+android-x86_64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native Vulkan on Android unwired" }
+
+[[rows]]
+kind = "operation"
 id = "Library.GPU.GPUCompletionPump"
 group = "stdlib/GPU"
 title = "WebGPU async completion pump"
@@ -766,6 +779,19 @@ windows-x64 = { parity = "adapted", implementation = "source-only", owner = "W2"
 windows-arm64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native D3D12/Vulkan Windows build unwired" }
 ios-device = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); the GUI conformance case gpu.frame runs it in a GPU view of the shim provider on the iPhone and iPad simulators only (no device has run it), through both compilers, plain and sanitized (src/tests/python/test_native_ui_conformance_ios.py): the device arrives over the pump's turns" }
 ios-simulator = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); the GUI conformance case gpu.frame runs it in a GPU view of the shim provider on the iPhone and iPad simulators, through both compilers, plain and sanitized (src/tests/python/test_native_ui_conformance_ios.py): the device arrives over the pump's turns" }
+android-arm64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native Vulkan on Android unwired" }
+android-x86_64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native Vulkan on Android unwired" }
+
+[[rows]]
+kind = "operation"
+id = "Library.GPU.GPUComputeProgram"
+group = "stdlib/GPU"
+title = "WGSL compute pipeline and explicit bind layouts"
+regression = ["src/tests/python/test_gpu_compute_pipeline.py::test_headless_gpu_compute_and_instanced_atlas_pipeline"]
+windows-x64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native D3D12/Vulkan Windows build unwired" }
+windows-arm64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native D3D12/Vulkan Windows build unwired" }
+ios-device = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); portable WebGPU compute pipeline" }
+ios-simulator = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); portable WebGPU compute pipeline" }
 android-arm64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native Vulkan on Android unwired" }
 android-x86_64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native Vulkan on Android unwired" }
 
@@ -836,6 +862,19 @@ android-x86_64 = { parity = "adapted", implementation = "source-only", owner = "
 
 [[rows]]
 kind = "operation"
+id = "Library.GPU.GPUStorageBuffer"
+group = "stdlib/GPU"
+title = "GPU storage buffer typed uploads and readbacks"
+regression = ["src/tests/python/test_gpu_compute_pipeline.py::test_headless_gpu_compute_and_instanced_atlas_pipeline"]
+windows-x64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native D3D12/Vulkan Windows build unwired" }
+windows-arm64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native D3D12/Vulkan Windows build unwired" }
+ios-device = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); portable WebGPU storage buffer" }
+ios-simulator = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); portable WebGPU storage buffer" }
+android-arm64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native Vulkan on Android unwired" }
+android-x86_64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native Vulkan on Android unwired" }
+
+[[rows]]
+kind = "operation"
 id = "Library.GPU.GPUSurfaceRenderer"
 group = "stdlib/GPU"
 title = "Present frames to a native WGPUSurface"
@@ -846,6 +885,19 @@ ios-device = { parity = "adapted", implementation = "implemented", owner = "I2",
 ios-simulator = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); every window of the shim provider presents through a wgpu surface on its content view's CAMetalLayer (GUI/IOS/UIKitSurface.c), and gpu.frame renders a GPU view offscreen, on the iPhone and iPad simulators through both compilers, plain and sanitized (src/tests/python/test_native_ui_conformance_ios.py)" }
 android-arm64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; needs ANativeWindow surface from an Android view" }
 android-x86_64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; needs ANativeWindow surface from an Android view" }
+
+[[rows]]
+kind = "operation"
+id = "Library.GPU.GPUTexture"
+group = "stdlib/GPU"
+title = "Multi-format 2D, 2D-array, and 3D GPU textures with readback"
+regression = ["src/tests/python/test_gpu_compute_pipeline.py::test_headless_gpu_compute_and_instanced_atlas_pipeline"]
+windows-x64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native D3D12/Vulkan Windows build unwired" }
+windows-arm64 = { parity = "adapted", implementation = "source-only", owner = "W2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native D3D12/Vulkan Windows build unwired" }
+ios-device = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); portable WebGPU texture" }
+ios-simulator = { parity = "adapted", implementation = "implemented", owner = "I2", status = "implemented-unverified", reason = "wgpu-native's pinned static library and the Metal, QuartzCore, CoreGraphics and Foundation frameworks (the GPU manifest's ios rows); portable WebGPU texture" }
+android-arm64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native Vulkan on Android unwired" }
+android-x86_64 = { parity = "adapted", implementation = "source-only", owner = "A2", status = "source-only", reason = "wgpu-native pkg-config + WebGPU bindings declared os=[macos,linux] only; wgpu-native Vulkan on Android unwired" }
 
 [[rows]]
 kind = "operation"

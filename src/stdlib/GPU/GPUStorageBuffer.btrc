@@ -1,0 +1,166 @@
+import Library.Array;
+import Library.Callback;
+import Library.GPU.GPUCompletionPump;
+import Library.GPU.GPUDevice;
+import Library.GPU.GPUReadback;
+import Library.GPU.WebGPU;
+
+/* General-purpose GPU storage buffer (optionally copyable and uniform-bindable)
+ * with typed host writes, zero-clear, and synchronous readbacks. */
+class GPUStorageBuffer {
+	private GPUDevice _device;
+	private unsigned long long _byteCount;
+	private bool _copySrc;
+	private bool _uniform;
+	private WGPUBuffer _buffer = null;
+
+	private GPUStorageBuffer(GPUDevice device, int byteCount, bool copySrc, bool uniform) {
+		if (byteCount <= 0) { throw "GPU storage buffer size must be positive"; }
+		unsigned long long aligned = (((unsigned long long)byteCount + 3ULL) / 4ULL) * 4ULL;
+		var nativeDevice = device.nativeDevice();
+		WGPULimits limits = {null};
+		if (wgpuDeviceGetLimits(nativeDevice, &limits) != WGPUStatus_Success || aligned > limits.maxBufferSize || aligned > limits.maxStorageBufferBindingSize) { throw "GPU storage buffer exceeds device limits"; }
+		self._device = device;
+		self._byteCount = aligned;
+		self._copySrc = copySrc;
+		self._uniform = uniform;
+		WGPUBufferDescriptor desc = {null};
+		desc.size = aligned;
+		desc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+		if (copySrc) { desc.usage |= WGPUBufferUsage_CopySrc; }
+		if (uniform) { desc.usage |= WGPUBufferUsage_Uniform; }
+		self._buffer = wgpuDeviceCreateBuffer(nativeDevice, &desc);
+		if (self._buffer == null) { throw "Cannot allocate GPU storage buffer"; }
+	}
+
+	class GPUStorageBuffer create(GPUDevice device, int byteCount, bool copySrc = true, bool uniform = false) { return GPUStorageBuffer(device, byteCount, copySrc, uniform); }
+
+	private void requireOpen() { if (self._buffer == null) { throw "GPU storage buffer is closed"; } }
+
+	public bool isOpen() { return self._buffer != null; }
+
+	public GPUDevice device() { self.requireOpen(); return self._device; }
+
+	public unsigned long long byteCount() { self.requireOpen(); return self._byteCount; }
+
+	public WGPUBuffer nativeBuffer() { self.requireOpen(); return self._buffer; }
+
+	public void writeBytes(Array<unsigned char> data, int dstByteOffset = 0) {
+		self.requireOpen();
+		if (dstByteOffset < 0 || (dstByteOffset % 4) != 0 || (data.length % 4) != 0 || (unsigned long long)dstByteOffset + (unsigned long long)data.length > self._byteCount) { throw "GPU storage buffer writeBytes offset or length is invalid"; }
+		if (data.length == 0) { return; }
+		wgpuQueueWriteBuffer(self._device.nativeQueue(), self._buffer, (unsigned long long)dstByteOffset, data.data, (size_t)data.length);
+	}
+
+	public void writeFloats(Array<float> data, int dstFloatOffset = 0) {
+		self.requireOpen();
+		unsigned long long byteOffset = (unsigned long long)dstFloatOffset * 4ULL;
+		unsigned long long byteSize = (unsigned long long)data.length * 4ULL;
+		if (dstFloatOffset < 0 || byteOffset + byteSize > self._byteCount) { throw "GPU storage buffer writeFloats exceeds buffer bounds"; }
+		if (data.length == 0) { return; }
+		wgpuQueueWriteBuffer(self._device.nativeQueue(), self._buffer, byteOffset, data.data, (size_t)byteSize);
+	}
+
+	public void writeUints(Array<unsigned int> data, int dstUintOffset = 0) {
+		self.requireOpen();
+		unsigned long long byteOffset = (unsigned long long)dstUintOffset * 4ULL;
+		unsigned long long byteSize = (unsigned long long)data.length * 4ULL;
+		if (dstUintOffset < 0 || byteOffset + byteSize > self._byteCount) { throw "GPU storage buffer writeUints exceeds buffer bounds"; }
+		if (data.length == 0) { return; }
+		wgpuQueueWriteBuffer(self._device.nativeQueue(), self._buffer, byteOffset, data.data, (size_t)byteSize);
+	}
+
+	public void writeInts(Array<int> data, int dstIntOffset = 0) {
+		self.requireOpen();
+		unsigned long long byteOffset = (unsigned long long)dstIntOffset * 4ULL;
+		unsigned long long byteSize = (unsigned long long)data.length * 4ULL;
+		if (dstIntOffset < 0 || byteOffset + byteSize > self._byteCount) { throw "GPU storage buffer writeInts exceeds buffer bounds"; }
+		if (data.length == 0) { return; }
+		wgpuQueueWriteBuffer(self._device.nativeQueue(), self._buffer, byteOffset, data.data, (size_t)byteSize);
+	}
+
+	public void clearZero() {
+		self.requireOpen();
+		Array<unsigned char> zeros = Array((int)self._byteCount);
+		wgpuQueueWriteBuffer(self._device.nativeQueue(), self._buffer, 0ULL, zeros.data, (size_t)self._byteCount);
+	}
+
+	private WGPUBuffer submitReadbackStaging() {
+		var nativeDevice = self._device.nativeDevice();
+		WGPUBufferDescriptor desc = {null};
+		desc.size = self._byteCount;
+		desc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+		WGPUBuffer staging = wgpuDeviceCreateBuffer(nativeDevice, &desc);
+		if (staging == null) { throw "Cannot allocate GPU storage readback buffer"; }
+		WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(nativeDevice, null);
+		if (encoder == null) { wgpuBufferRelease(staging); throw "Cannot allocate GPU readback encoder"; }
+		wgpuCommandEncoderCopyBufferToBuffer(encoder, self._buffer, 0ULL, staging, 0ULL, self._byteCount);
+		const WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, null);
+		wgpuCommandEncoderRelease(encoder);
+		if (cmd == null) { wgpuBufferRelease(staging); throw "Cannot finish GPU readback command buffer"; }
+		wgpuQueueSubmit(self._device.nativeQueue(), (size_t)1, &cmd);
+		wgpuCommandBufferRelease(cmd);
+		return staging;
+	}
+
+	public Array<unsigned char> readbackBytes() {
+		self.requireOpen();
+		if (!self._copySrc) { throw "GPU storage buffer was not created with copySrc enabled"; }
+		WGPUBuffer staging = self.submitReadbackStaging();
+		var pump = GPUCompletionPump(self._device.nativeInstance());
+		var completion = GPUReadbackCompletion();
+		var cb = WGPUBufferMapCallbackInfoInput();
+		cb.mode = WGPUCallbackMode_AllowProcessEvents;
+		cb.callback = completion;
+		wgpuBufferMapAsync(staging, WGPUMapMode_Read, (size_t)0, (size_t)self._byteCount, cb, pump.scope());
+		bool mapped = false;
+		try {
+			for (int spin = 0; spin < 2000000; spin++) {
+				pump.pump();
+				if (completion.delivered) { break; }
+			}
+			if (!completion.delivered || completion.status != (int)WGPUMapAsyncStatus_Success) { throw f"GPU storage readback failed ({completion.status}): {completion.message}"; }
+			mapped = true;
+			const unsigned char* ptr = (const unsigned char*)wgpuBufferGetConstMappedRange(staging, (size_t)0, (size_t)self._byteCount);
+			if (ptr == null) { throw "GPU storage readback returned null mapped pointer"; }
+			Array<unsigned char> out = Array((int)self._byteCount);
+			memcpy(out.data, ptr, (size_t)self._byteCount);
+			return out;
+		} finally {
+			if (mapped) { wgpuBufferUnmap(staging); }
+			pump.cancel();
+			while (!pump.drained()) { pump.pump(); }
+			wgpuBufferRelease(staging);
+		}
+	}
+
+	public Array<float> readbackFloats() {
+		Array<unsigned char> raw = self.readbackBytes();
+		int count = raw.length / 4;
+		Array<float> out = Array(count);
+		memcpy(out.data, raw.data, (size_t)count * (size_t)4);
+		return out;
+	}
+
+	public Array<unsigned int> readbackUints() {
+		Array<unsigned char> raw = self.readbackBytes();
+		int count = raw.length / 4;
+		Array<unsigned int> out = Array(count);
+		memcpy(out.data, raw.data, (size_t)count * (size_t)4);
+		return out;
+	}
+
+	public Array<int> readbackInts() {
+		Array<unsigned char> raw = self.readbackBytes();
+		int count = raw.length / 4;
+		Array<int> out = Array(count);
+		memcpy(out.data, raw.data, (size_t)count * (size_t)4);
+		return out;
+	}
+
+	public void close() {
+		if (self._buffer != null) { wgpuBufferRelease(self._buffer); self._buffer = null; }
+	}
+
+	public void __del__() { self.close(); }
+}

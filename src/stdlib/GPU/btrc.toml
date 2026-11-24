@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gpu"
-exports = ["GPUCompletionPump", "GPUDevice", "GPUImageTexture", "GPUOffscreenTarget", "GPUProgram", "GPUReadback", "GPUSurfaceRenderer", "GPUUniformBuffer", "WebGPU"]
+exports = ["GPUCommandBatch", "GPUCompletionPump", "GPUComputeProgram", "GPUDevice", "GPUImageTexture", "GPUOffscreenTarget", "GPUProgram", "GPUReadback", "GPUStorageBuffer", "GPUSurfaceRenderer", "GPUTexture", "GPUUniformBuffer", "WebGPU"]
 
 [[native.pkg-config]]
 name = "wgpu-native"
@@ -67,49 +67,60 @@ header = "WebGPUImports.h"
 language = "c"
 standard = "c11"
 symbols = [
-	"wgpuInstanceRequestAdapter", "WGPURequestAdapterOptions", "WGPUCallbackMode_AllowProcessEvents",
+	"wgpuCreateInstance", "wgpuInstanceRequestAdapter", "WGPURequestAdapterOptions", "WGPUCallbackMode_AllowProcessEvents",
+	"WGPUPowerPreference_HighPerformance", "WGPUPowerPreference_LowPower", "WGPUFeatureLevel_Core",
 	"WGPUInstance", "WGPUSurface", "WGPUAdapter", "WGPUDevice", "WGPUQueue",
 	"wgpuInstanceProcessEvents", "wgpuInstanceAddRef", "wgpuInstanceRelease", "wgpuSurfaceAddRef", "wgpuSurfaceRelease", "wgpuAdapterAddRef", "wgpuDeviceAddRef", "wgpuQueueAddRef",
 	"WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPUStringView",
 	"wgpuAdapterRequestDevice", "wgpuAdapterRelease", "wgpuDeviceRelease", "wgpuDeviceGetQueue", "wgpuQueueRelease",
 	"WGPURequestAdapterStatus_Success", "WGPURequestDeviceStatus_Success",
-	"WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo",
+	"WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo", "WGPUQueueWorkDoneCallbackInfo",
+	"WGPUQueueWorkDoneStatus_Success", "wgpuQueueOnSubmittedWorkDone",
 	"wgpuDeviceGetLimits", "WGPULimits", "wgpuSurfaceGetCapabilities", "wgpuSurfaceCapabilitiesFreeMembers", "WGPUStatus_Success",
-	"WGPUTextureFormat_BGRA8Unorm", "WGPUTextureFormat_RGBA8Unorm", "WGPUTextureUsage_RenderAttachment", "WGPUTextureUsage_CopySrc",
+	"WGPUTextureFormat_BGRA8Unorm", "WGPUTextureFormat_RGBA8Unorm", "WGPUTextureFormat_R8Unorm",
+	"WGPUTextureFormat_R16Uint", "WGPUTextureFormat_RGBA16Float", "WGPUTextureFormat_RGBA32Float", "WGPUTextureFormat_RGB10A2Unorm",
+	"WGPUTextureUsage_RenderAttachment", "WGPUTextureUsage_CopySrc", "WGPUTextureUsage_StorageBinding",
 	"wgpuSurfaceConfigure", "wgpuSurfaceUnconfigure", "WGPUSurfaceConfiguration", "WGPUPresentMode_Fifo", "WGPUPresentMode_Immediate",
 	"wgpuSurfaceGetCurrentTexture", "WGPUSurfaceTexture", "WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal", "WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal",
 	"WGPUSurfaceGetCurrentTextureStatus_Timeout", "WGPUSurfaceGetCurrentTextureStatus_Outdated",
-	"wgpuTextureCreateView", "wgpuDeviceCreateCommandEncoder", "wgpuCommandEncoderBeginRenderPass", "WGPURenderPassColorAttachment", "WGPURenderPassDescriptor",
+	"wgpuTextureCreateView", "WGPUTextureViewDescriptor", "wgpuDeviceCreateCommandEncoder", "wgpuCommandEncoderBeginRenderPass", "WGPURenderPassColorAttachment", "WGPURenderPassDescriptor",
 	"WGPU_DEPTH_SLICE_UNDEFINED", "WGPULoadOp_Clear", "WGPUStoreOp_Store", "wgpuRenderPassEncoderEnd", "wgpuRenderPassEncoderRelease",
 	"wgpuCommandEncoderFinish", "wgpuQueueSubmit", "wgpuSurfacePresent", "wgpuCommandBufferRelease", "wgpuCommandEncoderRelease", "wgpuTextureViewRelease", "wgpuTextureRelease",
-	"WGPUBufferDescriptor", "WGPUBufferUsage_Uniform", "WGPUBufferUsage_CopyDst", "wgpuDeviceCreateBuffer", "wgpuBufferRelease", "wgpuQueueWriteBuffer",
-	"WGPUTextureDescriptor", "WGPUTextureUsage_TextureBinding", "WGPUTextureUsage_CopyDst", "WGPUTextureDimension_2D", "wgpuDeviceCreateTexture",
-	"WGPUSamplerDescriptor", "WGPUAddressMode_ClampToEdge", "WGPUFilterMode_Linear", "WGPUMipmapFilterMode_Nearest", "wgpuDeviceCreateSampler", "wgpuSamplerRelease",
+	"WGPUBufferDescriptor", "WGPUBufferUsage_Uniform", "WGPUBufferUsage_Storage", "WGPUBufferUsage_CopySrc", "WGPUBufferUsage_CopyDst", "wgpuDeviceCreateBuffer", "wgpuBufferRelease", "wgpuQueueWriteBuffer",
+	"WGPUTextureDescriptor", "WGPUTextureUsage_TextureBinding", "WGPUTextureUsage_CopyDst", "WGPUTextureDimension_2D", "WGPUTextureDimension_3D", "wgpuDeviceCreateTexture",
+	"WGPUSamplerDescriptor", "WGPUAddressMode_ClampToEdge", "WGPUAddressMode_Repeat", "WGPUFilterMode_Linear", "WGPUFilterMode_Nearest", "WGPUMipmapFilterMode_Nearest", "wgpuDeviceCreateSampler", "wgpuSamplerRelease",
 	"WGPUTexelCopyTextureInfo", "WGPUTexelCopyBufferLayout", "WGPUTextureAspect_All", "wgpuQueueWriteTexture",
+	"wgpuCommandEncoderCopyTextureToTexture", "wgpuCommandEncoderCopyBufferToBuffer", "wgpuCommandEncoderCopyBufferToTexture",
 	"wgpuDevicePushErrorScope", "wgpuDevicePopErrorScope", "WGPUErrorFilter_Validation", "WGPUPopErrorScopeStatus_Success", "WGPUErrorType_NoError",
 	"WGPUShaderSourceWGSL", "WGPUShaderModuleDescriptor", "WGPUSType_ShaderSourceWGSL", "wgpuDeviceCreateShaderModule", "wgpuShaderModuleRelease",
-	"WGPUBindGroupLayoutEntry", "WGPUBindGroupLayoutDescriptor", "WGPUPipelineLayoutDescriptor", "WGPUShaderStage_Vertex", "WGPUShaderStage_Fragment",
-	"WGPUBufferBindingType_Uniform", "WGPUTextureSampleType_Float", "WGPUTextureViewDimension_2D", "WGPUSamplerBindingType_Filtering",
+	"WGPUBindGroupLayoutEntry", "WGPUBindGroupLayoutDescriptor", "WGPUPipelineLayoutDescriptor", "WGPUShaderStage_Vertex", "WGPUShaderStage_Fragment", "WGPUShaderStage_Compute",
+	"WGPUBufferBindingType_Uniform", "WGPUBufferBindingType_Storage", "WGPUBufferBindingType_ReadOnlyStorage",
+	"WGPUTextureSampleType_Float", "WGPUTextureSampleType_UnfilterableFloat", "WGPUTextureSampleType_Uint", "WGPUTextureSampleType_Sint",
+	"WGPUTextureViewDimension_2D", "WGPUTextureViewDimension_2DArray", "WGPUTextureViewDimension_3D",
+	"WGPUStorageTextureAccess_WriteOnly", "WGPUStorageTextureAccess_ReadOnly", "WGPUStorageTextureAccess_ReadWrite",
+	"WGPUSamplerBindingType_Filtering", "WGPUSamplerBindingType_NonFiltering",
 	"wgpuDeviceCreateBindGroupLayout", "wgpuDeviceCreatePipelineLayout", "wgpuBindGroupLayoutRelease", "wgpuPipelineLayoutRelease",
+	"WGPUComputePipelineDescriptor", "WGPUComputePassDescriptor", "wgpuDeviceCreateComputePipeline", "wgpuComputePipelineRelease",
+	"wgpuCommandEncoderBeginComputePass", "wgpuComputePassEncoderSetPipeline", "wgpuComputePassEncoderSetBindGroup", "wgpuComputePassEncoderDispatchWorkgroups", "wgpuComputePassEncoderEnd", "wgpuComputePassEncoderRelease",
 	"WGPUBlendState", "WGPUColorTargetState", "WGPUFragmentState", "WGPURenderPipelineDescriptor", "WGPUBlendOperation_Add", "WGPUBlendFactor_SrcAlpha", "WGPUBlendFactor_OneMinusSrcAlpha", "WGPUBlendFactor_One", "WGPUColorWriteMask_All",
 	"WGPUPrimitiveTopology_TriangleList", "WGPUFrontFace_CCW", "WGPUCullMode_None", "wgpuDeviceCreateRenderPipeline", "wgpuRenderPipelineRelease",
 	"WGPUBindGroupEntry", "WGPUBindGroupDescriptor", "wgpuDeviceCreateBindGroup", "wgpuBindGroupRelease", "wgpuRenderPassEncoderSetPipeline", "wgpuRenderPassEncoderSetBindGroup", "wgpuRenderPassEncoderDraw",
 	"WGPUBufferUsage_MapRead", "WGPUTexelCopyBufferInfo", "WGPUExtent3D", "wgpuCommandEncoderCopyTextureToBuffer",
 	"wgpuBufferMapAsync", "WGPUMapMode_Read", "WGPUMapAsyncStatus_Success", "wgpuBufferGetConstMappedRange", "wgpuBufferUnmap",
 	"WGPUVertexBufferLayout", "WGPUVertexAttribute", "WGPUVertexFormat_Float32x2", "WGPUVertexFormat_Float32x4", "WGPUVertexStepMode_Vertex", "WGPUBufferUsage_Vertex",
-	"wgpuRenderPassEncoderSetVertexBuffer", "wgpuRenderPassEncoderSetScissorRect", "WGPUTextureFormat_R8Unorm"
+	"wgpuRenderPassEncoderSetVertexBuffer", "wgpuRenderPassEncoderSetScissorRect"
 ]
-owned-results = ["wgpuDeviceGetQueue"]
+owned-results = ["wgpuCreateInstance", "wgpuDeviceGetQueue"]
 borrowed-parameters = [
 	"wgpuInstanceRequestAdapter.instance", "wgpuInstanceProcessEvents.instance", "wgpuAdapterRequestDevice.adapter", "wgpuDeviceGetQueue.device",
 	"wgpuDeviceGetLimits.device", "wgpuSurfaceGetCapabilities.surface", "wgpuSurfaceGetCapabilities.adapter", "wgpuSurfaceConfigure.surface", "wgpuSurfaceUnconfigure.surface",
-	"wgpuSurfaceGetCurrentTexture.surface", "wgpuSurfacePresent.surface", "wgpuDeviceCreateCommandEncoder.device", "wgpuQueueSubmit.queue",
+	"wgpuSurfaceGetCurrentTexture.surface", "wgpuSurfacePresent.surface", "wgpuDeviceCreateCommandEncoder.device", "wgpuQueueSubmit.queue", "wgpuQueueOnSubmittedWorkDone.queue",
 	"wgpuDeviceCreateBuffer.device", "wgpuQueueWriteBuffer.queue", "wgpuDeviceCreateTexture.device", "wgpuDeviceCreateSampler.device", "wgpuQueueWriteTexture.queue",
 	"wgpuDevicePushErrorScope.device", "wgpuDevicePopErrorScope.device", "wgpuDeviceCreateShaderModule.device", "wgpuDeviceCreateBindGroupLayout.device",
-	"wgpuDeviceCreatePipelineLayout.device", "wgpuDeviceCreateRenderPipeline.device", "wgpuDeviceCreateBindGroup.device"
+	"wgpuDeviceCreatePipelineLayout.device", "wgpuDeviceCreateRenderPipeline.device", "wgpuDeviceCreateComputePipeline.device", "wgpuDeviceCreateBindGroup.device"
 ]
-owned-records = ["WGPURequestAdapterOptions", "WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPUSurfaceConfiguration", "WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo"]
-record-inputs = ["wgpuInstanceRequestAdapter.options", "wgpuInstanceRequestAdapter.callbackInfo", "wgpuAdapterRequestDevice.callbackInfo", "wgpuSurfaceConfigure.config", "wgpuDevicePopErrorScope.callbackInfo", "wgpuBufferMapAsync.callbackInfo"]
+owned-records = ["WGPURequestAdapterOptions", "WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPUSurfaceConfiguration", "WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo", "WGPUQueueWorkDoneCallbackInfo"]
+record-inputs = ["wgpuInstanceRequestAdapter.options", "wgpuInstanceRequestAdapter.callbackInfo", "wgpuAdapterRequestDevice.callbackInfo", "wgpuSurfaceConfigure.config", "wgpuDevicePopErrorScope.callbackInfo", "wgpuBufferMapAsync.callbackInfo", "wgpuQueueOnSubmittedWorkDone.callbackInfo"]
 os = ["macos", "linux", "windows", "android", "ios"]
 [native.bindings.resources.WGPUInstance]
 ownership = "reference-counted"
@@ -172,6 +183,16 @@ field = "callback"
 context = ["userdata1", "userdata2"]
 context-index = [2, 3]
 interface = "IGPUReadbackCompletion"
+lifetime = "one-shot"
+executor = "caller"
+failure = "abort"
+activation-failure = "abort"
+cancellation = "abandon"
+[native.bindings.callbacks."wgpuQueueOnSubmittedWorkDone.callbackInfo"]
+field = "callback"
+context = ["userdata1", "userdata2"]
+context-index = [1, 2]
+interface = "IGPUQueueWorkDoneCompletion"
 lifetime = "one-shot"
 executor = "caller"
 failure = "abort"

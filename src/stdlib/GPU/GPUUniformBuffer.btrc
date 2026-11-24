@@ -47,6 +47,25 @@ class GPUUniformBuffer {
 		values.set(index, value);
 	}
 
+	public void setAll(Array<float> source) {
+		self.requireOpen();
+		if (source.length > self._count) { throw "GPU uniform source exceeds capacity"; }
+		if (self.recorded()) { throw "GPU uniform is referenced by an active frame"; }
+		var values = self._values;
+		if (values == null) { throw "GPU uniform is closed"; }
+		for (int i = 0; i < source.length; i++) { values.set(i, source.get(i)); }
+	}
+
+	public WGPUBuffer uploadNow() {
+		self.requireOpen();
+		var values = self._values;
+		if (values == null) { throw "GPU uniform is closed"; }
+		wgpuQueueWriteBuffer(self._device.nativeQueue(), self._buffer, 0ULL, values.data, (size_t)self._byteCount);
+		return self._buffer;
+	}
+
+	public WGPUBuffer nativeBuffer() { self.requireOpen(); return self._buffer; }
+
 	public WGPUBuffer uploadFor(GPUSurfaceRenderer surface) {
 		self.requireOpen();
 		if (surface.device() != self._device) { throw "GPU uniform belongs to another device"; }
