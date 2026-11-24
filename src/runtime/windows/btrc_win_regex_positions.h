@@ -1,23 +1,42 @@
-/* A position automaton for unasserted grouped Windows EREs. Counted repetitions inside
+/* A position automaton for unasserted grouped Windows EREs. Counted
+   repetitions inside
    another repetition can share consuming positions with their suffix,
    which changes the byte language of the historical Windows provider. */
 #pragma once
 #include "btrc_win_regex_compile.h"
 
-enum { btrc_win_pos_limit = 63, btrc_win_pos_nodes = 256 };
-#define BTRC_WIN_POS_ACCEPT (UINT64_C(1) << btrc_win_pos_limit)
+enum { btrc_win_pos_limit = 127, btrc_win_pos_nodes = 512 };
+typedef struct { uint64_t low, high; } btrc_win_pos_bits;
+
+static inline btrc_win_pos_bits btrc_win_pos_bit(int index)
+{
+	uint64_t bit = UINT64_C(1) << (index % 64);
+	return index < 64 ? (btrc_win_pos_bits){bit, 0} : (btrc_win_pos_bits){0, bit};
+}
+
+static inline int btrc_win_pos_contains(btrc_win_pos_bits bits, int index)
+{
+	return (int)(((index < 64 ? bits.low : bits.high) >> (index % 64)) & 1);
+}
+
+static inline btrc_win_pos_bits btrc_win_pos_union_bits(btrc_win_pos_bits a, btrc_win_pos_bits b)
+{
+	return (btrc_win_pos_bits){a.low | b.low, a.high | b.high};
+}
+
+static inline int btrc_win_pos_any(btrc_win_pos_bits bits) { return (bits.low | bits.high) != 0; }
 
 typedef struct {
-	uint64_t source, target;
+	int source;
+	btrc_win_pos_bits target;
 	btrc_win_byte_set bytes;
 } btrc_win_pos_edge;
 
 typedef struct {
 	btrc_win_group_header header;
-	uint64_t initial;
+	btrc_win_pos_bits initial;
 	int edges, nullable;
-	btrc_win_pos_edge edge[btrc_win_pos_limit];
-	char pattern[];
+	btrc_win_pos_edge edge[];
 } btrc_win_pos_program;
 
 enum btrc_win_pos_op { btrc_win_pos_empty, btrc_win_pos_byte, btrc_win_pos_cat,
@@ -32,6 +51,7 @@ typedef struct {
 	btrc_win_pos_program *program;
 	btrc_win_pos_node nodes[btrc_win_pos_nodes];
 	int used, extra, failed;
+	int positions[btrc_win_pos_limit], position_count;
 } btrc_win_pos_builder;
 
 /* Until building finishes, a byte leaf names its source syntax node and
@@ -40,7 +60,7 @@ typedef struct {
 static inline int btrc_win_pos_new(btrc_win_pos_builder *b, enum btrc_win_pos_op op, int left, int right)
 {
 	if (b->failed) return 0;
-	if (b->used >= btrc_win_pos_nodes - 1 || (op == btrc_win_pos_byte && right >= btrc_win_pos_limit)) {
+	if (b->used >= btrc_win_pos_nodes - 1) {
 		b->failed = 1;
 		return 0;
 	}
@@ -81,7 +101,7 @@ static inline int btrc_win_pos_repeat(btrc_win_pos_builder *b, const btrc_win_rx
 	}
 	int copies = n->max < 0 ? n->min + 1 : n->max;
 	int width = b->nodes[child].width;
-	if (!width || copies > btrc_win_pos_limit / width) { b->failed = 1; return 0; }
+	if (!width || copies > 255 / width) { b->failed = 1; return 0; }
 	int required = 0, tail = 0;
 	for (int i = 0; i < copies && !b->failed; ++i) {
 		int copy = btrc_win_pos_copy(b, child, *offset + i * width);
@@ -133,35 +153,48 @@ static inline int btrc_win_pos_sequence(btrc_win_pos_builder *b, int id, int *of
 /* First is a set of consuming positions. Last indexes individual byte
    edges because two occurrences at one position may accept different
    bytes and lead to different suffixes. */
-typedef struct { uint64_t first, last; int nullable; } btrc_win_pos_span;
+typedef struct { btrc_win_pos_bits first, last; int nullable; } btrc_win_pos_span;
 
-static inline void btrc_win_pos_follow(btrc_win_pos_program *p, uint64_t edges, uint64_t next)
+static inline void btrc_win_pos_follow(btrc_win_pos_program *p, btrc_win_pos_bits edges, btrc_win_pos_bits next)
 {
-	for (int i = 0; edges; ++i, edges >>= 1)
-		if (edges & 1) p->edge[i].target |= next;
+	for (int i = 0; i < p->edges; ++i)
+		if (btrc_win_pos_contains(edges, i)) p->edge[i].target = btrc_win_pos_union_bits(p->edge[i].target, next);
 }
 
 static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, int id)
 {
-	btrc_win_pos_span empty = {0, 0, 1};
+	btrc_win_pos_span empty = {{0, 0}, {0, 0}, 1};
 	if (!id || b->failed) return empty;
 	const btrc_win_pos_node *n = &b->nodes[id];
 	if (n->op == btrc_win_pos_byte) {
 		btrc_win_pos_program *p = b->program;
-		if (p->edges == btrc_win_pos_limit) { b->failed = 1; return empty; }
-		int slot = p->edges++;
-		uint64_t position = UINT64_C(1) << n->right;
-		p->edge[slot] = (btrc_win_pos_edge){position, 0, b->parser->program->nodes[n->left].bytes};
-		return (btrc_win_pos_span){position, UINT64_C(1) << slot, 0};
+		/* Compact sparse source labels without changing position identity.
+		   Equal byte sets at the same position can share their suffixes. */
+		int label = 0;
+		while (label < b->position_count && b->positions[label] != n->right) ++label;
+		if (label == b->position_count) {
+			if (label == btrc_win_pos_limit) { b->failed = 1; return empty; }
+			b->positions[b->position_count++] = n->right;
+		}
+		btrc_win_pos_bits position = btrc_win_pos_bit(label);
+		const btrc_win_byte_set *bytes = &b->parser->program->nodes[n->left].bytes;
+		int slot = 0;
+		while (slot < p->edges && (p->edge[slot].source != label ||
+		       memcmp(&p->edge[slot].bytes, bytes, sizeof *bytes))) ++slot;
+		if (slot == p->edges) {
+			if (slot == btrc_win_pos_limit) { b->failed = 1; return empty; }
+			p->edge[p->edges++] = (btrc_win_pos_edge){label, {0, 0}, *bytes};
+		}
+		return (btrc_win_pos_span){position, btrc_win_pos_bit(slot), 0};
 	}
 	btrc_win_pos_span left = btrc_win_pos_span_for(b, n->left);
 	if (n->op == btrc_win_pos_cat || n->op == btrc_win_pos_union) {
 		btrc_win_pos_span right = btrc_win_pos_span_for(b, n->right);
 		if (n->op == btrc_win_pos_union)
-			return (btrc_win_pos_span){left.first | right.first, left.last | right.last, left.nullable || right.nullable};
+			return (btrc_win_pos_span){btrc_win_pos_union_bits(left.first, right.first), btrc_win_pos_union_bits(left.last, right.last), left.nullable || right.nullable};
 		btrc_win_pos_follow(b->program, left.last, right.first);
-		return (btrc_win_pos_span){left.first | (left.nullable ? right.first : 0),
-		                           right.last | (right.nullable ? left.last : 0), left.nullable && right.nullable};
+		return (btrc_win_pos_span){left.nullable ? btrc_win_pos_union_bits(left.first, right.first) : left.first,
+		                           right.nullable ? btrc_win_pos_union_bits(right.last, left.last) : right.last, left.nullable && right.nullable};
 	}
 	if (n->op == btrc_win_pos_star || n->op == btrc_win_pos_plus)
 		btrc_win_pos_follow(b->program, left.last, left.first);
@@ -181,7 +214,7 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 		int index = 0;
 		for (int i = 1; i <= parser.nodes; ++i)
 			if (parsed.nodes[i].op == btrc_win_rx_byte) parsed.nodes[i].arg = index++;
-		if (index && index <= btrc_win_pos_limit) p = (btrc_win_pos_program *)calloc(1, sizeof *p + strlen(pattern) + 1);
+		if (index && index <= btrc_win_pos_limit) p = (btrc_win_pos_program *)calloc(1, sizeof *p + btrc_win_pos_limit * sizeof *p->edge + strlen(pattern) + 1);
 		if (p) {
 			btrc_win_pos_builder builder = { .parser = &parser, .program = p };
 			int offset = 0;
@@ -192,8 +225,11 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 				p->header.kind = btrc_win_group_positions;
 				p->initial = span.first;
 				p->nullable = span.nullable;
-				btrc_win_pos_follow(p, span.last, BTRC_WIN_POS_ACCEPT);
-				strcpy(p->pattern, pattern);
+				btrc_win_pos_follow(p, span.last, btrc_win_pos_bit(btrc_win_pos_limit));
+				size_t bytes = sizeof *p + (size_t)p->edges * sizeof *p->edge + strlen(pattern) + 1;
+				btrc_win_pos_program *compact = (btrc_win_pos_program *)realloc(p, bytes);
+				if (compact) p = compact;
+				strcpy((char *)(p->edge + p->edges), pattern);
 				*groups = (size_t)parser.groups;
 			}
 		}
@@ -202,45 +238,63 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 	return p;
 }
 
-static inline uint64_t btrc_win_pos_step(const btrc_win_pos_program *p, uint64_t live, unsigned char byte)
+static inline btrc_win_pos_bits btrc_win_pos_step(const btrc_win_pos_program *p, btrc_win_pos_bits live, unsigned char byte)
 {
-	uint64_t next = 0;
+	btrc_win_pos_bits next = {0, 0};
 	for (int i = 0; i < p->edges; ++i) {
 		const btrc_win_pos_edge *edge = &p->edge[i];
-		if ((edge->source & live) && btrc_win_set_has(&edge->bytes, byte)) next |= edge->target;
+		if (btrc_win_pos_contains(live, edge->source) && btrc_win_set_has(&edge->bytes, byte)) next = btrc_win_pos_union_bits(next, edge->target);
 	}
 	return next;
 }
 
-enum { btrc_win_pos_competing_starts = -2 };
+enum { btrc_win_pos_competing_starts = -2, btrc_win_pos_origin_limit = 4 };
+typedef struct { regoff_t start; btrc_win_pos_bits live; } btrc_win_pos_origin;
+
 static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *subject,
                                      size_t count, regmatch_t *matches)
 {
-	uint64_t live = p->nullable ? p->initial : 0;
-	regoff_t start = 0, end = p->nullable ? 0 : -1;
-	if (!count && p->nullable) return 0;
+	btrc_win_pos_origin row[btrc_win_pos_origin_limit] = {{0, {0, 0}}};
+	int rows = p->nullable ? 1 : 0;
+	regoff_t start = p->nullable ? 0 : -1, end = start;
+	if (p->nullable) {
+		if (!count) return 0;
+		row[0].live = p->initial;
+	}
 	for (regoff_t i = 0; subject[i]; ++i) {
 		unsigned char byte = (unsigned char)subject[i];
-		uint64_t next = btrc_win_pos_step(p, live, byte);
-		if (end < 0) {
-			/* A start at this byte is admitted only at positions unused
-			   by the earlier path. If both origins can advance, the
-			   winning whole span may depend on historical capture ranking. */
-			uint64_t added = btrc_win_pos_step(p, p->initial & ~live, byte);
-			if (count && next && added) return btrc_win_pos_competing_starts;
-			if (!next && added) start = i;
-			next |= added;
+		/* The legacy search admits a new start only at positions absent
+		   from the frontier before consuming this byte. */
+		btrc_win_pos_bits occupied = {0, 0};
+		for (int k = 0; k < rows; ++k) occupied = btrc_win_pos_union_bits(occupied, row[k].live);
+		btrc_win_pos_bits initial = {p->initial.low & ~occupied.low, p->initial.high & ~occupied.high};
+		int candidates = rows + (end < 0 && btrc_win_pos_any(initial));
+		int remaining = 0;
+		for (int k = 0; k < candidates; ++k) {
+			btrc_win_pos_origin origin = k == rows ? (btrc_win_pos_origin){i, initial} : row[k];
+			btrc_win_pos_bits next = btrc_win_pos_step(p, origin.live, byte);
+			if (btrc_win_pos_contains(next, btrc_win_pos_limit)) {
+				if (!count) return 0;
+				/* Distinct accepting origins need the old subgroup ranking.
+				   If every acceptance has one origin, its longest end is exact. */
+				if (end >= 0 && start != origin.start) return btrc_win_pos_competing_starts;
+				start = origin.start;
+				end = i + 1;
+			}
+			next.high &= ~(UINT64_C(1) << 63);
+			if (btrc_win_pos_any(next)) {
+				/* Pure existence queries do not distinguish origins. */
+				if (!count && remaining) row[0].live = btrc_win_pos_union_bits(row[0].live, next);
+				else {
+					if (remaining == btrc_win_pos_origin_limit) return btrc_win_pos_competing_starts;
+					row[remaining++] = (btrc_win_pos_origin){origin.start, next};
+				}
+			}
 		}
-		if (next & BTRC_WIN_POS_ACCEPT) {
-			if (!count) return 0;
-			end = i + 1;
-		}
-		live = next & ~BTRC_WIN_POS_ACCEPT;
-		if (!live && end >= 0) break;
+		rows = remaining;
+		if (!rows && end >= 0) break;
 	}
 	if (end < 0) return REG_NOMATCH;
 	matches[0] = (regmatch_t){start, end};
 	return 0;
 }
-
-#undef BTRC_WIN_POS_ACCEPT
