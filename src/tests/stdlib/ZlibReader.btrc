@@ -1,0 +1,37 @@
+import Library.Bytes;
+import Library.Compression.ZlibReader;
+import Library.Vector;
+
+/* A zlib stream carrying "abcabcabc" with a backwards match. It is
+ * divided between input ranges (including an empty range) and output
+ * reads. Exactly-sized consumers also require the Adler trailer and
+ * reject any excess compressed or decompressed bytes. */
+int main() {
+	var input = Bytes.fromHex("78da4b4c4a4e042300113d0373");
+	if (input == null) { throw "Invalid test stream"; }
+	Vector<int> fragments = [0, 1, 1, 1, 1, 5, 5, input.length()];
+	var reader = ZlibReader(input, fragments);
+	var output = Bytes.zeros(9);
+	unsigned char* target = (unsigned char*)output.data;
+	reader.read(target, 2);
+	reader.read(target + 2, 7);
+	reader.finish();
+	if (!output.toHex().equals("616263616263616263")) { throw "Wrong zlib output"; }
+
+	for (int which = 0; which < 5; which++) {
+		var bytes = input.slice(0, input.length());
+		if (which == 1) { bytes.append(0); }
+		if (which == 2) { bytes.set(bytes.length() - 1, 0); }
+		int last = bytes.length() + (which == 3 ? 1 : 0);
+		Vector<int> ranges = which == 4 ? [0] : [0, last];
+		bool refused = false;
+		try {
+			var exact = ZlibReader(bytes, ranges);
+			exact.read(target, which == 0 ? 8 : 9);
+			exact.finish();
+		} catch (string error) { refused = true; }
+		if (!refused) { throw "Invalid zlib stream was accepted"; }
+	}
+	print("PASS ZlibReader");
+	return 0;
+}

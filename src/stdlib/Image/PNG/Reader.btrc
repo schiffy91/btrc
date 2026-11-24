@@ -1,9 +1,10 @@
 import Library.Bytes;
+import Library.Compression.ZlibReader;
 import Library.Vector;
 import Library.Image.Pixels;
 
 import ./Checksum.btrc;
-import ./Inflate.btrc;
+
 
 // Scanline storage whose allocation can fail without ending the process.
 class PNGRows {
@@ -364,7 +365,7 @@ class PNGReader {
 		if (image == null) { throw "Could not allocate PNG raster"; }
 		var rows = PNGRows.tryCreate((rowBytes + 1LL) * 2LL);
 		if (rows == null) { throw "Could not allocate PNG scanlines"; }
-		var inflate = PNGInflate(self.bytes, self.data);
+		var inflate = ZlibReader(self.bytes, self.data);
 		// Each buffer holds the filter type, then the scanline.
 		unsigned char* current = rows.data;
 		unsigned char* previous = rows.data + rowBytes + 1LL;
@@ -386,7 +387,7 @@ class PNGReader {
 				previous = swap;
 			}
 		}
-		inflate.finish();
+		inflate.finish(false);
 		return image;
 	}
 }
