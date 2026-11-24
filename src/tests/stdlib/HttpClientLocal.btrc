@@ -1,11 +1,5 @@
-<<<<<<< HEAD
-/* HTTPClient end-to-end through a deterministic local curl stand-in where a
- * target still selects curl, and zero-curl refusal on standalone Android. */
-=======
-/* HTTPClient end-to-end check: verifies first-party Linux HTTPS never invokes
- * curl even when a stand-in exists on PATH, and exercises the interim curl
- * stand-in on targets that still select it. */
->>>>>>> origin/claude/retire-linux-tls-curl
+/* HTTPClient end-to-end check: verifies Apple, Android, and Linux never invoke
+ * curl even when a stand-in executable exists first on PATH. */
 import Library.FileSystem;
 import Library.HTTP.HTTPClient;
 import Library.Platform;
