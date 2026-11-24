@@ -510,6 +510,15 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
     # and three BlueValues pairs in unsorted order. B is captured by
     # the 68..75 pair. A has a 25..45 stem clear of every pair.
     blue = (fixtures / "fixtures/cff-blue-stem.otf").read_bytes()
+    # The missing glyph has a bottom stem at exactly zero. Replacing
+    # BlueValues with FamilyBlues makes its alignment SDK-dependent.
+    zones = bytes.fromhex("878ff82490fbe59206")
+    assert blue.count(zones) == 1
+    family = blue.replace(zones, zones[:-1] + b"\x08")
+    for face in (blue, family):
+        for suffix in ("otf", "raw"):
+            zero = run(suffix, "zero", env, face)
+            assert zero.returncode == 0, zero.stdout + zero.stderr
     for suffix in ("otf", "raw"):
         outside = run(suffix, "uncaptured", env, blue)
         assert outside.returncode == 0, outside.stdout + outside.stderr
@@ -542,6 +551,10 @@ def test_linux_cff_measurement_and_retained_fallback(tmp_path, request, frontend
         assert rejected.returncode != 0 and "Cannot initialize FreeType library" in rejected.stderr
         measured = run("otf", "measure", blocked)
         assert measured.returncode == 0, measured.stdout + measured.stderr
+        zero = run("otf", "zero", blocked, blue)
+        assert zero.returncode == 0, zero.stdout + zero.stderr
+        inherited = run("otf", "zero", blocked, family)
+        assert inherited.returncode != 0 and "Cannot initialize FreeType library" in inherited.stderr
         outside = run("otf", "uncaptured", blocked, blue)
         assert outside.returncode == 0, outside.stdout + outside.stderr
         portable_shift = run("otf", "y", blocked, single_stem)

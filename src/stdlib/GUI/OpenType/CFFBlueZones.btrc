@@ -8,6 +8,8 @@ class CFFBlueZones {
 	private Vector<int> bounds = [];
 	private int fuzz = 1;
 	private bool usable = true;
+	private bool familyZones = false;
+	private int baseline = -1;
 
 	public void read(CFFDict dictionary) {
 		if (dictionary.count(267) >= 0) {
@@ -19,6 +21,7 @@ class CFFBlueZones {
 		for (int key = 6; key <= 9; key++) {
 			int count = dictionary.count(key);
 			if (count < 0) { continue; }
+			if (key >= 8 && count > 0) { self.familyZones = true; }
 			if ((count & 1) != 0 || count > (key == 6 || key == 8 ? 14 : 10)) { self.usable = false; return; }
 			int edge = 0;
 			for (int i = 0; i < count; i++) {
@@ -27,16 +30,24 @@ class CFFBlueZones {
 				edge += (int)delta;
 				if (edge < -32768 || edge > 32767) { self.usable = false; return; }
 				self.bounds.push(edge);
+				// BlueValues begins with its bottom zone. Every OtherBlues
+				// pair is a bottom zone, with the flat edge at the higher value.
+				if ((i & 1) != 0 && edge == 0 && (key == 7 || (key == 6 && i == 1))) { self.baseline = self.bounds.size() - 2; }
 			}
 		}
 	}
 
-	public bool clearOf(int bottom, int top) {
+	public bool allowsSingleStem(int bottom, int top) {
 		if (!self.usable) { return false; }
 		for (int i = 0; i < self.bounds.size(); i += 2) {
 			int low = self.bounds.get(i) - self.fuzz;
 			int high = self.bounds.get(i + 1) + self.fuzz;
-			if ((low <= bottom && bottom <= high) || (low <= top && top <= high)) { return false; }
+			if (low <= top && top <= high) { return false; }
+			if (low <= bottom && bottom <= high) {
+				// At zero the baseline already lies on a device pixel. A
+				// family zone can override the face's chosen flat edge.
+				if (self.familyZones || bottom != 0 || i != self.baseline) { return false; }
+			}
 		}
 		return true;
 	}
