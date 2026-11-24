@@ -1,0 +1,105 @@
+import Library.Console;
+import Library.FileSystem;
+import Library.GUI;
+import Library.GUI.SharedFrameView;
+import Library.Image;
+import Library.Timer;
+
+class SharedFrameCaptureWork implements IApplicationWork {
+    private IWindow window;
+    private IContainer root;
+    private ISharedFrameView frame;
+    private string folder;
+    private int step = 0;
+    private long long deadline = MonotonicClock.deadlineAfter(180000);
+    public int status = 1;
+
+    public SharedFrameCaptureWork(IWindow window, IContainer root, ISharedFrameView frame, string folder) {
+        self.window = window;
+        self.root = root;
+        self.frame = frame;
+        self.folder = folder;
+    }
+
+    private void checkPixel(Image image, int x, int y, int red, int green, int blue) {
+        int scale = image.width / 640;
+        if (scale < 1 || image.height != 320 * scale) { throw "Invalid capture dimensions"; }
+        var pixel = image.pixel(x * scale, y * scale);
+        if (pixel.red != red || pixel.green != green || pixel.blue != blue || pixel.alpha != 255) {
+            throw "Shared-frame capture has the wrong color";
+        }
+    }
+
+    private void signal(string name) {
+        if (!FileSystem.writeText(PathTools.join(self.folder, name), "1")) { throw "Cannot mark capture"; }
+    }
+
+    public void run() {
+        try {
+            if (!MonotonicClock.before(self.deadline)) { throw "Shared-frame capture timed out"; }
+            Vector<GUICaptureLayer> layers = [];
+            if (self.step == 0 && FileSystem.isFile(PathTools.join(self.folder, "sent"))) {
+                if (!self.frame.presentPending()) { throw "Cannot accept the producer frame"; }
+                var hidden = GUI.capture(self.root, layers);
+                self.checkPixel(hidden, 64, 64, 255, 0, 0);
+                self.checkPixel(hidden, 64, 256, 0, 0, 255);
+                self.window.show();
+                self.step = 1;
+                self.signal("shown");
+            } else if (self.step == 1 && FileSystem.isFile(PathTools.join(self.folder, "observe-overlay"))) {
+                if (FileSystem.isFile(PathTools.join(self.folder, "reject")) && self.frame.presentPending()) {
+                    throw "Accepted an unsupported driver-backed buffer";
+                }
+                var displayed = GUI.capture(self.root, layers);
+                self.checkPixel(displayed, 64, 64, 255, 0, 0);
+                self.checkPixel(displayed, 64, 256, 0, 0, 255);
+                var panel = GUI.createPanel(RGBA(0, 255, 0), 0.0);
+                self.root.attach(panel);
+                panel.arrange(160.0, 80.0, 160.0, 120.0);
+                self.frame.arrange(0.0, 0.0, 320.0, 160.0);
+                var mixed = GUI.capture(self.root, layers);
+                self.checkPixel(mixed, 48, 48, 255, 0, 0);
+                self.checkPixel(mixed, 48, 128, 0, 0, 255);
+                self.checkPixel(mixed, 200, 112, 0, 255, 0);
+                self.step = 2;
+                self.signal("mixed");
+            } else if (self.step == 2 && FileSystem.isFile(PathTools.join(self.folder, "alpha"))) {
+                if (!self.frame.presentPending()) { throw "Cannot accept the alpha frame"; }
+                var alpha = GUI.capture(self.root, layers);
+                self.checkPixel(alpha, 48, 48, 128, 0, 0);
+                self.checkPixel(alpha, 48, 128, 0, 0, 255);
+                self.checkPixel(alpha, 200, 112, 0, 255, 0);
+                self.signal("blended");
+                self.step = 3;
+            } else if (self.step >= 2 && FileSystem.isFile(PathTools.join(self.folder, "finish"))) {
+                self.status = 0;
+                Console.log("PASS hidden, visible and overlapping shared-frame captures");
+                GUI.requestQuit();
+                return;
+            }
+            GUI.postAfter(0.01, self);
+        } catch (string error) { Console.error(error); GUI.requestQuit(); }
+    }
+}
+
+int main(Vector<string> args) {
+    if (args.length != 2) { return 1; }
+    GUI.initialize();
+    try {
+        var window = GUI.createWindow("Shared-frame capture", 640.0, 320.0);
+        var root = GUI.createContainer();
+        window.attachRoot(root);
+        var background = GUI.createPanel(RGBA(0, 0, 0), 0.0);
+        root.attach(background);
+        background.arrange(0.0, 0.0, 640.0, 320.0);
+        var frame = SharedFrameView.create();
+        root.attach(frame);
+        frame.arrange(0.0, 0.0, 640.0, 320.0);
+        var endpoint = frame.listen(args.get(1).toInt());
+        if (!FileSystem.writeAtomic(PathTools.join(args.get(0), "address"), endpoint.address(), 0o600)) { return 1; }
+        var work = SharedFrameCaptureWork(window, root, frame, args.get(0));
+        GUI.post(work);
+        GUI.run();
+        return work.status;
+    } finally { GUI.close(); }
+}

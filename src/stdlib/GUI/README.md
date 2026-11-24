@@ -308,11 +308,14 @@ another script or an unavailable glyph reports a rendering error.
 
 Applications that need embedded web views or desktop accessibility should use
 the default Linux GUI build. Embedded web views report the unavailable operation.
-The preview's shared-frame view samples completed, single-plane linear DRM
-XRGB8888 and ARGB8888 DMA-BUFs through the Linux kernel mapping API. It honors
-plane offset and stride. Applications producing other formats or modifiers should
-use the default GTK build, which negotiates imports with the display. Runtime
-backend selection is fixed when the application is built.
+The preview's shared-frame view samples
+completed, single-plane linear DRM XRGB8888 and ARGB8888 DMA-BUFs through the
+Linux kernel mapping API. The buffer must come from `udmabuf` or the kernel's
+`system` DMA heap. The preview checks the kernel exporter in `/proc/self/fdinfo`
+and honors plane offset and stride. Applications producing driver-backed buffers,
+other formats or modifiers should use the default GTK build, which negotiates
+imports with the display. Runtime backend selection is fixed when the
+application is built.
 
 
 ## The shim provider, and GTK4 on Linux
