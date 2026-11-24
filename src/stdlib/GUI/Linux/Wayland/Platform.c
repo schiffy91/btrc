@@ -6,6 +6,7 @@
 #include "WirePrivate.h"
 #include "Client.h"
 #include "Clipboard.h"
+#include "TextField.h"
 #include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -137,6 +138,13 @@ int btrcShimAutomationDisplay(void) { return display ? BTRC_SHIM_DISPLAY_WAYLAND
 unsigned int btrcShimWindowNamed(const char *title) {
     for (BtrcShimWindow *w = windows; w; w = w->next) {
         if (title && !strcmp(w->native->title, title)) { return btrcShimWindowId(w); }
+    }
+    return 0;
+}
+
+int btrcShimAutomationTextFocused(unsigned int window) {
+    for (BtrcShimWindow *w = windows; w; w = w->next) {
+        if (btrcShimWindowId(w) == window) { return btrcWaylandFieldState(w->focused) != NULL; }
     }
     return 0;
 }

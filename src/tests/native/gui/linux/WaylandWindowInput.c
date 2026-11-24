@@ -24,6 +24,7 @@ int main(int argc, char **argv) {
         }
         return 0;
     }
+    if (argc == 2 && !strcmp(argv[1], "scene-text")) { return input->activate(title) && input->text("draft", typed) ? 0 : 1; }
     if (argc == 2 && !strcmp(argv[1], "repeat")) { return input->activate(title) && realInputWaylandHoldReturn() ? 0 : 1; }
     if (argc == 2 && !strcmp(argv[1], "mouse")) {
         char command;

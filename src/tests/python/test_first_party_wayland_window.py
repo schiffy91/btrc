@@ -324,11 +324,19 @@ def test_wayland_held_key_repeats_until_release(client, input_device):
     )
 
 
-def key_repeat(client, probe):
-    with subprocess.Popen([client, "repeat"], stdout=subprocess.PIPE, text=True) as process:
+def test_wayland_focused_scene_receives_text_before_window_subscription(client, input_device):
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, "scene-text", client, input_device],
+        check=True,
+        timeout=20,
+    )
+
+
+def keyboard_input(mode, client, probe):
+    with subprocess.Popen([client, mode], stdout=subprocess.PIPE, text=True) as process:
         try:
             assert process.stdout.readline().strip() == "keyboard ready"
-            subprocess.run([probe, "repeat"], check=True, timeout=6)
+            subprocess.run([probe, mode], check=True, timeout=6)
             output = process.communicate(timeout=5)[0]
             assert process.returncode == 0, output
         finally:
@@ -959,8 +967,8 @@ if __name__ == "__main__":
         ime(*sys.argv[1:])
     elif sys.argv[1] in ("cursor", "core-cursor"):
         cursor_shapes(*sys.argv[1:])
-    elif sys.argv[1] == "repeat":
-        key_repeat(*sys.argv[2:])
+    elif sys.argv[1] in ("repeat", "scene-text"):
+        keyboard_input(*sys.argv[1:])
     elif sys.argv[1] in ("clipboard", "gpu-clipboard"):
         clipboard(*sys.argv[1:])
     elif sys.argv[1] == "indicators":

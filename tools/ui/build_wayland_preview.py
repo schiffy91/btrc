@@ -96,10 +96,10 @@ def configure(root: Path) -> None:
     manifest.write_text("".join(sections))
 
 
-def build(source: Path, output: Path, compiler: str, folder: Path) -> int:
+def emit_plan(source: Path, compiler: str, folder: Path, generated: Path, plan: Path) -> int:
+    """Compile with the native data root so probes can use the same provider selection as applications."""
     configure(folder)
     target = f"linux-{platform.machine()}"
-    generated, plan = folder / "app.c", folder / "plan.json"
     arguments = ["--target", target, "--emit-link-plan", str(plan), str(source.resolve())]
     if compiler == "python":
         repository = StdlibRepository(directory=str(folder / "stdlib"))
@@ -113,6 +113,14 @@ def build(source: Path, output: Path, compiler: str, folder: Path) -> int:
             subprocess.run(
                 [compiler, *arguments], stdout=result, check=True, env={**os.environ, "BTRC_HOME": str(folder)}
             )
+    return 0
+
+
+def build(source: Path, output: Path, compiler: str, folder: Path) -> int:
+    generated, plan = folder / "app.c", folder / "plan.json"
+    status = emit_plan(source, compiler, folder, generated, plan)
+    if status:
+        return status
     NativePlanBuilder().build(
         plan_path=plan,
         generated_c=generated,
