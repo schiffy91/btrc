@@ -1563,7 +1563,7 @@ class NativeDeclarationImporter:
         return arguments
 
     # The Library.Java binding whose JNI.h every generated Java adapter includes.
-    JAVA_RUNTIME_PACKAGE: ClassVar[str] = "btrc_stdlib_java"
+    JAVA_RUNTIME_PACKAGES: ClassVar[tuple[str, ...]] = ("btrc_stdlib_java", "btrc_java_host")
     # The Library.COM binding whose COM.h every generated COM adapter calls.
     COM_RUNTIME_PACKAGE: ClassVar[str] = "btrc_stdlib_com"
     JAVA_PRIMITIVES: ClassVar[Mapping[str, tuple[str, str]]] = {
@@ -1612,14 +1612,14 @@ class NativeDeclarationImporter:
                     (
                         candidate
                         for candidate in plan.bindings
-                        if candidate.package == self.JAVA_RUNTIME_PACKAGE
+                        if candidate.package in self.JAVA_RUNTIME_PACKAGES
                         and candidate.language == "c"
                         and os.path.basename(candidate.header) == "JNI.h"
                     ),
                     None,
                 )
                 if runtime is None:
-                    raise NativeImportError("Java bindings require import Library.Java.JavaVirtualMachine")
+                    raise NativeImportError("Java bindings require import Library.Java.JavaVirtualMachine on Android or JavaHost.JavaVirtualMachine on desktop")
                 arguments = (
                     reader,
                     f"--target={target}",

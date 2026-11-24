@@ -46,8 +46,7 @@ def apple_environment(environment=None):
     }
 
 
-@pytest.fixture
-def native_project(tmp_path, monkeypatch):
+def apple_native_target(monkeypatch):
     if sys.platform != "darwin" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
         pytest.skip("requires macOS and the explicitly built native header reader")
     sdk = subprocess.run(
@@ -62,6 +61,12 @@ def native_project(tmp_path, monkeypatch):
     triple = f"{architecture}-apple-macosx14.0.0"
     monkeypatch.setenv("BTRC_NATIVE_TARGET", triple)
     monkeypatch.setenv("BTRC_NATIVE_SYSROOT", sdk)
+    return sdk, triple
+
+
+@pytest.fixture
+def native_project(tmp_path, monkeypatch):
+    sdk, triple = apple_native_target(monkeypatch)
     (tmp_path / "src").mkdir()
     (tmp_path / "btrc.toml").write_text(
         'manifest-version = 1\n[package]\nname = "nativeConsumer"\n'

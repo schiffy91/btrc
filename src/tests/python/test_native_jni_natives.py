@@ -20,29 +20,28 @@ from src.tests.python.jni_adoption_fixtures import (
     missing_java_tools,
     natives_table,
 )
+from src.tests.python.jni_host_fixtures import desktop_jni_source as desktop_jni_source
 from src.tests.python.native_import_fixtures import native_compile as native_compile
-from src.tests.python.native_import_fixtures import native_project as native_project
 
 CALLBACKS = "dev.btrc.fixture.JniCallbacks"
 HOST = "dev.btrc.fixture.JniHost"
 WRITABLE = "natives.JniCallbacks.writable-arrays must name array parameters of its methods as <method>.argument<N>"
 PROGRAM = """import Library.Callback;
-import Library.Java.JavaVirtualMachine;
+import JavaHost.JavaVirtualMachine;
 import ./Fixture.btrc;
 int main() { return 0; }
 """
 
 
 @pytest.fixture
-def natives_project(native_project, monkeypatch):
+def natives_project(desktop_jni_source, monkeypatch):
     missing = missing_java_tools()
     if missing:
         pytest.skip(missing)
-    source, _, _ = native_project
+    source = desktop_jni_source
     root = source.parent.parent
     classes = compile_java(root)
     monkeypatch.setenv("BTRC_JAVA_CLASSPATH", str(classes / "app"))
-    (source.parent / "Foundation.btrc").unlink()
     (source.parent / "Fixture.btrc").write_text("// The Java binding's module.\n", encoding="utf-8")
     source.write_text(PROGRAM, encoding="utf-8")
     return source
@@ -66,7 +65,9 @@ def registration(methods=("compute(I)I",), **fields):
 
 
 def rejected(source, native_compile, natives, symbols=None):
-    (source.parent.parent / "btrc.toml").write_text(manifest(symbols, natives, sources=False), encoding="utf-8")
+    (source.parent.parent / "btrc.toml").write_text(
+        manifest(source.parent.parent, symbols, natives, sources=False), encoding="utf-8"
+    )
     result = native_compile(source)
     assert not result.successful
     return str(result.failure) + str(result.diagnostics)
@@ -213,7 +214,7 @@ def test_natives_require_library_callback(natives_project, native_compile):
 
 
 REGISTERING = """import Library.Callback;
-import Library.Java.JavaVirtualMachine;
+import JavaHost.JavaVirtualMachine;
 import ./Fixture.btrc;
 
 class Receiver implements IJniCallbacks {
@@ -242,7 +243,9 @@ def test_natives_bind_through_register_natives(natives_project, native_compile):
     natives = registration(methods, writable_arrays='["fill([II)V.argument0"]') + natives_table(
         "JniMain", "registerJniMain", "IJniMain", ["tick(I)I"], "throw", executor="main"
     )
-    (natives_project.parent.parent / "btrc.toml").write_text(manifest(None, natives, sources=False), encoding="utf-8")
+    (natives_project.parent.parent / "btrc.toml").write_text(
+        manifest(natives_project.parent.parent, None, natives, sources=False), encoding="utf-8"
+    )
     natives_project.write_text(REGISTERING, encoding="utf-8")
     compiled = native_compile(natives_project)
     assert compiled.successful, (compiled.failure, compiled.diagnostics)

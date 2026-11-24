@@ -42,9 +42,10 @@ from src.tests.python.jni_adoption_fixtures import (
     missing_java_tools,
     write_project,
 )
+from src.tests.python.jni_host_fixtures import desktop_compiler
+from src.tests.python.jni_host_fixtures import desktop_jni_source as desktop_jni_source
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
-from src.tests.python.native_import_fixtures import native_project as native_project
 
 
 def host_java():
@@ -53,7 +54,7 @@ def host_java():
         not shutil.which("pkg-config")
         or subprocess.run(["pkg-config", "--exists", "btrc-jni"], check=False, timeout=TOOL_TIMEOUT).returncode
     ):
-        pytest.skip("requires the btrc-jni pkg-config package (the flake's dev shell provides JDK 17)")
+        pytest.skip("requires the btrc-jni pkg-config package (use the optional JNI dev shell)")
     flags = subprocess.run(
         ["pkg-config", "--libs-only-L", "btrc-jni"], capture_output=True, text=True, check=True, timeout=TOOL_TIMEOUT
     ).stdout.split()
@@ -64,14 +65,13 @@ def host_java():
 
 
 @pytest.fixture
-def adopted_project(native_project, monkeypatch):
+def adopted_project(desktop_jni_source, monkeypatch):
     java = host_java()
     missing = missing_java_tools()
     if missing:
         pytest.skip(missing)
-    source, _, _ = native_project
+    source = desktop_jni_source
     root = source.parent.parent
-    (source.parent / "Foundation.btrc").unlink()
     source, classes = write_project(root)
     monkeypatch.setenv("BTRC_JAVA_CLASSPATH", str(classes / "app"))
     return source, classes, java
@@ -98,7 +98,7 @@ def test_java_process_adopts_its_vm_under_checkjni(adopted_project, native_compi
         assert call in compiled.c_source, call
     assert "GetPrimitiveArrayCritical" not in compiled.c_source
     suffix = ".dylib" if sys.platform == "darwin" else ".so"
-    library = build_library(compiled, root, root / f"lib{LIBRARY_NAME}{suffix}", environment, cc="/usr/bin/clang")
+    library = build_library(compiled, root, root / f"lib{LIBRARY_NAME}{suffix}", environment, cc=desktop_compiler())
 
     def run(mode):
         # The application classes load through their own class loader (JniEntry's third argument);

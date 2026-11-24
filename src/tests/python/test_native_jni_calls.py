@@ -15,9 +15,10 @@ import subprocess
 import pytest
 
 from src.tests.process_limits import TOOL_TIMEOUT
+from src.tests.python.jni_host_fixtures import desktop_compiler, desktop_dependency
+from src.tests.python.jni_host_fixtures import desktop_jni_source as desktop_jni_source
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
-from src.tests.python.native_import_fixtures import native_project as native_project
 from tools.native_plan import NativePlanBuilder
 
 HOST = """package dev.btrc.fixture;
@@ -160,7 +161,7 @@ SYMBOLS = [
     "dev.btrc.fixture.JniHost.count:I",
 ]
 
-PROGRAM = """import Library.Java.JavaVirtualMachine;
+PROGRAM = """import JavaHost.JavaVirtualMachine;
 import Library.Vector;
 import ./Fixture.btrc;
 #include <assert.h>
@@ -240,24 +241,25 @@ def java_environment():
         not shutil.which("pkg-config")
         or subprocess.run(["pkg-config", "--exists", "btrc-jni"], check=False, timeout=TOOL_TIMEOUT).returncode
     ):
-        pytest.skip("requires the btrc-jni pkg-config package (the flake's dev shell provides JDK 17)")
+        pytest.skip("requires the btrc-jni pkg-config package (use the optional JNI dev shell)")
     if not shutil.which("javac") or not os.environ.get("BTRC_JAVA_CLASS_READER"):
-        pytest.skip("requires javac and BTRC_JAVA_CLASS_READER (the flake's dev shell provides both)")
+        pytest.skip("requires javac and BTRC_JAVA_CLASS_READER (use the optional JNI dev shell)")
     return apple_environment()
 
 
-def manifest(symbols, extra=""):
+def manifest(root, symbols, extra=""):
     listed = ", ".join(f'"{symbol}"' for symbol in symbols)
     return (
         'manifest-version = 1\n[package]\nname = "javaConsumer"\n'
-        f'[[native.bindings]]\nmodule = "Fixture"\nlanguage = "java"\nsymbols = [{listed}]\n{extra}'
+        + desktop_dependency(root)
+        + f'[[native.bindings]]\nmodule = "Fixture"\nlanguage = "java"\nsymbols = [{listed}]\n{extra}'
     )
 
 
 @pytest.fixture
-def java_project(native_project, monkeypatch):
+def java_project(desktop_jni_source, monkeypatch):
     environment = java_environment()
-    source, _, _ = native_project
+    source = desktop_jni_source
     root = source.parent.parent
     classes = root / "classes"
     sources = []
@@ -273,8 +275,7 @@ def java_project(native_project, monkeypatch):
         timeout=600,
     )
     monkeypatch.setenv("BTRC_JAVA_CLASSPATH", str(classes))
-    (root / "btrc.toml").write_text(manifest(SYMBOLS), encoding="utf-8")
-    (source.parent / "Foundation.btrc").unlink()
+    (root / "btrc.toml").write_text(manifest(root, SYMBOLS), encoding="utf-8")
     (source.parent / "Fixture.btrc").write_text("// The Java binding's module.\n", encoding="utf-8")
     source.write_text(PROGRAM.replace("CLASSPATH", str(classes)), encoding="utf-8")
     return source, environment
@@ -295,7 +296,7 @@ def build(source, native_compile, environment):
         return subprocess.run(command, env=environment, **kwargs)
 
     NativePlanBuilder(runner=run).build(
-        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+        plan_path=plan, generated_c=generated, output=executable, cc=desktop_compiler(), cxx=desktop_compiler(cxx=True)
     )
     return compiled.c_source, executable
 
@@ -358,11 +359,11 @@ def test_java_manifest_rejections(java_project, native_compile, extra, symbols, 
     source, _ = java_project
     root = source.parent.parent
     (root / "Fixture.h").write_text("", encoding="utf-8")
-    (root / "btrc.toml").write_text(manifest(symbols, extra), encoding="utf-8")
+    (root / "btrc.toml").write_text(manifest(root, symbols, extra), encoding="utf-8")
     assert message in rejected(source, native_compile)
 
 
-MINIMAL = "import Library.Java.JavaVirtualMachine;\nimport ./Fixture.btrc;\nint main() { return 0; }\n"
+MINIMAL = "import JavaHost.JavaVirtualMachine;\nimport ./Fixture.btrc;\nint main() { return 0; }\n"
 HOST_CLASS = "dev.btrc.fixture.JniHost"
 
 
@@ -417,7 +418,7 @@ HOST_CLASS = "dev.btrc.fixture.JniHost"
 )
 def test_java_projection_rejections(java_project, native_compile, symbols, message):
     source, _ = java_project
-    (source.parent.parent / "btrc.toml").write_text(manifest(symbols), encoding="utf-8")
+    (source.parent.parent / "btrc.toml").write_text(manifest(source.parent.parent, symbols), encoding="utf-8")
     source.write_text(MINIMAL, encoding="utf-8")
     assert message in rejected(source, native_compile)
 
@@ -426,7 +427,7 @@ def test_java_class_selected_by_two_bindings(java_project, native_compile):
     source, _ = java_project
     root = source.parent.parent
     second = '[[native.bindings]]\nmodule = "Second"\nlanguage = "java"\nsymbols = ["dev.btrc.fixture.JniHost"]\n'
-    (root / "btrc.toml").write_text(manifest([HOST_CLASS], second), encoding="utf-8")
+    (root / "btrc.toml").write_text(manifest(root, [HOST_CLASS], second), encoding="utf-8")
     (source.parent / "Second.btrc").write_text("// A second Java binding's module.\n", encoding="utf-8")
     source.write_text(MINIMAL.replace("import ./Fixture.btrc;", "import ./Fixture.btrc;\nimport ./Second.btrc;"))
     assert f"Java class {HOST_CLASS} is selected by two bindings" in rejected(source, native_compile)
@@ -447,7 +448,7 @@ def test_java_class_selected_by_two_bindings(java_project, native_compile):
 )
 def test_java_binding_requirements(java_project, native_compile, monkeypatch, variable, program, message):
     source, _ = java_project
-    (source.parent.parent / "btrc.toml").write_text(manifest([HOST_CLASS]), encoding="utf-8")
+    (source.parent.parent / "btrc.toml").write_text(manifest(source.parent.parent, [HOST_CLASS]), encoding="utf-8")
     source.write_text(program, encoding="utf-8")
     if variable is not None:
         monkeypatch.delenv(variable)
