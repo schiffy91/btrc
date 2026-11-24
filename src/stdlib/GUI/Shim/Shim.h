@@ -16,6 +16,14 @@
 
 typedef struct BtrcShimWindow BtrcShimWindow;
 
+enum BtrcShimPhysicalKeySet {
+	BTRC_SHIM_PHYSICAL_NONE,
+	BTRC_SHIM_PHYSICAL_XKB,
+	BTRC_SHIM_PHYSICAL_AT_SET1,
+	BTRC_SHIM_PHYSICAL_USB_KEYBOARD,
+	BTRC_SHIM_PHYSICAL_EVDEV
+};
+
 typedef struct BtrcShimEvent {
 	unsigned int type;
 	unsigned int window;
@@ -28,6 +36,8 @@ typedef struct BtrcShimEvent {
 	unsigned int button;
 	unsigned int clicks;
 	unsigned int scancode;
+	enum BtrcShimPhysicalKeySet physicalSet;
+	unsigned int physicalCode;
 	unsigned int key;
 	unsigned int modifiers;
 	int data1;

@@ -61,6 +61,14 @@ class ShimWindowKeys implements ICallbackRegistration {
 
 /* Translates the shim's key and modifier codes into portable events. */
 class ShimKeys {
+	class AppScanCode? physicalKey(unsigned int set, int code) {
+		if (set == (unsigned int)BTRC_SHIM_PHYSICAL_XKB) { return AppScanCode(APP_SCAN_XKB, code); }
+		if (set == (unsigned int)BTRC_SHIM_PHYSICAL_AT_SET1) { return AppScanCode(APP_SCAN_AT_SET1, code); }
+		if (set == (unsigned int)BTRC_SHIM_PHYSICAL_USB_KEYBOARD) { return AppScanCode(APP_SCAN_USB_KEYBOARD, code); }
+		if (set == (unsigned int)BTRC_SHIM_PHYSICAL_EVDEV) { return AppScanCode(APP_SCAN_LINUX_EVDEV, code); }
+		return null;
+	}
+
 	class AppKeyCode keyCode(unsigned int key, unsigned int scancode) {
 		if (key == (unsigned int)BTRC_SHIM_KEY_ESCAPE) { return APP_KEY_ESCAPE; }
 		if (key == (unsigned int)BTRC_SHIM_KEY_RETURN || key == (unsigned int)BTRC_SHIM_KEY_KP_ENTER) { return APP_KEY_ENTER; }
@@ -823,7 +831,8 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 			self._modifiers = ShimKeys.modifiers(event->modifiers);
 			var code = ShimKeys.keyCode(event->key, event->scancode);
 			AppKeyAction action = event->down != 0 ? (event->repeat != 0 ? APP_KEY_REPEATED : APP_KEY_PRESSED) : APP_KEY_RELEASED;
-			self.deliverKey(AppKeyboardEvent(action, code, self._modifiers));
+			var physical = ShimKeys.physicalKey((unsigned int)event->physicalSet, (int)event->physicalCode);
+			self.deliverKey(AppKeyboardEvent(action, code, self._modifiers, physical));
 			self.applyFocus();
 			return;
 		}

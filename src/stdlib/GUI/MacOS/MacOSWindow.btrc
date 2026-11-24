@@ -114,8 +114,8 @@ class MacOSWindowKeys implements IAppKitEventMonitor {
 	}
 
 	private NSEvent? dispatchNative(NSEvent native) {
-		var key = self.keyCode(native.keyCode());
-		if (key == APP_KEY_UNKNOWN) { return native; }
+		var physical = native.keyCode();
+		var key = self.keyCode(physical);
 		var type = native.type();
 		var flags = native.modifierFlags();
 		bool down = type == NSEventTypeKeyDown;
@@ -125,13 +125,19 @@ class MacOSWindowKeys implements IAppKitEventMonitor {
 			else if (key == APP_KEY_RIGHT_ALT) { mask = (unsigned long)NX_DEVICERALTKEYMASK; }
 			else if (key == APP_KEY_LEFT_SHIFT) { mask = (unsigned long)NX_DEVICELSHIFTKEYMASK; }
 			else if (key == APP_KEY_RIGHT_SHIFT) { mask = (unsigned long)NX_DEVICERSHIFTKEYMASK; }
+			else if (physical == kVK_Control) { mask = (unsigned long)NX_DEVICELCTLKEYMASK; }
+			else if (physical == kVK_RightControl) { mask = (unsigned long)NX_DEVICERCTLKEYMASK; }
+			else if (physical == kVK_Command) { mask = (unsigned long)NX_DEVICELCMDKEYMASK; }
+			else if (physical == kVK_RightCommand) { mask = (unsigned long)NX_DEVICERCMDKEYMASK; }
+			else if (physical == kVK_CapsLock) { mask = (unsigned long)NSEventModifierFlagCapsLock; }
+			else if (physical == kVK_Function) { mask = (unsigned long)NSEventModifierFlagFunction; }
 			else { return native; }
 			down = (flags & mask) != 0UL;
 		}
 		AppKeyAction action = down ? APP_KEY_PRESSED : APP_KEY_RELEASED;
 		if (type == NSEventTypeKeyDown && native.isARepeat()) { action = APP_KEY_REPEATED; }
 		var modifiers = AppKeyModifiers((flags & NSEventModifierFlagShift) != 0UL, (flags & NSEventModifierFlagControl) != 0UL, (flags & NSEventModifierFlagOption) != 0UL, (flags & NSEventModifierFlagCommand) != 0UL);
-		return self._handler.key(AppKeyboardEvent(action, key, modifiers)) ? null : native;
+		return self._handler.key(AppKeyboardEvent(action, key, modifiers, AppScanCode(APP_SCAN_MAC_VIRTUAL, (int)physical))) ? null : native;
 	}
 }
 
