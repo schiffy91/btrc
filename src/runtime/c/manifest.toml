@@ -305,7 +305,7 @@ order = { python = 19, btrc = 19 }
 name = "__btrc_string_live_count"
 category = "string_ownership"
 asset = "strings.c"
-dependencies = ["__btrc_string_registry_lock", "__btrc_string_registry_count"]
+dependencies = ["__btrc_string_registry_lock_state", "__btrc_string_registry_count"]
 headers = []
 source_visible = true
 order = { python = 20, btrc = 20 }
@@ -1217,7 +1217,7 @@ name = "__btrc_arc_callback_types"
 category = "cycles"
 asset = "cycles.c"
 dependencies = []
-headers = []
+headers = ["stdatomic.h"]
 provided_types = [
   "__btrc_arc_count",
   "__btrc_arc_type",
@@ -1340,7 +1340,7 @@ name = "__btrc_suspect_state"
 category = "cycles"
 asset = "cycles.c"
 dependencies = ["__btrc_arc_callback_types"]
-headers = []
+headers = ["stdatomic.h"]
 source_visible = false
 order = { python = 93, btrc = 93 }
 
@@ -1392,19 +1392,19 @@ order = { python = 153, btrc = 139 }
 name = "__btrc_arc_lock_state"
 category = "cycles"
 asset = "cycles.c"
-dependencies = []
-headers = ["stdatomic.h"]
+dependencies = ["__btrc_tls_state", "__btrc_arc_header_of"]
+headers = ["stdatomic.h", "stdint.h"]
 source_visible = false
-order = { python = 106, btrc = 106 }
+order = { python = 105, btrc = 105 }
 
 [[helpers]]
 name = "__btrc_arc_shutdown_state"
 category = "cycles"
 asset = "cycles.c"
 dependencies = []
-headers = []
+headers = ["stdatomic.h"]
 source_visible = false
-order = { python = 108, btrc = 108 }
+order = { python = 107, btrc = 107 }
 
 [[helpers]]
 name = "__btrc_arc_active_drains_state"
@@ -1413,7 +1413,7 @@ asset = "cycles.c"
 dependencies = []
 headers = []
 source_visible = false
-order = { python = 117, btrc = 117 }
+order = { python = 116, btrc = 116 }
 
 [[helpers]]
 name = "__btrc_arc_active_unwinds_state"
@@ -1431,7 +1431,7 @@ asset = "cycles.c"
 dependencies = []
 headers = ["stdatomic.h"]
 source_visible = false
-order = { python = 107, btrc = 107 }
+order = { python = 106, btrc = 106 }
 
 [[helpers]]
 name = "__btrc_arc_mutation_lock"
@@ -1444,16 +1444,16 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 109, btrc = 109 }
+order = { python = 108, btrc = 108 }
 
 [[helpers]]
 name = "__btrc_arc_topology_state"
 category = "cycles"
 asset = "cycles.c"
 dependencies = []
-headers = []
+headers = ["stdatomic.h"]
 source_visible = false
-order = { python = 114, btrc = 114 }
+order = { python = 113, btrc = 113 }
 
 [[helpers]]
 name = "__btrc_arc_topology_depth_state"
@@ -1462,7 +1462,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_tls_state"]
 headers = []
 source_visible = false
-order = { python = 116, btrc = 116 }
+order = { python = 115, btrc = 115 }
 
 [[helpers]]
 name = "__btrc_arc_topology_begin"
@@ -1538,7 +1538,7 @@ asset = "cycles.c"
 dependencies = []
 headers = ["stdatomic.h"]
 source_visible = false
-order = { python = 113, btrc = 113 }
+order = { python = 112, btrc = 112 }
 
 [[helpers]]
 name = "__btrc_arc_exclusive_snapshot"
@@ -1561,7 +1561,7 @@ name = "__btrc_arc_reverse_state"
 category = "cycles"
 asset = "cycles.c"
 dependencies = []
-headers = []
+headers = ["stdatomic.h"]
 source_visible = false
 order = { python = 101, btrc = 101 }
 
@@ -1581,7 +1581,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_header_of"]
 headers = []
 source_visible = false
-order = { python = 112, btrc = 112 }
+order = { python = 111, btrc = 111 }
 
 [[helpers]]
 name = "__btrc_arc_incoming_teardown_pending"
@@ -1666,7 +1666,7 @@ order = { python = 165, btrc = 151 }
 name = "__btrc_forget_suspect"
 category = "cycles"
 asset = "cycles.c"
-dependencies = ["__btrc_suspect_state", "__btrc_ptr_hash"]
+dependencies = ["__btrc_suspect_state", "__btrc_ptr_hash", "__btrc_arc_header_of"]
 headers = []
 source_visible = false
 order = { python = 103, btrc = 103 }
@@ -1681,10 +1681,14 @@ dependencies = [
   "__btrc_arc_reverse_proves_live",
   "__btrc_forget_suspect",
   "__btrc_arc_deferred_state",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_snapshot_gate_state",
+  "__btrc_arc_topology_state",
+  "__btrc_arc_topology_depth_state",
 ]
 headers = []
 source_visible = false
-order = { python = 105, btrc = 105 }
+order = { python = 118, btrc = 118 }
 
 [[helpers]]
 name = "__btrc_arc_replace_edge"
@@ -1782,7 +1786,7 @@ asset = "cycles.c"
 dependencies = ["__btrc_arc_callback_types"]
 headers = []
 source_visible = false
-order = { python = 110, btrc = 110 }
+order = { python = 109, btrc = 109 }
 
 [[helpers]]
 name = "__btrc_arc_graph_primitives"
@@ -1798,7 +1802,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 111, btrc = 111 }
+order = { python = 110, btrc = 110 }
 
 [[helpers]]
 name = "__btrc_arc_abandon_graph"
@@ -1886,7 +1890,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 115, btrc = 115 }
+order = { python = 114, btrc = 114 }
 
 [[helpers]]
 name = "__btrc_arc_drain"
@@ -1908,7 +1912,7 @@ headers = [
   "string.h",
 ]
 source_visible = false
-order = { python = 118, btrc = 118 }
+order = { python = 117, btrc = 117 }
 
 [[helpers]]
 name = "__btrc_collect_cycles"

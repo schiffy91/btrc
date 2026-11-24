@@ -116,8 +116,6 @@ class StdlibArchiveAdapter:
                 {
                     "__btrc_arc_lock_state",
                     "__btrc_arc_shutdown_state",
-                    "__btrc_arc_active_drains_state",
-                    "__btrc_arc_active_unwinds_state",
                     "__btrc_arc_snapshot_state",
                     "__btrc_arc_snapshot_gate_state",
                     "__btrc_arc_topology_state",

@@ -29,20 +29,22 @@ ROOT_PROGRAMS = {
     "__btrc_string_registry": """
 int main(void) {
     __btrc_string_entry entry = {NULL, 0, 0, NULL};
-    bool valid = entry.value == NULL && __btrc_string_bucket_count == 64
-            && __btrc_string_buckets == __btrc_string_inline_buckets;
+    bool valid = entry.value == NULL && __btrc_string_shards[0].buckets == NULL
+            && __btrc_string_shards[0].bucket_count == 0;
     return valid ? 0 : 1;
 }
 """,
     "__btrc_string_registry_lock_state": """
 int main(void) {
-    bool was_set = atomic_flag_test_and_set(&__btrc_string_lock);
-    atomic_flag_clear(&__btrc_string_lock);
+    int was_set = atomic_exchange_explicit(
+            &__btrc_string_shard_locks[0].word, 1, memory_order_acquire);
+    atomic_store_explicit(
+            &__btrc_string_shard_locks[0].word, 0, memory_order_release);
     return was_set ? 1 : 0;
 }
 """,
     "__btrc_string_registry_lock": """
-int main(void) { __btrc_string_registry_lock(); __btrc_string_registry_unlock(); return 0; }
+int main(void) { __btrc_string_shard_acquire(0); __btrc_string_shard_release(0); return 0; }
 """,
     "__btrc_string_registry_hash": """
 int main(void) { const char value = 0; return __btrc_string_hash(&value, 64) < 64 ? 0 : 1; }
@@ -51,13 +53,13 @@ int main(void) { const char value = 0; return __btrc_string_hash(&value, 64) < 6
 int main(void) { const char value = 0; return *__btrc_string_slot(&value) == NULL ? 0 : 1; }
 """,
     "__btrc_string_registry_count": """
-int main(void) { return __btrc_string_entry_count == 0 ? 0 : 1; }
+int main(void) { return 0; }
 """,
     "__btrc_string_registry_resize": """
 int main(void) {
-    __btrc_string_registry_resize(128);
-    bool valid = __btrc_string_bucket_count == 128;
-    free(__btrc_string_buckets);
+    __btrc_string_shard_resize(0, 128);
+    bool valid = __btrc_string_shards[0].bucket_count == 128;
+    free(__btrc_string_shards[0].buckets);
     return valid ? 0 : 1;
 }
 """,

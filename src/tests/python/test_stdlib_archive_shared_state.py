@@ -175,8 +175,6 @@ def test_mutable_helper_groups_have_complete_ownership():
             {
                 "__btrc_arc_lock_state",
                 "__btrc_arc_shutdown_state",
-                "__btrc_arc_active_drains_state",
-                "__btrc_arc_active_unwinds_state",
                 "__btrc_arc_snapshot_state",
                 "__btrc_arc_snapshot_gate_state",
                 "__btrc_arc_topology_state",
@@ -244,11 +242,10 @@ def test_mutable_helper_groups_have_complete_ownership():
             + STRING_OWNERSHIP["__btrc_string_registry_lock_state"].c_source
             + STRING_OWNERSHIP["__btrc_string_registry_count"].c_source,
             (
-                "__btrc_string_lock",
-                "__btrc_string_inline_buckets",
-                "__btrc_string_buckets",
-                "__btrc_string_bucket_count",
-                "__btrc_string_entry_count",
+                "__btrc_string_shards",
+                "__btrc_string_shard_locks",
+                "inline_buckets",
+                "bucket_count",
             ),
         ),
     )
@@ -441,15 +438,16 @@ def test_string_registry_declarations_are_derived_without_initializers():
     implementation = SHARED.derive_shared_implementation(source)
 
     assert "typedef struct __btrc_string_entry {" in declarations
-    assert "extern atomic_flag __btrc_string_lock;" in declarations
-    assert ("extern __btrc_string_entry* __btrc_string_inline_buckets[64];") in declarations
-    assert "extern __btrc_string_entry** __btrc_string_buckets;" in declarations
-    assert "extern size_t __btrc_string_entry_count;" in declarations
-    assert "void __btrc_string_registry_lock(void);" in declarations
+    assert "typedef struct __btrc_string_shard {" in declarations
+    assert "typedef struct __btrc_string_shard_lock {" in declarations
+    assert "extern __btrc_string_shard __btrc_string_shards[__BTRC_STRING_SHARD_COUNT];" in declarations
+    assert "extern __btrc_string_shard_lock __btrc_string_shard_locks[__BTRC_STRING_SHARD_COUNT];" in declarations
+    assert "void __btrc_string_shard_acquire(size_t shard);" in declarations
+    assert "void __btrc_string_shard_release(size_t shard);" in declarations
     assert "size_t __btrc_string_live_count(void);" in declarations
-    assert "ATOMIC_FLAG_INIT" not in declarations
     assert "typedef struct __btrc_string_entry" not in implementation
-    assert "atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;" in implementation
+    assert "__btrc_string_shard __btrc_string_shards[__BTRC_STRING_SHARD_COUNT];" in implementation
+    assert "__btrc_string_shard_lock __btrc_string_shard_locks[__BTRC_STRING_SHARD_COUNT];" in implementation
     assert "size_t __btrc_string_live_count(void) {" in implementation
 
 

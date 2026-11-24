@@ -10,7 +10,7 @@ Every managed object starts with one real header member:
 
 ```c
 /* src/runtime/c/cycles.c, helper __btrc_arc_callback_types */
-typedef int __btrc_arc_count;
+typedef _Atomic int __btrc_arc_count;
 typedef struct __btrc_arc_type __btrc_arc_type;
 typedef struct __btrc_arc_incoming __btrc_arc_incoming;
 typedef enum {
@@ -22,12 +22,15 @@ typedef struct __btrc_arc_header {
     __btrc_arc_count rc;
     __btrc_arc_count edge_rc;
     /* One current incoming-edge owner, or self as a full-snapshot sentinel. */
-    void* live_witness;
+    _Atomic(void*) live_witness;
     const __btrc_arc_type* type;
     __btrc_arc_incoming* incoming;
     void* deferred_next;
     unsigned char suppress_hook;
-    __btrc_arc_state state;
+    _Atomic unsigned char in_suspects;
+    /* Bit 15: per-object edge spinlock; bits 0..14: active witness-walk pins. */
+    _Atomic unsigned short pin_lock;
+    _Atomic int state;
 } __btrc_arc_header;
 struct __btrc_arc_incoming {
     void* owner;
@@ -36,21 +39,23 @@ struct __btrc_arc_incoming {
 ```
 
 `incoming` is the singly linked list of managed owners currently holding an
-edge to the object, with `live_witness` caching one of them (or the object
-itself as a full-snapshot sentinel); `deferred_next` links the object into the
-thread's deferred-destruction queue, `state` records whether it is live, queued
-or being destroyed, and `suppress_hook` makes that queue skip the type's
-destruction hook, which the collector sets on unreachable roots of a partial
-construction.
+edge to a visitable object (acyclic leaf objects with `type->visit == NULL`
+skip `incoming` allocation), with `live_witness` caching one of them (or the
+object itself as a full-snapshot sentinel); `deferred_next` links the object
+into the thread's deferred-destruction queue, `state` records whether it is
+live, queued or being destroyed, `in_suspects` tracks suspect-table membership
+for fast lock-free terminal release, `pin_lock` packs a per-object edge lock in
+bit 15 and a witness-walk pin count in bits 0..14 while keeping the header at
+48 bytes, and `suppress_hook` makes that queue skip the type's destruction
+hook, which the collector sets on unreachable roots of a partial construction.
 
 `type` points to one immutable, process-lifetime descriptor for the object's
 concrete type. It is never inferred from a base-typed release site. This keeps
 terminal destruction and cycle visitation polymorphically correct without
 changing source-language method dispatch.
 
-`__btrc_arc_count` is the single substitution point for the future C11 atomic
-implementation. Generated code must access counters by header member, not by
-casting an object to `int*` or assuming byte offsets.
+`__btrc_arc_count` is `_Atomic int`. Generated code must access counters by
+header member, not by casting an object to `int*` or assuming byte offsets.
 
 ## Exact-counter invariant
 
@@ -108,41 +113,44 @@ selection; they do not replace trial-deletion verification.
 
 ## Cross-thread design
 
-Plain integer counters and thread-local candidate queues are not the final
-thread-safe contract. Atomic counts alone are also insufficient: a collector
-must not race a slot rewrite, and two thread-local queues can retain duplicate
-pointers after one thread frees an object.
+The runtime uses C11 `stdatomic.h` directly so `--freestanding` builds require
+no platform lock headers. The concurrency model separates fast mutator paths
+from exclusive cycle snapshots with a strict lock hierarchy:
 
-The thread-safe runtime will use these rules:
-
-1. `__btrc_arc_count` becomes `_Atomic int`. Retains use checked atomic
-   increments. Releases use release decrements and an acquire fence before
-   terminal destruction. Owned-reference publication still follows normal C11
-   happens-before rules; retaining an unowned borrowed pointer is invalid.
-2. Candidates live in one process-wide collector domain, deduplicated under
-   that domain's lock. No TLS queue may hold a stale independently reclaimable
-   pointer.
-3. Every managed topology mutation is enclosed by a reentrant per-thread entry
-   into the domain lock. The lock covers retaining the new edge, publishing or
-   clearing the slot, releasing the old edge, and candidate insertion. Nested
-   collection methods and destructor cleanup reuse the same entry depth.
-4. Cycle snapshot, liveness marking, and dead-edge detachment hold the same
-   domain lock, so visitors observe one stable graph and a mutually consistent
-   pair of counters. External-root atomics may change concurrently, but legal
-   retain-before-release transfer never transiently removes the last external
-   owner.
-5. User destructors do not run while the domain lock is exclusively held. The
-   collector first detaches proven-dead edges, marks objects terminal, removes
-   their candidate entries, then releases the lock and invokes destructors.
-   This prevents user callbacks, joins, or nested runtime operations from
-   deadlocking the collector.
-6. A thread-exit cleanup drains the shared domain; it does not free process-wide
-   collector storage still usable by another thread. Process-exit cleanup owns
-   final domain storage teardown.
-
-The lock may be implemented with C11 atomics so non-threaded programs do not
-gain a mandatory pthread dependency. Before enabling cross-thread collection,
-tests must include high-iteration shared-reference transfer, concurrent edge
-replacement, a cycle spanning two worker threads, and a ThreadSanitizer-capable
-build contract. Until that implementation lands, the header layout and helper
-APIs must remain atomic-ready and must not imply that TLS collection is safe.
+1. **Level 0 (Striped snapshot gate):** Each thread claims a 128-byte-aligned
+   stripe in `__btrc_arc_shared.stripes[64]` (`active`, `topology`, `drains`,
+   `unwinds`). Normal retains, acyclic releases, and edge updates increment
+   their own stripe with `seq_cst` and read `__btrc_arc_snapshotting` (skipping
+   `active` updates when already inside a thread-local topology scope). An
+   exclusive cycle snapshot publishes `__btrc_arc_snapshotting = 1` with
+   `seq_cst` first, then checks every `topology` stripe and drains every
+   `active` stripe with `seq_cst` (Dekker ordering), guaranteeing that visitors
+   observe a stable object graph without serializing mutators against one
+   global lock.
+2. **Level 1 (Striped slot locks):** Slot transactions (`__btrc_arc_replace_edge`,
+   `__btrc_arc_destroy_slot`, `__btrc_arc_destroy_edge`) lock at most one
+   128-byte-aligned stripe in `__btrc_arc_shared.slot_locks[512]` hashed by the
+   slot address.
+3. **Level 2 (Inline per-object header locks):** Cyclic edge mutations acquire
+   bit 15 of `header->pin_lock` in strictly ascending pointer-address order,
+   eliminating cross-object lock collisions. Acyclic leaf objects
+   (`type->visit == NULL`) take lock-free atomic `rc`/`edge_rc` paths and skip
+   `incoming` node allocation.
+4. **Level 3 (Suspect table lock):** Candidates live in one process-wide
+   suspect table guarded by `__btrc_arc_shared.suspect_lock`, deduplicated with
+   `header->in_suspects`. Witness walks pin the candidate in bits 0..14 of
+   `header->pin_lock` and traverse `live_witness` hand-over-hand with Brent's
+   cycle check before falling back to suspect insertion.
+5. **Lock-free terminal drains:** User destructors and hooks never run while
+   any lock or snapshot gate is held. Objects reaching `rc == 0` enqueue onto
+   the releasing thread's intrusive deferred FIFO, wait for any active witness
+   pins to drop to zero, then run hooks and `destroy` unlocked.
+6. **Thread and process cleanup:** Worker exit drains its thread-local deferred
+   FIFO and abandon queue without tearing down shared process storage. Process
+   exit sets `__btrc_arc_shutdown`, drains all mutator stripes, verifies zero
+   active drains/unwinds/topology scopes, and frees process-wide collector
+   tables.
+7. **Sharded string registry:** Managed string ownership (`src/runtime/c/strings.c`)
+   uses 256 128-byte-aligned shards with per-shard atomic live counts, letting
+   string literals bypass locks completely and letting worker threads retain
+   and release distinct strings in parallel.

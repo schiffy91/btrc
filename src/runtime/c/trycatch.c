@@ -21,6 +21,7 @@ typedef struct {
     int destroyed_cap;
     int arc_topology_depth;
     int arc_draining;
+    int arc_stripe;
     void* arc_deferred_head;
     void* arc_deferred_tail;
     void (*abandon_drain_callback)(void);

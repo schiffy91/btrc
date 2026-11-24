@@ -629,6 +629,15 @@ static void* terminal_cycle_release_worker(void* raw) {
     return NULL;
 }
 
+static int count_active_drains(void) {
+    int total = 0;
+    for (size_t i = 0; i < __BTRC_ARC_STRIPE_COUNT; i++) {
+        total += atomic_load_explicit(
+            &__btrc_arc_shared.stripes[i].drains, memory_order_acquire);
+    }
+    return total;
+}
+
 static void test_snapshot_during_terminal_cycle_drain(void) {
     Node* root = new_node(1000);
     Node* first = new_node(1001);
@@ -659,15 +668,15 @@ static void test_snapshot_during_terminal_cycle_drain(void) {
     /* The terminal owner is already DESTROYING but still owns `first` while
      * its hook is paused. A concurrent snapshot may classify the downstream
      * cycle, but the owner's unscanned edge must keep both nodes live. */
-    if (root->arc.state != __BTRC_ARC_DESTROYING
-            || __btrc_arc_active_drains != 1) abort();
+    if (atomic_load_explicit(&root->arc.state, memory_order_acquire) != __BTRC_ARC_DESTROYING
+            || count_active_drains() != 1) abort();
     __btrc_collect_cycles();
     if (count_for(destroy_counts, 1000) != 0
             || count_for(destroy_counts, 1001) != 0
             || count_for(destroy_counts, 1002) != 0
-            || first->arc.state != __BTRC_ARC_LIVE
-            || second->arc.state != __BTRC_ARC_LIVE
-            || __btrc_arc_active_drains != 1) abort();
+            || atomic_load_explicit(&first->arc.state, memory_order_acquire) != __BTRC_ARC_LIVE
+            || atomic_load_explicit(&second->arc.state, memory_order_acquire) != __BTRC_ARC_LIVE
+            || count_active_drains() != 1) abort();
 
     if (pthread_mutex_lock(&terminal_overlap_mutex)) abort();
     terminal_overlap_continue = 1;
