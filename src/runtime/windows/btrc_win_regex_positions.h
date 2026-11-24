@@ -169,16 +169,38 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 	return left;
 }
 
+/* A single literal, range or named class occupies one consuming leaf
+   when copied. Other bracket layouts can use a different copy stride. */
+static inline int btrc_win_pos_supported(const char *p)
+{
+	for (; *p; ++p) {
+		if (*p == '$' || *p == '^' || *p == '\\') return 0;
+		if (*p != '[') continue;
+		if (p[1] == '[' && p[2] == ':') {
+			const char *end = strstr(p + 3, ":]]");
+			if (!end) return 0;
+			for (const char *c = p + 3; c < end; ++c)
+				if (*c < 'a' || *c > 'z') return 0;
+			p = end + 2;
+		} else {
+			if (!p[1] || p[1] == '^' || p[1] == '[' || p[1] == ']') return 0;
+			if (p[2] == ']') p += 2;
+			else if (p[2] == '-' && p[3] && p[3] != '[' && p[3] != ']' && p[4] == ']') p += 4;
+			else return 0;
+		}
+	}
+	return 1;
+}
+
 static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, size_t *groups)
 {
-	if (*pattern != '(' || strpbrk(pattern, "[]\\^$") || strlen(pattern) > 255) return NULL;
+	if (*pattern != '(' || strlen(pattern) > 255 || !btrc_win_pos_supported(pattern)) return NULL;
 	btrc_win_rx_program parsed = {0};
 	parsed.flags = REG_EXTENDED;
 	btrc_win_rx_parser parser = {&parsed, (const unsigned char *)pattern, 0, 0, 0, 0};
 	int root = btrc_win_rx_expression(&parser, 0);
 	btrc_win_pos_program *p = NULL;
-	if (!parser.error && root && !parsed.nodes[root].next && parsed.nodes[root].op == btrc_win_rx_repeat &&
-	    !parsed.nodes[root].min && parsed.nodes[parsed.nodes[root].child].op == btrc_win_rx_group) {
+	if (!parser.error && root && parser.groups) {
 		int index = 0;
 		for (int i = 1; i <= parser.nodes; ++i)
 			if (parsed.nodes[i].op == btrc_win_rx_byte) parsed.nodes[i].arg = index++;
