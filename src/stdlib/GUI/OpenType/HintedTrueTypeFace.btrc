@@ -1,0 +1,129 @@
+import Library.Bytes;
+import Library.GUI.IFontFace;
+
+import ./CoverageRasterizer.btrc;
+import ./GlyphOutline.btrc;
+import ./Hinting/Program.btrc;
+import ./OpenTypeCharacterMap.btrc;
+import ./OpenTypeData.btrc;
+import ./OpenTypeHorizontalMetrics.btrc;
+import ./SFNTDirectory.btrc;
+import ./TrueTypeGlyphs.btrc;
+import ./WOFF2Font.btrc;
+
+/* A standalone WOFF2 face with TrueType outlines and its own grid-fitting
+ * programs. The public factory retains its original bytes for instructions
+ * that require the SDK later. */
+class HintedTrueTypeFace implements IFontFace {
+	private TrueTypeGlyphs outlines;
+	private OpenTypeCharacterMap characters;
+	private long long scale;
+	private FontMetrics lineMetrics;
+	public Bytes source;
+
+	class HintedTrueTypeFace? tryOpen(string path, int pixels) {
+		if (path == null || pixels < 1 || !path.toLower().endsWith(".woff2")) { return null; }
+		// Honor explicitly configured FreeType interpreter/renderer properties.
+		char* properties = getenv("FREETYPE_PROPERTIES");
+		if (properties != null && properties[0] != 0) { return null; }
+		FILE* file = fopen(path, "rb");
+		if (file == null) { return null; }
+		try {
+			var header = Bytes.zeros(48);
+			if (fread(header.data, 1, 48, file) != (size_t)48 || header.readU32BE(0) != 0x774f4632U || header.readU32BE(4) != 0x10000U) { return null; }
+			if (fseek(file, 0L, SEEK_END) != 0) { return null; }
+			long length = ftell(file);
+			if (length < 48L || length > 16777216L || header.readU32BE(16) > 33554432U || fseek(file, 0L, SEEK_SET) != 0) { return null; }
+			var bytes = Bytes.zeros((int)length);
+			if (fread(bytes.data, 1, (size_t)length, file) != (size_t)length) { return null; }
+			return new HintedTrueTypeFace(bytes, pixels);
+		} catch (string error) { return null; }
+		finally { fclose(file); }
+	}
+
+	public HintedTrueTypeFace(Bytes bytes, int pixels) {
+		self.source = bytes;
+		var data = OpenTypeData(WOFF2Font().unpack(bytes));
+		var directory = SFNTDirectory(data);
+		self.checkTables(directory);
+		var head = directory.required(0x68656164LL, 54);
+		int units = data.u16(head.offset + 18);
+		int locaFormat = data.s16(head.offset + 50);
+		if (units < 16 || units > 16384 || (locaFormat != 0 && locaFormat != 1) || pixels > 65535) { throw "Unsupported TrueType size or outline locations"; }
+		self.scale = OpenTypeFixed.div((long long)pixels * 64LL, (long long)units);
+		var maxp = directory.required(0x6d617870LL, 32);
+		int glyphs = data.u16(maxp.offset + 4);
+		if (data.u32(maxp.offset) != 65536LL || glyphs < 1 || data.u16(maxp.offset + 26) == 0) { throw "Unsupported TrueType glyph directory"; }
+		var hhea = directory.required(0x68686561LL, 36);
+		int full = data.u16(hhea.offset + 34);
+		if (full < 1 || full > glyphs) { throw "Invalid TrueType horizontal metric count"; }
+		var hmtx = directory.required(0x686d7478LL, full * 4 + (glyphs - full) * 2);
+		var horizontal = OpenTypeHorizontalMetrics(data, hmtx, full);
+		var loca = directory.required(0x6c6f6361LL, (glyphs + 1) * (locaFormat == 0 ? 2 : 4));
+		self.outlines = TrueTypeGlyphs(data, directory.required(0x676c7966LL, 0), loca, horizontal, glyphs, locaFormat != 0);
+		var cmap = directory.required(0x636d6170LL, 4);
+		self.characters = OpenTypeCharacterMap(data, cmap, glyphs);
+		if (!self.characters.unambiguousUnicodeMap(cmap)) { throw "Unsupported TrueType character map"; }
+		var os2 = directory.required(0x4f532f32LL, 78);
+		int ascent = data.s16(hhea.offset + 4);
+		int descent = data.s16(hhea.offset + 6);
+		int height = ascent - descent + data.s16(hhea.offset + 8);
+		if ((data.u16(os2.offset + 62) & 128) != 0) {
+			ascent = data.s16(os2.offset + 68);
+			height = ascent - data.s16(os2.offset + 70) + data.s16(os2.offset + 72);
+		} else if (ascent == 0 && descent == 0) { throw "Unsupported TrueType line metrics"; }
+		self.lineMetrics = new FontMetrics(OpenTypeFixed.pixelCeil(OpenTypeFixed.mul((long long)ascent, self.scale)), OpenTypeFixed.pixelRound(OpenTypeFixed.mul((long long)height, self.scale)));
+
+		var cvt = directory.required(0x63767420LL, 2);
+		var prep = directory.required(0x70726570LL, 1);
+		var functions = directory.required(0x6670676dLL, 1);
+		var grid = TrueTypeProgram(data, cvt, maxp, pixels, self.scale);
+		grid.prepare(functions, prep);
+		self.outlines.prepare(grid);
+
+	}
+
+	/* Only table families with defined behavior in this renderer are accepted.
+	 * Layout, identification and licensing tables do not change glyph images. */
+	private void checkTables(SFNTDirectory directory) {
+		string tags = "cmapglyflocaheadhheahmtxmaxpnameOS/2postcvt fpgmprepgaspGDEFGPOSGSUBkernDSIG";
+		for (int i = 0; i < directory.count; i++) {
+			long long tag = directory.tag(i);
+			bool known = false;
+			for (int j = 0; j < tags.length(); j += 4) {
+				long long value = 0LL;
+				for (int k = 0; k < 4; k++) { value = value * 256LL + (long long)tags[j + k]; }
+				if (tag == value) { known = true; break; }
+			}
+			if (!known) { throw "Unsupported table in hinted TrueType font"; }
+		}
+	}
+
+	public FontMetrics metrics() { return self.lineMetrics; }
+
+	public FontGlyph? glyph(int codepoint, bool render) {
+		if (codepoint < 0 || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) { throw "Invalid font Unicode scalar"; }
+		try { return self.loadGlyph(codepoint, render); }
+		catch (string error) { return null; }
+	}
+
+	private FontGlyph loadGlyph(int codepoint, bool render) {
+		var outline = GlyphOutline();
+		long long advance = OpenTypeFixed.pixelRound(self.outlines.load(self.characters.glyphIndex(codepoint), self.scale, outline));
+		if (!render) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_UNSUPPORTED, 0, new Bytes()); }
+		if (outline.isEmpty()) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_GRAY, 256, new Bytes()); }
+		var box = outline.controlBox();
+		int left = (int)OpenTypeFixed.floorDiv((long long)box.get(0), 64LL);
+		int bottom = (int)OpenTypeFixed.floorDiv((long long)box.get(1), 64LL);
+		int width = (int)OpenTypeFixed.floorDiv((long long)box.get(2) + 63LL, 64LL) - left;
+		int rows = (int)OpenTypeFixed.floorDiv((long long)box.get(3) + 63LL, 64LL) - bottom;
+		if (width < 1 || rows < 1) { return new FontGlyph(advance, left, bottom + rows, width, rows, width, FONT_PIXEL_GRAY, 256, new Bytes()); }
+		var raster = CoverageRasterizer(width, rows);
+		for (int band = 0; band < raster.bands(); band++) {
+			raster.begin(band);
+			outline.replay(raster, left, bottom);
+			raster.finish();
+		}
+		return new FontGlyph(advance, left, bottom + rows, width, rows, width, FONT_PIXEL_GRAY, 256, raster.coverage());
+	}
+}

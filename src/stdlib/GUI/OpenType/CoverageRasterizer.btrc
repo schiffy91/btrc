@@ -1,0 +1,206 @@
+import Library.Array;
+import Library.Bytes;
+
+import ./OpenTypeData.btrc;
+
+/* Anti-aliased scanline coverage of a closed outline, non-zero winding.
+ *
+ * Coordinates are 24.8 fixed-point pixels with the origin at the bitmap's
+ * bottom-left corner and y pointing up, so a point is always inside
+ * [0, width] x [0, rows] (the caller sizes the bitmap from the outline's
+ * control box, and every coordinate is clamped to it as well). Each line
+ * segment adds its exact signed area to the pixels it crosses; a running sum
+ * along the row then gives each pixel's covered area in 256 levels, with no
+ * sampling pattern.
+ *
+ * Curves become line segments. A quadratic is cut into 2^n equal steps, n
+ * the least for which its second difference |p0 - 2c + p1| / 4^n is at most
+ * a quarter pixel, which keeps a chord within a sixteenth of a pixel of the
+ * curve. A cubic is halved until both control points are within half a
+ * pixel of the chord's thirds, to a fixed depth.
+ *
+ * Storage is one band of rows at a time (at most about a million cells), so
+ * a tall glyph costs passes over its outline rather than memory: the caller
+ * replays the outline once for each band between begin() and finish(). */
+class CoverageRasterizer {
+	private int width;
+	private int rows;
+	private int stride;
+	private int bandRows;
+	private int bandFirst = 0;
+	private Array<long long> cells;
+	private Bytes bitmap;
+	private int penX = 0;
+	private int penY = 0;
+
+	public CoverageRasterizer(int width, int rows) {
+		if (width < 1 || rows < 1 || width > 32768 || rows > 32768 || (long long)width * (long long)rows > 67108864LL) { throw "Glyph bitmap exceeds the supported size"; }
+		self.width = width;
+		self.rows = rows;
+		self.stride = width + 2;
+		int fitting = 1048576 / self.stride;
+		self.bandRows = fitting < 1 ? 1 : (fitting > rows ? rows : fitting);
+		self.cells = new Array<long long>(self.stride * self.bandRows);
+		self.bitmap = Bytes.zeros(width * rows);
+	}
+
+	public int bands() { return (self.rows + self.bandRows - 1) / self.bandRows; }
+
+	public void begin(int band) {
+		if (band < 0 || band >= self.bands()) { throw "Invalid glyph raster band"; }
+		self.bandFirst = band * self.bandRows;
+		self.cells = new Array<long long>(self.stride * self.bandRows);
+		self.penX = 0;
+		self.penY = 0;
+	}
+
+	/* The finished band's rows, top row of the bitmap first. */
+	public void finish() {
+		for (int local = 0; local < self.bandRows; local++) {
+			int row = self.bandFirst + local;
+			if (row >= self.rows) { break; }
+			long long total = 0LL;
+			int target = (self.rows - 1 - row) * self.width;
+			int source = local * self.stride;
+			for (int column = 0; column < self.width; column++) {
+				total += self.cells.data[source + column];
+				long long value = total >= 0LL ? total / 512LL : -((511LL - total) / 512LL);
+				if (value < 0) { value = -value - 1; }
+				self.bitmap.set(target + column, value > 255LL ? 255 : (int)value);
+			}
+		}
+	}
+
+	/* One byte of coverage for each pixel, `width` bytes a row, top row first. */
+	public Bytes coverage() { return self.bitmap; }
+
+	private int clampX(int x) { return x < 0 ? 0 : (x > self.width * 256 ? self.width * 256 : x); }
+
+	private int clampY(int y) { return y < 0 ? 0 : (y > self.rows * 256 ? self.rows * 256 : y); }
+
+	public void moveTo(int x, int y) {
+		self.penX = self.clampX(x);
+		self.penY = self.clampY(y);
+	}
+
+	public void lineTo(int x, int y) {
+		x = self.clampX(x);
+		y = self.clampY(y);
+		self.line(self.penX, self.penY, x, y);
+		self.penX = x;
+		self.penY = y;
+	}
+
+	public void conicTo(int controlX, int controlY, int x, int y) {
+		controlX = self.clampX(controlX);
+		controlY = self.clampY(controlY);
+		x = self.clampX(x);
+		y = self.clampY(y);
+		int startX = self.penX;
+		int startY = self.penY;
+		int deviationX = startX + x - 2 * controlX;
+		int deviationY = startY + y - 2 * controlY;
+		if (deviationX < 0) { deviationX = -deviationX; }
+		if (deviationY < 0) { deviationY = -deviationY; }
+		int deviation = deviationX > deviationY ? deviationX : deviationY;
+		int shift = 0;
+		while (deviation > 64) {
+			deviation = deviation / 4;
+			shift++;
+		}
+		long long steps = 1LL << shift;
+		long long square = steps * steps;
+		long long ax = (long long)(startX - 2 * controlX + x);
+		long long ay = (long long)(startY - 2 * controlY + y);
+		long long bx = 2LL * (long long)(controlX - startX);
+		long long by = 2LL * (long long)(controlY - startY);
+		for (long long step = 1LL; step < steps; step++) {
+			long long px = (long long)startX + OpenTypeFixed.floorDiv(bx * step * steps + ax * step * step, square);
+			long long py = (long long)startY + OpenTypeFixed.floorDiv(by * step * steps + ay * step * step, square);
+			self.lineTo((int)px, (int)py);
+		}
+		self.lineTo(x, y);
+	}
+
+	public void cubicTo(int firstX, int firstY, int secondX, int secondY, int x, int y) { self.cubic(self.penX, self.penY, self.clampX(firstX), self.clampY(firstY), self.clampX(secondX), self.clampY(secondY), self.clampX(x), self.clampY(y), 0); }
+
+	private bool far(int value) { return value > 128 || value < -128; }
+
+	private void cubic(int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3, int depth) {
+		bool curved = self.far(2 * x3 - 3 * x2 + x0) || self.far(2 * y3 - 3 * y2 + y0) || self.far(x3 - 3 * x1 + 2 * x0) || self.far(y3 - 3 * y1 + 2 * y0);
+		if (!curved || depth >= 16) {
+			self.lineTo(x3, y3);
+			return;
+		}
+		int innerX = x1 + x2;
+		int innerY = y1 + y2;
+		int leftX = x0 + x1 + innerX;
+		int leftY = y0 + y1 + innerY;
+		int rightX = x2 + x3 + innerX;
+		int rightY = y2 + y3 + innerY;
+		int middleX = (leftX + rightX) / 8;
+		int middleY = (leftY + rightY) / 8;
+		self.cubic(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2, leftX / 4, leftY / 4, middleX, middleY, depth + 1);
+		self.cubic(middleX, middleY, rightX / 4, rightY / 4, (x2 + x3) / 2, (y2 + y3) / 2, x3, y3, depth + 1);
+	}
+
+	/* Cross one grid edge at a time in drawing order. At a grid corner the
+	 * upward-left diagonal crosses the horizontal edge first. Compute the crossing against the original
+	 * segment, so rounding never feeds into another crossing. A positive
+	 * fraction belongs to the previous subpixel when it is exactly integral. */
+	private int crossing(int base, int start, int delta, int travel, int span) {
+		long long numerator = (long long)(start - base) * (long long)span + (long long)travel * (long long)delta;
+		return base + (int)(numerator == 0LL ? 0LL : (numerator - 1LL) / (long long)span);
+	}
+
+	private void line(int x0, int y0, int x1, int y1) {
+		if (y0 == y1) { return; }
+		int dx = x1 - x0;
+		int dy = y1 - y0;
+		if ((y0 < self.bandFirst * 256 && y1 < self.bandFirst * 256) || (y0 >= (self.bandFirst + self.bandRows) * 256 && y1 >= (self.bandFirst + self.bandRows) * 256)) { return; }
+		int stepX = dx > 0 ? 1 : -1;
+		int stepY = dy > 0 ? 1 : -1;
+		int spanX = dx < 0 ? -dx : dx;
+		int spanY = dy < 0 ? -dy : dy;
+		int column = x0 / 256;
+		int row = y0 / 256;
+		int lastColumn = x1 / 256;
+		int lastRow = y1 / 256;
+		int x = x0;
+		int y = y0;
+		while (column != lastColumn || row != lastRow) {
+			int gridX = (column + (stepX > 0 ? 1 : 0)) * 256;
+			int gridY = (row + (stepY > 0 ? 1 : 0)) * 256;
+			int travelX = (gridX - x0) * stepX;
+			int travelY = (gridY - y0) * stepY;
+			long long order = (long long)travelX * (long long)spanY - (long long)travelY * (long long)spanX;
+			bool verticalEdge = row == lastRow || (column != lastColumn && (order < 0LL || (order == 0LL && (dx > 0 || dy < 0))));
+			int nextX = x0;
+			int nextY = gridY;
+			if (verticalEdge) {
+				nextX = gridX;
+				nextY = self.crossing(row * 256, y0, dy, travelX, spanX);
+			} else if (dx != 0) {
+				nextX = self.crossing(column * 256, x0, dx, travelY, spanY);
+			}
+			int cover = nextY - y;
+			self.add(row, column, cover, cover * (x + nextX - column * 512));
+			x = nextX;
+			y = nextY;
+			if (verticalEdge) { column += stepX; } else { row += stepY; }
+		}
+		int cover = y1 - y;
+		self.add(row, column, cover, cover * (x + x1 - column * 512));
+	}
+
+	/* `cover` is the height crossed in the cell; `area` is twice the area to
+	 * the left of the segment inside it. A row's running sum of the first
+	 * term minus this cell's area is the cell's covered area times 512. */
+	private void add(int row, int column, int cover, int area) {
+		int local = row - self.bandFirst;
+		if (local < 0 || local >= self.bandRows || column < 0 || column > self.width) { return; }
+		int index = local * self.stride + column;
+		self.cells.data[index] += cover * 512 - area;
+		self.cells.data[index + 1] += area;
+	}
+}

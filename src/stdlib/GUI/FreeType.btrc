@@ -1,10 +1,12 @@
 import Library.GUI.Font;
 import Library.GUI.FreeType.FreeTypeFace;
 
+import ./FreeType/HintedFontProvider.btrc;
 import ./Bitmap/PCFFace.btrc;
 import ./OpenType/ColorBitmapFace.btrc;
+import ./OpenType/HintedTrueTypeFace.btrc;
 
-/* PCF and embedded PNG bitmap strikes have first-party readers. Other fonts use the SDK.
+/* Bitmap strikes and bytecode-hinted WOFF2 files have first-party readers.
  * Raster and Font can be imported independently of this factory. */
 class FreeType {
 	class Font load(string path, int pixelSize) {
@@ -12,6 +14,8 @@ class FreeType {
 		if (bitmap != null) { return new Font(bitmap); }
 		var color = ColorBitmapFace.tryOpen(path, pixelSize);
 		if (color != null) { return new Font(color); }
+		var hinted = HintedTrueTypeFace.tryOpen(path, pixelSize);
+		if (hinted != null) { return new Font(new HintedFontProvider(hinted, pixelSize)); }
 		return new Font(new FreeTypeFace(path, pixelSize));
 	}
 }

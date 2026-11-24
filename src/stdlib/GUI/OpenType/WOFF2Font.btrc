@@ -1,0 +1,240 @@
+import Library.Bytes;
+import Library.Vector;
+
+import ./Brotli/Decoder.btrc;
+import ./WOFF2Glyphs.btrc;
+import ./WOFF2Stream.btrc;
+
+class WOFF2Table {
+	public unsigned int tag;
+	public int length;
+	public int encodedLength;
+	public bool transformed;
+	public Bytes content;
+
+	public WOFF2Table(WOFF2Stream input) {
+		int flags = input.byte();
+		int index = flags & 63;
+		/* Fixed four-byte tags from the WOFF2 table directory, section 4.1. */
+		string tags = "cmapheadhheahmtxmaxpnameOS/2postcvt fpgmglyflocaprepCFF VORGEBDTEBLCgasphdmxkernLTSHPCLTVDMXvheavmtxBASEGDEFGPOSGSUBEBSCJSTFMATHCBDTCBLCCOLRCPALSVG sbixacntavarbdatblocbslncvarfdscfeatfmtxfvargvarhstyjustlcarmortmorxopbdproptrakZapfSilfGlatGlocFeatSill";
+		unsigned int tag = 0U;
+		for (int i = 0; i < 4; i++) {
+			int octet = index == 63 ? input.byte() : (int)tags[index * 4 + i];
+			tag = (tag << 8) | (unsigned int)octet;
+		}
+		self.tag = tag;
+		self.length = input.base128();
+		int version = flags >> 6;
+		bool outline = tag == 0x676c7966U || tag == 0x6c6f6361U;
+		self.transformed = (outline && version != 3) || (!outline && version != 0);
+		if (self.transformed && !(outline && version == 0) && !(tag == 0x686d7478U && version == 1)) {
+			throw "Unknown WOFF2 table transform";
+		}
+		self.encodedLength = self.transformed ? input.base128() : self.length;
+		self.content = Bytes();
+	}
+}
+
+class WOFF2Font {
+	private Vector<WOFF2Table> tables;
+
+	public WOFF2Font() { self.tables = []; }
+
+	private WOFF2Table? table(unsigned int tag) {
+		for (int i = 0; i < self.tables.size(); i++) {
+			var entry = self.tables.get(i);
+			if (entry.tag == tag) { return entry; }
+		}
+		return null;
+	}
+
+	private WOFF2Table require(unsigned int tag) {
+		var entry = self.table(tag);
+		if (entry == null) { throw "Missing WOFF2 table"; }
+		return entry;
+	}
+
+	private void outlineTables() {
+		var glyf = self.table(0x676c7966U);
+		var loca = self.table(0x6c6f6361U);
+		bool transformed = glyf != null && glyf.transformed;
+		if (transformed != (loca != null && loca.transformed)) { throw "WOFF2 glyf and loca transforms disagree"; }
+		if (!transformed || glyf == null || loca == null) { return; }
+		if (loca.encodedLength != 0) { throw "Invalid transformed WOFF2 loca length"; }
+		var outlines = WOFF2Glyphs(glyf.content);
+		if (outlines.loca.length() != loca.length || self.require(0x6d617870U).content.readU16BE(4) != outlines.glyphCount || self.require(0x68656164U).content.readU16BE(50) != outlines.indexFormat) {
+			throw "WOFF2 outline metadata disagrees with font header";
+		}
+		glyf.content = outlines.glyf;
+		loca.content = outlines.loca;
+	}
+
+	private void horizontalMetrics() {
+		var hmtx = self.table(0x686d7478U);
+		if (hmtx == null || !hmtx.transformed) { return; }
+		var glyf = self.require(0x676c7966U).content;
+		var loca = self.require(0x6c6f6361U).content;
+		int format = self.require(0x68656164U).content.readU16BE(50);
+		int glyphs = self.require(0x6d617870U).content.readU16BE(4);
+		int count = self.require(0x68686561U).content.readU16BE(34);
+		if (format > 1 || count < 1 || count > glyphs || loca.length() < (glyphs + 1) * (format == 1 ? 4 : 2)) { throw "Invalid WOFF2 metric metadata"; }
+		var stream = WOFF2Stream(hmtx.content, 0, hmtx.content.length());
+		int flags = stream.byte();
+		if (flags == 0 || flags > 3) { throw "Invalid WOFF2 metric transform"; }
+		var widths = stream.stream(2 * count);
+		var result = Bytes();
+		for (int glyph = 0; glyph < glyphs; glyph++) {
+			if (glyph < count) { result.appendU16BE(widths.word()); }
+			if ((flags & (glyph < count ? 1 : 2)) == 0) { result.appendU16BE(stream.word()); continue; }
+			unsigned int start = format == 1 ? loca.readU32BE(4 * glyph) : (unsigned int)(2 * loca.readU16BE(2 * glyph));
+			unsigned int end = format == 1 ? loca.readU32BE(4 * glyph + 4) : (unsigned int)(2 * loca.readU16BE(2 * glyph + 2));
+			if (start > end || end > (unsigned int)glyf.length() || (start != end && end - start < 10U)) { throw "Invalid WOFF2 glyph location"; }
+			result.appendU16BE(start == end ? 0 : glyf.readU16BE((int)start + 2));
+		}
+		if (stream.remaining() != 0 || result.length() != hmtx.length) { throw "Invalid WOFF2 metrics length"; }
+		hmtx.content = result;
+	}
+
+	private unsigned int checksum(Bytes data) {
+		unsigned int sum = 0U;
+		for (int offset = 0; offset < data.length(); offset += 4) {
+			unsigned int word = 0U;
+			for (int i = 0; i < 4; i++) {
+				word <<= 8;
+				if (offset + i < data.length()) { word |= (unsigned int)data.get(offset + i); }
+			}
+			sum += word;
+		}
+		return sum;
+	}
+
+	private Bytes sfnt(unsigned int flavor) {
+		int count = self.tables.size();
+		int power = 1;
+		int selector = 0;
+		while (power * 2 <= count) { power *= 2; selector++; }
+		var result = Bytes();
+		result.appendU32BE(flavor);
+		result.appendU16BE(count);
+		result.appendU16BE(power * 16);
+		result.appendU16BE(selector);
+		result.appendU16BE((count - power) * 16);
+		int offset = 12 + count * 16;
+		int adjustment = -1;
+		for (int i = 0; i < count; i++) {
+			var t = self.tables.get(i);
+			if (t.tag == 0x68656164U) {
+				if (t.content.length() < 54) { throw "Invalid WOFF2 head table"; }
+				for (int j = 8; j < 12; j++) { t.content.set(j, 0); }
+				adjustment = offset + 8;
+			}
+			result.appendU32BE(t.tag);
+			result.appendU32BE(self.checksum(t.content));
+			result.appendU32BE((unsigned int)offset);
+			result.appendU32BE((unsigned int)t.content.length());
+			offset += (t.content.length() + 3) & ~3;
+		}
+		for (int i = 0; i < count; i++) {
+			result.appendBytes(self.tables.get(i).content);
+			while ((result.length() & 3) != 0) { result.append(0); }
+		}
+		if (adjustment >= 0) {
+			unsigned int value = 0xb1b0afbaU - self.checksum(result);
+			for (int i = 0; i < 4; i++) { result.set(adjustment + i, (int)((value >> (24 - i * 8)) & 255U)); }
+		}
+		return result;
+	}
+
+	private void select(WOFF2Table entry) {
+		int pos = 0;
+		while (pos < self.tables.size() && self.tables.get(pos).tag < entry.tag) { pos++; }
+		if (pos < self.tables.size() && self.tables.get(pos).tag == entry.tag) { throw "Duplicate WOFF2 font table"; }
+		self.tables.insert(pos, entry);
+	}
+
+	/* The face API opens index zero, just as it does for an ordinary TTC.
+	 * Collection indices refer to a single physical table stream. Validate
+	 * every font's indices and every associated glyf/loca pair before
+	 * selecting the first face's tables. */
+	private unsigned int collection(WOFF2Stream input, Vector<WOFF2Table> encoded) {
+		int version = input.length32();
+		if (version != 0x00010000 && version != 0x00020000) { throw "Unknown WOFF2 collection version"; }
+		int fonts = input.uint255();
+		if (fonts < 1) { throw "Empty WOFF2 font collection"; }
+		unsigned int firstFlavor = 0U;
+		for (int font = 0; font < fonts; font++) {
+			int count = input.uint255();
+			if (count < 1 || count > 4095 || count > encoded.size()) { throw "Invalid WOFF2 collection table count"; }
+			unsigned int flavor = (unsigned int)input.length32();
+			if (font == 0) { firstFlavor = flavor; }
+			int glyf = -1;
+			int loca = -1;
+			for (int i = 0; i < count; i++) {
+				int index = input.uint255();
+				if (index >= encoded.size()) { throw "Invalid WOFF2 collection table index"; }
+				var entry = encoded.get(index);
+				if (entry.tag == 0x676c7966U) {
+					if (glyf >= 0) { throw "Duplicate WOFF2 collection glyf table"; }
+					glyf = index;
+				} else if (entry.tag == 0x6c6f6361U) {
+					if (loca >= 0) { throw "Duplicate WOFF2 collection loca table"; }
+					loca = index;
+				}
+				if (font == 0) { self.select(entry); }
+			}
+			if ((glyf >= 0 || loca >= 0) && (glyf < 0 || loca != glyf + 1)) { throw "Invalid WOFF2 collection glyf and loca pair"; }
+		}
+		return firstFlavor;
+	}
+
+	/* Validate the optional, aligned metadata and private blocks even though
+	 * the raster API consumes only the font tables. */
+	private int nextBlock(Bytes file, int end, unsigned int offset, unsigned int length) {
+		if (offset == 0U) {
+			if (length != 0U) { throw "Invalid WOFF2 block length"; }
+			return end;
+		}
+		if (offset < (unsigned int)end || offset - (unsigned int)end > 3U || (offset & 3U) != 0U || offset > (unsigned int)file.length() || length > (unsigned int)file.length() - offset || length == 0U) { throw "Invalid WOFF2 block bounds"; }
+		for (int i = end; i < (int)offset; i++) { if (file.get(i) != 0) { throw "Invalid WOFF2 padding"; } }
+		return (int)(offset + length);
+	}
+
+	public Bytes unpack(Bytes file) {
+		if (file.length() < 48 || file.readU32BE(0) != 0x774f4632U || file.readU32BE(8) != (unsigned int)file.length()) { throw "Invalid WOFF2 header"; }
+		unsigned int flavor = file.readU32BE(4);
+		bool collection = flavor == 0x74746366U;
+		int count = file.readU16BE(12);
+		if (count < 1 || (!collection && count > 4095)) { throw "Invalid WOFF2 table count"; }
+		var input = WOFF2Stream(file, 48, file.length());
+		Vector<WOFF2Table> encoded = [];
+		int total = 0;
+		for (int i = 0; i < count; i++) {
+			var entry = WOFF2Table(input);
+			if (entry.encodedLength > 33554432 - total) { throw "WOFF2 font exceeds table data limit"; }
+			total += entry.encodedLength;
+			encoded.push(entry);
+			if (!collection) { self.select(entry); }
+		}
+		if (collection) { flavor = self.collection(input, encoded); }
+		unsigned int size = file.readU32BE(20);
+		if (size > (unsigned int)input.remaining()) { throw "Truncated WOFF2 compressed data"; }
+		var compressed = input.bytes((int)size);
+		int end = file.length() - input.remaining();
+		if ((file.readU32BE(28) == 0U) != (file.readU32BE(36) == 0U)) { throw "Invalid WOFF2 metadata length"; }
+		end = self.nextBlock(file, end, file.readU32BE(28), file.readU32BE(32));
+		end = self.nextBlock(file, end, file.readU32BE(40), file.readU32BE(44));
+		if (file.length() - end > ((4 - (end & 3)) & 3)) { throw "Excess WOFF2 font data"; }
+		for (int i = end; i < file.length(); i++) { if (file.get(i) != 0) { throw "Invalid WOFF2 final padding"; } }
+
+		var decoder = BrotliDecoder(compressed);
+		var bytes = decoder.decode(total);
+		var tables = WOFF2Stream(bytes, 0, total);
+		for (int i = 0; i < count; i++) {
+			var entry = encoded.get(i);
+			entry.content = tables.bytes(entry.encodedLength);
+		}
+		self.outlineTables();
+		self.horizontalMetrics();
+		return self.sfnt(flavor);
+	}
+}

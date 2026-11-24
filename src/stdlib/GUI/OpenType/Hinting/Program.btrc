@@ -1,0 +1,448 @@
+import Library.Array;
+import Library.Vector;
+
+import ../OpenTypeData.btrc;
+import ./Zone.btrc;
+
+class TrueTypeSettings {
+	public int roundPeriod = 64;
+	public int roundPhase = 0;
+	public int roundThreshold = 32;
+	public int deltaBase = 9;
+	public int deltaShift = 3;
+	public int cutIn = 68;
+
+	public void copyFrom(TrueTypeSettings other) {
+		self.roundPeriod = other.roundPeriod;
+		self.roundPhase = other.roundPhase;
+		self.roundThreshold = other.roundThreshold;
+		self.deltaBase = other.deltaBase;
+		self.deltaShift = other.deltaShift;
+		self.cutIn = other.cutIn;
+	}
+}
+
+/* A size-specific TrueType instruction context. Program addresses are
+ * spans of the checked font data. Control-flow scans skip complete PUSH
+ * instructions so an operand byte can never be mistaken for ELSE/ENDF.
+ * Calls and instructions share one work budget per execution. */
+class TrueTypeProgram {
+	private OpenTypeData data;
+	private long long scale;
+	private int ppem;
+	private Array<int> storage;
+	private Array<int> cvt;
+	private TrueTypeZone twilight;
+	private TrueTypeZone points;
+	private Vector<int> stack = [];
+	private Vector<int> functionIds = [];
+	private Vector<OpenTypeSpan> functions = [];
+	private int budget = 0;
+	private int stackLimit;
+	private int functionsLimit;
+	private int zp0 = 1;
+	private int zp1 = 1;
+	private int zp2 = 1;
+	private int rp0 = 0;
+	private int rp1 = 0;
+	private int rp2 = 0;
+	private int loopCount = 1;
+	private int interpolatedAxes = 0;
+	private bool compositeGlyph = false;
+	private bool projectX = true;
+	private bool freedomX = true;
+	private TrueTypeSettings settings;
+	private TrueTypeSettings preparedSettings;
+	private Array<int> preparedStorage;
+	private Array<int> preparedCVT;
+	private TrueTypeZone preparedTwilight;
+	private bool enabled = true;
+	private bool preparing = true;
+
+	public TrueTypeProgram(OpenTypeData data, OpenTypeSpan cvt, OpenTypeSpan maxp, int ppem, long long scale) {
+		self.data = data;
+		self.settings = TrueTypeSettings();
+		self.preparedSettings = TrueTypeSettings();
+		self.ppem = ppem;
+		self.scale = scale;
+		if (maxp.length < 32) { throw "Missing TrueType interpreter limits"; }
+		self.storage = new Array<int>(data.u16(maxp.offset + 18));
+		self.cvt = new Array<int>(cvt.length / 2);
+		for (int i = 0; i < self.cvt.len; i++) {
+			self.cvt.set(i, (int)OpenTypeFixed.mul((long long)data.s16(cvt.offset + i * 2), scale));
+		}
+		self.twilight = TrueTypeZone(data.u16(maxp.offset + 16) + 4);
+		self.points = TrueTypeZone(0);
+		self.preparedTwilight = TrueTypeZone(self.twilight.count);
+		self.preparedStorage = new Array<int>(self.storage.len);
+		self.preparedCVT = new Array<int>(self.cvt.len);
+		self.stackLimit = data.u16(maxp.offset + 24) + 32;
+		self.functionsLimit = data.u16(maxp.offset + 20);
+	}
+
+	private int pop() {
+		if (self.stack.size() == 0) { throw "TrueType instruction stack underflow"; }
+		return self.stack.pop();
+	}
+
+	private void push(long long value) {
+		if (self.stack.size() >= self.stackLimit) { throw "TrueType instruction stack overflow"; }
+		self.stack.push((int)(unsigned int)value);
+	}
+
+	private int operandCount(int op, int pc, int end) {
+		if (op >= 0xb0 && op <= 0xbf) { return ((op & 7) + 1) * (op >= 0xb8 ? 2 : 1); }
+		if (op != 0x40 && op != 0x41) { return 0; }
+		if (pc >= end) { throw "Truncated TrueType push count"; }
+		return 1 + self.data.u8(pc) * (op == 0x41 ? 2 : 1);
+	}
+
+	private void charge(int work) {
+		if (work > self.budget) { throw "TrueType instruction budget exceeded"; }
+		self.budget -= work;
+	}
+
+	private int skip(int pc, int end, bool definition, bool seekElse) {
+		int nested = 0;
+		while (pc < end) {
+			self.charge(1);
+			int op = self.data.u8(pc);
+			pc++;
+			if (definition && op == 0x2d) { return pc; }
+			if (!definition) {
+				if (op == 0x58) { nested++; }
+				if (op == 0x1b && nested == 0 && seekElse) { return pc; }
+				if (op == 0x59) {
+					if (nested == 0) { return pc; }
+					nested--;
+				}
+			}
+			int length = self.operandCount(op, pc, end);
+			if (length > end - pc) { throw "Truncated TrueType push data"; }
+			pc += length;
+		}
+		throw "Unterminated TrueType conditional or definition";
+	}
+
+	private void call(int id, int depth, int repetitions) {
+		int index = self.functionIds.indexOf(id);
+		if (index < 0 || repetitions < 0 || repetitions > self.budget || depth >= 64) { throw "Invalid TrueType function call"; }
+		var body = self.functions.get(index);
+		for (int i = 0; i < repetitions; i++) {
+			self.charge(1);
+			self.execute(body, depth + 1);
+		}
+	}
+
+	private int off(int pc, int delta, OpenTypeSpan code) {
+		long long target = (long long)pc - 1LL + (long long)delta;
+		if (target < (long long)code.offset || target > (long long)code.end()) { throw "TrueType jump outside program"; }
+		return (int)target;
+	}
+
+	private void calculate(int op) {
+		long long b = (long long)self.pop();
+		if (op == 0x5c) { self.push(b == 0LL ? 1LL : 0LL); return; }
+		if (op == 0x64) { self.push(b < 0LL ? -b : b); return; }
+		if (op == 0x65) { self.push(-b); return; }
+		if (op == 0x66) { self.push(OpenTypeFixed.pixelFloor(b)); return; }
+		if (op == 0x67) { self.push(OpenTypeFixed.pixelCeil(b)); return; }
+		long long a = (long long)self.pop();
+		if (op == 0x50) { self.push(a < b ? 1LL : 0LL); }
+		else if (op == 0x51) { self.push(a <= b ? 1LL : 0LL); }
+		else if (op == 0x52) { self.push(a > b ? 1LL : 0LL); }
+		else if (op == 0x53) { self.push(a >= b ? 1LL : 0LL); }
+		else if (op == 0x54) { self.push(a == b ? 1LL : 0LL); }
+		else if (op == 0x55) { self.push(a != b ? 1LL : 0LL); }
+		else if (op == 0x5a) { self.push(a != 0LL && b != 0LL ? 1LL : 0LL); }
+		else if (op == 0x5b) { self.push(a != 0LL || b != 0LL ? 1LL : 0LL); }
+		else if (op == 0x60) { self.push(a + b); }
+		else if (op == 0x61) { self.push(a - b); }
+		else if (op == 0x62) {
+			if (b == 0LL) { throw "Division by zero in TrueType program"; }
+			self.push((a * 64LL) / b);
+		} else if (op == 0x63) {
+			long long product = a * b;
+			self.push(product < 0LL ? -((-product + 32LL) / 64LL) : (product + 32LL) / 64LL);
+		} else if (op == 0x8b) { self.push(a > b ? a : b); }
+		else { self.push(a < b ? a : b); }
+	}
+
+	private int round(int value) {
+		if (self.settings.roundPeriod == 0) { return value; }
+		long long distance = value < 0 ? -(long long)value : (long long)value;
+		long long rounded = OpenTypeFixed.floorDiv(distance - (long long)self.settings.roundPhase + (long long)self.settings.roundThreshold, (long long)self.settings.roundPeriod) * (long long)self.settings.roundPeriod + (long long)self.settings.roundPhase;
+		if (rounded < 0LL) { rounded = (long long)self.settings.roundPhase; }
+		return (int)(value < 0 ? -rounded : rounded);
+	}
+
+	private TrueTypeZone zone(int zone) {
+		if (zone == 0) { return self.twilight; }
+		if (zone == 1) { return self.points; }
+		throw "Invalid TrueType zone";
+	}
+
+	private void move(TrueTypeZone zone, int point, long long distance) {
+		if (self.freedomX && distance != 0LL) { throw "Unsupported horizontal TrueType move"; }
+		if (self.projectX != self.freedomX) { throw "Unsupported perpendicular TrueType vectors"; }
+		zone.move(point, self.freedomX, (long long)distance, true);
+	}
+
+	private int cv(int index) {
+		if (index < 0 || index >= self.cvt.len) { throw "Invalid TrueType control value index"; }
+		return self.cvt.get(index);
+	}
+
+	private void writeCV(int index, int value) { self.cv(index); self.cvt.set(index, value); }
+
+	private void delta(int op) {
+		int count = self.pop();
+		if (count < 0 || count > self.stack.size() / 2) { throw "Invalid TrueType delta count"; }
+		int segment = op == 0x5d || op == 0x73 ? 0 : (op == 0x71 || op == 0x74 ? 16 : 32);
+		for (int i = 0; i < count; i++) {
+			int point = self.pop();
+			int arg = self.pop();
+			if (self.settings.deltaBase + segment + ((arg >> 4) & 15) != self.ppem) { continue; }
+			int steps = (arg & 15) - 8;
+			if (steps >= 0) { steps++; }
+			int delta = steps * (64 >> self.settings.deltaShift);
+			if (op >= 0x73) { self.writeCV(point, (int)((unsigned int)self.cv(point) + (unsigned int)delta)); }
+			else { self.move(self.zone(self.zp0), point, delta); }
+		}
+	}
+
+	private void geometry(int op) {
+		var z0 = self.zone(self.zp0);
+		var z1 = self.zone(self.zp1);
+		var z2 = self.zone(self.zp2);
+		if (op == 0x30 || op == 0x31) {
+			self.charge(self.points.count);
+			self.points.interpolate(op == 0x31);
+			self.interpolatedAxes |= op == 0x31 ? 1 : 2;
+			return;
+		}
+		if (op == 0x2e || op == 0x2f) {
+			int p = self.pop();
+			int v = z0.coord(p, self.projectX, false);
+			self.move(z0, p, op == 0x2e ? 0 : self.round(v) - v);
+			self.rp0 = p;
+			self.rp1 = p;
+		} else if (op == 0x3e || op == 0x3f) {
+			int cv = self.cv(self.pop());
+			int p = self.pop();
+			if (self.zp0 == 0) { z0.place(p, self.freedomX ? cv : 0, self.freedomX ? 0 : cv); }
+			int current = z0.coord(p, self.projectX, false);
+			int target = cv;
+			if (op == 0x3f) {
+				if (self.zp0 != 0 && ((long long)current - (long long)cv > (long long)self.settings.cutIn || (long long)cv - (long long)current > (long long)self.settings.cutIn)) { target = current; }
+				target = self.round(target);
+			}
+			self.move(z0, p, (long long)target - (long long)current);
+			self.rp0 = p;
+			self.rp1 = p;
+		} else if (op == 0x46 || op == 0x47) { self.push((long long)z2.coord(self.pop(), self.projectX, op == 0x47)); }
+		else if (op == 0x49 || op == 0x4a) {
+			int b = self.pop();
+			int a = self.pop();
+			self.push((long long)z0.coord(a, self.projectX, op == 0x4a) - (long long)z1.coord(b, self.projectX, op == 0x4a));
+		} else if (op == 0x38 || op == 0x3c) {
+			int delta = op == 0x38 ? self.pop() : 0;
+			if (self.loopCount > self.stack.size()) { throw "Invalid TrueType point loop"; }
+			for (int i = 0; i < self.loopCount; i++) {
+				int p = self.pop();
+				if (op == 0x38) {
+					z2.need(p);
+					// In the modern grayscale interpreter a simple glyph can shift
+					// a point already fitted vertically, until both axes have run IUP.
+					bool vertical = !self.freedomX && self.interpolatedAxes != 3 && (self.compositeGlyph || (z2.touched.get(p) & 2) != 0);
+					if (self.zp2 == 0 || vertical) { z2.move(p, self.freedomX, (long long)delta, true); }
+				}
+				else { self.move(z1, p, z0.coord(self.rp0, self.projectX, false) - z1.coord(p, self.projectX, false)); }
+			}
+			self.loopCount = 1;
+		} else if (op == 0x34 || op == 0x35) {
+			var reference = op == 0x34 ? z1 : z0;
+			int p = op == 0x34 ? self.rp2 : self.rp1;
+			int delta = reference.coord(p, self.projectX, false) - reference.coord(p, self.projectX, true);
+			int contour = self.pop();
+			if (contour < 0 || contour >= z2.ends.size()) { throw "Invalid TrueType contour"; }
+			int first = contour == 0 ? 0 : z2.ends.get(contour - 1) + 1;
+			self.charge(z2.ends.get(contour) - first + 1);
+			for (int i = first; i <= z2.ends.get(contour); i++) {
+				if (reference != z2 || i != p) { self.move(z2, i, delta); }
+			}
+		} else { throw "Unsupported TrueType positioning instruction"; }
+	}
+
+	public void run(OpenTypeSpan code) {
+		self.budget = 500000;
+		self.stack.clear();
+		self.execute(code, 0);
+	}
+
+	/* Functions can declare an arbitrary projection or rotation even if an
+	 * early glyph never calls that function. Keep the entire face on the
+	 * SDK when its programs need more than axis-aligned vectors. */
+	private void requireAxisPrograms(OpenTypeSpan code) {
+		int pc = code.offset;
+		int end = code.end();
+		while (pc < end) {
+			int op = self.data.u8(pc);
+			pc++;
+			if ((op >= 0x06 && op <= 0x0e) || op == 0x86 || op == 0x87) { throw "TrueType font requires general vector instructions"; }
+			int bytes = self.operandCount(op, pc, end);
+			if (bytes > end - pc) { throw "Truncated TrueType push"; }
+			pc += bytes;
+		}
+	}
+
+	/* The pre-program runs once per size. Each glyph starts with its own
+	 * copies of this prepared state, including twilight coordinates. A
+	 * failed glyph therefore cannot disturb a subsequent glyph. */
+	public void prepare(OpenTypeSpan functions, OpenTypeSpan prep) {
+		self.requireAxisPrograms(functions);
+		self.requireAxisPrograms(prep);
+		self.run(functions);
+		self.run(prep);
+		self.preparing = false;
+		self.preparedSettings.copyFrom(self.settings);
+		self.preparedTwilight.copyFrom(self.twilight);
+		for (int i = 0; i < self.storage.len; i++) { self.preparedStorage.set(i, self.storage.get(i)); }
+		for (int i = 0; i < self.cvt.len; i++) { self.preparedCVT.set(i, self.cvt.get(i)); }
+	}
+
+	public void glyph(OpenTypeSpan code, TrueTypeZone points, bool composite = false) {
+		self.compositeGlyph = composite;
+		self.interpolatedAxes = 0;
+		self.points = points;
+		self.settings.copyFrom(self.preparedSettings);
+		self.twilight.copyFrom(self.preparedTwilight);
+		for (int i = 0; i < self.storage.len; i++) { self.storage.set(i, self.preparedStorage.get(i)); }
+		for (int i = 0; i < self.cvt.len; i++) { self.cvt.set(i, self.preparedCVT.get(i)); }
+		self.rp0 = 0;
+		self.rp1 = 0;
+		self.rp2 = 0;
+		self.zp0 = 1;
+		self.zp1 = 1;
+		self.zp2 = 1;
+		self.projectX = true;
+		self.freedomX = true;
+		self.loopCount = 1;
+		if (self.enabled) { self.run(code); }
+	}
+
+	private void execute(OpenTypeSpan code, int depth) {
+		int pc = code.offset;
+		int end = code.end();
+		while (pc < end) {
+			self.charge(1);
+			int op = self.data.u8(pc);
+			pc++;
+			if ((op >= 0xb0 && op <= 0xbf) || op == 0x40 || op == 0x41) {
+				int bytes = self.operandCount(op, pc, end);
+				if (bytes > end - pc) { throw "Truncated TrueType push"; }
+				int next = pc + bytes;
+				if (op == 0x40 || op == 0x41) { pc++; }
+				bool words = op == 0x41 || op >= 0xb8;
+				while (pc < next) {
+					self.push((long long)(words ? self.data.s16(pc) : self.data.u8(pc)));
+					pc += words ? 2 : 1;
+				}
+			} else if (op == 0x2c) {
+				int id = self.pop();
+				int next = self.skip(pc, end, true, false);
+				if (!self.preparing || id < 0 || self.functionIds.size() >= self.functionsLimit || self.functionIds.indexOf(id) >= 0) { throw "Invalid TrueType function definition"; }
+				self.functionIds.push(id);
+				self.functions.push(OpenTypeSpan(pc, next - pc - 1));
+				pc = next;
+			} else if (op == 0x2b || op == 0x2a) {
+				int id = self.pop();
+				int repeats = op == 0x2a ? self.pop() : 1;
+				self.call(id, depth, repeats);
+			} else if (op == 0x58) {
+				if (self.pop() == 0) { pc = self.skip(pc, end, false, true); }
+			} else if (op == 0x1b) { pc = self.skip(pc, end, false, false); }
+			else if (op == 0x59) { continue; }
+			else if (op == 0x1c) { pc = self.off(pc, self.pop(), code); }
+			else if (op == 0x78 || op == 0x79) {
+				int condition = self.pop();
+				int delta = self.pop();
+				if ((condition != 0) == (op == 0x78)) { pc = self.off(pc, delta, code); }
+			} else if (op == 0x20 || op == 0x25 || op == 0x26) {
+				int depth = op == 0x20 ? 1 : self.pop();
+				int index = self.stack.size() - depth;
+				if (depth < 1 || index < 0) { throw "Invalid TrueType stack index"; }
+				int value = self.stack.get(index);
+				if (op == 0x26) { self.stack.remove(index); }
+				self.push((long long)value);
+			} else if (op == 0x21) { self.pop(); }
+			else if (op == 0x22) { self.stack.clear(); }
+			else if (op == 0x24) { self.push((long long)self.stack.size()); }
+			else if (op == 0x23 || op == 0x8a) {
+				int c = self.pop();
+				int b = self.pop();
+				if (op == 0x23) { self.push((long long)c); self.push((long long)b); }
+				else {
+					int a = self.pop();
+					self.push((long long)b); self.push((long long)c); self.push((long long)a);
+				}
+			} else if ((op >= 0x50 && op <= 0x55) || (op >= 0x5a && op <= 0x5c) || (op >= 0x60 && op <= 0x67) || op == 0x8b || op == 0x8c) { self.calculate(op); }
+			else if (op == 0x42 || op == 0x43) {
+				int value = op == 0x42 ? self.pop() : 0;
+				int index = self.pop();
+				if (index < 0 || index >= self.storage.len) { throw "Invalid TrueType storage index"; }
+				if (op == 0x42) { self.storage.set(index, value); }
+				else { self.push((long long)self.storage.get(index)); }
+			} else if (op == 0x44 || op == 0x70) {
+				int value = self.pop();
+				self.writeCV(self.pop(), op == 0x70 ? (int)OpenTypeFixed.mul((long long)value, self.scale) : value);
+			} else if (op == 0x45) { self.push((long long)self.cv(self.pop())); }
+			else if (op == 0x4b || op == 0x4c) { self.push((long long)self.ppem); }
+			else if (op == 0x88) {
+				int requested = self.pop();
+				int result = (requested & 1) != 0 ? 40 : 0;
+				if ((requested & 32) != 0) { result |= 1 << 12; }
+				self.push((long long)result);
+			} else if (op == 0x8e) {
+				if (!self.preparing) { throw "TrueType instruction control outside size preparation"; }
+				int selector = self.pop();
+				int value = self.pop();
+				if (selector == 1) { self.enabled = value == 0; }
+				else if (value != 0) { throw "Unsupported TrueType instruction control"; }
+			} else if (op <= 5) {
+				if (op <= 3) { self.projectX = (op & 1) != 0; }
+				if (op <= 1 || op >= 4) { self.freedomX = (op & 1) != 0; }
+			} else if (op >= 0x10 && op <= 0x16) {
+				int value = self.pop();
+				if (op == 0x10) { self.rp0 = value; }
+				else if (op == 0x11) { self.rp1 = value; }
+				else if (op == 0x12) { self.rp2 = value; }
+				else {
+					self.zone(value);
+					if (op == 0x13 || op == 0x16) { self.zp0 = value; }
+					if (op == 0x14 || op == 0x16) { self.zp1 = value; }
+					if (op == 0x15 || op == 0x16) { self.zp2 = value; }
+				}
+			} else if (op == 0x17) {
+				self.loopCount = self.pop();
+				if (self.loopCount < 0 || self.loopCount > self.stackLimit) { throw "Invalid TrueType loop count"; }
+			} else if (op == 0x18 || op == 0x19 || op == 0x3d || op == 0x7a || op == 0x7c || op == 0x7d) {
+				self.settings.roundPeriod = op == 0x7a ? 0 : (op == 0x3d ? 32 : 64);
+				self.settings.roundPhase = op == 0x19 ? 32 : 0;
+				self.settings.roundThreshold = op == 0x7d ? 0 : (op == 0x7c ? 63 : self.settings.roundPeriod / 2);
+			} else if (op == 0x1a) { self.pop(); }
+			else if (op == 0x1d) { self.settings.cutIn = self.pop(); }
+			else if (op == 0x85 || op == 0x8d) { self.pop(); }
+			else if (op == 0x5e) {
+				self.settings.deltaBase = self.pop();
+				if (self.settings.deltaBase < 0 || self.settings.deltaBase > 65535) { throw "Invalid TrueType delta base"; }
+			}
+			else if (op == 0x5f) {
+				self.settings.deltaShift = self.pop();
+				if (self.settings.deltaShift < 0 || self.settings.deltaShift > 6) { throw "Invalid TrueType delta shift"; }
+			} else if (op == 0x5d || (op >= 0x71 && op <= 0x75)) { self.delta(op); }
+			else if (op >= 0x68 && op <= 0x6b) { self.push((long long)self.round(self.pop())); }
+			else { self.geometry(op); }
+		}
+	}
+}

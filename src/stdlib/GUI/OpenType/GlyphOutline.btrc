@@ -1,0 +1,175 @@
+import Library.Vector;
+
+import ./CoverageRasterizer.btrc;
+import ./OpenTypeData.btrc;
+
+/* How a point takes part in its contour. */
+enum GlyphPointKind {
+	GLYPH_POINT_CONIC,
+	GLYPH_POINT_ON,
+	GLYPH_POINT_CUBIC
+};
+
+/* A scaled glyph outline: closed contours of on-curve points and quadratic
+ * or cubic control points, in 26.6 fixed-point pixels with y pointing up.
+ * Both outline formats fill one of these; composite glyphs transform and
+ * move the points a component added. The point count and the coordinate
+ * range are bounded, so no later arithmetic on a point can overflow. */
+class GlyphOutline {
+	private Vector<int> xs = [];
+	private Vector<int> ys = [];
+	private Vector<int> kinds = [];
+	private Vector<int> ends = [];
+
+	public GlyphOutline() {}
+
+	public int pointCount() { return self.xs.size(); }
+
+	public int contourCount() { return self.ends.size(); }
+
+	public int contourEnd(int index) { return self.ends.get(index); }
+
+	public int pointX(int index) { return self.xs.get(index); }
+
+	public int pointY(int index) { return self.ys.get(index); }
+
+	public void addPoint(long long x, long long y, GlyphPointKind kind) {
+		if (x < -268435456LL || x > 268435456LL || y < -268435456LL || y > 268435456LL) { throw "Glyph outline exceeds the supported coordinate range"; }
+		if (self.xs.size() >= 262144) { throw "Glyph outline has too many points"; }
+		self.xs.push((int)x);
+		self.ys.push((int)y);
+		self.kinds.push((int)kind);
+	}
+
+	/* Ends the contour holding every point added since the previous one. */
+	public void closeContour() {
+		int start = self.ends.size() == 0 ? 0 : self.ends.get(self.ends.size() - 1) + 1;
+		if (self.xs.size() > start) { self.ends.push(self.xs.size() - 1); }
+	}
+
+	public void translate(int from, long long dx, long long dy) {
+		for (int i = from; i < self.xs.size(); i++) { self.setPoint(i, (long long)self.xs.get(i) + dx, (long long)self.ys.get(i) + dy); }
+	}
+
+	/* A 2x2 matrix of 16.16 factors applied to the points from `from` on. */
+	public void transform(int from, long long xx, long long xy, long long yx, long long yy) {
+		for (int i = from; i < self.xs.size(); i++) {
+			long long x = (long long)self.xs.get(i);
+			long long y = (long long)self.ys.get(i);
+			self.setPoint(i, OpenTypeFixed.mul(x, xx) + OpenTypeFixed.mul(y, xy), OpenTypeFixed.mul(x, yx) + OpenTypeFixed.mul(y, yy));
+		}
+	}
+
+	public void setPoint(int index, long long x, long long y) {
+		if (x < -268435456LL || x > 268435456LL || y < -268435456LL || y > 268435456LL) { throw "Glyph outline exceeds the supported coordinate range"; }
+		self.xs.set(index, (int)x);
+		self.ys.set(index, (int)y);
+	}
+
+	public bool isEmpty() { return self.ends.size() == 0; }
+
+	/* The control box: the extent of every point, control points included,
+	 * which bounds the curves. Order: xMin, yMin, xMax, yMax. */
+	public Vector<int> controlBox() {
+		Vector<int> box = [0, 0, 0, 0];
+		int count = self.ends.size() == 0 ? 0 : self.ends.get(self.ends.size() - 1) + 1;
+		for (int i = 0; i < count; i++) {
+			int x = self.xs.get(i);
+			int y = self.ys.get(i);
+			if (i == 0 || x < box.get(0)) { box.set(0, x); }
+			if (i == 0 || y < box.get(1)) { box.set(1, y); }
+			if (i == 0 || x > box.get(2)) { box.set(2, x); }
+			if (i == 0 || y > box.get(3)) { box.set(3, y); }
+		}
+		return box;
+	}
+
+	/* Replays every contour into the rasterizer, whose origin is the pixel
+	 * (originX, originY). A contour may start on a control point; two
+	 * consecutive quadratic control points imply the on-curve point midway
+	 * between them, rounded down to 1/64 pixel. A contour whose cubic control points are not in pairs
+	 * is refused. */
+	public void replay(CoverageRasterizer sink, int originX, int originY) {
+		long long shiftX = (long long)originX * 64LL;
+		long long shiftY = (long long)originY * 64LL;
+		int first = 0;
+		for (int contour = 0; contour < self.ends.size(); contour++) {
+			int last = self.ends.get(contour);
+			self.replayContour(sink, first, last, shiftX, shiftY);
+			first = last + 1;
+		}
+	}
+
+	private int sinkX(long long x, long long shiftX) { return (int)((x - shiftX) * 4LL); }
+
+	private void replayContour(CoverageRasterizer sink, int first, int last, long long shiftX, long long shiftY) {
+		int limit = last;
+		long long startX = (long long)self.xs.get(first);
+		long long startY = (long long)self.ys.get(first);
+		int kind = self.kinds.get(first);
+		if (kind == (int)GLYPH_POINT_CUBIC) { throw "Glyph contour starts with a cubic control point"; }
+		int point = first;
+		if (kind == (int)GLYPH_POINT_CONIC) {
+			if (self.kinds.get(last) == (int)GLYPH_POINT_ON) {
+				startX = (long long)self.xs.get(last);
+				startY = (long long)self.ys.get(last);
+				limit--;
+			} else {
+				startX = OpenTypeFixed.floorDiv(startX + (long long)self.xs.get(last), 2LL);
+				startY = OpenTypeFixed.floorDiv(startY + (long long)self.ys.get(last), 2LL);
+			}
+			point--;
+		}
+		sink.moveTo(self.sinkX(startX, shiftX), self.sinkX(startY, shiftY));
+		bool closed = false;
+		while (point < limit && !closed) {
+			point++;
+			kind = self.kinds.get(point);
+			long long x = (long long)self.xs.get(point);
+			long long y = (long long)self.ys.get(point);
+			if (kind == (int)GLYPH_POINT_ON) {
+				sink.lineTo(self.sinkX(x, shiftX), self.sinkX(y, shiftY));
+			} else if (kind == (int)GLYPH_POINT_CONIC) {
+				long long controlX = x;
+				long long controlY = y;
+				bool pending = true;
+				while (pending) {
+					if (point >= limit) {
+						sink.conicTo(self.sinkX(controlX, shiftX), self.sinkX(controlY, shiftY), self.sinkX(startX, shiftX), self.sinkX(startY, shiftY));
+						closed = true;
+						pending = false;
+					} else {
+						point++;
+						int next = self.kinds.get(point);
+						long long nextX = (long long)self.xs.get(point);
+						long long nextY = (long long)self.ys.get(point);
+						if (next == (int)GLYPH_POINT_ON) {
+							sink.conicTo(self.sinkX(controlX, shiftX), self.sinkX(controlY, shiftY), self.sinkX(nextX, shiftX), self.sinkX(nextY, shiftY));
+							pending = false;
+						} else if (next == (int)GLYPH_POINT_CONIC) {
+							long long middleX = OpenTypeFixed.floorDiv(controlX + nextX, 2LL);
+							long long middleY = OpenTypeFixed.floorDiv(controlY + nextY, 2LL);
+							sink.conicTo(self.sinkX(controlX, shiftX), self.sinkX(controlY, shiftY), self.sinkX(middleX, shiftX), self.sinkX(middleY, shiftY));
+							controlX = nextX;
+							controlY = nextY;
+						} else {
+							throw "Glyph contour mixes quadratic and cubic control points";
+						}
+					}
+				}
+			} else {
+				if (point + 1 > limit || self.kinds.get(point + 1) != (int)GLYPH_POINT_CUBIC) { throw "Glyph contour has an unpaired cubic control point"; }
+				long long secondX = (long long)self.xs.get(point + 1);
+				long long secondY = (long long)self.ys.get(point + 1);
+				point += 2;
+				if (point <= limit) {
+					sink.cubicTo(self.sinkX(x, shiftX), self.sinkX(y, shiftY), self.sinkX(secondX, shiftX), self.sinkX(secondY, shiftY), self.sinkX((long long)self.xs.get(point), shiftX), self.sinkX((long long)self.ys.get(point), shiftY));
+				} else {
+					sink.cubicTo(self.sinkX(x, shiftX), self.sinkX(y, shiftY), self.sinkX(secondX, shiftX), self.sinkX(secondY, shiftY), self.sinkX(startX, shiftX), self.sinkX(startY, shiftY));
+					closed = true;
+				}
+			}
+		}
+		if (!closed) { sink.lineTo(self.sinkX(startX, shiftX), self.sinkX(startY, shiftY)); }
+	}
+}

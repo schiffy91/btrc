@@ -5,11 +5,11 @@ import Library.OwnedBuffer;
 /* Private FreeType face behind Library.GUI.FreeType's FreeType.load; this
  * module is not exported, and Font and Raster stay SDK-free.
  *
- * Setup is FT_Init_FreeType, FT_New_Face with face index zero, then
+ * Setup is FT_Init_FreeType, a file or retained memory face at index zero, then
  * FT_Set_Pixel_Sizes(face, 0, pixelSize); any failure throws instead of
  * falling back to the bitmap font. The library and face are unique native
  * owners (see the FreeType binding in GUI/btrc.toml): no raw handle crosses
- * this class, and the destructor closes the face before its library. The
+ * this class, and the destructor closes the face before its retained memory and library. The
  * release policy relies on a freshly created valid claim having reference
  * count one, so FT_Done_Face and FT_Done_FreeType consume it; this provider
  * imports no FT_Reference_* function.
@@ -28,18 +28,28 @@ import Library.OwnedBuffer;
 class FreeTypeFace implements IFontFace {
 	private FT_Library? library = null;
 	private FT_Face? face = null;
+	private BtrcFreeTypeMemory? memory = null;
 	private FontMetrics faceMetrics;
 	private Atomic<uint> gate;
 
-	public FreeTypeFace(string path, int pixelSize) {
+	public FreeTypeFace(string path, int pixelSize, Bytes? data = null) {
 		self.gate.init(0u);
-		if (path == null || path.isEmpty() || pixelSize < 1) { throw "FreeType requires a font path and positive pixel size"; }
+		if ((data == null && (path == null || path.isEmpty())) || pixelSize < 1) { throw "FreeType requires a font path and positive pixel size"; }
 		var initialized = FT_Init_FreeType();
 		self.library = initialized.value;
 		if (initialized.status != 0 || self.library == null) { throw "Cannot initialize FreeType library"; }
-		var loaded = FT_New_Face(self.library, path, 0L);
-		self.face = loaded.value;
-		if (loaded.status != 0 || self.face == null) { throw "Cannot load FreeType face"; }
+		if (data == null) {
+			var loaded = FT_New_Face(self.library, path, 0L);
+			self.face = loaded.value;
+			if (loaded.status != 0 || self.face == null) { throw "Cannot load FreeType face"; }
+		} else {
+			var storage = btrcFreeTypeCopyMemory((const unsigned char*)data.data, (long)data.length());
+			self.memory = storage.value;
+			if (storage.status != 0 || self.memory == null) { throw "Cannot retain font data"; }
+			var loaded = btrcFreeTypeOpenMemoryFace(self.library, self.memory);
+			self.face = loaded.value;
+			if (loaded.status != 0 || self.face == null) { self.closeHandles(); throw "Cannot load FreeType face"; }
+		}
 		if (FT_Set_Pixel_Sizes(self.face, 0U, (unsigned int)pixelSize) != 0) {
 			self.closeHandles();
 			throw "Cannot set FreeType pixel size";
@@ -91,6 +101,7 @@ class FreeTypeFace implements IFontFace {
 	 * alive until its face has been released on those paths. */
 	private void closeHandles() {
 		if (self.face != null) { self.face.close(); }
+		if (self.memory != null) { self.memory.close(); }
 		if (self.library != null) { self.library.close(); }
 	}
 

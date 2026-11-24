@@ -1,0 +1,216 @@
+import Library.Bytes;
+import Library.Vector;
+
+import ./WOFF2Stream.btrc;
+
+/* WOFF2 sections 5.1–5.3. Reconstitute TrueType outlines, including their
+ * original bytecode, from the seven independent streams in transformed glyf.
+ * Both tables are built together so every loca entry names the actual offset
+ * of its glyph, regardless of which legal TrueType flag encoding was used. */
+class WOFF2Glyphs {
+	public Bytes glyf;
+	public Bytes loca;
+	public int glyphCount;
+	public int indexFormat;
+	private WOFF2Stream points;
+	private WOFF2Stream flags;
+	private WOFF2Stream coordinates;
+	private WOFF2Stream components;
+	private WOFF2Stream instructions;
+	private int dx = 0;
+	private int dy = 0;
+
+	public WOFF2Glyphs(Bytes table) {
+		var input = WOFF2Stream(table, 0, table.length());
+		if (input.word() != 0) { throw "Unknown WOFF2 outline transform"; }
+		int options = input.word();
+		if ((options & ~1) != 0) { throw "Unknown WOFF2 outline options"; }
+		self.glyphCount = input.word();
+		self.indexFormat = input.word();
+		if (self.indexFormat > 1) { throw "Invalid WOFF2 loca index format"; }
+
+		Vector<int> lengths = [];
+		for (int i = 0; i < 7; i++) { lengths.push(input.length32()); }
+		var contours = input.stream(lengths.get(0));
+		self.points = input.stream(lengths.get(1));
+		self.flags = input.stream(lengths.get(2));
+		self.coordinates = input.stream(lengths.get(3));
+		self.components = input.stream(lengths.get(4));
+		var boxes = input.stream(lengths.get(5));
+		self.instructions = input.stream(lengths.get(6));
+		Bytes explicitBoxes = boxes.bytes(4 * ((self.glyphCount + 31) / 32));
+		Bytes overlaps = input.bytes(options == 0 ? 0 : (self.glyphCount + 7) / 8);
+		if (input.remaining() != 0) { throw "Wrong WOFF2 outline table length"; }
+		self.glyf = Bytes();
+		self.loca = Bytes();
+		for (int i = 0; i < self.glyphCount; i++) {
+			self.storeOffset();
+			int n = contours.word();
+			bool explicitBox = WOFF2Glyphs.bit(explicitBoxes, i);
+			if (n == 0) {
+				if (explicitBox) { throw "Empty WOFF2 glyph has a bounding box"; }
+				continue;
+			}
+			self.glyf.appendU16BE(n);
+			if (n == 65535) {
+				if (!explicitBox) { throw "Composite WOFF2 glyph has no bounding box"; }
+				self.glyf.appendBytes(boxes.bytes(8));
+				self.composite();
+			} else {
+				if (n > 32767) { throw "Invalid WOFF2 contour count"; }
+				self.simple(n, explicitBox ? boxes.bytes(8) : Bytes(), options != 0 && WOFF2Glyphs.bit(overlaps, i));
+			}
+			/* Short loca encodes offsets in two-byte units. */
+			if (self.indexFormat == 0 && (self.glyf.length() & 1) != 0) { self.glyf.append(0); }
+		}
+		self.storeOffset();
+		if (contours.remaining() != 0 || self.points.remaining() != 0 || self.flags.remaining() != 0 || self.coordinates.remaining() != 0 || self.components.remaining() != 0 || boxes.remaining() != 0 || self.instructions.remaining() != 0) {
+			throw "Unused data in WOFF2 outline streams";
+		}
+	}
+
+	class bool bit(Bytes bitmap, int glyph) { return (bitmap.get(glyph / 8) & (128 >> (glyph % 8))) != 0; }
+
+	private void storeOffset() {
+		int offset = self.glyf.length();
+		if (self.indexFormat == 0) {
+			if (offset > 131070) { throw "WOFF2 glyphs exceed short loca range"; }
+			self.loca.appendU16BE(offset / 2);
+		} else {
+			self.loca.appendU32BE((unsigned int)offset);
+		}
+	}
+
+	private void copyInstructions(Bytes dest) {
+		int length = self.coordinates.uint255();
+		dest.appendU16BE(length);
+		dest.appendBytes(self.instructions.bytes(length));
+	}
+
+	private void composite() {
+		bool more = true;
+		bool hasInstructions = false;
+		while (more) {
+			int flags = self.components.word();
+			int component = self.components.word();
+			if (component >= self.glyphCount) { throw "Invalid WOFF2 component glyph"; }
+			int arguments = (flags & 1) != 0 ? 4 : 2;
+			int transform = flags & 0xc8;
+			int scale = 0;
+			if (transform == 8) { scale = 2; }
+			else if (transform == 64) { scale = 4; }
+			else if (transform == 128) { scale = 8; }
+			else if (transform != 0) { throw "Invalid WOFF2 component transform"; }
+			self.glyf.appendU16BE(flags);
+			self.glyf.appendU16BE(component);
+			self.glyf.appendBytes(self.components.bytes(arguments + scale));
+			hasInstructions = hasInstructions || (flags & 256) != 0;
+			more = (flags & 32) != 0;
+		}
+		if (hasInstructions) { self.copyInstructions(self.glyf); }
+	}
+
+	/* Lower seven bits of the flag index the triplet code ranges. In each
+	 * two-axis range the low two bits select the signs of x and y. */
+	private void triplet(int code) {
+		int first = self.coordinates.byte();
+		int x = 0;
+		int y = 0;
+		if (code < 10) {
+			y = ((code / 2) << 8) + first;
+			self.dx = 0;
+			self.dy = (code & 1) != 0 ? y : -y;
+			return;
+		}
+		if (code < 20) { x = (((code - 10) / 2) << 8) + first; }
+		else if (code < 84) {
+			int group = code - 20;
+			x = 1 + (group & 48) + (first >> 4);
+			y = 1 + ((group & 12) << 2) + (first & 15);
+		} else if (code < 120) {
+			int group = code - 84;
+			x = 1 + 256 * (group / 12) + first;
+			y = 1 + 256 * ((group % 12) / 4) + self.coordinates.byte();
+		} else if (code < 124) {
+			int middle = self.coordinates.byte();
+			x = (first << 4) + (middle >> 4);
+			y = ((middle & 15) << 8) + self.coordinates.byte();
+		} else {
+			x = (first << 8) + self.coordinates.byte();
+			y = self.coordinates.word();
+		}
+		self.dx = (code & 1) != 0 ? x : -x;
+		self.dy = (code & 2) != 0 ? y : -y;
+	}
+
+	class int axis(Bytes bytes, int delta, int shortBit, int sameBit) {
+		if (delta == 0) { return sameBit; }
+		if (delta > -256 && delta < 256) {
+			bytes.append(delta > 0 ? delta : -delta);
+			return delta > 0 ? shortBit | sameBit : shortBit;
+		}
+		bytes.appendU16BE(delta & 65535);
+		return 0;
+	}
+
+	class void flushFlags(Bytes flags, int flag, int count) {
+		if (count == 1) { flags.append(flag); }
+		else if (count > 1) { flags.append(flag | 8); flags.append(count - 1); }
+	}
+
+	private void simple(int contours, Bytes box, bool overlap) {
+		int count = 0;
+		var ends = Bytes();
+		for (int i = 0; i < contours; i++) {
+			int n = self.points.uint255();
+			if (n == 0 || count + n > 65536) { throw "Invalid WOFF2 point count"; }
+			count += n;
+			ends.appendU16BE(count - 1);
+		}
+		var flags = Bytes();
+		var xs = Bytes();
+		var ys = Bytes();
+		int x = 0;
+		int y = 0;
+		int minX = 32767;
+		int minY = 32767;
+		int maxX = -32768;
+		int maxY = -32768;
+		int previous = 0;
+		int repeats = 0;
+		for (int i = 0; i < count; i++) {
+			int packed = self.flags.byte();
+			self.triplet(packed & 127);
+			x += self.dx;
+			y += self.dy;
+			if (x < -32768 || x > 32767 || y < -32768 || y > 32767) { throw "WOFF2 point lies outside glyph coordinate range"; }
+			minX = x < minX ? x : minX;
+			minY = y < minY ? y : minY;
+			maxX = x > maxX ? x : maxX;
+			maxY = y > maxY ? y : maxY;
+			int flag = packed < 128 ? 1 : 0;
+			if (i == 0 && overlap) { flag |= 64; }
+			flag |= WOFF2Glyphs.axis(xs, self.dx, 2, 16);
+			flag |= WOFF2Glyphs.axis(ys, self.dy, 4, 32);
+			if (flag != previous || repeats == 256) {
+				WOFF2Glyphs.flushFlags(flags, previous, repeats);
+				previous = flag;
+				repeats = 0;
+			}
+			repeats++;
+		}
+		WOFF2Glyphs.flushFlags(flags, previous, repeats);
+		if (box.length() == 0) {
+			box.appendU16BE(minX & 65535);
+			box.appendU16BE(minY & 65535);
+			box.appendU16BE(maxX & 65535);
+			box.appendU16BE(maxY & 65535);
+		}
+		self.glyf.appendBytes(box);
+		self.glyf.appendBytes(ends);
+		self.copyInstructions(self.glyf);
+		self.glyf.appendBytes(flags);
+		self.glyf.appendBytes(xs);
+		self.glyf.appendBytes(ys);
+	}
+}

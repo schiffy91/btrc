@@ -1,0 +1,125 @@
+import Library.Array;
+import Library.Vector;
+
+import ../OpenTypeData.btrc;
+
+/* A TrueType zone keeps three views of each point: original scaled
+ * coordinates, current grid-fitted coordinates, and which axes have been
+ * explicitly touched by instructions. The twilight zone uses the same
+ * representation as glyph points, including the four phantom points. */
+class TrueTypeZone {
+	public int count;
+	public Array<int> xs;
+	public Array<int> ys;
+	public Array<int> originalX;
+	public Array<int> originalY;
+	public Array<int> unitsX;
+	public Array<int> unitsY;
+	public Array<int> touched;
+	public Vector<int> ends;
+
+	public TrueTypeZone(int count) {
+		self.count = count;
+		self.xs = new Array<int>(count);
+		self.ys = new Array<int>(count);
+		self.originalX = new Array<int>(count);
+		self.originalY = new Array<int>(count);
+		self.unitsX = new Array<int>(count);
+		self.unitsY = new Array<int>(count);
+		self.touched = new Array<int>(count);
+		self.ends = [];
+	}
+
+	public void copyFrom(TrueTypeZone other) {
+		for (int i = 0; i < self.count; i++) {
+			self.xs.set(i, other.xs.get(i));
+			self.ys.set(i, other.ys.get(i));
+			self.originalX.set(i, other.originalX.get(i));
+			self.originalY.set(i, other.originalY.get(i));
+			self.unitsX.set(i, other.unitsX.get(i));
+			self.unitsY.set(i, other.unitsY.get(i));
+			self.touched.set(i, other.touched.get(i));
+		}
+	}
+
+	public void need(int point) {
+		if (point < 0 || point >= self.count) { throw "TrueType instruction addresses an invalid point"; }
+	}
+
+	public void place(int point, int x, int y) {
+		self.need(point);
+		if (x < -268435456 || x > 268435456 || y < -268435456 || y > 268435456) { throw "TrueType hint point lies outside the coordinate range"; }
+		self.xs.set(point, x);
+		self.ys.set(point, y);
+		self.originalX.set(point, x);
+		self.originalY.set(point, y);
+		self.unitsX.set(point, x);
+		self.unitsY.set(point, y);
+	}
+
+	public int coord(int point, bool x, bool original) {
+		self.need(point);
+		if (x) { return original ? self.originalX.get(point) : self.xs.get(point); }
+		return original ? self.originalY.get(point) : self.ys.get(point);
+	}
+
+	public void move(int point, bool x, long long delta, bool touch) {
+		self.need(point);
+		var axis = x ? self.xs : self.ys;
+		long long value = (long long)axis.get(point) + delta;
+		if (value < -268435456LL || value > 268435456LL) { throw "TrueType hint moved a point outside the coordinate range"; }
+		axis.set(point, (int)value);
+		if (touch) { self.touched.set(point, self.touched.get(point) | (x ? 1 : 2)); }
+	}
+
+	private void between(int i, Array<int> current, Array<int> original, Array<int> units, int a, int b) {
+		int pos = original.get(i);
+		int lo = original.get(a);
+		int hi = original.get(b);
+		int x = current.get(a);
+		int y = current.get(b);
+		/* Even stationary anchors constrain the interior in design units.
+		 * Directly scaled interior coordinates can round to another 26.6
+		 * position from that interpolation. */
+		if (pos <= lo) { current.set(i, pos + x - lo); }
+		else if (pos >= hi) { current.set(i, pos + y - hi); }
+		else {
+			long long width = (long long)units.get(b) - (long long)units.get(a);
+			long long factor = OpenTypeFixed.div((long long)y - (long long)x, width);
+			int part = (int)OpenTypeFixed.mul((long long)units.get(i) - (long long)units.get(a), factor);
+			current.set(i, x + part);
+		}
+	}
+
+	/* Interpolate untouched points independently per contour and wrap the
+	 * last anchor to the first. A lone anchor translates the whole contour. */
+	public void interpolate(bool x) {
+		var current = x ? self.xs : self.ys;
+		var original = x ? self.originalX : self.originalY;
+		var units = x ? self.unitsX : self.unitsY;
+		int mask = x ? 1 : 2;
+		int first = 0;
+		for (int k = 0; k < self.ends.size(); k++) {
+			int last = self.ends.get(k);
+			int anchor = first;
+			while (anchor <= last && (self.touched.get(anchor) & mask) == 0) { anchor++; }
+			if (anchor <= last) {
+				int a = anchor;
+				do {
+					int b = a;
+					do { b = b == last ? first : b + 1; } while ((self.touched.get(b) & mask) == 0);
+					// Distinct anchors can round to the same 26.6 coordinate.
+					int lo = units.get(a) <= units.get(b) ? a : b;
+					int hi = lo == a ? b : a;
+					int i = a == last ? first : a + 1;
+					while (i != b) {
+						self.between(i, current, original, units, lo, hi);
+						i = i == last ? first : i + 1;
+					}
+					a = b;
+				} while (a != anchor);
+			}
+			first = last + 1;
+		}
+	}
+}

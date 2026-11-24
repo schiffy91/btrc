@@ -1,0 +1,91 @@
+import Library.Bytes;
+import Library.Vector;
+
+import ./Prefix.btrc;
+
+/* The literal, command and distance alphabets each switch block types
+ * independently. Only the distance ring survives a meta-block boundary. */
+class BrotliBlocks {
+	public int types;
+	private BrotliPrefix? switches = null;
+	private BrotliPrefix? lengths = null;
+	private int previous = 1;
+	private int current = 0;
+	private int left = 0;
+
+	public BrotliBlocks(BrotliBits bits) {
+		self.types = bits.count();
+		if (self.types == 1) { return; }
+		self.switches = BrotliPrefix.read(bits, self.types + 2);
+		var lengths = BrotliPrefix.read(bits, 26);
+		self.lengths = lengths;
+		self.left = self.blockLength(bits, lengths);
+	}
+
+	private int blockLength(BrotliBits bits, BrotliPrefix tree) {
+		int code = tree.symbol(bits);
+		if (code == 25) { return 16625 + bits.read(24); }
+		if (code >= 18) {
+			int width = code - 11;
+			return 241 + (1 << width) + bits.read(width);
+		}
+		int group = code / 4;
+		int width = group + 2;
+		int base = 1 + 16 * ((1 << group) - 1) + ((code % 4) << width);
+		return base + bits.read(width);
+	}
+
+	public int next(BrotliBits bits) {
+		if (self.types == 1) { return 0; }
+		if (self.left == 0) {
+			var switches = self.switches;
+			var lengths = self.lengths;
+			if (switches == null || lengths == null) { throw "Missing Brotli block codes"; }
+			int code = switches.symbol(bits);
+			int next = code == 0 ? self.previous : (code == 1 ? (self.current + 1) % self.types : code - 2);
+			self.previous = self.current;
+			self.current = next;
+			self.left = self.blockLength(bits, lengths);
+		}
+		self.left--;
+		return self.current;
+	}
+}
+
+class BrotliContexts {
+	public int count;
+	public Bytes map;
+
+	public BrotliContexts(BrotliBits bits, int length) {
+		self.count = bits.count();
+		self.map = Bytes();
+		self.map.resetZeros(length);
+		if (self.count == 1) { return; }
+		int repeats = bits.read(1) == 0 ? 0 : 1 + bits.read(4);
+		var codes = BrotliPrefix.read(bits, self.count + repeats);
+		int index = 0;
+		while (index < length) {
+			int code = codes.symbol(bits);
+			if (code == 0) { index++; }
+			else if (code <= repeats) {
+				int run = (1 << code) + bits.read(code);
+				if (run > length - index) { throw "Invalid Brotli context repetition"; }
+				index += run;
+			} else {
+				self.map.set(index, code - repeats);
+				index++;
+			}
+		}
+		if (bits.read(1) != 0) {
+			Bytes ranks = Bytes();
+			for (int i = 0; i < self.count; i++) { ranks.append(i); }
+			for (int i = 0; i < length; i++) {
+				int rank = self.map.get(i);
+				int value = ranks.get(rank);
+				self.map.set(i, value);
+				for (int j = rank; j > 0; j--) { ranks.set(j, ranks.get(j - 1)); }
+				ranks.set(0, value);
+			}
+		}
+	}
+}
