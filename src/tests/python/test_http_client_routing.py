@@ -120,8 +120,7 @@ def test_public_http_proxy_bypass_and_resolver_deadline(compiler, request, tmp_p
                     f"200|/direct|{authority}||"
                 )
             assert run(program, TEST_URL=f"http://{endpoint}/direct", HTTP_PROXY=proxy) == f"200|/direct|{endpoint}||"
-            if sys.platform == "linux":
-                check_socks(program, run, peer, tmp_path)
+            check_socks(program, run, peer, tmp_path)
         finally:
             peer.shutdown()
             serving.join()

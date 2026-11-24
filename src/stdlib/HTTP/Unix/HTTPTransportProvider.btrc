@@ -7,12 +7,9 @@ import Library.Platform;
 #endif
 #if !TARGET_OS_IOS
 import Library.HTTP.HTTPCurlTransport;
-#if TARGET_OS_OSX
-import Library.Process;
-#endif
 import Library.HTTP.Unix.HTTPProxy;
 #endif
-#if defined(__linux__) && !defined(__ANDROID__)
+#if TARGET_OS_OSX || (defined(__linux__) && !defined(__ANDROID__))
 import Library.HTTP.Unix.HTTPSocks;
 import Library.Process;
 #endif
@@ -50,10 +47,10 @@ class HTTPTransportProvider {
 #if !TARGET_OS_IOS
 		string setting = HTTPProxy.setting(address);
 		if (!setting.isEmpty()) {
-#if defined(__linux__) && !defined(__ANDROID__)
+#if TARGET_OS_OSX || (defined(__linux__) && !defined(__ANDROID__))
 			string socks = HTTPSocks.scheme(setting);
-			/* Installed curl can negotiate GSSAPI for SOCKS5. SOCKS4 has no
-			 * such mode and always uses the first-party wire client. */
+			/* Installed curl can negotiate GSSAPI for SOCKS5. Keep caller-specified proxy headers on the
+			 * installed transport as well. */
 			if (!socks.isEmpty() && !HTTPProxy.needsLegacyHeaders(headers) && (!socks.startsWith("socks5") || ChildProcessExecutable.resolve("curl", "", [], []).isEmpty())) {
 				HTTPClientAddress? endpoint = HTTPSocks.endpoint(setting, socks);
 				if (endpoint != null) { return HTTPPlainTransport.request(method, address, headers, body, timeoutSecs, maxResponseBytes, endpoint, socks); }
