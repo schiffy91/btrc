@@ -31,6 +31,31 @@ class DBusConformance {
 
 	class bool usable(string address) { return DBusAddress.parse(address).len == 1; }
 
+	/* A valid peer message may arrive while an application is waiting for a
+     * different reply. The old 8 MiB threshold refused the driver's reply. */
+	class void bufferedCall() {
+		DBusConnection from = DBusConformance.connect();
+		DBusConnection to = DBusConformance.connect();
+		DBusMessage queued = DBusMessage.methodCall(to.uniqueName(), DBusConformance.echoPath(), DBusConformance.echoInterface(), "Buffered");
+		queued.setNoReply(true);
+		queued.writer().appendString("a".repeat(9 * 1024 * 1024));
+		assert(from.send(queued));
+		DBusMessage fence = DBusMessage.methodCall(DBusConnection.busName(), DBusConnection.busPath(), DBusConnection.busName(), "GetId");
+		assert(from.call(fence, 15000) != null);
+		/* The daemon has now routed the large message to this connection. */
+		assert(to.call(fence, 15000) != null);
+		bool found = false;
+		DBusMessage? next = to.popMessage();
+		while (next != null) {
+			DBusMessage message = next;
+			if (message.member().equals("Buffered")) { found = message.reader().readString().len() == 9 * 1024 * 1024; }
+			next = to.popMessage();
+		}
+		assert(found);
+		from.close();
+		to.close();
+	}
+
 	class void addresses() {
 		Vector<DBusAddress> one = DBusAddress.parse("unix:path=/run/user/1000/bus");
 		assert(one.len == 1 && one.get(0).path().equals("/run/user/1000/bus") && !one.get(0).isAbstract());
@@ -399,6 +424,7 @@ class DBusConformance {
 
 int main() {
 	DBusConformance.addresses();
+	DBusConformance.bufferedCall();
 	DBusConformance.codec();
 	DBusConformance.bus(f"org.btrc.test.Conformance{Platform.pid()}");
 	print("PASS: D-Bus addresses, codec, bus calls, signals and a peer round trip");

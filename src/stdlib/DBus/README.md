@@ -120,10 +120,11 @@ body is exactly what its signature describes.
 | --- | --- |
 | One message, sent or received | 128 MiB (the specification limit) |
 | One array's elements | 64 MiB (the specification limit) |
+| Unix descriptors attached to a message | 16 |
 | A signature | 255 bytes |
 | Array, struct and dict-entry nesting in a signature | 32 each |
 | Container nesting in a body, variants included | 64 |
-| Unpopped messages | 8 MiB of wire bytes; reading pauses until some are popped |
+| Unpopped messages | 63 MiB of wire bytes or 4,096 descriptors; reading pauses until some are popped |
 
 A malformed or oversized message closes the
 connection; so does a failed or timed-out write, because a half-written

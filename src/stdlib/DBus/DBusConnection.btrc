@@ -31,6 +31,7 @@ class DBusConnection {
 	private string unique = "";
 	private unsigned int lastSerial = 0u;
 	private Vector<DBusMessage> incoming = [];
+	private int queuedDescriptors = 0;
 	private long long backlog = 0LL;  /* wire bytes of the queued messages */
 	private unsigned char* frame = null;  /* the message being received */
 	private bool unixFD = false;
@@ -47,13 +48,21 @@ class DBusConnection {
 	class string busPath() { return "/org/freedesktop/DBus"; }
 
 	/* How long a call to the bus itself, or one given a negative timeout,
-	 * waits for its reply. Connecting, authenticating and every write share
-	 * the bound. */
+	 * waits for its reply. Each authentication exchange and write has the
+	 * same timeout. Host-name lookup follows the system resolver policy. */
 	class int defaultTimeout() { return 25000; }
 
 	/* Unpopped messages may hold this many wire bytes before reading stops
 	 * until some are popped: a peer cannot grow the queue without bound. */
-	class long long maximumBacklogBytes() { return 8388608LL; }
+	class long long maximumBacklogBytes() { return 66060288LL; }
+
+	/* Match libdbus's Linux defaults for received descriptors as well as
+     * queued bytes. Descriptors are installed by the kernel on receipt. */
+	class int maximumMessageDescriptors() { return 16; }
+
+	class int maximumBacklogDescriptors() { return 4096; }
+
+	private bool overBacklogLimit() { return self.backlog > DBusConnection.maximumBacklogBytes() || self.queuedDescriptors > DBusConnection.maximumBacklogDescriptors(); }
 
 	/* RequestName's flag: fail at once when another connection owns the name. */
 	class unsigned int doNotQueue() { return 4u; }
@@ -246,7 +255,7 @@ class DBusConnection {
 	/* Read what the socket holds, without waiting, into whole messages. */
 	private void receive() {
 		int budget = 64;
-		while (self.handle >= 0 && budget > 0 && self.backlog <= DBusConnection.maximumBacklogBytes()) {
+		while (self.handle >= 0 && budget > 0 && !self.overBacklogLimit()) {
 			if (self.frame == null) {
 				self.frame = (unsigned char*)malloc((size_t)16);
 				self.frameSize = 16;
@@ -258,7 +267,7 @@ class DBusConnection {
 				}
 			}
 			int count = DBusTransportProvider.receiveFrame(self.handle, self.frame + self.frameFill, self.frameSize - self.frameFill, self.handles);
-			if (count < 0 || (!self.unixFD && self.handles.count() > 0)) {
+			if (count < 0 || self.handles.count() > DBusConnection.maximumMessageDescriptors() || (!self.unixFD && self.handles.count() > 0)) {
 				self.close();
 				return;
 			}
@@ -297,6 +306,7 @@ class DBusConnection {
 			if (arrived.type() != DBUS_MESSAGE_TYPE_INVALID) {
 				self.incoming.push(arrived);
 				self.backlog += (long long)size;
+				self.queuedDescriptors += arrived.descriptorCount();
 			}
 			budget--;
 		}
@@ -318,6 +328,7 @@ class DBusConnection {
 		DBusMessage first = self.incoming.get(0);
 		self.incoming.remove(0);
 		self.backlog -= (long long)first.wireLength();
+		self.queuedDescriptors -= first.descriptorCount();
 		return first;
 	}
 
@@ -352,6 +363,7 @@ class DBusConnection {
 				if ((candidate.type() == DBUS_MESSAGE_TYPE_METHOD_RETURN || candidate.type() == DBUS_MESSAGE_TYPE_ERROR) && candidate.replySerial() == serial) {
 					self.incoming.remove(scanned);
 					self.backlog -= (long long)candidate.wireLength();
+					self.queuedDescriptors -= candidate.descriptorCount();
 					return candidate;
 				}
 				scanned++;
@@ -361,7 +373,7 @@ class DBusConnection {
 				return null;
 			}
 			long long remaining = MonotonicClock.remaining(deadline);
-			if (remaining <= 0LL || self.backlog > DBusConnection.maximumBacklogBytes()) {
+			if (remaining <= 0LL || self.overBacklogLimit()) {
 				self.failure = remaining <= 0LL ? "org.freedesktop.DBus.Error.NoReply" : "org.freedesktop.DBus.Error.LimitsExceeded";
 				return null;
 			}
