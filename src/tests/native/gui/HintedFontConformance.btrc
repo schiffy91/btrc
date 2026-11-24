@@ -104,8 +104,25 @@ int interpreterEnvironment(const char* path) {
 
 /* The final glyph uses FLIPON, a native fallback instruction. It is reached
  * after loading the supported triangle variants and unlinking the font. */
+/* In this legacy vector face, B has no program and D consists entirely
+ * of B. C has a program and E contains C without its own program. */
+int activeVectorOutline(const char* path, int code) {
+	var font = FreeType.load(Strings.copy((char*)path), 9);
+	if (remove(path) != 0) { return 20; }
+	var glyph = font.glyph(code, true);
+	bool plain = code == 66 || code == 68;
+	var mask = Bytes.fromHex(plain ? "ce9d6b3a0b0000fffffffffd9711ffffef91280000cb630a00000000" : "ce9d6b3a0b0000ffffffffd8700ddf9e5c1b000000");
+	if (glyph == null || mask == null || glyph.advanceFixed() != (code == 67 ? 640LL : 576LL) || glyph.bitmapLeft() != 0 || glyph.bitmapTop() != 4 || glyph.width() != 7 || glyph.pitch() != 7 || glyph.pixelMode() != FONT_PIXEL_GRAY || glyph.numGrays() != 256 || glyph.rows() * 7 != mask.length()) { return 21; }
+	for (int i = 0; i < mask.length(); i++) {
+		if (glyph.coverage(i / 7, i % 7) != mask.get(i)) { return 22; }
+	}
+	print("PASS: active vector outline after unlink");
+	return 0;
+}
+
 int main(int argc, char** argv) {
 	if (argc != 3) { return 2; }
+	if (strncmp(argv[2], "active", 6) == 0 && argv[2][6] >= 'B' && argv[2][6] <= 'E') { return activeVectorOutline(argv[1], (int)argv[2][6]); }
 	if (strcmp(argv[2], "environment") == 0) { return interpreterEnvironment(argv[1]); }
 	if (strcmp(argv[2], "delta13") == 0 || strcmp(argv[2], "delta14") == 0) { return deltaPoints(argv[1], argv[2][6] == '3' ? 13 : 14); }
 	if (strcmp(argv[2], "vector9") == 0 || strcmp(argv[2], "vector10") == 0) { return inhibitedVectorInk(argv[1], argv[2][6] == '9' ? 9 : 10); }

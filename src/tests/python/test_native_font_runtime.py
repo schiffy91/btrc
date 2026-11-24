@@ -436,6 +436,17 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
                 assert result.returncode == 0, result.stdout + result.stderr
             else:
                 assert result.returncode != 0 and "Cannot initialize FreeType library" in result.stderr
+    active = (tests / "fixtures/hinted-active-instructionless.ttf").read_bytes()
+    for code in "BCDE":
+        for suffix in ("raw", "ttf"):
+            result = run(suffix, f"active{code}", env, active)
+            assert result.returncode == 0, result.stdout + result.stderr
+        if blocked is not None:
+            result = run("ttf", f"active{code}", blocked, active)
+            if code in "BD":
+                assert result.returncode == 0, result.stdout + result.stderr
+            else:
+                assert result.returncode != 0 and "Cannot initialize FreeType library" in result.stderr
     delta = (tests / "fixtures/hinted-delta-points.ttf").read_bytes()
     for size in (13, 14):
         for extension, environment in (("raw", env), ("ttf", blocked or env)):
