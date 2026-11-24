@@ -2,7 +2,7 @@
    windows-aarch64). MinGW-w64 ships no regular-expression engine (PLAN.md
    D22: "Windows regex: a vendored POSIX regex").
 
-   Single-atom EREs use a first-party byte matcher. Other patterns and flags
+   Single-atom and literal EREs use first-party byte matchers. Other patterns and flags
    use musl 1.2.5's TRE-derived regcomp/regexec (musl/, MIT and BSD-2-Clause;
    see musl/COPYRIGHT and README.md). This header declares the
    POSIX interface and compiles the engine into the including translation
@@ -81,20 +81,17 @@ static size_t btrc_win_legacy_regerror(int, const regex_t *restrict, char *restr
 #undef regfree
 #undef regerror
 
-#include "btrc_win_regex_atom.h"
+#include "btrc_win_regex_literal.h"
 
 /* Both allocated representations have at least two-byte alignment. Tag the
    new pointer so an untagged regex_t from existing code stays usable, even
    when regcomp and regexec are compiled in different translation units. */
 static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *restrict pattern, int flags)
 {
-	btrc_win_regex_atom atom = {0};
-	if (flags == REG_EXTENDED && btrc_win_regex_parse_atom(pattern, &atom)) {
-		btrc_win_regex_atom *stored = (btrc_win_regex_atom *)malloc(sizeof *stored);
-		if (!stored) return REG_ESPACE;
-		*stored = atom;
+	btrc_win_regex_simple *program = flags == REG_EXTENDED ? btrc_win_regex_compile_simple(pattern) : NULL;
+	if (program) {
 		memset(re, 0, sizeof *re);
-		re->__opaque = (void *)((uintptr_t)stored | (uintptr_t)1);
+		re->__opaque = (void *)((uintptr_t)program | (uintptr_t)1);
 		return 0;
 	}
 	return btrc_win_legacy_regcomp(re, pattern, flags);
@@ -105,7 +102,9 @@ static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const ch
 {
 	uintptr_t pointer = (uintptr_t)re->__opaque;
 	if (!(pointer & (uintptr_t)1)) return btrc_win_legacy_regexec(re, subject, count, matches, flags);
-	return btrc_win_regex_match_atom((const btrc_win_regex_atom *)(pointer - 1), subject, count, matches);
+	const btrc_win_regex_simple *program = (const btrc_win_regex_simple *)(pointer - 1);
+	if (!program->length) return btrc_win_regex_match_atom(&program->atom, subject, count, matches);
+	return btrc_win_regex_match_literal(program, subject, count, matches);
 }
 
 static inline void btrc_win_dispatch_regfree(regex_t *re)

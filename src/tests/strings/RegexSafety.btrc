@@ -28,6 +28,11 @@ int main() {
 	assert(!hyphen.fullMatch("Az:"));
 	delete hyphen;
 	assert(Regex.fullMatch("[0-[:alpha:]]", "5]"));
+	CompiledRegex prefix = new CompiledRegex("ababaca");
+	assert(prefix.find("abababaca") == 2);
+	assert(!prefix.test("abababab"));
+	delete prefix;
+	assert(Regex.replaceAll("Content-Type", "Content-Type: Content-Type", "H").equals("H: H"));
 
 	/* Keep the legacy provider for nested Windows intervals until their
 	 * observable whole-span semantics have a compatible replacement. */

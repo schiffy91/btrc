@@ -97,6 +97,7 @@ ENGINE_FILES = (
     "glob.h",
     "btrc_win_match_bytes.h",
     "btrc_win_regex_atom.h",
+    "btrc_win_regex_literal.h",
     "btrc_win_musl.h",
     "/musl/",
 )

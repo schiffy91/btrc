@@ -37,6 +37,12 @@ static inline int btrc_win_regex_parse_atom(const char *pattern, btrc_win_regex_
 	return 1;
 }
 
+static inline void btrc_win_regex_set_span(regmatch_t *matches, size_t count, regoff_t start, regoff_t end)
+{
+	matches[0] = (regmatch_t){start, end};
+	for (size_t g = 1; g < count; ++g) matches[g] = (regmatch_t){-1, -1};
+}
+
 static inline int btrc_win_regex_match_atom(const btrc_win_regex_atom *atom, const char *subject,
                                             size_t count, regmatch_t *matches)
 {
@@ -52,7 +58,6 @@ static inline int btrc_win_regex_match_atom(const btrc_win_regex_atom *atom, con
 		++end;
 		if (!atom->repeated) break;
 	}
-	matches[0] = (regmatch_t){start - text, end - text};
-	for (size_t i = 1; i < count; ++i) matches[i] = (regmatch_t){-1, -1};
+	btrc_win_regex_set_span(matches, count, start - text, end - text);
 	return 0;
 }

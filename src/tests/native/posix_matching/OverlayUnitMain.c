@@ -18,9 +18,14 @@ int main(void)
 	regmatch_t match[1];
 	int matched = regexec(&compiled, "abbbc", 1, match, 0) == 0;
 	regfree(&compiled);
-	regmatch_t nested[1];
+	regmatch_t span[1];
+	char literal[] = "ababaca";
+	if (overlay_helper_compile(&compiled, literal) != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
+	literal[0] = 'z';
+	if (regexec(&compiled, "abababaca", 1, span, 0) || span[0].rm_so != 2 || span[0].rm_eo != 9) return 1;
+	regfree(&compiled);
 	if (overlay_helper_compile(&compiled, "((a{2})?b)?") != 0 || ((uintptr_t)compiled.__opaque & 1u)) return 1;
-	if (regexec(&compiled, "ab", 1, nested, 0) || nested[0].rm_so != 0 || nested[0].rm_eo != 2) return 1;
+	if (regexec(&compiled, "ab", 1, span, 0) || span[0].rm_so != 0 || span[0].rm_eo != 2) return 1;
 	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;
