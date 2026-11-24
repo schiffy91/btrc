@@ -382,6 +382,11 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
         )
 
     blocked = None if sanitized else unavailable_freetype(tmp_path, env)
+    unicode_maps = (tests / "fixtures/hinted-full-cmap.ttf").read_bytes()
+    for environment in [env] if blocked is None else [env, blocked]:
+        result = run("ttf", "unicode", environment, unicode_maps)
+        assert result.returncode == 0, result.stdout + result.stderr
+
     for extension in ("ttf", "woff", "woff2"):
         mixed = (tests / f"fixtures/hinted-mixed.{extension}").read_bytes()
         for suffix in (extension, "raw"):

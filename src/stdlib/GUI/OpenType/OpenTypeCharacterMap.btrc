@@ -73,6 +73,41 @@ class OpenTypeCharacterMap {
 		return windowsUnicode;
 	}
 
+	/* A conventional UCS-4 cmap is the preferred FreeType Unicode cmap.
+	 * Windows and Unicode full-repertoire records must point to the same
+	 * format-12 table. A supplementary scalar never falls back through
+	 * a format-4 BMP record, even when the chosen table has no glyph. */
+	public bool preferredFullUnicodeMap(OpenTypeSpan table) {
+		if (self.format != 12) { return false; }
+		int records = self.data.u16(table.offset + 2);
+		if (4 + 8 * records > table.length) { return false; }
+		bool windowsFull = false;
+		for (int i = 0; i < records; i++) {
+			int at = table.offset + 4 + i * 8;
+			int platform = self.data.u16(at);
+			int encoding = self.data.u16(at + 2);
+			long long offset = self.data.u32(at + 4);
+			if (offset > (long long)table.length - 2LL) { return false; }
+			int kind = self.data.u16(table.offset + (int)offset);
+			if (kind == 4 && ((platform == 0 && encoding == 3) || (platform == 3 && encoding == 1))) { continue; }
+			if (kind != 12 || offset != (long long)(self.base - table.offset)) { return false; }
+			if (platform == 3 && encoding == 10) { windowsFull = true; }
+			else if (platform != 0 || encoding != 4) { return false; }
+		}
+		if (!windowsFull || self.data.u16(self.base + 2) != 0) { return false; }
+		long long length = self.data.u32(self.base + 4);
+		if (length < 16LL + 12LL * self.entries || length > (long long)table.end() - self.base) { return false; }
+		long long previous = -1LL;
+		for (int i = 0; i < self.entries; i++) {
+			int group = self.base + 16 + 12 * i;
+			long long first = self.data.u32(group);
+			long long last = self.data.u32(group + 4);
+			if (first <= previous || last < first || last > 0x10ffffLL || self.data.u32(group + 8) + last - first >= self.glyphCount) { return false; }
+			previous = last;
+		}
+		return true;
+	}
+
 	/* Whether the subtable's fixed part and arrays lie inside the table;
 	 * records how many segments, codes or groups it has. */
 	private bool accept(int start, int kind) {

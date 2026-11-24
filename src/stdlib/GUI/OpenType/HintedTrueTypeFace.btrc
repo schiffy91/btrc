@@ -94,7 +94,7 @@ class HintedTrueTypeFace implements IFontFace {
 		self.outlines = TrueTypeGlyphs(data, directory.required(0x676c7966LL, 0), loca, horizontal, glyphs, locaFormat != 0);
 		var cmap = directory.required(0x636d6170LL, 4);
 		self.characters = OpenTypeCharacterMap(data, cmap, glyphs);
-		if (!byGlyphIndex && !self.characters.unambiguousUnicodeMap(cmap)) { throw "Unsupported TrueType character map"; }
+		if (!byGlyphIndex && !self.characters.unambiguousUnicodeMap(cmap) && !self.characters.preferredFullUnicodeMap(cmap)) { throw "Unsupported TrueType character map"; }
 		var os2 = directory.required(0x4f532f32LL, 78);
 		int ascent = data.s16(hhea.offset + 4);
 		int descent = data.s16(hhea.offset + 6);
