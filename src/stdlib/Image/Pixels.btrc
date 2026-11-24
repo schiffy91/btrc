@@ -465,6 +465,97 @@ class Image {
 		return result;
 	}
 
+	/* Apply EXIF orientation (1..8) without per-pixel RGBA heap allocations or ARC traffic. */
+	public Image oriented(int exifOrientation) {
+		if (self.isEmpty() || exifOrientation <= 1 || exifOrientation > 8) { return self; }
+		int w = self.width;
+		int h = self.height;
+		unsigned char* srcData = self.data;
+		if (exifOrientation >= 5) {
+			Image result = Image(h, w);
+			unsigned char* dstData = result.data;
+			for (int dy = 0; dy < w; dy++) {
+				int dstRow = dy * h * 4;
+				for (int dx = 0; dx < h; dx++) {
+					int sx = 0;
+					int sy = 0;
+					if (exifOrientation == 5) {
+						sx = dy;
+						sy = dx;
+					} else if (exifOrientation == 6) {
+						sx = dy;
+						sy = h - 1 - dx;
+					} else if (exifOrientation == 7) {
+						sx = w - 1 - dy;
+						sy = h - 1 - dx;
+					} else { /* 8: 90 CCW */
+						sx = w - 1 - dy;
+						sy = dx;
+					}
+					int srcOff = (sy * w + sx) * 4;
+					int dstOff = dstRow + dx * 4;
+					dstData[dstOff] = srcData[srcOff];
+					dstData[dstOff + 1] = srcData[srcOff + 1];
+					dstData[dstOff + 2] = srcData[srcOff + 2];
+					dstData[dstOff + 3] = srcData[srcOff + 3];
+				}
+			}
+			return result;
+		}
+		Image result = Image(w, h);
+		unsigned char* dstData = result.data;
+		for (int dy = 0; dy < h; dy++) {
+			int dstRow = dy * w * 4;
+			for (int dx = 0; dx < w; dx++) {
+				int sx = dx;
+				int sy = dy;
+				if (exifOrientation == 2) {
+					sx = w - 1 - dx;
+				} else if (exifOrientation == 3) {
+					sx = w - 1 - dx;
+					sy = h - 1 - dy;
+				} else if (exifOrientation == 4) {
+					sy = h - 1 - dy;
+				}
+				int srcOff = (sy * w + sx) * 4;
+				int dstOff = dstRow + dx * 4;
+				dstData[dstOff] = srcData[srcOff];
+				dstData[dstOff + 1] = srcData[srcOff + 1];
+				dstData[dstOff + 2] = srcData[srcOff + 2];
+				dstData[dstOff + 3] = srcData[srcOff + 3];
+			}
+		}
+		return result;
+	}
+
+	/* Center-crop and scale into a tileSize x tileSize square image without per-pixel allocations or ARC traffic. */
+	public Image fitSquare(int tileSize) {
+		if (self.isEmpty() || tileSize <= 0) { return Image.empty(); }
+		Image result = Image(tileSize, tileSize);
+		unsigned char* srcData = self.data;
+		unsigned char* dstData = result.data;
+		int cropSize = self.width < self.height ? self.width : self.height;
+		int offX = (self.width - cropSize) / 2;
+		int offY = (self.height - cropSize) / 2;
+		for (int y = 0; y < tileSize; y++) {
+			int sy = offY + (int)((long long)y * (long long)cropSize / (long long)tileSize);
+			if (sy >= self.height) { sy = self.height - 1; }
+			int srcRow = sy * self.width * 4;
+			int dstRow = y * tileSize * 4;
+			for (int x = 0; x < tileSize; x++) {
+				int sx = offX + (int)((long long)x * (long long)cropSize / (long long)tileSize);
+				if (sx >= self.width) { sx = self.width - 1; }
+				int srcOff = srcRow + sx * 4;
+				int dstOff = dstRow + x * 4;
+				dstData[dstOff] = srcData[srcOff];
+				dstData[dstOff + 1] = srcData[srcOff + 1];
+				dstData[dstOff + 2] = srcData[srcOff + 2];
+				dstData[dstOff + 3] = srcData[srcOff + 3];
+			}
+		}
+		return result;
+	}
+
 	/* Preserve source pixels exactly inside a new border; invalid dimensions
 	 * return empty, like crop. Zero padding still returns an independent image. */
 	public Image padded(int left, int top, int right, int bottom, RGBA color) {
