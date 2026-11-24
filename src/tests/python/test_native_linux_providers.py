@@ -10,6 +10,7 @@ Pulse native peer and a kernel ioctl fault fixture without host audio packages."
 
 import ctypes.util
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -128,19 +129,31 @@ def test_linux_pulse_faults(tmp_path, request, frontend, sanitized):
             assert "PASS: Pulse stream fault" in result.stdout
 
 
+@pytest.mark.parametrize("route", ["builtin", "plugin"])
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
-def test_linux_saved_pcm(tmp_path, request, frontend):
-    """Open a saved custom route while a separate system default remains available."""
+def test_linux_saved_pcm(tmp_path, request, frontend, route):
+    """The saved device must receive the samples even with an independent default."""
     require_linux_reader()
-    if not ctypes.util.find_library("asound"):
+    if route == "plugin" and not ctypes.util.find_library("asound"):
         pytest.skip("requires the existing alsa-lib PCM plugin runtime")
-    capture = tmp_path / "selected.raw"
-    config = tmp_path / "asound.conf"
+    work = tmp_path / "configuration"
+    work.mkdir()
+    capture = work / "selected.raw"
+    capture.write_bytes(b"old file contents")
+    config = work / "asound.conf"
+    # The installed provider evaluates the user's environment expression.
+    # The first-party built-in accesses an ordinary file in the isolated root.
+    target = (
+        '{ @func getenv vars [ BTRC_AUDIO_TEST_OUTPUT ] default "/discarded" }'
+        if route == "plugin"
+        else '"/work/selected.raw"'
+    )
     config.write_text(
         "defaults.namehint.showall on\n"
         'namehint.pcm.saved "plughw:CARD=SavedRoute,DEV=7|My persisted stereo output"\n'
         "pcm.plughw { @args [ CARD DEV ] @args.CARD { type string } @args.DEV { type integer } "
-        f'type file slave.pcm {{ type null }} file "{capture}" format "raw" }}\n'
+        "type plug slave.pcm savedfile }\n"
+        f'pcm.savedfile {{ type file slave.pcm {{ type null }} file {target} format "raw" }}\n'
         'pcm.!default { type null hint { show on description "Independent default" } }\n'
         'pcm.unlisted { type null hint { show on description "Ineligible bare PCM name" } }\n'
     )
@@ -148,18 +161,67 @@ def test_linux_saved_pcm(tmp_path, request, frontend):
         ROOT / "src/tests/native/audio/linux/LinuxSavedPcm.btrc", tmp_path, frontend, False, request
     )
     assert DependencyAudit().binary_problems(client, TARGET) == []
-    result = subprocess.run(
-        [str(client)],
-        env=provider_environment(False, ALSA_CONFIG_PATH=str(config), PULSE_SERVER=f"unix:{tmp_path}/absent"),
-        capture_output=True,
-        text=True,
-        timeout=30,
+    command = [str(client)]
+    environment = provider_environment(
+        False, ALSA_CONFIG_PATH=str(config), PULSE_SERVER="unix:/absent", BTRC_AUDIO_TEST_OUTPUT=str(capture)
     )
+    if route == "builtin":
+        listing = subprocess.check_output(["ldd", client], text=True)
+        dependencies = re.findall(r"(?:=>\s+|^\s*)(/[^ ]+)\s+\(", listing, re.M)
+        assert dependencies and "not found" not in listing
+        assert all(Path(lib).name.startswith(("ld-linux", "libc.so.", "libm.so.")) for lib in dependencies), listing
+        command = [
+            "bwrap",
+            "--die-with-parent",
+            "--unshare-all",
+            "--clearenv",
+            "--dev",
+            "/dev",
+            "--proc",
+            "/proc",
+            "--bind",
+            str(work),
+            "/work",
+            "--ro-bind",
+            str(client),
+            "/app",
+            "--setenv",
+            "ALSA_CONFIG_PATH",
+            "/work/asound.conf",
+            "--setenv",
+            "PULSE_SERVER",
+            "unix:/absent",
+            "--setenv",
+            "LD_LIBRARY_PATH",
+            "/lib",
+        ]
+        for dependency in dependencies:
+            name = Path(dependency).name
+            destination = dependency if name.startswith("ld-linux") else f"/lib/{name}"
+            command.extend(["--ro-bind", dependency, destination])
+        command.extend(["--", "/app"])
+    result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS: persisted Linux PCM" in result.stdout
     wanted = struct.pack("<ff", 0.25, -0.5) * 256
     with capture.open("rb") as stream:
+        assert not stream.read(17).startswith(b"old file contents")
+        stream.seek(0)
         assert any(block == wanted for block in iter(lambda: stream.read(len(wanted)), b""))
+
+    if route == "builtin":
+        document = config.read_text()
+        for unsupported in (
+            document.replace("type null", "type null unknown 1", 1),
+            document.replace('format "raw"', 'format "wav"'),
+            document.replace("slave.pcm savedfile", "slave.pcm plughw"),
+            document.replace('"/work/selected.raw"', '"/dev/null"'),
+            document.replace('"/work/selected.raw"', "{ @func getenv vars [ BTRC_AUDIO_TEST_OUTPUT ] }"),
+        ):
+            config.write_text(unsupported)
+            rejected = subprocess.run([*command, "unavailable"], capture_output=True, text=True, timeout=10)
+            assert rejected.returncode == 0, rejected.stderr
+            assert "PASS: rejected unsupported PCM" in rejected.stdout
 
 
 @pytest.mark.parametrize("backend", ["alsa-loopback", "pulse-monitor"])
