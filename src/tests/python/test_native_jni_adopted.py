@@ -25,7 +25,6 @@ with no main Looper terminate (modes 6-9).
 """
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -42,7 +41,7 @@ from src.tests.python.jni_adoption_fixtures import (
     missing_java_tools,
     write_project,
 )
-from src.tests.python.jni_host_fixtures import desktop_compiler
+from src.tests.python.jni_host_fixtures import desktop_compiler, require_desktop_jdk
 from src.tests.python.jni_host_fixtures import desktop_jni_source as desktop_jni_source
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
@@ -50,11 +49,7 @@ from src.tests.python.native_import_fixtures import native_compile as native_com
 
 def host_java():
     """The `java` of the JDK btrc-jni links, so the launcher and the library share one libjvm."""
-    if (
-        not shutil.which("pkg-config")
-        or subprocess.run(["pkg-config", "--exists", "btrc-jni"], check=False, timeout=TOOL_TIMEOUT).returncode
-    ):
-        pytest.skip("requires the btrc-jni pkg-config package (use the optional JNI dev shell)")
+    require_desktop_jdk()
     flags = subprocess.run(
         ["pkg-config", "--libs-only-L", "btrc-jni"], capture_output=True, text=True, check=True, timeout=TOOL_TIMEOUT
     ).stdout.split()

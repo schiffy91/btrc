@@ -344,7 +344,15 @@ jobs:
 
       # Delegate only when the planner verifies all required GUI partitions.
       # Any AppKit cases remaining in unit still share one worker.
-      - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
+      - name: Exercise a desktop standard library program in the default shell
+        if: matrix.shard == 'unit'
+        run: |
+          nix develop --command bash -euc '
+            if pkg-config --exists btrc-jni; then echo "default shell selected JavaHost"; exit 1; fi
+            python3 -m pytest -q src/tests/python/test_native_jni_host.py -k "without_jdk and reference" --skip-report=build/default-shell-jvm.json
+            python3 -m tools.qualification skip-gate build/default-shell-jvm.json
+          '
+      - run: nix develop ${{ matrix.shard == 'unit' && '.#jni' || '.' }} --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
         env:
           UNIT_GUI_DELEGATED: ${{ matrix.unit_gui_delegated }}
           PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup --failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}

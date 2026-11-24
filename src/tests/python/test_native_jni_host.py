@@ -8,14 +8,13 @@ the JDK's headers and libjvm.
 """
 
 import os
-import shutil
 import subprocess
 import sys
 
 import pytest
 
 from src.tests.process_limits import TOOL_TIMEOUT
-from src.tests.python.jni_host_fixtures import desktop_compiler, desktop_dependency
+from src.tests.python.jni_host_fixtures import desktop_compiler, desktop_dependency, require_desktop_jdk
 from src.tests.python.jni_host_fixtures import desktop_jni_source as desktop_jni_source
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
@@ -52,18 +51,10 @@ int main(int argc, char** argv) {
 """
 
 
-def jni_environment():
-    if (
-        not shutil.which("pkg-config")
-        or subprocess.run(["pkg-config", "--exists", "btrc-jni"], check=False, timeout=TOOL_TIMEOUT).returncode
-    ):
-        pytest.skip("requires the btrc-jni pkg-config package (use the optional JNI dev shell)")
-    return apple_environment()
-
-
 @pytest.fixture
 def jvm_project(desktop_jni_source):
-    environment = jni_environment()
+    require_desktop_jdk()
+    environment = apple_environment()
     source = desktop_jni_source
     root = source.parent.parent
     (root / "btrc.toml").write_text(

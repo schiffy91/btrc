@@ -3,11 +3,21 @@
 import os
 import platform
 import shutil
+import subprocess
 import sys
 
 import pytest
 
+from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.native_import_fixtures import REPO, apple_native_target
+
+
+def require_desktop_jdk():
+    if (
+        not shutil.which("pkg-config")
+        or subprocess.run(["pkg-config", "--exists", "btrc-jni"], check=False, timeout=TOOL_TIMEOUT).returncode
+    ):
+        pytest.skip("requires the optional JavaHost JDK (nix develop .#jni)")
 
 
 def desktop_dependency(root):

@@ -21,6 +21,7 @@ from src.tests.python.jni_adoption_fixtures import (
     natives_table,
 )
 from src.tests.python.jni_host_fixtures import desktop_jni_source as desktop_jni_source
+from src.tests.python.jni_host_fixtures import require_desktop_jdk
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 
 CALLBACKS = "dev.btrc.fixture.JniCallbacks"
@@ -35,6 +36,7 @@ int main() { return 0; }
 
 @pytest.fixture
 def natives_project(desktop_jni_source, monkeypatch):
+    require_desktop_jdk()
     missing = missing_java_tools()
     if missing:
         pytest.skip(missing)

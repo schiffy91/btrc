@@ -590,7 +590,7 @@
         # JNI headers and HotSpot for the optional JavaHost package: its JNI.h
         # binding and runtime source compile against this, and its tests create
         # a VM under -Xcheck:jni. Android reads jni.h from the NDK sysroot and
-        # links no VM, so the stdlib selects this only on macOS and Linux.
+        # links no VM. Only JavaHost consumers and desktop JNI tests select this.
         javaNativeInterface = let
           jdk = pkgs.jdk17_headless;
           platform = if isDarwin then "darwin" else "linux";
