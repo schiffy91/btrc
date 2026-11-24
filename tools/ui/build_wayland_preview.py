@@ -40,6 +40,7 @@ WAYLAND_UNITS = (
     "TextInput",
     "Clipboard",
     "Platform",
+    "PortalParent",
     "Scene",
     "Slider",
     "Button",

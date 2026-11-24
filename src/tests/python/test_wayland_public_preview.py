@@ -27,7 +27,7 @@ RUNTIME_FORBIDDEN = ("libgtk", "libgdk", "libX11", "libwayland", "libfontconfig"
 
 def build_app(frontend, source, tmp_path, request):
     require_linux_reader()
-    for tool in ("bwrap", "grim", "fc-match"):
+    for tool in ("bwrap", "fc-match"):
         if not shutil.which(tool):
             pytest.skip(f"the real GUI/empty-root observer needs {tool}")
     sdk = subprocess.run(["pkg-config", "--path", "wgpu-native"], capture_output=True, text=True)
@@ -66,9 +66,27 @@ def build_app(frontend, source, tmp_path, request):
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 def test_preview(frontend, input_device, tmp_path, request):  # noqa: F811
+    if not shutil.which("grim"):
+        pytest.skip("observing the window pixels requires grim")
     executable = build_app(frontend, SAMPLE, tmp_path, request)
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, executable, input_device, tmp_path],
+        check=True,
+        timeout=45,
+    )
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+def test_preview_directory_picker(frontend, tmp_path, request):
+    require_linux_reader()
+    if not all(shutil.which(tool) for tool in ("bwrap", "fc-match", "labwc", "dbus-daemon")):
+        pytest.skip("requires a private Wayland session and an empty client filesystem")
+    if subprocess.run([sys.executable, "-c", "from gi.repository import Gio, GLib"], capture_output=True).returncode:
+        pytest.skip("the independent desktop portal peer requires Gio")
+    source = ROOT / "src/tests/native/gui/linux/PortalGUI.btrc"
+    executable = build_app(frontend, source, tmp_path, request)
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, "--portal", executable, tmp_path],
         check=True,
         timeout=45,
     )
@@ -82,7 +100,7 @@ def controls_visible(pixels, width, left, top, background):
     return pixel(26, 70) != background and any(pixel(x, y) != background for x in range(16, 140) for y in range(12, 42))
 
 
-def empty_root_command(executable, work):
+def empty_root_command(executable, work, options=()):
     executable, work = Path(executable).resolve(), Path(work)
     listing = subprocess.check_output(["ldd", executable], text=True)
     assert not any(lib in listing for lib in RUNTIME_FORBIDDEN), listing
@@ -143,7 +161,7 @@ def empty_root_command(executable, work):
         name = Path(dependency).name
         target = dependency if name.startswith("ld-linux") else f"/lib/{name}"
         command.extend(("--ro-bind", dependency, target))
-    return [*command, "/app"]
+    return [*command, *options, "--", "/app"]
 
 
 def run_in_root(executable, probe, work):
@@ -178,5 +196,26 @@ def run_in_root(executable, probe, work):
                 app.kill()
 
 
+def run_portal(executable, work):
+    address = os.environ["DBUS_SESSION_BUS_ADDRESS"]
+    options = ["--dir", os.getcwd(), "--chdir", os.getcwd(), "--setenv", "DBUS_SESSION_BUS_ADDRESS", address]
+    if address.startswith("unix:path="):
+        socket = address.removeprefix("unix:path=").split(",", 1)[0]
+        options.extend(("--ro-bind", socket, socket))
+    peer = ROOT / "src/tests/native/gui/linux/PortalChooserPeer.py"
+    subprocess.run([sys.executable, peer, "--drive-gui", *empty_root_command(executable, work, options)], check=True)
+    unavailable = subprocess.run(
+        empty_root_command(executable, work, ["--setenv", "DBUS_SESSION_BUS_ADDRESS", "unix:path=/no-session"]),
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=12,
+    )
+    assert unavailable.stdout.strip() == "3", unavailable
+
+
 if __name__ == "__main__":
-    run_in_root(*sys.argv[1:])
+    if sys.argv[1] == "--portal":
+        run_portal(*sys.argv[2:])
+    else:
+        run_in_root(*sys.argv[1:])

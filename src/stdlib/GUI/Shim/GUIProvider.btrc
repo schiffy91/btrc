@@ -1,3 +1,4 @@
+import Library.App;
 import Library.GUI.Shim.Features;
 import Library.Strings;
 import Library.Vector;
@@ -49,6 +50,8 @@ class GUIProvider {
 		var window = shim.firstWindow();
 		var pump = (IShimDialogPump?)shim;
 		if (pump == null) { throw "GUI application cannot run native dialogs"; }
+		if (request == null || !request.isValid()) { return DirectoryPickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid directory picker request")); }
+		if (pump.isDispatching()) { throw "Native event dispatch is already active"; }
 		return ShimFeatures.chooseDirectory(window, pump, request);
 	}
 
