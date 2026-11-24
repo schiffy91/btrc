@@ -2159,13 +2159,10 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
         assert path in evidence["with"]["path"], path
     assert junit["with"]["name"] == "junit-ci-linux-gui-${{ matrix.cell }}"
     assert junit["with"]["path"] == "build/linux-gui/${{ matrix.cell }}/junit.xml"
-    # The make target runs the focused GUI suites plus the null-PCM check in one
-    # headless session per protocol, with the null PCM, the AT-SPI dump and the
-    # skip gate on its own report.
+    # Each protocol runs its focused suite and AT-SPI dump in one headless session.
     makefile = (REPO / "Makefile").read_text(encoding="utf-8")
     recipe = _makefile_recipe(makefile, "test-shard-gui")
     assert "tools/ui/headless-session.sh --$(GUI_SESSION) --" in recipe
-    assert 'ALSA_CONFIG_PATH="$(abspath nix/asound.conf)"' in recipe
     assert "python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py" in recipe
     assert "tools/ui/session_evidence.py --output $(GUI_SHARD_DIR)" in recipe
     assert "python3 -m tools.ui.gui_shards run" in recipe
@@ -2174,7 +2171,7 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     assert "BTRC_TEST_RUNNER=linux-devcontainer" in recipe
     assert "$(SKIP_GATE) build/skip-report-gui-$(GUI_CELL).json" in recipe
     # Both sessions run the same list: nothing in it is bound to one protocol.
-    assert "GUI_SHARD_TESTS := $(NATIVE_GUI_TESTS) \\" in makefile
+    assert "GUI_SHARD_TESTS := $(NATIVE_GUI_TESTS)" in makefile.splitlines()
     assert "test_native_linux_providers.py" in makefile
 
 
@@ -2721,8 +2718,7 @@ def test_unit_make_recipe_reuses_the_compiler_and_preserves_gui_coverage(tmp_pat
     gui_files = {selector for selector in dedicated if "::" not in selector}
     assert gui_files and all((REPO / path).is_file() for path in gui_files)
     assert excluded == {"src/tests/btrc", "src/tests/runner.py"} | (gui_files if delegated else set())
-    # The extra audio configuration assertion remains in unit as well as GUI.
-    assert "src/tests/python/test_build_safety.py::test_devcontainer_installs_the_null_alsa_pcm" in dedicated
+    assert "src/tests/python/test_native_linux_providers.py" in dedicated
     recipe = _makefile_recipe((REPO / "Makefile").read_text(), "test-shard-unit")
     assert "$(TEST_BTRCC_BUILD)" in recipe.splitlines()[0].split("##")[0].split()
 

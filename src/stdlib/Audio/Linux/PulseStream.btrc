@@ -1,0 +1,250 @@
+import Library.Timer;
+
+import ./PulseClient.btrc;
+
+/* Each direction owns its own connection and negotiated channel. The worker
+ * borrows the preallocated packet buffer and capture ring for its lifetime. */
+struct PulseStreamState {
+	int descriptor;
+	bool established;
+	bool capture;
+	bool corked;
+	bool broken;
+	bool discontinuity;
+	uint channel;
+	unsigned char header[20];
+	int headerUsed;
+	int bodyUsed;
+	int bodyLength;
+	uint incomingChannel;
+	long long assemblyDeadline;
+	int frameBytes;
+	int periodBytes;
+	unsigned long long credit;
+	unsigned char* packet;
+	unsigned char* queue;
+	int capacity;
+	int queued;
+	int head;
+};
+
+class PulseStream {
+	class int capacity(int channels, int frames) {
+		if (channels < 1 || channels > 32 || frames < 1 || frames > 65536) { return 0; }
+		int size = channels * frames * 16;
+		return size < 65536 ? 65536 : size;
+	}
+
+	class int open(struct PulseStreamState* stream, bool capture, string target, int channels, int rate, int frames, unsigned char* storage, int capacity) {
+		long long deadline = MonotonicClock.deadlineAfter(1500LL);
+		int fd = PulseClient.connectServer(storage, capacity, deadline);
+		if (fd < 0) { return fd; }
+		stream->descriptor = fd; stream->capture = capture; stream->corked = true;
+		stream->frameBytes = 4 * channels;
+		stream->periodBytes = stream->frameBytes * frames;
+		stream->capacity = capacity; stream->packet = storage; stream->queue = storage + capacity;
+		struct PulseCursor message = {};
+		PulseClient.begin(&message, storage, capacity, capture ? 5u : 3u, 7u);
+		PulseWire.spec(&message, channels, rate); PulseWire.channelMap(&message, channels);
+		PulseWire.u32(&message, 0xffffffffu);
+		if (target.isEmpty()) { PulseWire.byte(&message, 'N'); } else { PulseWire.stringValue(&message, target); }
+		uint period = (uint)stream->periodBytes;
+		PulseWire.u32(&message, period * 4u); PulseWire.boolean(&message, true);
+		if (capture) { PulseWire.u32(&message, period); }
+		else {
+			PulseWire.u32(&message, period * 2u); PulseWire.u32(&message, period); PulseWire.u32(&message, period);
+			PulseWire.u32(&message, 0u); PulseWire.unityVolume(&message, channels);
+		}
+		for (int flag = 0; flag < 8; flag++) { PulseWire.boolean(&message, false); }
+		PulseWire.boolean(&message, true);
+		PulseWire.properties(&message, "media.name", "btrc audio");
+		if (capture) { PulseWire.u32(&message, 0xffffffffu); }
+		int error = PulseClient.exchange(fd, &message, 7u, deadline);
+		if (error >= 0) {
+			stream->channel = PulseWire.take32(&message);
+			PulseWire.take32(&message);
+			if (!capture) { stream->credit = (unsigned long long)PulseWire.take32(&message); }
+			PulseWire.take32(&message); PulseWire.take32(&message);
+			if (!capture) { PulseWire.take32(&message); PulseWire.take32(&message); }
+			int actualChannels = 0; int actualRate = 0;
+			// The server must return the requested float32 encoding and frame clock.
+			if (message.at > message.size - 2 || message.data[message.at + 1] != 5) { message.failed = true; }
+			PulseWire.takeSpec(&message, &actualChannels, &actualRate);
+			PulseWire.counted(&message, 'm', 1);
+			PulseWire.take32(&message); PulseWire.stringStart(&message);
+			PulseWire.takeBoolean(&message); PulseWire.usec(&message);
+			if (message.failed || message.at != message.size || stream->channel == 0xffffffffu) { error = -EPROTO; }
+			else if (actualChannels != channels || actualRate != rate) { error = -EINVAL; }
+		}
+		if (error < 0) { close(fd); return error; }
+		stream->established = true;
+		return 0;
+	}
+
+	class int enqueue(struct PulseStreamState* stream, int bytes) {
+		if (bytes % stream->frameBytes != 0 || bytes > stream->capacity) { return -EPROTO; }
+		if (bytes > stream->capacity - stream->queued) {
+			// Drop complete old frames. A bounded capture ring must never stall the server.
+			int excess = bytes - (stream->capacity - stream->queued);
+			int skip = ((excess + stream->frameBytes - 1) / stream->frameBytes) * stream->frameBytes;
+			stream->head = (stream->head + skip) % stream->capacity;
+			stream->queued -= skip;
+			stream->discontinuity = true;
+		}
+		int tail = (stream->head + stream->queued) % stream->capacity;
+		int first = bytes < stream->capacity - tail ? bytes : stream->capacity - tail;
+		memcpy(stream->queue + tail, stream->packet, (size_t)first);
+		if (first < bytes) { memcpy(stream->queue, stream->packet + first, (size_t)(bytes - first)); }
+		stream->queued += bytes;
+		return 0;
+	}
+
+	/* A Unix socket can split either the header or body across worker waits.
+	 * Keep the consumed bytes on the stream and let suspend check admission
+	 * after each wait. A peer cannot keep one incomplete frame open forever. */
+	class int receivePart(struct PulseStreamState* stream, unsigned char* output, int length, int* used, long long deadline) {
+		while (*used < length) {
+			if (stream->assemblyDeadline != 0LL && !MonotonicClock.before(stream->assemblyDeadline)) { return -ETIMEDOUT; }
+			if (!MonotonicClock.before(deadline)) { return 0; }
+			ssize_t count = recv(stream->descriptor, output + *used, (size_t)(length - *used), 0);
+			if (count > (ssize_t)0) {
+				if (stream->assemblyDeadline == 0LL) { stream->assemblyDeadline = MonotonicClock.deadlineAfter(2000LL); }
+				*used += (int)count; continue;
+			}
+			if (count == (ssize_t)0) { return -ECONNRESET; }
+			if (errno == EINTR) { continue; }
+			if (errno != EAGAIN && errno != EWOULDBLOCK) { return -errno; }
+			int ready = PulseSocket.ready(stream->descriptor, false, deadline);
+			if (ready <= 0) { return ready; }
+		}
+		return 1;
+	}
+
+	class int receivePacket(struct PulseStreamState* stream, long long deadline) {
+		if (stream->headerUsed < 20) {
+			int ready = PulseStream.receivePart(stream, stream->header, 20, &stream->headerUsed, deadline);
+			if (ready <= 0) { return ready; }
+			struct PulseCursor header = {stream->header, 20, 0, false};
+			uint length = PulseWire.read32(&header); stream->incomingChannel = PulseWire.read32(&header);
+			uint high = PulseWire.read32(&header); uint low = PulseWire.read32(&header); uint flags = PulseWire.read32(&header);
+			if (length == 0u || length > (uint)stream->capacity || high != 0u || low != 0u || flags != 0u) { return -EPROTO; }
+			stream->bodyLength = (int)length;
+		}
+		int ready = PulseStream.receivePart(stream, stream->packet, stream->bodyLength, &stream->bodyUsed, deadline);
+		if (ready <= 0) { return ready; }
+		stream->headerUsed = 0; stream->bodyUsed = 0; stream->assemblyDeadline = 0LL;
+		return stream->bodyLength;
+	}
+
+	/* A control reply returns 1. An asynchronous event or capture memblock
+	 * returns 0. All packet fields must fit the peer's declared frame. */
+	class int receive(struct PulseStreamState* stream, uint awaited, long long deadline) {
+		int bytes = PulseStream.receivePacket(stream, deadline);
+		if (bytes <= 0) { return bytes; }
+		uint channel = stream->incomingChannel;
+		if (channel != 0xffffffffu) {
+			if (!stream->capture || channel != stream->channel) { return -EPROTO; }
+			return PulseStream.enqueue(stream, bytes);
+		}
+		struct PulseCursor message = {stream->packet, bytes, 0, false};
+		uint command = PulseWire.take32(&message); uint tag = PulseWire.take32(&message);
+		if (message.failed) { return -EPROTO; }
+		if (command == 2u || command == 0u) {
+			if (awaited == 0xffffffffu || tag != awaited) { return -EPROTO; }
+			if (command == 0u) { PulseWire.take32(&message); }
+			if (message.failed || message.at != bytes) { return -EPROTO; }
+			return command == 2u ? 1 : -EIO;
+		}
+		if (tag != 0xffffffffu || PulseWire.take32(&message) != stream->channel) { return -EPROTO; }
+		if (command == 61u && !stream->capture) {
+			uint count = PulseWire.take32(&message);
+			if (count > 268435456u || stream->credit > 268435456ULL - (unsigned long long)count) { return -EPROTO; }
+			stream->credit += (unsigned long long)count;
+		} else if (command == 62u || command == 63u) { stream->discontinuity = true; }
+		else if (command == 64u || command == 65u) { return -ENODEV; }
+		else if (command == 76u || command == 77u) { PulseWire.takeBoolean(&message); stream->discontinuity = true; }
+		else if (command == 78u || command == 79u) {
+			PulseWire.take32(&message); PulseWire.stringStart(&message); PulseWire.takeBoolean(&message);
+			PulseWire.take32(&message); PulseWire.take32(&message);
+			if (!stream->capture) { PulseWire.take32(&message); PulseWire.take32(&message); }
+			PulseWire.usec(&message);
+			stream->discontinuity = true;
+		} else if (command != 86u) { return -EPROTO; }
+		return message.failed || message.at != bytes ? -EPROTO : 0;
+	}
+
+	class int command(struct PulseStreamState* stream, uint command, bool cork) {
+		unsigned char body[32] = {};
+		struct PulseCursor message = {};
+		PulseClient.begin(&message, body, 32, command, 10u);
+		PulseWire.u32(&message, stream->channel);
+		if (command == 41u || command == 58u) { PulseWire.boolean(&message, cork); }
+		long long deadline = MonotonicClock.deadlineAfter(250LL);
+		int error = PulseSocket.sendFrame(stream->descriptor, 0xffffffffu, body, message.at, deadline);
+		if (error < 0) { return error; }
+		while (MonotonicClock.before(deadline)) {
+			int event = PulseStream.receive(stream, 10u, deadline);
+			if (event != 0) { return event < 0 ? event : 0; }
+		}
+		return -ETIMEDOUT;
+	}
+
+	class int cork(struct PulseStreamState* stream, bool corked) {
+		if (stream->corked == corked) { return 0; }
+		int error = PulseStream.command(stream, stream->capture ? 58u : 41u, corked);
+		if (error >= 0) { stream->corked = corked; }
+		return error;
+	}
+
+	class int stop(struct PulseStreamState* stream) {
+		if (stream->broken) { return 0; }
+		int error = PulseStream.cork(stream, true);
+		if (error == 0) { error = PulseStream.command(stream, stream->capture ? 59u : 42u, false); }
+		if (error < 0) { stream->broken = true; }
+		stream->queued = 0; stream->head = 0;
+		return error;
+	}
+
+	class int closeStream(struct PulseStreamState* stream) {
+		if (!stream->established) { return 0; }
+		if (!stream->broken) { PulseStream.command(stream, stream->capture ? 6u : 4u, false); }
+		stream->established = false;
+		return close(stream->descriptor) == 0 ? 0 : -errno;
+	}
+
+	class int wait(struct PulseStreamState* stream, int timeout) {
+		long long deadline = MonotonicClock.deadlineAfter((long long)timeout);
+		while (true) {
+			if (stream->capture ? stream->queued >= stream->periodBytes : stream->credit >= (unsigned long long)stream->periodBytes) { return 1; }
+			if (!MonotonicClock.before(deadline)) { return 0; }
+			int event = PulseStream.receive(stream, 0xffffffffu, deadline);
+			if (event < 0) { return event; }
+		}
+		return 0;
+	}
+
+	class long transfer(struct PulseStreamState* stream, float* samples, int frames) {
+		int byteCount = frames * stream->frameBytes;
+		var bytes = (unsigned char*)samples;
+		if (!stream->capture) {
+			if ((unsigned long long)byteCount > stream->credit) { return -EAGAIN; }
+			long long deadline = MonotonicClock.deadlineAfter(100LL);
+			int error = PulseSocket.sendFrame(stream->descriptor, stream->channel, bytes, byteCount, deadline);
+			if (error < 0) { return (long)error; }
+			stream->credit -= (unsigned long long)byteCount;
+			// Prime playback before permitting the server to consume its first period.
+			if (stream->corked) {
+				error = PulseStream.cork(stream, false);
+				if (error < 0) { return (long)error; }
+			}
+		} else {
+			if (stream->queued < byteCount) { return -EAGAIN; }
+			int first = byteCount < stream->capacity - stream->head ? byteCount : stream->capacity - stream->head;
+			memcpy(bytes, stream->queue + stream->head, (size_t)first);
+			if (first < byteCount) { memcpy(bytes + first, stream->queue, (size_t)(byteCount - first)); }
+			stream->head = (stream->head + byteCount) % stream->capacity;
+			stream->queued -= byteCount;
+		}
+		return (long)frames;
+	}
+}

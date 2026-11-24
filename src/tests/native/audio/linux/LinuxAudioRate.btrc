@@ -1,0 +1,60 @@
+import Library.Audio;
+import Library.Audio.AudioDevice;
+import Library.Audio.RealtimeAudio;
+import Library.Console;
+import Library.Timer;
+
+#include <assert.h>
+
+/* AlsaRatePeer.c holds both opposite snd-aloop endpoints at 48 kHz. The
+ * public stream requests 44.1 kHz, emits 500 Hz and measures the host's
+ * 1 kHz signal against the callback's own sample count. A 1763-frame
+ * callback spans a fractional number of 48 kHz frames. */
+struct RateLog { unsigned long long blocks; unsigned long long lastFrame; int phase; int sinceRise; int lastSign; int intervals; long long total; bool bad; };
+
+@realtime void rateProcess(void* context, struct AudioBlockView block, RealtimeAudioInputSamples input, RealtimeAudioOutputSamples output) {
+	struct RateLog* log = (struct RateLog*)context;
+	int frames = block.frameCount;
+	if (frames != 1763 || block.inputChannelCount != 2 || block.outputChannelCount != 2 || (log->blocks > 0ULL && block.outputDeviceFrame != log->lastFrame + 1763ULL)) { log->bad = true; }
+	log->blocks++; log->lastFrame = block.outputDeviceFrame;
+	for (int frame = 0; frame < frames; frame++) {
+		float value = 0.0f;
+		size_t offset = (size_t)frame * (size_t)2;
+		input.tryGet(offset, &value);
+		log->sinceRise++;
+		if (value > 0.1f && log->lastSign <= 0) {
+			if (log->sinceRise >= 32 && log->sinceRise <= 60) { log->intervals++; log->total += (long long)log->sinceRise; }
+			log->sinceRise = 0; log->lastSign = 1;
+		} else if (value < -0.1f) { log->lastSign = -1; }
+		float sample = log->phase < 22050 ? 0.25f : -0.25f;
+		output.trySet(offset, sample); output.trySet(offset + (size_t)1, -sample);
+		log->phase += 500; if (log->phase >= 44100) { log->phase -= 44100; }
+	}
+}
+
+int main() {
+	var opened = Audio.createDevice(); assert(opened.succeeded());
+	var provider = opened.provider(); var inventory = provider.inventory().inventory();
+	string id = "plughw:CARD=Loopback,DEV=0";
+	var channels = AudioChannelSelection.leading(2);
+	var spec = DuplexAudioOpenRequest.duplex(inventory.generation(), id, channels, id, channels, AudioStreamRequest(44100, 1763));
+	struct RateLog log = {};
+	// A raw endpoint exposes the peer's native format. The plughw route
+	// below must still open after the expected raw negotiation failure.
+	string raw = "hw:CARD=Loopback,DEV=0";
+	var rawSpec = DuplexAudioOpenRequest.duplex(inventory.generation(), raw, channels, raw, channels, AudioStreamRequest(44100, 1763));
+	var rejected = provider.openDuplex(rawSpec, RealtimeAudioProgram(rateProcess, &log));
+	assert(rejected.status() == AUDIO_DEVICE_UNSUPPORTED_FORMAT);
+	var setup = provider.openDuplex(spec, RealtimeAudioProgram(rateProcess, &log));
+	if (!setup.succeeded()) { Console.error(setup.message()); }
+	assert(setup.succeeded());
+	var session = setup.session();
+	assert(session.format().inputFormat().sampleRate() == 44100 && session.format().outputFormat().sampleRate() == 44100);
+	assert(session.start().succeeded());
+	Timer.sleepMillis(2000);
+	assert(session.suspend().succeeded() && session.drain().succeeded() && session.close().succeeded());
+	assert(provider.close().succeeded());
+	Console.log(f"44.1 kHz callback measured {log.intervals} cycles in {log.total} frames and {log.blocks} blocks");
+	assert(!log.bad && log.blocks > 8ULL && log.intervals > 60 && log.total > (long long)log.intervals * 43LL && log.total < (long long)log.intervals * 45LL);
+	return 0;
+}

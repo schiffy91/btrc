@@ -1,0 +1,126 @@
+import Library.OwnedBuffer;
+import Library.Timer;
+
+import ./PulseSocket.btrc;
+
+struct PulseDeviceSpec { int channels; int rate; };
+
+class PulseJackRoutes {
+	public string sink = "";
+	public string source = "";
+	public int inputChannels;
+	public int outputChannels;
+	public int rate;
+}
+
+class PulseClient {
+	class void begin(struct PulseCursor* packet, unsigned char* storage, int capacity, uint command, uint tag) {
+		packet->data = storage; packet->size = capacity; packet->at = 0; packet->failed = false;
+		PulseWire.u32(packet, command); PulseWire.u32(packet, tag);
+	}
+
+	class int exchange(int descriptor, struct PulseCursor* packet, uint tag, long long deadline) {
+		if (packet->failed) { return -EMSGSIZE; }
+		int error = PulseSocket.sendFrame(descriptor, 0xffffffffu, packet->data, packet->at, deadline);
+		if (error < 0) { return error; }
+		uint channel = 0u;
+		int length = PulseSocket.receiveFrame(descriptor, &channel, packet->data, packet->size, deadline);
+		if (length < 0) { return length; }
+		packet->size = length; packet->at = 0;
+		uint command = PulseWire.take32(packet); uint answer = PulseWire.take32(packet);
+		if (packet->failed || channel != 0xffffffffu || answer != tag) { return -EPROTO; }
+		if (command == 2u) { return 0; }
+		if (command != 0u) { return -EPROTO; }
+		uint code = PulseWire.take32(packet);
+		if (packet->failed || packet->at != length) { return -EPROTO; }
+		if (code == 1u) { return -EACCES; }
+		if (code == 3u) { return -EINVAL; }
+		if (code == 5u) { return -ENOENT; }
+		if (code == 16u) { return -ENOTSUP; }
+		return -EIO;
+	}
+
+	/* Protocol v13 defines ADJUST_LATENCY and supports ordinary inline
+	 * memblocks. No shared-memory or memfd feature bits are advertised. */
+	class int connectServer(unsigned char* storage, int capacity, long long deadline) {
+		unsigned char cookie[256] = {};
+		int error = PulseSocket.readCookie(cookie);
+		if (error < 0) { return error; }
+		int descriptor = PulseSocket.connectPath(PulseSocket.defaultPath(), deadline);
+		if (descriptor < 0) { return descriptor; }
+		struct PulseCursor packet = {};
+		PulseClient.begin(&packet, storage, capacity, 8u, 1u);
+		PulseWire.u32(&packet, 13u);
+		PulseWire.arbitrary(&packet, cookie, 256);
+		error = PulseClient.exchange(descriptor, &packet, 1u, deadline);
+		if (error >= 0) {
+			uint version = PulseWire.take32(&packet) & 0x3fffffffu;
+			if (packet.failed || version < 13u || packet.at != packet.size) { error = -EPROTO; }
+		}
+		if (error >= 0) {
+			PulseClient.begin(&packet, storage, capacity, 9u, 2u);
+			PulseWire.properties(&packet, "application.name", "btrc");
+			error = PulseClient.exchange(descriptor, &packet, 2u, deadline);
+			if (error >= 0) {
+				PulseWire.take32(&packet);
+				if (packet.failed || packet.at != packet.size) { error = -EPROTO; }
+			}
+		}
+		if (error < 0) { close(descriptor); return error; }
+		return descriptor;
+	}
+
+	class int deviceList(int descriptor, unsigned char* storage, int capacity, bool capture, string wanted, struct PulseDeviceSpec* output, PulseJackRoutes jack, long long deadline) {
+		struct PulseCursor packet = {};
+		PulseClient.begin(&packet, storage, capacity, capture ? 24u : 22u, 4u);
+		int error = PulseClient.exchange(descriptor, &packet, 4u, deadline);
+		if (error < 0) { return error; }
+		while (!packet.failed && packet.at < packet.size) {
+			PulseWire.take32(&packet);
+			string name = PulseWire.takeString(&packet);
+			PulseWire.stringStart(&packet);
+			int channels = 0; int rate = 0;
+			PulseWire.takeSpec(&packet, &channels, &rate);
+			PulseWire.counted(&packet, 'm', 1);
+			PulseWire.take32(&packet);
+			PulseWire.counted(&packet, 'v', 4); PulseWire.takeBoolean(&packet);
+			PulseWire.take32(&packet); PulseWire.stringStart(&packet);
+			PulseWire.usec(&packet); PulseWire.stringStart(&packet); PulseWire.take32(&packet);
+			bool hosted = PulseWire.jackProperties(&packet); PulseWire.usec(&packet);
+			if (!packet.failed && hosted && !name.isEmpty() && name.len() <= 511) {
+				if (capture && jack.source.isEmpty()) { jack.source = name; jack.inputChannels = channels; }
+				if (!capture && jack.sink.isEmpty()) { jack.sink = name; jack.outputChannels = channels; }
+				jack.rate = rate;
+			}
+			if (!packet.failed && name == wanted) { output->rate = rate; output->channels = channels; }
+		}
+		return packet.failed ? -EPROTO : 0;
+	}
+
+	class int inventory(struct PulseDeviceSpec* input, struct PulseDeviceSpec* output, bool* pipewire, PulseJackRoutes jack) {
+		int capacity = 1048576;
+		var bytes = new OwnedBuffer<unsigned char>((size_t)capacity);
+		if (!bytes.opened()) { return -ENOMEM; }
+		var storage = bytes.borrow();
+		long long deadline = MonotonicClock.deadlineAfter(1500LL);
+		int descriptor = PulseClient.connectServer(storage, capacity, deadline);
+		if (descriptor < 0) { return descriptor; }
+		struct PulseCursor packet = {};
+		PulseClient.begin(&packet, storage, capacity, 20u, 3u);
+		int error = PulseClient.exchange(descriptor, &packet, 3u, deadline);
+		if (error >= 0) {
+			string server = PulseWire.takeString(&packet);
+			if (pipewire != null) { *pipewire = server.indexOf("PipeWire") >= 0; }
+			for (int field = 0; field < 3; field++) { PulseWire.stringStart(&packet); }
+			int channels = 0; int rate = 0;
+			PulseWire.takeSpec(&packet, &channels, &rate);
+			string defaultSink = PulseWire.takeString(&packet); string defaultSource = PulseWire.takeString(&packet);
+			PulseWire.take32(&packet);
+			if (packet.failed || packet.at != packet.size) { error = -EPROTO; }
+			if (error >= 0) { error = PulseClient.deviceList(descriptor, storage, capacity, false, defaultSink, output, jack, deadline); }
+			if (error >= 0) { error = PulseClient.deviceList(descriptor, storage, capacity, true, defaultSource, input, jack, deadline); }
+		}
+		close(descriptor);
+		return error;
+	}
+}

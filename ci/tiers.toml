@@ -73,7 +73,7 @@ lane-linux = [
 ]
 # The Linux GUI and audio shard: the GUI, audio, GPU and image providers, the
 # native suites and shell fixtures, the headless session and its evidence wrapper,
-# and the null PCM. A macOS-only change does not select it.
+# and the Linux audio peers. A macOS-only change does not select it.
 lane-linux-gui = [
   "src/stdlib/GUI/**",
   "packages/embedded-web/**",
@@ -92,7 +92,7 @@ lane-linux-gui = [
   "tools/ui/**",
   "tools/NativeHeaderReader.cpp",
   "tools/virtual-display.sh",
-  "nix/asound.conf",
+  "src/tests/python/pulse_audio_peer.py",
   "src/tests/fixtures/expected-skips/linux-devcontainer.json",
   "!**/MacOS/**",
   "!**/*MacOS*",
@@ -221,7 +221,7 @@ changed_paths = [
   "tools/ui/**",
   "tools/NativeHeaderReader.cpp",
   "tools/virtual-display.sh",
-  "nix/asound.conf",
+  "src/tests/python/pulse_audio_peer.py",
   "src/tests/fixtures/expected-skips/linux-devcontainer.json",
   "!**/MacOS/**",
   "!**/*MacOS*",
@@ -261,7 +261,7 @@ changed_paths = [
   "tools/ui/**",
   "tools/NativeHeaderReader.cpp",
   "tools/virtual-display.sh",
-  "nix/asound.conf",
+  "src/tests/python/pulse_audio_peer.py",
   "src/tests/fixtures/expected-skips/linux-devcontainer.json",
   "!**/MacOS/**",
   "!**/*MacOS*",
@@ -301,7 +301,7 @@ changed_paths = [
   "tools/ui/**",
   "tools/NativeHeaderReader.cpp",
   "tools/virtual-display.sh",
-  "nix/asound.conf",
+  "src/tests/python/pulse_audio_peer.py",
   "src/tests/fixtures/expected-skips/linux-devcontainer.json",
   "!**/MacOS/**",
   "!**/*MacOS*",
@@ -341,7 +341,7 @@ changed_paths = [
   "tools/ui/**",
   "tools/NativeHeaderReader.cpp",
   "tools/virtual-display.sh",
-  "nix/asound.conf",
+  "src/tests/python/pulse_audio_peer.py",
   "src/tests/fixtures/expected-skips/linux-devcontainer.json",
   "!**/MacOS/**",
   "!**/*MacOS*",
@@ -419,7 +419,7 @@ changed_paths = [
   "tools/ui/**",
   "tools/NativeHeaderReader.cpp",
   "tools/virtual-display.sh",
-  "nix/asound.conf",
+  "src/tests/python/pulse_audio_peer.py",
   "src/tests/fixtures/expected-skips/linux-devcontainer.json",
   "!**/MacOS/**",
   "!**/*MacOS*",

@@ -519,27 +519,6 @@
       "note": "`make test` runs its parallel suite without a display wrapper, and this desktop's gate is run with DISPLAY and WAYLAND_DISPLAY unset so that no test reaches the owner's session. The Linux GUI suites then skip here. CI's devcontainer runs every one of them under Xvfb (the linux-gui rows and the unit shard), and `tools/virtual-display.sh make NIX= test-native-gui` runs them on this host in a private session."
     },
     {
-      "id": "native-audio-no-device",
-      "files": [
-        "src/tests/python/test_native_linux_providers.py"
-      ],
-      "nodes": [
-        "*::test_linux_audio_session*"
-      ],
-      "reason": "^native audio backend is unavailable: cannot open default ALSA PCM ",
-      "category": "capability",
-      "gating": {
-        "env": [
-          "ALSA_CONFIG_PATH",
-          "XDG_RUNTIME_DIR"
-        ]
-      },
-      "covered_by": [
-        "linux-devcontainer"
-      ],
-      "note": "The headless gate has no sound server: its runtime directory is private, so the session's is out of reach, and no ALSA configuration names another device. CI's Linux GUI and audio shard runs these cases against the null PCM of nix/asound.conf (ALSA_CONFIG_PATH)."
-    },
-    {
       "id": "linux-real-desktop-session-headless",
       "files": [
         "src/tests/python/test_native_ui_shell_linux.py"
@@ -557,6 +536,61 @@
       },
       "covered_by": [],
       "note": "The one test that drives a real X11 or Wayland session. It runs only on this runner with the session's display in the environment, which the headless gate takes away, so nothing covers it yet: the check stays awaiting (ci/tiers.toml hardware entry linux-desktop) until it is run by hand in each session with the command in the skip reason."
+    },
+    {
+      "id": "linux-snd-aloop",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py"
+      ],
+      "nodes": [
+        "*::test_linux_audio_loopback[[]*-alsa-loopback]",
+        "*::test_linux_audio_resampling*"
+      ],
+      "reason": "^requires (?:BTRC_TEST_AUDIO_HARDWARE=1 and )?snd-aloop$",
+      "category": "capability",
+      "gating": {
+        "env": [
+          "BTRC_TEST_AUDIO_HARDWARE"
+        ]
+      },
+      "covered_by": [],
+      "note": "The public loopback and rate-conversion cases require an active snd-aloop card."
+    },
+    {
+      "id": "linux-pulse-monitor",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py"
+      ],
+      "nodes": [
+        "*::test_linux_audio_loopback[[]*-pulse-monitor]"
+      ],
+      "reason": "^requires BTRC_TEST_PULSE_MONITOR=1 with a default sink and its monitor source$",
+      "category": "capability",
+      "gating": {
+        "env": [
+          "BTRC_TEST_PULSE_MONITOR"
+        ]
+      },
+      "covered_by": [],
+      "note": "The real sound-server test records the selected sink through its monitor."
+    },
+    {
+      "id": "linux-optional-pcm-plugin",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py"
+      ],
+      "nodes": [
+        "*::test_linux_saved_pcm*"
+      ],
+      "reason": "^requires the existing alsa-lib PCM plugin runtime$",
+      "category": "capability",
+      "gating": {
+        "capabilities": [
+          "alsa-pcm-plugin"
+        ]
+      },
+      "covered_by": [],
+      "note": "An explicit user-defined ALSA PCM needs its compatible host plugin runtime."
     }
   ]
 }

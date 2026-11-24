@@ -1,0 +1,199 @@
+import Library.OwnedBuffer;
+
+/* Kernel ALSA PCM negotiation. Rate and period stay exact because the
+ * session exposes one frame clock and one period to its realtime program. */
+class KernelPcm {
+	class void constraints(void* params) {
+		btrcPcmAny(params);
+		btrcPcmMask(params, BTRC_PCM_ACCESS, BTRC_PCM_INTERLEAVED);
+		btrcPcmMask(params, BTRC_PCM_SUBFORMAT, BTRC_PCM_STANDARD);
+	}
+
+	class int probe(int descriptor, int* channels, int* rateMin, int* rateMax, int* periodMin, int* periodMax) {
+		var storage = new OwnedBuffer<unsigned char>(btrcPcmConstraintBytes());
+		if (!storage.opened()) { return -ENOMEM; }
+		var params = storage.borrow();
+		KernelPcm.constraints(params);
+		int error = btrcPcmRefine(descriptor, params);
+		if (error < 0) { return error; }
+		unsigned int count = btrcPcmMaximum(params, BTRC_PCM_CHANNELS);
+		unsigned int lowRate = btrcPcmMinimum(params, BTRC_PCM_RATE);
+		unsigned int highRate = btrcPcmMaximum(params, BTRC_PCM_RATE);
+		unsigned int lowPeriod = btrcPcmMinimum(params, BTRC_PCM_PERIOD);
+		unsigned int highPeriod = btrcPcmMaximum(params, BTRC_PCM_PERIOD);
+		if (count == 0u || lowRate > 768000u || lowPeriod > 65536u) { return -EINVAL; }
+		*channels = (int)(count > 256u ? 256u : count);
+		*rateMin = (int)lowRate;
+		*rateMax = (int)(highRate > 768000u ? 768000u : highRate);
+		*periodMin = (int)lowPeriod;
+		*periodMax = (int)(highPeriod > 65536u ? 65536u : highPeriod);
+		return 0;
+	}
+
+	class int configure(int descriptor, bool adapt, int channels, int rate, int period, int* actualChannels, int* actualFormat) {
+		if (channels < 1 || channels > 256 || rate < 1 || period < 1 || period > 65536) { return -EINVAL; }
+		int formats[5] = {BTRC_PCM_FLOAT, BTRC_PCM_S32, BTRC_PCM_S24_PACKED, BTRC_PCM_S24, BTRC_PCM_S16};
+		var storage = new OwnedBuffer<unsigned char>(btrcPcmConstraintBytes());
+		if (!storage.opened()) { return -ENOMEM; }
+		var params = storage.borrow();
+		for (int index = 0; index < (adapt ? 5 : 1); index++) {
+			KernelPcm.constraints(params);
+			btrcPcmMask(params, BTRC_PCM_FORMAT, (unsigned int)formats[index]);
+			btrcPcmRange(params, BTRC_PCM_RATE, (unsigned int)rate, (unsigned int)rate);
+			btrcPcmRange(params, BTRC_PCM_CHANNELS, (unsigned int)channels, 256u);
+			btrcPcmRange(params, BTRC_PCM_PERIOD, (unsigned int)period, (unsigned int)period);
+			int error = btrcPcmRefine(descriptor, params);
+			if (error == -EINVAL) { continue; }
+			if (error < 0) { return error; }
+			unsigned int count = btrcPcmMinimum(params, BTRC_PCM_CHANNELS);
+			btrcPcmRange(params, BTRC_PCM_CHANNELS, count, count);
+			error = btrcPcmRefine(descriptor, params);
+			if (error < 0) { return error; }
+			unsigned int periods = btrcPcmMinimum(params, BTRC_PCM_PERIODS);
+			unsigned int maxPeriods = btrcPcmMaximum(params, BTRC_PCM_PERIODS);
+			if (periods < 2u && maxPeriods >= 2u) { periods = 2u; }
+			btrcPcmRange(params, BTRC_PCM_PERIODS, periods, maxPeriods);
+			error = btrcPcmRefine(descriptor, params);
+			if (error < 0) { return error; }
+			periods = btrcPcmMinimum(params, BTRC_PCM_PERIODS);
+			btrcPcmRange(params, BTRC_PCM_PERIODS, periods, periods);
+			error = btrcPcmInstall(descriptor, params);
+			if (error < 0) { return error; }
+			unsigned int buffer = btrcPcmMinimum(params, BTRC_PCM_BUFFER);
+			error = btrcPcmSoftware(descriptor, (unsigned int)period, buffer);
+			if (error < 0) { return error; }
+			*actualFormat = formats[index];
+			*actualChannels = (int)count;
+			return 0;
+		}
+		return -EINVAL;
+	}
+
+	/* HW_REFINE returns the feasible boundary below/above a requested rate.
+	 * Narrow both halves independently because rates can contain holes. */
+	class int rateBound(int descriptor, int channels, int requested, bool upper) {
+		var storage = new OwnedBuffer<unsigned char>(btrcPcmConstraintBytes());
+		if (!storage.opened()) { return -ENOMEM; }
+		var params = storage.borrow();
+		KernelPcm.constraints(params);
+		btrcPcmRange(params, BTRC_PCM_CHANNELS, (uint)channels, 256u);
+		btrcPcmRange(params, BTRC_PCM_RATE, upper ? (uint)requested : 8000u, upper ? 768000u : (uint)requested);
+		int status = btrcPcmRefine(descriptor, params);
+		if (status < 0) { return status; }
+		return (int)(upper ? btrcPcmMinimum(params, BTRC_PCM_RATE) : btrcPcmMaximum(params, BTRC_PCM_RATE));
+	}
+
+	class int periodBound(int descriptor, int channels, int rate, int requested, bool upper) {
+		var storage = new OwnedBuffer<unsigned char>(btrcPcmConstraintBytes());
+		if (!storage.opened()) { return -ENOMEM; }
+		var params = storage.borrow();
+		KernelPcm.constraints(params);
+		btrcPcmRange(params, BTRC_PCM_CHANNELS, (uint)channels, 256u);
+		btrcPcmRange(params, BTRC_PCM_RATE, (uint)rate, (uint)rate);
+		btrcPcmRange(params, BTRC_PCM_PERIOD, upper ? (uint)requested : 1u, upper ? 65536u : (uint)requested);
+		int status = btrcPcmRefine(descriptor, params);
+		if (status < 0) { return status; }
+		return (int)(upper ? btrcPcmMinimum(params, BTRC_PCM_PERIOD) : btrcPcmMaximum(params, BTRC_PCM_PERIOD));
+	}
+
+	class int closest(int low, int high, int requested) {
+		if (low < 0) { return high; }
+		if (high < 0) { return low; }
+		return requested - low < high - requested ? low : high;
+	}
+
+	class int openPath(string path) {
+		int descriptor = open(path, (int)O_RDWR | (int)O_NONBLOCK | (int)O_CLOEXEC);
+		return descriptor < 0 ? -errno : descriptor;
+	}
+
+	class int closeDescriptor(int descriptor) { return close(descriptor) != 0 ? -errno : 0; }
+
+	class int prepare(int descriptor) { return btrcPcmPrepare(descriptor); }
+
+	class int start(int descriptor) { return btrcPcmStart(descriptor); }
+
+	class int drop(int descriptor) { return btrcPcmDrop(descriptor); }
+
+	class int wait(int descriptor, bool capture, int timeout) { return btrcPcmPoll(descriptor, capture ? 1 : 0, timeout); }
+
+	class bool needsDrop(int descriptor) {
+		int state = btrcPcmState(descriptor);
+		return state == BTRC_PCM_PREPARED || state == BTRC_PCM_RUNNING || state == BTRC_PCM_XRUN || state == BTRC_PCM_DRAINING || state == BTRC_PCM_PAUSED;
+	}
+
+	class int startIfPrepared(int descriptor) {
+		int state = btrcPcmState(descriptor);
+		if (state < 0) { return state; }
+		return state == BTRC_PCM_PREPARED ? btrcPcmStart(descriptor) : 0;
+	}
+
+	class int recover(int descriptor, int error) {
+		if (error == -EINTR || error == -EAGAIN) { return 0; }
+		if (error == -ESTRPIPE) {
+			int resumed = btrcPcmResume(descriptor);
+			if (resumed == 0) { return 0; }
+			return btrcPcmPrepare(descriptor);
+		}
+		return error == -EPIPE ? btrcPcmPrepare(descriptor) : error;
+	}
+
+	/* Compact forward on playback and expand backward on capture, so the
+	 * physical float buffer doubles as the wire buffer without allocation. */
+	class int bytesPerSample(int format) {
+		if (format == BTRC_PCM_S16) { return 2; }
+		return format == BTRC_PCM_S24_PACKED ? 3 : 4;
+	}
+
+	class void pack(float* samples, int count, int format) {
+		if (format == BTRC_PCM_FLOAT) { return; }
+		int bytes = KernelPcm.bytesPerSample(format);
+		long long scale = format == BTRC_PCM_S16 ? 32768LL : (format == BTRC_PCM_S32 ? 2147483648LL : 8388608LL);
+		var data = (unsigned char*)samples;
+		for (int sample = 0; sample < count; sample++) {
+			double value = (double)samples[sample];
+			long long encoded = 0LL;
+			if (value >= 1.0) { encoded = scale - 1LL; }
+			else if (value <= -1.0) { encoded = -scale; }
+			else if (value == value) {
+				double scaled = value * (double)scale;
+				encoded = (long long)(scaled < 0.0 ? scaled - 0.5 : scaled + 0.5);
+				if (encoded == scale) { encoded--; }
+			}
+			uint bits = (uint)encoded;
+			for (int byte = 0; byte < bytes; byte++) {
+				data[sample * bytes + byte] = (unsigned char)(bits >> (8 * byte));
+			}
+		}
+	}
+
+	class void unpack(float* samples, int count, int format) {
+		if (format == BTRC_PCM_FLOAT) { return; }
+		int bytes = KernelPcm.bytesPerSample(format);
+		int significant = format == BTRC_PCM_S24 ? 3 : bytes;
+		long long scale = 1LL << (8 * significant - 1);
+		var data = (unsigned char*)samples;
+		for (int sample = count - 1; sample >= 0; sample--) {
+			long long value = 0LL;
+			for (int byte = 0; byte < significant; byte++) {
+				value |= (long long)data[sample * bytes + byte] << (8 * byte);
+			}
+			if (value >= scale) { value -= 2LL * scale; }
+			samples[sample] = (float)((double)value / (double)scale);
+		}
+	}
+
+	class long writePacked(int descriptor, float* storage, int format, int channels, int offset, int frames) {
+		int stride = channels * KernelPcm.bytesPerSample(format);
+		var bytes = (unsigned char*)storage;
+		return btrcPcmTransfer(descriptor, 0, bytes + (size_t)offset * (size_t)stride, (unsigned int)frames);
+	}
+
+	class long transfer(int descriptor, bool capture, int format, int channels, float* samples, int frames) {
+		if (!capture) { KernelPcm.pack(samples, frames * channels, format); }
+		long result = btrcPcmTransfer(descriptor, capture ? 1 : 0, samples, (unsigned int)frames);
+		if (result > (long)frames) { return -EIO; }
+		if (capture && result > 0L) { KernelPcm.unpack(samples, (int)result * channels, format); }
+		return result;
+	}
+}

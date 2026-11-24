@@ -519,6 +519,61 @@
       "category": "platform",
       "covered_by": [],
       "note": "The supervisor image and its transfer are verified with native Windows handles, processes and pipes. windows-arm64.yml runs both files on its x64 and ARM64 hosts when dispatched with focus=daemon-runtime and requires seven cases with no skip; that evidence is the dispatch's JUnit artifact, not a skip report, so no runner is named."
+    },
+    {
+      "id": "linux-snd-aloop",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py"
+      ],
+      "nodes": [
+        "*::test_linux_audio_loopback[[]*-alsa-loopback]",
+        "*::test_linux_audio_resampling*"
+      ],
+      "reason": "^requires (?:BTRC_TEST_AUDIO_HARDWARE=1 and )?snd-aloop$",
+      "category": "capability",
+      "gating": {
+        "env": [
+          "BTRC_TEST_AUDIO_HARDWARE"
+        ]
+      },
+      "covered_by": [],
+      "note": "The public loopback and rate-conversion cases require an active snd-aloop card."
+    },
+    {
+      "id": "linux-pulse-monitor",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py"
+      ],
+      "nodes": [
+        "*::test_linux_audio_loopback[[]*-pulse-monitor]"
+      ],
+      "reason": "^requires BTRC_TEST_PULSE_MONITOR=1 with a default sink and its monitor source$",
+      "category": "capability",
+      "gating": {
+        "env": [
+          "BTRC_TEST_PULSE_MONITOR"
+        ]
+      },
+      "covered_by": [],
+      "note": "The real sound-server test records the selected sink through its monitor."
+    },
+    {
+      "id": "linux-optional-pcm-plugin",
+      "files": [
+        "src/tests/python/test_native_linux_providers.py"
+      ],
+      "nodes": [
+        "*::test_linux_saved_pcm*"
+      ],
+      "reason": "^requires the existing alsa-lib PCM plugin runtime$",
+      "category": "capability",
+      "gating": {
+        "capabilities": [
+          "alsa-pcm-plugin"
+        ]
+      },
+      "covered_by": [],
+      "note": "An explicit user-defined ALSA PCM needs its compatible host plugin runtime."
     }
   ]
 }

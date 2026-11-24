@@ -1,0 +1,144 @@
+import Library.Strings;
+
+/* Pulse native packets contain tagged values; lengths and integers on this
+ * control channel are always big-endian (the audio payload is float32 LE). */
+struct PulseCursor {
+	unsigned char* data;
+	int size;
+	int at;
+	bool failed;
+};
+
+class PulseWire {
+	class bool room(struct PulseCursor* cursor, int length) {
+		if (cursor->failed || length < 0 || length > cursor->size - cursor->at) { cursor->failed = true; return false; }
+		return true;
+	}
+
+	class void byte(struct PulseCursor* cursor, int value) {
+		if (PulseWire.room(cursor, 1)) { cursor->data[cursor->at++] = (unsigned char)value; }
+	}
+
+	class int next(struct PulseCursor* cursor) { return PulseWire.room(cursor, 1) ? (int)cursor->data[cursor->at++] : 0; }
+
+	class void raw32(struct PulseCursor* cursor, uint value) {
+		for (int shift = 24; shift >= 0; shift -= 8) { PulseWire.byte(cursor, (int)((value >> shift) & 255u)); }
+	}
+
+	class uint read32(struct PulseCursor* cursor) {
+		uint value = 0u;
+		for (int byte = 0; byte < 4; byte++) { value = (value << 8) | (uint)PulseWire.next(cursor); }
+		return value;
+	}
+
+	class bool tag(struct PulseCursor* cursor, int tag) {
+		if (PulseWire.next(cursor) != tag) { cursor->failed = true; }
+		return !cursor->failed;
+	}
+
+	class void u32(struct PulseCursor* cursor, uint value) { PulseWire.byte(cursor, 'L'); PulseWire.raw32(cursor, value); }
+
+	class uint take32(struct PulseCursor* cursor) { return PulseWire.tag(cursor, 'L') ? PulseWire.read32(cursor) : 0u; }
+
+	class void boolean(struct PulseCursor* cursor, bool value) { PulseWire.byte(cursor, value ? '1' : '0'); }
+
+	class void bytes(struct PulseCursor* cursor, const unsigned char* data, int length) {
+		if (PulseWire.room(cursor, length)) {
+			memcpy(cursor->data + cursor->at, data, (size_t)length);
+			cursor->at += length;
+		}
+	}
+
+	class void stringValue(struct PulseCursor* cursor, string value) {
+		PulseWire.byte(cursor, 't');
+		PulseWire.bytes(cursor, (const unsigned char*)value, value.len() + 1);
+	}
+
+	class void arbitrary(struct PulseCursor* cursor, const unsigned char* data, int length) {
+		PulseWire.byte(cursor, 'x'); PulseWire.raw32(cursor, (uint)length); PulseWire.bytes(cursor, data, length);
+	}
+
+	class void properties(struct PulseCursor* cursor, string key, string value) {
+		PulseWire.byte(cursor, 'P');
+		PulseWire.stringValue(cursor, key);
+		PulseWire.u32(cursor, (uint)value.len() + 1u);
+		PulseWire.arbitrary(cursor, (const unsigned char*)value, value.len() + 1);
+		PulseWire.byte(cursor, 'N');
+	}
+
+	class void skip(struct PulseCursor* cursor, int length) {
+		if (PulseWire.room(cursor, length)) { cursor->at += length; }
+	}
+
+	class int stringStart(struct PulseCursor* cursor) {
+		int tag = PulseWire.next(cursor);
+		if (tag == 'N') { return -1; }
+		if (tag != 't') { cursor->failed = true; return -1; }
+		int start = cursor->at;
+		while (PulseWire.room(cursor, 1)) { if (PulseWire.next(cursor) == 0) { return start; } }
+		return -1;
+	}
+
+	class string takeString(struct PulseCursor* cursor) {
+		int start = PulseWire.stringStart(cursor);
+		return start < 0 ? "" : Strings.copy((char*)(cursor->data + start));
+	}
+
+	/* JACK bridge modules publish device.api=jack on both sinks and sources. */
+	class bool jackProperties(struct PulseCursor* cursor) {
+		if (!PulseWire.tag(cursor, 'P')) { return false; }
+		bool jack = false;
+		int key = PulseWire.stringStart(cursor);
+		while (key >= 0) {
+			bool deviceApi = cursor->at - key == 11 && memcmp(cursor->data + key, "device.api", (size_t)11) == 0;
+			uint declared = PulseWire.take32(cursor);
+			if (!PulseWire.tag(cursor, 'x') || declared != PulseWire.read32(cursor) || declared > (uint)INT_MAX) { cursor->failed = true; return false; }
+			if (!PulseWire.room(cursor, (int)declared)) { return false; }
+			if (deviceApi && declared == 5u && memcmp(cursor->data + cursor->at, "jack", (size_t)5) == 0) { jack = true; }
+			PulseWire.skip(cursor, (int)declared);
+			key = PulseWire.stringStart(cursor);
+		}
+		return !cursor->failed && jack;
+	}
+
+	class void spec(struct PulseCursor* cursor, int channels, int rate) {
+		PulseWire.byte(cursor, 'a'); PulseWire.byte(cursor, 5); PulseWire.byte(cursor, channels); PulseWire.raw32(cursor, (uint)rate);
+	}
+
+	class void takeSpec(struct PulseCursor* cursor, int* channels, int* rate) {
+		if (!PulseWire.tag(cursor, 'a')) { return; }
+		PulseWire.next(cursor);
+		*channels = PulseWire.next(cursor);
+		*rate = (int)PulseWire.read32(cursor);
+		if (*channels < 1 || *channels > 32 || *rate < 1 || *rate > 768000) { cursor->failed = true; }
+	}
+
+	class void channelMap(struct PulseCursor* cursor, int channels) {
+		/* Mono, stereo and the conventional ALSA multichannel order, then AUX. */
+		int positions[8] = {1, 2, 5, 6, 3, 7, 10, 11};
+		PulseWire.byte(cursor, 'm'); PulseWire.byte(cursor, channels);
+		for (int channel = 0; channel < channels; channel++) {
+			PulseWire.byte(cursor, channels == 1 ? 0 : (channel < 8 ? positions[channel] : 12 + channel - 8));
+		}
+	}
+
+	class void unityVolume(struct PulseCursor* cursor, int channels) {
+		PulseWire.byte(cursor, 'v'); PulseWire.byte(cursor, channels);
+		for (int channel = 0; channel < channels; channel++) { PulseWire.raw32(cursor, 65536u); }
+	}
+
+	class void counted(struct PulseCursor* cursor, int tag, int stride) {
+		if (PulseWire.tag(cursor, tag)) {
+			int count = PulseWire.next(cursor);
+			if (count < 1 || count > 32) { cursor->failed = true; return; }
+			PulseWire.skip(cursor, count * stride);
+		}
+	}
+
+	class void usec(struct PulseCursor* cursor) { if (PulseWire.tag(cursor, 'U')) { PulseWire.skip(cursor, 8); } }
+
+	class void takeBoolean(struct PulseCursor* cursor) {
+		int tag = PulseWire.next(cursor);
+		if (tag != '0' && tag != '1') { cursor->failed = true; }
+	}
+}

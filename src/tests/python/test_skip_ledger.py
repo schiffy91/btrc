@@ -536,7 +536,6 @@ def test_the_native_linux_manifest_qualifies_the_headless_gate_and_leaves_the_de
         ), name
     assert set(rules) - set(shared) == {
         "native-gui-no-display",
-        "native-audio-no-device",
         "linux-real-desktop-session-headless",
     }
 
@@ -549,13 +548,6 @@ def test_the_native_linux_manifest_qualifies_the_headless_gate_and_leaves_the_de
         container.classify("src/tests/python/test_native_ui_linux_spike.py::test_case[plain-python]", no_display)
         is None
     )
-
-    # Nor does it have a sound device; the container's Linux GUI and audio shard has the null PCM.
-    audio = native.classify(
-        "src/tests/python/test_native_linux_providers.py::test_linux_audio_session[False-python]",
-        "native audio backend is unavailable: cannot open default ALSA PCM (Host is down)",
-    )
-    assert audio is rules["native-audio-no-device"] and audio.covered_by == ("linux-devcontainer",)
 
     # The real-session check is this runner's own test. The headless gate cannot run it, and nothing
     # else does: the manifest says so (no covering runner) instead of claiming it, as the container's
@@ -624,6 +616,9 @@ def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
     assert uncovered == {
         "android-device-bound",
         "ios-simulator-bound",
+        "linux-snd-aloop",
+        "linux-pulse-monitor",
+        "linux-optional-pcm-plugin",
         "windows-daemon-native",
         "apple-target-macro-oracle",
         "linux-tray-session-bus",

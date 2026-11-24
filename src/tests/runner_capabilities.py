@@ -18,12 +18,10 @@ import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, ClassVar
 
-from src.tests.c_toolchains import configured_c_compiler
 from src.tests.process_limits import TOOL_TIMEOUT
 
 CAPABILITY_DIRECTIVE = "BTRC_TEST_REQUIRES:"
@@ -152,14 +150,6 @@ class PkgConfig:
     def missing(cls, package: str) -> str | None:
         """Why `package` is unavailable through pkg-config, or None."""
         return cls.flags(package)[1]
-
-
-class CapabilityProbeBuildError(RuntimeError):
-    """A capability probe could not be built, so the test infrastructure failed."""
-
-
-class CapabilityProbeRuntimeError(RuntimeError):
-    """A built capability probe failed in a way that does not prove absence."""
 
 
 def declared_capabilities(source_path: str | Path) -> frozenset[str]:
@@ -329,46 +319,4 @@ def linux_atspi_error() -> str | None:
         key, _, value = part.partition("=")
         if key == "path" and not Path(value).is_socket():
             return f"AT-SPI is unavailable: the accessibility bus socket {value} is gone"
-    return None
-
-
-@CapabilityGateLog.gate("native-audio")
-def linux_audio_backend_error() -> str | None:
-    """Return why no ALSA PCM can be opened from this session."""
-    if os.environ.get("BTRC_SKIP_AUDIO_TESTS"):
-        return "native audio backend tests are disabled by BTRC_SKIP_AUDIO_TESTS"
-    flags, error = PkgConfig.flags("alsa")
-    if error:
-        return f"native audio backend is unavailable: {error}"
-    with tempfile.TemporaryDirectory(prefix="btrc-alsa-probe-") as temporary:
-        source = Path(temporary, "probe.c")
-        binary = Path(temporary, "probe")
-        source.write_text(
-            "#include <alsa/asoundlib.h>\n#include <stdio.h>\n"
-            "int main(void) {\n"
-            "    snd_pcm_t *pcm = NULL;\n"
-            '    int status = snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);\n'
-            '    if (status < 0) { fprintf(stderr, "%s\\n", snd_strerror(status)); return 77; }\n'
-            "    return snd_pcm_close(pcm) < 0 ? 1 : 0;\n"
-            "}\n"
-        )
-        try:
-            compiled = subprocess.run(
-                [*configured_c_compiler(), str(source), "-o", str(binary), *flags],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise CapabilityProbeBuildError(f"ALSA probe could not be built: {error}") from error
-        if compiled.returncode != 0:
-            raise CapabilityProbeBuildError(f"ALSA probe could not be built: {compiled.stderr[:300]}")
-        try:
-            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise CapabilityProbeRuntimeError(f"ALSA probe could not run: {error}") from error
-    if result.returncode == 77:
-        return f"native audio backend is unavailable: cannot open default ALSA PCM ({result.stderr.strip()[-300:]})"
-    if result.returncode != 0:
-        raise CapabilityProbeRuntimeError(f"ALSA probe failed with status {result.returncode}: {result.stderr[:300]}")
     return None
