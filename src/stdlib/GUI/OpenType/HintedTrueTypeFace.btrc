@@ -7,6 +7,7 @@ import ./Hinting/Program.btrc;
 import ./OpenTypeCharacterMap.btrc;
 import ./OpenTypeData.btrc;
 import ./OpenTypeHorizontalMetrics.btrc;
+import ./OpenTypeLineMetrics.btrc;
 import ./SFNTDirectory.btrc;
 import ./TrueTypeGlyphs.btrc;
 import ./WOFF2Font.btrc;
@@ -95,15 +96,7 @@ class HintedTrueTypeFace implements IFontFace {
 		var cmap = directory.required(0x636d6170LL, 4);
 		self.characters = OpenTypeCharacterMap(data, cmap, glyphs);
 		if (!byGlyphIndex && !self.characters.unambiguousUnicodeMap(cmap) && !self.characters.preferredFullUnicodeMap(cmap)) { throw "Unsupported TrueType character map"; }
-		var os2 = directory.required(0x4f532f32LL, 78);
-		int ascent = data.s16(hhea.offset + 4);
-		int descent = data.s16(hhea.offset + 6);
-		int height = ascent - descent + data.s16(hhea.offset + 8);
-		if ((data.u16(os2.offset + 62) & 128) != 0) {
-			ascent = data.s16(os2.offset + 68);
-			height = ascent - data.s16(os2.offset + 70) + data.s16(os2.offset + 72);
-		} else if (ascent == 0 && descent == 0) { throw "Unsupported TrueType line metrics"; }
-		self.lineMetrics = new FontMetrics(OpenTypeFixed.pixelCeil(OpenTypeFixed.mul((long long)ascent, self.scale)), OpenTypeFixed.pixelRound(OpenTypeFixed.mul((long long)height, self.scale)));
+		self.lineMetrics = OpenTypeLineMetrics.scaled(data, directory, hhea, self.scale);
 
 		var cvt = directory.required(0x63767420LL, 2);
 		var prep = directory.required(0x70726570LL, 1);

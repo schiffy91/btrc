@@ -73,6 +73,44 @@ class OpenTypeCharacterMap {
 		return windowsUnicode;
 	}
 
+	/* A Macintosh Roman map does not participate in the choice of the
+	 * default Unicode map when both standard BMP records share format 4. */
+	public bool preferredBMPMap(OpenTypeSpan table) {
+		if (self.format != 4 || self.data.u16(table.offset) != 0) { return false; }
+		int length = self.data.u16(self.base + 2);
+		int segmentLength = self.data.u16(self.base + 6);
+		if ((segmentLength & 1) != 0 || length < 16 + 8 * self.entries || length > self.limit - self.base) { return false; }
+		int endCodes = self.base + 14;
+		int startCodes = endCodes + segmentLength + 2;
+		int offsets = startCodes + 2 * segmentLength;
+		int previous = -1;
+		for (int i = 0; i < self.entries; i++) {
+			int start = self.data.u16(startCodes + i * 2);
+			int end = self.data.u16(endCodes + i * 2);
+			int entry = offsets + i * 2;
+			int range = self.data.u16(entry);
+			if (start <= previous || start > end || (range & 1) != 0) { return false; }
+			if (range != 0 && (entry + range < offsets + segmentLength || entry + range + (end - start) * 2 + 2 > self.base + length)) { return false; }
+			previous = end;
+		}
+		if (previous != 65535) { return false; }
+		int count = self.data.u16(table.offset + 2);
+		if (4 + 8 * count > table.length) { return false; }
+		bool windows = false;
+		for (int i = 0; i < count; i++) {
+			int at = table.offset + 4 + i * 8;
+			int platform = self.data.u16(at);
+			int encoding = self.data.u16(at + 2);
+			long long offset = self.data.u32(at + 4);
+			if (offset > (long long)table.length - 2LL) { return false; }
+			if (platform == 1 && encoding == 0 && self.data.u16(table.offset + (int)offset) == 6) { continue; }
+			if (offset != (long long)(self.base - table.offset)) { return false; }
+			if (platform == 3 && encoding == 1) { windows = true; }
+			else if (platform != 0 || encoding != 3) { return false; }
+		}
+		return windows;
+	}
+
 	/* A conventional UCS-4 cmap is the preferred FreeType Unicode cmap.
 	 * Windows and Unicode full-repertoire records must point to the same
 	 * format-12 table. A supplementary scalar never falls back through

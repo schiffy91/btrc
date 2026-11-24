@@ -5,6 +5,7 @@ import ./FreeType/HintedFontProvider.btrc;
 import ./Bitmap/PCFFace.btrc;
 import ./Bitmap/BDFFace.btrc;
 import ./OpenType/ColorBitmapFace.btrc;
+import ./OpenType/CFFMeasuredFace.btrc;
 import ./OpenType/HintedTrueTypeFace.btrc;
 
 /* Bitmap strikes and bytecode-hinted WOFF2 files have first-party readers.
@@ -18,7 +19,9 @@ class FreeType {
 		var color = ColorBitmapFace.tryOpen(path, pixelSize);
 		if (color != null) { return new Font(color); }
 		var hinted = HintedTrueTypeFace.tryOpen(path, pixelSize);
-		if (hinted != null) { return new Font(new HintedFontProvider(hinted, pixelSize)); }
+		if (hinted != null) { return new Font(new HintedFontProvider(hinted, hinted.source, pixelSize)); }
+		var measured = CFFMeasuredFace.tryOpen(path, pixelSize);
+		if (measured != null) { return new Font(new HintedFontProvider(measured, measured.source, pixelSize)); }
 		return new Font(new FreeTypeFace(path, pixelSize));
 	}
 }

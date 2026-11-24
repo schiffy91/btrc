@@ -1,0 +1,66 @@
+import ./GlyphOutline.btrc;
+import ./OpenTypeData.btrc;
+
+/* Cubic outlines in both PostScript charstring formats use a relative pen
+ * in 16.16 font units. Closing a contour preserves the current point. */
+class PostScriptPath {
+	public long long x = 0LL;
+	public long long y = 0LL;
+	private GlyphOutline outline;
+	private long long scale;
+	private bool open = false;
+
+	public PostScriptPath(GlyphOutline outline, long long scale) {
+		self.outline = outline;
+		self.scale = scale;
+	}
+
+	public void close() {
+		if (self.open) { self.outline.closeContour(); }
+		self.open = false;
+	}
+
+	private void point(GlyphPointKind kind) {
+		if (self.x > 8589934592LL || self.x < -8589934592LL || self.y > 8589934592LL || self.y < -8589934592LL) { throw "PostScript outline leaves the supported coordinate range"; }
+		self.outline.addPoint(OpenTypeFixed.mul(PostScriptPath.units(self.x), self.scale), OpenTypeFixed.mul(PostScriptPath.units(self.y), self.scale), kind);
+	}
+
+	/* A 16.16 coordinate in whole font units: to the nearest 1/1024, then
+	 * down. Outlines are drawn in whole units, as the fonts are. */
+	class long long units(long long value) { return OpenTypeFixed.floorDiv(OpenTypeFixed.mul(value, 1024LL), 1024LL); }
+
+	public void moveBy(long long dx, long long dy) {
+		if (self.open) { self.outline.closeContour(); }
+		self.x += dx;
+		self.y += dy;
+		self.point(GLYPH_POINT_ON);
+		self.open = true;
+	}
+
+	private void begin() {
+		if (!self.open) {
+			self.point(GLYPH_POINT_ON);
+			self.open = true;
+		}
+	}
+
+	public void lineBy(long long dx, long long dy) {
+		self.begin();
+		self.x += dx;
+		self.y += dy;
+		self.point(GLYPH_POINT_ON);
+	}
+
+	public void curveBy(long long dx1, long long dy1, long long dx2, long long dy2, long long dx3, long long dy3) {
+		self.begin();
+		self.x += dx1;
+		self.y += dy1;
+		self.point(GLYPH_POINT_CUBIC);
+		self.x += dx2;
+		self.y += dy2;
+		self.point(GLYPH_POINT_CUBIC);
+		self.x += dx3;
+		self.y += dy3;
+		self.point(GLYPH_POINT_ON);
+	}
+}
