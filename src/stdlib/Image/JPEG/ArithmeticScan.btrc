@@ -1,0 +1,120 @@
+import ./Arithmetic.btrc;
+import ./Component.btrc;
+
+// Arithmetic conditioning parameters (T.81 B.2.4.3). DAC definitions replace
+// their destination individually and remain in effect across subsequent scans.
+class JPEGConditioning {
+	public int dc[4];
+	public int ac[4];
+	public JPEGConditioning() {
+		for (int i = 0; i < 4; i++) { self.dc[i] = 16; self.ac[i] = 5; }
+	}
+
+	public void define(Bytes bytes, int pos, int end) {
+		if (pos == end || (end - pos) % 2 != 0) { throw "Invalid JPEG DAC length"; }
+		while (pos < end) {
+			var table = bytes.get(pos);
+			var value = bytes.get(pos + 1);
+			pos += 2;
+			if (table < 4 && (value & 15) <= (value >> 4)) { self.dc[table] = value; }
+			else if (table >= 16 && table <= 19 && value <= 63) { self.ac[table - 16] = value; }
+			else { throw "Invalid JPEG arithmetic conditioning"; }
+		}
+	}
+}
+
+class JPEGArithmeticScan {
+	private JPEGArithmetic coder;
+	private JPEGConditioning conditioning;
+	public JPEGArithmeticScan(JPEGBits input, JPEGConditioning conditioning) {
+		self.coder = JPEGArithmetic(input);
+		self.conditioning = conditioning;
+	}
+
+	public void begin(Vector<JPEGComponent> planes) {
+		for plane in planes { plane.dcContext = 0; }
+		self.coder.begin();
+	}
+
+	public void finish() { self.coder.finish(); }
+
+	// F.2.4.3. The binary tree codes the magnitude minus one, first
+	// narrowing it to [power, 2*power), then coding its low bits.
+	private int magnitude(int bins, int initial, int x1, int x2) {
+		if (self.coder.decision(bins + initial) == 0) { return 1; }
+		if (self.coder.decision(bins + x1) == 0) { return 2; }
+		int power = 2;
+		int bin = x2;
+		while (self.coder.decision(bins + bin) != 0) {
+			if (power >= 16384) { throw "Invalid JPEG arithmetic magnitude"; }
+			power *= 2;
+			bin++;
+		}
+		var value = power;
+		for (int bit = power / 2; bit > 0; bit /= 2) {
+			if (self.coder.decision(bins + bin + 14) != 0) { value += bit; }
+		}
+		return value + 1;
+	}
+
+	private int difference(JPEGComponent plane) {
+		int bins = 49 * plane.dcTable;
+		var bin = plane.dcContext;
+		if (self.coder.decision(bins + bin) == 0) { plane.dcContext = 0; return 0; }
+		var negative = self.coder.decision(bins + bin + 1);
+		var value = self.magnitude(bins, bin + 2 + negative, 20, 21);
+		var bounds = self.conditioning.dc[plane.dcTable];
+		var lower = (1 << (bounds & 15)) / 2;
+		var upper = 1 << (bounds >> 4);
+		if (value <= lower) { plane.dcContext = 0; }
+		else { plane.dcContext = (value > upper ? 12 : 4) + 4 * negative; }
+		return negative == 0 ? value : -value;
+	}
+
+	public void block(JPEGComponent plane, int base, int start, int end, int high, int low) {
+		var unit = 1 << low;
+		if (start == 0) {
+			if (high == 0) {
+				plane.predictor += self.difference(plane);
+				if (plane.predictor < -2048 || plane.predictor > 2047) { throw "Invalid JPEG DC predictor"; }
+				plane.coefficients.set(base, plane.predictor * unit);
+			} else if (self.coder.fixedBit() != 0) {
+				plane.coefficients.set(base, plane.coefficients.get(base) | unit);
+			}
+			start = 1;
+		}
+		int bins = 196 + 245 * plane.acTable;
+		int oldEnd = start - 1;
+		if (high != 0) {
+			oldEnd = end;
+			while (oldEnd >= start && plane.coefficients.get(base + oldEnd) == 0) { oldEnd--; }
+		}
+		int k = start;
+		while (k <= end) {
+			if (k > oldEnd && self.coder.decision(bins + 3 * (k - 1)) != 0) { break; }
+			while (true) {
+				var bin = 3 * (k - 1);
+				var value = plane.coefficients.get(base + k);
+				if (high != 0 && value != 0) {
+					if (self.coder.decision(bins + bin + 2) != 0) {
+						plane.coefficients.set(base + k, value + (value < 0 ? -unit : unit));
+					}
+					break;
+				}
+				if (self.coder.decision(bins + bin + 1) != 0) {
+					var negative = self.coder.fixedBit();
+					int absolute = 1;
+					if (high == 0) {
+						var x2 = k <= self.conditioning.ac[plane.acTable] ? 189 : 217;
+						absolute = self.magnitude(bins, bin + 2, bin + 2, x2);
+					}
+					plane.coefficients.set(base + k, (negative == 0 ? absolute : -absolute) * unit);
+					break;
+				}
+				k++;
+				if (k > end) { throw "JPEG arithmetic run exceeds band"; }
+			}
+			k++;
+		}
+	}
+}

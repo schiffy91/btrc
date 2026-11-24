@@ -9,34 +9,104 @@ class JPEGComponent {
 	public int columns;
 	public int rows;
 	public int predictor = 0;
+	public int dcTable;
+	public int acTable;
+	public int dcContext;
 	public Array<int> coefficients;
 	public Array<int> precision;
 	public Array<int> quant;
 	public JPEGHuffman dc;
 	public JPEGHuffman ac;
 	private Bytes samples;
-	public JPEGComponent(int id, int h, int v, int table, int columns, int rows) {
+	private bool lossless;
+	private int visibleWidth;
+	private int visibleHeight;
+	private int maxH;
+	private int maxV;
+
+	public void setRaster(int width, int height, int maxH, int maxV) {
+		self.visibleWidth = (width * self.h + maxH - 1) / maxH;
+		self.visibleHeight = (height * self.v + maxV - 1) / maxV;
+		self.maxH = maxH;
+		self.maxV = maxV;
+	}
+
+	// JPEG chroma samples are centered over their corresponding luma area.
+	// Two-fold expansion interpolates at quarter-sample offsets and extends
+	// the visible edges. Apply both dimensions before rounding.
+	public int expanded(int x, int y) {
+		var sx = x * self.h / self.maxH;
+		var sy = y * self.v / self.maxV;
+		var center = self.sample(sx, sy);
+		var horizontal = self.h * 2 == self.maxH && self.visibleWidth > 2;
+		var vertical = self.v * 2 == self.maxV;
+		if (!horizontal && !vertical) { return center; }
+		if ((self.h != self.maxH && !horizontal) || (self.v != self.maxV && !vertical)) { return center; }
+		var nx = sx + ((x & 1) == 0 ? -1 : 1);
+		var ny = sy + ((y & 1) == 0 ? -1 : 1);
+		nx = nx < 0 || nx >= self.visibleWidth ? sx : nx;
+		ny = ny < 0 || ny >= self.visibleHeight ? sy : ny;
+		if (!vertical) { return (3 * center + self.sample(nx, sy) + 1 + (x & 1)) >> 2; }
+		if (!horizontal) { return (3 * center + self.sample(sx, ny) + 1 + (y & 1)) >> 2; }
+		var column = 3 * center + self.sample(sx, ny);
+		var adjacent = 3 * self.sample(nx, sy) + self.sample(nx, ny);
+		return (3 * column + adjacent + 8 - (x & 1)) >> 4;
+	}
+
+	public JPEGComponent(int id, int h, int v, int table, int columns, int rows, bool lossless = false) {
 		self.id = id; self.h = h; self.v = v; self.table = table;
 		self.columns = columns; self.rows = rows;
-		self.coefficients = new Array<int>(columns * rows * 64);
+		self.lossless = lossless;
+		if (lossless) { self.samples = JPEGComponent.sampleStore(columns * rows); }
+		else { self.coefficients = JPEGComponent.coefficientStore(columns * rows * 64); }
 		self.precision = new Array<int>(64);
 		self.precision.fill(-1);
 	}
 
+	// Both planes grow with the image, so a failed allocation is thrown, not fatal.
+	class Array<int> coefficientStore(int count) {
+		var store = new Array<int>(0);
+		store.free();
+		store.data = (int*)calloc((size_t)count, sizeof(int));
+		if (store.data == null) { throw "Could not allocate JPEG coefficients"; }
+		store.len = count;
+		return store;
+	}
+
+	class Bytes sampleStore(int count) {
+		var store = Bytes();
+		store.data = (char*)calloc((size_t)count, sizeof(char));
+		if (store.data == null) { throw "Could not allocate JPEG samples"; }
+		store.len = count;
+		store.cap = count;
+		return store;
+	}
+
 	public void reconstruct(JPEGTransform transform) {
-		self.samples = Bytes.zeros(self.columns * self.rows * 64);
+		self.samples = JPEGComponent.sampleStore(self.columns * self.rows * 64);
+		int* coefficients = self.coefficients.data;
+		int* steps = self.quant.data;
+		unsigned char* samples = (unsigned char*)self.samples.data;
 		for (int block = 0; block < self.columns * self.rows; block++) {
 			var base = block * 64;
-			for (int k = 0; k < 64; k++) {
-				transform.block.set(transform.zigzag.get(k), (double)self.coefficients.get(base + k) * self.quant.get(k));
+			int last = 63;
+			while (last > 0 && coefficients[base + last] == 0) { last--; }
+			if (last == 0) {
+				// Only the DC term: every sample is the value both passes of
+				// the transform would give it.
+				var flat = ((long long)coefficients[base] * steps[0] + 4LL) >> 3;
+				memset(samples + base, flat < -128 ? 0 : flat > 127 ? 255 : (int)flat + 128, (size_t)64);
+				continue;
 			}
-			transform.apply(true);
-			for (int k = 0; k < 64; k++) { self.samples.set(base + k, JPEGTransform.sample(transform.block.get(k) + 128)); }
+			transform.inverseBlock(samples + base, coefficients + base, steps);
 		}
 		self.coefficients = new Array<int>(0);
 	}
 
+	public void setLossless(int x, int y, int value) { self.samples.set(y * self.columns + x, value); }
+
 	public int sample(int x, int y) {
+		if (self.lossless) { return self.samples.get(y * self.columns + x); }
 		var base = ((y / 8) * self.columns + x / 8) * 64;
 		return self.samples.get(base + (y % 8) * 8 + x % 8);
 	}

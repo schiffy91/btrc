@@ -1,4 +1,5 @@
 import ./Component.btrc;
+import ./ArithmeticScan.btrc;
 
 // A scan spans interleaved MCUs, or individual blocks for a single plane.
 // Restart markers reset both the DC predictors and the progressive EOB run.
@@ -81,16 +82,19 @@ class JPEGScan {
 		}
 	}
 
-	public void decode(Vector<JPEGComponent> planes, int columns, int rows, int restart) {
+	public void decode(Vector<JPEGComponent> planes, int columns, int rows, int restart, JPEGArithmeticScan? arithmetic = null) {
 		int interval = 0;
 		int sequence = 0;
+		if (arithmetic != null) { arithmetic.begin(planes); }
 		for plane in planes { plane.predictor = 0; }
 		for (int y = 0; y < rows; y++) {
 			for (int x = 0; x < columns; x++) {
 				if (restart > 0 && interval == restart) {
+					if (arithmetic != null) { arithmetic.finish(); }
 					if (self.eob != 0 || self.input.marker() != 0xd0 + sequence) { throw "Invalid JPEG restart"; }
 					sequence = (sequence + 1) % 8;
 					interval = 0;
+					if (arithmetic != null) { arithmetic.begin(planes); }
 					for plane in planes { plane.predictor = 0; }
 				}
 				for plane in planes {
@@ -98,13 +102,16 @@ class JPEGScan {
 					var v = planes.length == 1 ? 1 : plane.v;
 					for (int dy = 0; dy < v; dy++) {
 						for (int dx = 0; dx < h; dx++) {
-							self.block(plane, ((y * v + dy) * plane.columns + x * h + dx) * 64);
+							var base = ((y * v + dy) * plane.columns + x * h + dx) * 64;
+							if (arithmetic != null) { arithmetic.block(plane, base, self.start, self.end, self.high, self.low); }
+							else { self.block(plane, base); }
 						}
 					}
 				}
 				interval++;
 			}
 		}
+		if (arithmetic != null) { arithmetic.finish(); }
 		if (self.eob > 0) { throw "JPEG end-of-block run exceeds scan"; }
 		// Some encoders terminate the final complete interval with its RST marker.
 		if (restart > 0 && interval == restart) {

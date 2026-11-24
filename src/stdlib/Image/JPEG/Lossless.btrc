@@ -1,0 +1,66 @@
+import ./Component.btrc;
+
+// ITU-T T.81 Annex H. Each Huffman symbol describes the difference from
+// a neighboring sample in the reduced-precision plane. Restart intervals
+// begin on MCU row boundaries and repeat the first-row prediction rules.
+class JPEGLossless {
+	private JPEGBits input;
+	private int precision;
+	private int selection;
+	private int shift;
+
+	public JPEGLossless(JPEGBits input, int precision, int selection, int shift) {
+		self.input = input;
+		self.precision = precision;
+		self.selection = selection;
+		self.shift = shift;
+	}
+
+	private int predict(JPEGComponent plane, int x, int y, int firstRow) {
+		if (y == firstRow) { return x == 0 ? 1 << (self.precision - self.shift - 1) : plane.sample(x - 1, y) >> self.shift; }
+		var above = plane.sample(x, y - 1) >> self.shift;
+		if (x == 0 || self.selection == 2) { return above; }
+		var left = plane.sample(x - 1, y) >> self.shift;
+		if (self.selection == 1) { return left; }
+		if (self.selection == 7) { return (left + above) >> 1; }
+		var corner = plane.sample(x - 1, y - 1) >> self.shift;
+		if (self.selection == 3) { return corner; }
+		if (self.selection == 4) { return left + above - corner; }
+		if (self.selection == 5) { return left + ((above - corner) >> 1); }
+		return above + ((left - corner) >> 1);
+	}
+
+	public void decode(Vector<JPEGComponent> planes, int columns, int rows, int restart) {
+		if (restart % columns != 0) { throw "Invalid lossless JPEG restart interval"; }
+		int interval = 0;
+		int sequence = 0;
+		int firstRow = 0;
+		var mask = (1 << (self.precision - self.shift)) - 1;
+		for (int y = 0; y < rows; y++) {
+			if (restart > 0 && interval == restart) {
+				if (self.input.marker() != 0xd0 + sequence) { throw "Invalid JPEG restart"; }
+				sequence = (sequence + 1) & 7;
+				firstRow = y;
+				interval = 0;
+			}
+			for (int x = 0; x < columns; x++) {
+				for plane in planes {
+					var h = planes.length == 1 ? 1 : plane.h;
+					var v = planes.length == 1 ? 1 : plane.v;
+					for (int dy = 0; dy < v; dy++) {
+						for (int dx = 0; dx < h; dx++) {
+							var px = x * h + dx;
+							var py = y * v + dy;
+							var size = plane.dc.read(self.input);
+							if (size > 16) { throw "Invalid JPEG lossless difference"; }
+							var difference = size == 16 ? 32768 : self.input.signedBits(size);
+							var reduced = (self.predict(plane, px, py, firstRow * v) + difference) & mask;
+							plane.setLossless(px, py, reduced << self.shift);
+						}
+					}
+				}
+				interval++;
+			}
+		}
+	}
+}

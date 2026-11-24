@@ -1,6 +1,8 @@
 import Library.Image.Pixels;
 
 import ./Scan.btrc;
+import ./Lossless.btrc;
+import ./ArithmeticScan.btrc;
 
 class JPEGReader {
 	private Bytes bytes;
@@ -16,7 +18,12 @@ class JPEGReader {
 	private int rows = 0;
 	private int restart = 0;
 	private int adobe = -1;
+	private JPEGConditioning conditioning;
+	private bool arithmetic = false;
+	private bool jfif = false;
 	private bool progressive = false;
+	private bool lossless = false;
+	private int samplePrecision = 8;
 	private int maxPixels;
 
 	public JPEGReader(Bytes bytes, int maxPixels) {
@@ -24,13 +31,18 @@ class JPEGReader {
 		self.bytes = bytes;
 		self.input = JPEGBits(bytes, 0);
 		self.maxPixels = maxPixels;
+		self.conditioning = JPEGConditioning();
 		self.quant = new Array<Array<int>>(4);
 		self.huffman = new Array<JPEGHuffman>(8);
 	}
 
 	private void frame(int p, int end, int marker) {
-		if (self.width != 0 || end - p < 6 || self.bytes.get(p) != 8) { throw "Expected one 8-bit JPEG frame"; }
-		self.progressive = marker == 0xc2;
+		if (self.width != 0 || end - p < 6) { throw "Expected one JPEG frame"; }
+		self.lossless = marker == 0xc3;
+		self.samplePrecision = self.bytes.get(p);
+		if (self.samplePrecision > 8 || self.samplePrecision < (self.lossless ? 2 : 8)) { throw "Unsupported JPEG sample precision"; }
+		self.arithmetic = marker == 0xc9 || marker == 0xca;
+		self.progressive = marker == 0xc2 || marker == 0xca;
 		self.height = self.bytes.readU16BE(p + 1);
 		self.width = self.bytes.readU16BE(p + 3);
 		var count = self.bytes.get(p + 5);
@@ -47,17 +59,18 @@ class JPEGReader {
 			self.maxV = v > self.maxV ? v : self.maxV;
 			blocks += h * v;
 		}
-		self.columns = (self.width + self.maxH * 8 - 1) / (self.maxH * 8);
-		self.rows = (self.height + self.maxV * 8 - 1) / (self.maxV * 8);
+		var unit = self.lossless ? 1 : 8;
+		self.columns = (self.width + self.maxH * unit - 1) / (self.maxH * unit);
+		self.rows = (self.height + self.maxV * unit - 1) / (self.maxV * unit);
 		// Guard padded coefficient storage separately from the visible raster.
-		if (blocks > 10 || (long long)self.columns * self.rows * blocks * 64 > 134217728LL) { throw "JPEG coefficient storage exceeds limit"; }
+		if (blocks > 10 || (long long)self.columns * self.rows * blocks * unit * unit > (self.lossless ? 1073741820LL : 134217728LL)) { throw "JPEG coefficient storage exceeds limit"; }
 		for (int i = p; i < end; i += 3) {
 			var id = self.bytes.get(i);
 			for other in self.planes { if (id == other.id) { throw "Duplicate JPEG component"; } }
 			var sampling = self.bytes.get(i + 1);
 			var h = sampling >> 4;
 			var v = sampling & 15;
-			self.planes.push(JPEGComponent(id, h, v, self.bytes.get(i + 2), self.columns * h, self.rows * v));
+			self.planes.push(JPEGComponent(id, h, v, self.bytes.get(i + 2), self.columns * h, self.rows * v, self.lossless));
 		}
 	}
 
@@ -102,7 +115,9 @@ class JPEGReader {
 		var approx = self.bytes.get(end - 1);
 		var high = approx >> 4;
 		var low = approx & 15;
-		if (self.progressive) {
+		if (self.lossless) {
+			if (start < 1 || start > 7 || last != 0 || high != 0 || low >= self.samplePrecision) { throw "Invalid lossless JPEG scan"; }
+		} else if (self.progressive) {
 			if (start > last || last > 63 || (start == 0 && last != 0) || (start != 0 && count != 1) || low > 13 || (high != 0 && high != low + 1)) { throw "Invalid progressive JPEG scan"; }
 		} else if (start != 0 || last != 63 || approx != 0) { throw "Invalid sequential JPEG scan"; }
 		Vector<JPEGComponent> scan = [];
@@ -112,57 +127,76 @@ class JPEGReader {
 			if ((spec & 0xcc) != 0) { throw "Invalid JPEG scan table"; }
 			for plane in self.planes {
 				if (plane.id != id) { continue; }
+				if (self.lossless) {
+					if (plane.precision.get(0) >= 0 || (spec & 15) != 0) { throw "Invalid lossless JPEG component"; }
+					plane.dc = self.huffman.get(spec >> 4);
+					if (plane.dc == null) { throw "Missing JPEG difference table"; }
+					plane.precision.set(0, low);
+					scan.push(plane);
+					continue;
+				}
 				for (int k = start; k <= last; k++) {
 					if (plane.precision.get(k) != (high == 0 ? -1 : high)) { throw "Out-of-order JPEG scan"; }
 					plane.precision.set(k, low);
 				}
-				plane.dc = self.huffman.get(spec >> 4);
-				plane.ac = self.huffman.get(4 + (spec & 15));
+				plane.dcTable = spec >> 4;
+				plane.acTable = spec & 15;
+				plane.dc = self.huffman.get(plane.dcTable);
+				plane.ac = self.huffman.get(4 + plane.acTable);
 				if (plane.quant == null) { plane.quant = self.quant.get(plane.table); }
-				if (plane.quant == null || (start == 0 && high == 0 && plane.dc == null) || (last > 0 && plane.ac == null)) { throw "Missing JPEG coding table"; }
+				if (plane.quant == null || (!self.arithmetic && ((start == 0 && high == 0 && plane.dc == null) || (last > 0 && plane.ac == null)))) { throw "Missing JPEG coding table"; }
 				scan.push(plane);
 			}
 		}
 		if (scan.length != count) { throw "Unknown JPEG scan component"; }
 		var first = scan.get(0);
+		if (self.lossless) {
+			var columns = count == 1 ? (self.width * first.h + self.maxH - 1) / self.maxH : self.columns;
+			var rows = count == 1 ? (self.height * first.v + self.maxV - 1) / self.maxV : self.rows;
+			JPEGLossless(self.input, self.samplePrecision, start, low).decode(scan, columns, rows, self.restart);
+			return;
+		}
 		var columns = count == 1 ? (self.width * first.h + self.maxH * 8 - 1) / (self.maxH * 8) : self.columns;
 		var rows = count == 1 ? (self.height * first.v + self.maxV * 8 - 1) / (self.maxV * 8) : self.rows;
-		JPEGScan(self.input, start, last, high, low).decode(scan, columns, rows, self.restart);
-	}
-
-	private int sample(int component, int x, int y) {
-		var plane = self.planes.get(component);
-		return plane.sample(x * plane.h / self.maxH, y * plane.v / self.maxV);
+		JPEGArithmeticScan? arithmetic = null;
+		if (self.arithmetic) { arithmetic = JPEGArithmeticScan(self.input, self.conditioning); }
+		JPEGScan(self.input, start, last, high, low).decode(scan, columns, rows, self.restart, arithmetic);
 	}
 
 	private Image raster() {
 		if (self.planes.isEmpty()) { throw "Missing JPEG frame"; }
 		var transform = JPEGTransform();
 		for plane in self.planes {
-			if (plane.precision.get(0) < 0 || plane.quant == null) { throw "Missing JPEG component scan"; }
-			plane.reconstruct(transform);
+			if (plane.precision.get(0) < 0 || (!self.lossless && plane.quant == null)) { throw "Missing JPEG component scan"; }
+			if (!self.lossless) { plane.reconstruct(transform); }
+			plane.setRaster(self.width, self.height, self.maxH, self.maxV);
 		}
 		var image = Image.tryCreate(self.width, self.height);
 		if (image == null) { throw "Could not allocate JPEG raster"; }
 		var count = self.planes.length;
-		var rgb = count == 3 && (self.adobe == 0 || (self.planes.get(0).id == 82 && self.planes.get(1).id == 71 && self.planes.get(2).id == 66));
+		var rgb = count == 3 && !self.jfif && (self.adobe == 0 || (self.adobe < 0 && self.planes.get(0).id == 82 && self.planes.get(1).id == 71 && self.planes.get(2).id == 66));
+		// The planes are looked up once: a lookup per sample costs more than the sample.
+		var one = self.planes.get(0);
+		var two = count > 1 ? self.planes.get(1) : one;
+		var three = count > 1 ? self.planes.get(2) : one;
+		var four = count == 4 ? self.planes.get(3) : one;
 		for (int y = 0; y < self.height; y++) {
 			for (int x = 0; x < self.width; x++) {
-				var r = self.sample(0, x, y);
+				var r = one.expanded(x, y);
 				var g = r;
 				var b = r;
 				if (count > 1) {
-					var second = self.sample(1, x, y);
-					var third = self.sample(2, x, y);
+					var second = two.expanded(x, y);
+					var third = three.expanded(x, y);
 					if (rgb || (count == 4 && self.adobe != 2)) { g = second; b = third; }
 					else {
 						var luminance = r;
-						r = JPEGTransform.sample(luminance + 1.402 * (third - 128));
-						g = JPEGTransform.sample(luminance - 0.344136 * (second - 128) - 0.714136 * (third - 128));
-						b = JPEGTransform.sample(luminance + 1.772 * (second - 128));
+						r = JPEGTransform.clipped(luminance + ((91881 * (third - 128) + 32768) >> 16));
+						g = JPEGTransform.clipped(luminance + ((-22554 * (second - 128) - 46802 * (third - 128) + 32768) >> 16));
+						b = JPEGTransform.clipped(luminance + ((116130 * (second - 128) + 32768) >> 16));
 					}
 					if (count == 4) {
-						var black = self.sample(3, x, y);
+						var black = four.expanded(x, y);
 						if (self.adobe == 2 || self.adobe < 0) { r = 255-r; g = 255-g; b = 255-b; }
 						if (self.adobe < 0) { black = 255-black; }
 						r = (r * black + 127) / 255;
@@ -188,11 +222,13 @@ class JPEGReader {
 			var p = pos + 2;
 			var end = pos + size;
 			self.input.pos = end;
-			if (marker == 0xc0 || marker == 0xc1 || marker == 0xc2) { self.frame(p, end, marker); }
+			if (marker == 0xc0 || marker == 0xc1 || marker == 0xc2 || marker == 0xc3 || marker == 0xc9 || marker == 0xca) { self.frame(p, end, marker); }
 			else if (marker == 0xdb) { self.quantizers(p, end); }
+			else if (marker == 0xcc) { self.conditioning.define(self.bytes, p, end); }
 			else if (marker == 0xc4) { self.tables(p, end); }
 			else if (marker == 0xda) { self.scan(p, end); }
 			else if (marker == 0xdd && size == 4) { self.restart = self.bytes.readU16BE(p); }
+			else if (marker == 0xe0 && end - p >= 14 && self.bytes.readU32BE(p) == 0x4a464946u && self.bytes.get(p + 4) == 0) { self.jfif = true; }
 			else if (marker == 0xee && end - p >= 12 && self.bytes.readU32BE(p) == 0x41646f62 && self.bytes.get(p + 4) == 101) { self.adobe = self.bytes.get(p + 11); }
 			else if (marker != 0xfe && (marker < 0xe0 || marker > 0xef)) { throw "Unsupported JPEG coding process"; }
 		}
