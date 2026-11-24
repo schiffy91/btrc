@@ -86,10 +86,14 @@ bool btrcAndroidFailed(JNIEnv* env) {
 	return true;
 }
 
+/* When linked, Library.Java owns the application VM for non-UI providers. */
+extern int btrcJavaAdopt(JavaVM*) __attribute__((weak));
+
 jint JNI_OnLoad(JavaVM* machine, void* reserved) {
 	(void)reserved;
 	JNIEnv* env = NULL;
 	btrcAndroidMachine = machine;
+	if (btrcJavaAdopt && btrcJavaAdopt(machine) != JNI_OK) { return JNI_ERR; }
 	if ((*machine)->GetEnv(machine, (void**)&env, JNI_VERSION_1_6) != JNI_OK) { return JNI_ERR; }
 	/* The application's own classes are found from this thread, which loaded the library. */
 	jclass shim = (*env)->FindClass(env, "dev/btrc/shim/Shim");

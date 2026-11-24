@@ -74,3 +74,37 @@ os = ["windows"]
 name = "winhttp"
 modules = ["Windows.HTTPTransportProvider"]
 os = ["windows"]
+
+# Android's application VM supplies JSSE, including platform trust and endpoint identification.
+[[native.include-directories]]
+path = "Android"
+modules = ["Unix.HTTPTransportProvider"]
+os = ["android"]
+
+[[native.sources]]
+path = "Android/JSSESocket.c"
+language = "c"
+standard = "c11"
+modules = ["Unix.HTTPTransportProvider"]
+os = ["android"]
+
+[[native.sources]]
+path = "Android/JSSETrust.c"
+language = "c"
+standard = "c11"
+modules = ["Unix.HTTPTransportProvider"]
+os = ["android"]
+
+[[native.sources]]
+path = "Android/JSSEEngine.c"
+language = "c"
+standard = "c11"
+modules = ["Unix.HTTPTransportProvider"]
+os = ["android"]
+
+[[native.sources]]
+path = "Android/JSSEName.c"
+language = "c"
+standard = "c11"
+modules = ["Unix.HTTPTransportProvider"]
+os = ["android"]

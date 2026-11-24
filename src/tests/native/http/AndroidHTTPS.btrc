@@ -1,0 +1,75 @@
+import Library.HTTP.HTTPClient;
+import Library.Strings;
+
+#include <assert.h>
+
+int main(int argc, char** argv) {
+	assert(argc == 2 || argc == 3);
+	string origin = Strings.copy(argv[1]);
+	/* Cold platform trust-store initialization can exceed three seconds on
+	 * emulated CPUs. The deadline cases below independently require one second. */
+	HTTPClient client = HTTPClient().timeout(15);
+	if (argc == 2) {
+		/* The embedding process installed a cookie jar. The isolated TLS
+		 * exchange must reach the server without sharing its session. */
+		var result = client.get(origin + "/cookie-check", []);
+		assert(result.status == 200 && result.body.equals("clean"));
+		print("PASS Android HTTPS cookie isolation");
+		return 0;
+	}
+	string wrongName = Strings.copy(argv[2]);
+	if (wrongName.equals("records")) {
+		var text = StringBuilder();
+		for (int i = 0; i < 5000; i++) { text.append("0123456789abcdef"); }
+		string body = text.toString();
+		client.maxResponseBytes = body.len() + 32;
+		var result = client.post(origin + "/echo", ["X-Check: multi"], body);
+		assert(result.status == 201 && result.body.equals("multi/" + body));
+		print("PASS Android HTTPS multi-record echo");
+		return 0;
+	}
+	if (wrongName.equals("forward")) {
+		var result = client.get("http://btrc.invalid/forward", []);
+		assert(result.status == 200 && result.body.equals("forward"));
+		print("PASS Android HTTPS forward proxy");
+		return 0;
+	}
+	if (wrongName.equals("untrusted")) {
+		var untrusted = client.get(origin + "/untrusted", []);
+		assert(untrusted.status == 0 && untrusted.error.equals("HTTPS request failed"));
+		print("PASS Android HTTPS untrusted issuer");
+		return 0;
+	}
+	if (wrongName.equals("stalled")) {
+		var stalled = client.timeout(1).get(origin + "/unreached", []);
+		assert(stalled.status == 0 && stalled.error.equals("request timed out"));
+		print("PASS Android HTTPS proxy deadline");
+		return 0;
+	}
+	if (wrongName.equals("challenge")) {
+		var result = client.get(origin + "/challenge", []);
+		print(f"Android challenge status {result.status}");
+		return 0;
+	}
+	var post = client.post(origin + "/echo", ["X-Check: native"], "body with spaces");
+	assert(post.status == 201 && post.body.equals("native/body with spaces"));
+	var custom = client.request("PATCH", origin + "/method", [], "patch");
+	assert(custom.status == 200 && custom.body.equals("PATCH:patch"));
+	var explicit = client.get(origin + "/explicit", ["Authorization: Basic Y2FsbGVyOnNlY3JldA=="]);
+	assert(explicit.status == 200 && explicit.body.equals("caller"));
+	var redirect = client.get(origin + "/redirect", []);
+	assert(redirect.status == 302);
+	var missing = client.get(origin + "/missing", []);
+	assert(missing.status == 404 && missing.body.equals("missing"));
+	client.maxResponseBytes = 4;
+	var large = client.get(origin + "/large", []);
+	assert(large.status == 0 && large.error.equals("response body is too large"));
+	client.maxResponseBytes = 1024;
+	var bad = client.get(wrongName + "/missing", []);
+	assert(bad.status == 0 && bad.error.equals("HTTPS request failed"));
+	client.timeout(1);
+	var slow = client.get(origin + "/slow", []);
+	assert(slow.status == 0 && slow.error.equals("request timed out"));
+	print("PASS Android HTTPS");
+	return 0;
+}

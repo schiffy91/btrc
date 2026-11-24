@@ -1,0 +1,494 @@
+"""Exercise public HTTPClient over Android's checked JNI on a connected device.
+
+Supply a local server key and localhost-only certificate that the driver can
+trust privately, plus adb, javac, the NDK and d8 from the Android dev shell.
+"""
+
+import argparse
+import http.server
+import os
+import select
+import shlex
+import socket
+import socketserver
+import ssl
+import subprocess
+import sys
+import threading
+import time
+import uuid
+from contextlib import ExitStack
+from pathlib import Path
+
+from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.native.http.socks_peer import SocksPeer, check_android_tunnels
+from src.tests.native_build import NativeCorpusBuild
+from src.tests.python.jni_adoption_fixtures import SharedLibraryRunner
+from tools.qualification.dependencies import DependencyAudit
+
+FIXTURES = Path(__file__).resolve().parent
+ROOT = FIXTURES.parents[3]
+
+
+class Peer(http.server.BaseHTTPRequestHandler):
+    def reply(self, status, body, *, location=None):
+        if self.headers.get("Proxy-Authorization"):
+            self.server.leaked_proxy_credentials = True
+        self.send_response(status)
+        self.send_header("Content-Length", str(len(body)))
+        if location:
+            self.send_header("Location", location)
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
+    def do_POST(self):
+        data = self.rfile.read(int(self.headers["Content-Length"]))
+        self.reply(201, self.headers["X-Check"].encode() + b"/" + data)
+
+    def do_PATCH(self):
+        data = self.rfile.read(int(self.headers["Content-Length"]))
+        self.reply(200, b"PATCH:" + data)
+
+    def do_GET(self):
+        if self.path == "/explicit":
+            ok = self.headers.get("Authorization") == "Basic Y2FsbGVyOnNlY3JldA=="
+            self.reply(200 if ok else 403, b"caller" if ok else b"")
+        elif self.path == "/challenge":
+            authorized = self.headers.get("Authorization") is not None
+            self.server.challenges.append(authorized)
+            self.send_response(200 if authorized else 401)
+            self.send_header("Content-Length", "0")
+            if not authorized:
+                self.send_header("WWW-Authenticate", 'Basic realm="https-fixture"')
+            self.end_headers()
+        elif self.path == "/cookie-check":
+            self.server.cookie_requests.append(self.headers.get("Cookie"))
+            self.reply(200, b"clean" if not self.headers.get("Cookie") else b"shared")
+        elif self.path == "/redirect":
+            self.reply(302, b"", location="/missing")
+        elif self.path == "/large":
+            self.reply(200, b"12345")
+        elif self.path == "/slow":
+            time.sleep(3)
+            self.reply(200, b"")
+        else:
+            self.reply(404, b"missing")
+
+
+class ConnectPeer(http.server.BaseHTTPRequestHandler):
+    """Tunnel only to this test's local TLS server, independent of DNS."""
+
+    def do_CONNECT(self):
+        if self.path not in self.server.authorities:
+            self.send_error(403)
+            return
+        if self.server.require_credentials and self.headers.get("Proxy-Authorization") != "Basic dXNlcjpwYXNz":
+            self.send_error(407)
+            return
+        self.server.tunnels.append(self.path)
+        with socket.create_connection(self.server.origin, timeout=5) as origin:
+            self.send_response(200)
+            self.end_headers()
+            while True:
+                if isinstance(self.connection, ssl.SSLSocket) and self.connection.pending():
+                    ready = [self.connection]
+                else:
+                    ready, _, _ = select.select([self.connection, origin], [], [], 10)
+                if not ready:
+                    return
+                for source in ready:
+                    try:
+                        data = source.recv(8192)
+                        if not data:
+                            return
+                        destination = origin if source is self.connection else self.connection
+                        destination.sendall(data)
+                    except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
+                        # Identity rejection and the timeout fixture deliberately close a tunnel in flight.
+                        return
+
+
+class ForwardPeer(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.server.requests.append((self.path, self.headers.get("Proxy-Authorization")))
+        accepted = self.server.requests[-1] == ("http://btrc.invalid/forward", "Basic dXNlcjpwYXNz")
+        self.send_response(200 if accepted else 403)
+        self.send_header("Content-Length", "7" if accepted else "0")
+        self.end_headers()
+        if accepted:
+            self.wfile.write(b"forward")
+
+
+def build_libraries(args):
+    ndk = Path(os.environ["ANDROID_NDK_HOME"]) / "toolchains/llvm/prebuilt/linux-x86_64"
+    target = PackageTarget.parse(args.target)
+    os.environ["BTRC_NATIVE_TARGET"] = target.row.triple
+    os.environ["BTRC_NATIVE_SYSROOT"] = str(ndk / "sysroot")
+    architecture = target.architecture
+    cc = ndk / "bin" / f"{architecture}-linux-android29-clang"
+    harness = args.output / "harness.o"
+    subprocess.run(
+        [cc, "-fPIC", "-I", ROOT / "src/stdlib/Java", "-c", FIXTURES / "AndroidHTTPSHarness.c", "-o", harness],
+        check=True,
+    )
+    for name, compiler in (
+        ("reference", [sys.executable, "-m", "src.compiler.python.main"]),
+        ("selfhost", [args.btrcc]),
+    ):
+        artifact = NativeCorpusBuild(args.output / f"{name}.c", args.output / f"{name}.json", tuple(compiler))
+        subprocess.run(
+            [
+                *compiler,
+                FIXTURES / "AndroidHTTPS.btrc",
+                "--target",
+                args.target,
+                "--strict-imports",
+                "-o",
+                artifact.primary,
+                "--emit-link-plan",
+                artifact.plan,
+            ],
+            check=True,
+        )
+        library = args.output / f"lib{name}.so"
+        runner = SharedLibraryRunner(artifact.primary, os.environ.copy(), link_flags=[str(harness)])
+        artifact.build(library, runner=runner)
+        assert not (problems := DependencyAudit().binary_problems(library, args.target)), problems
+        yield library
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", required=True, choices=["android-x86_64", "android-aarch64"])
+    parser.add_argument("--btrcc", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--compile-only", action="store_true")
+    parser.add_argument(
+        "--local-trust-only", action="store_true", help="run the trust peer inside the AVD without adb port forwarding"
+    )
+    parser.add_argument(
+        "--observe-authenticator",
+        action="store_true",
+        help="also record whether ART sends an installed authenticator's credentials",
+    )
+    parser.add_argument("--serial", help="connected device on which to execute the checked-JNI fixture")
+    parser.add_argument(
+        "--cert", type=Path, help="localhost-only certificate; the fixture sets its process-local trust"
+    )
+    parser.add_argument("--key", type=Path, help="TLS server private key")
+    parser.add_argument("--d8", help="Android build-tools d8 executable")
+    args = parser.parse_args()
+    args.output = args.output.resolve()
+    args.output.mkdir(parents=True, exist_ok=True)
+    if not args.compile_only and not all((args.serial, args.cert, args.key, args.d8)):
+        parser.error("execution requires --serial, --cert, --key and --d8")
+    libraries = list(build_libraries(args))
+    if args.compile_only:
+        return
+    # Start a fresh process with the fixture system roots for positive cases.
+    # Negative cases use the normal device store. The bind mounts are private
+    # to the helper process and its descendants.
+    ndk = Path(os.environ["ANDROID_NDK_HOME"]) / "toolchains/llvm/prebuilt/linux-x86_64/bin"
+    arch = PackageTarget.parse(args.target).architecture
+    helper = args.output / "trust-root"
+    subprocess.run(
+        [
+            ndk / f"{arch}-linux-android29-clang",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            FIXTURES / "AndroidTrustRoot.c",
+            "-o",
+            helper,
+        ],
+        check=True,
+    )
+    classes = args.output / "classes"
+    classes.mkdir(exist_ok=True)
+    subprocess.run(
+        ["javac", "--release", "8", "-d", classes, FIXTURES / "AndroidHTTPS.java", FIXTURES / "AndroidHTTPSLocal.java"],
+        check=True,
+    )
+    dex = args.output / "driver.jar"
+    subprocess.run(
+        [args.d8, "--min-api", "29", "--output", dex, *sorted(classes.glob("AndroidHTTPS*.class"))], check=True
+    )
+
+    def adb(*arguments, **kwargs):
+        return subprocess.run(["adb", "-s", args.serial, *arguments], check=True, **kwargs)
+
+    if adb("shell", "id", "-u", text=True, capture_output=True).stdout.strip() != "0":
+        adb("root")
+        adb("wait-for-device", timeout=60)
+    if adb("shell", "id", "-u", text=True, capture_output=True).stdout.strip() != "0":
+        raise RuntimeError("this qualifier requires a rootable disposable AVD for private test trust mounts")
+    directory = "/data/local/tmp/btrc-https-" + uuid.uuid4().hex
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(args.cert, args.key)
+    with ExitStack() as stack:
+        adb("shell", "mkdir", directory)
+        stack.callback(adb, "shell", "rm", "-rf", directory)
+        android_ca_hash = subprocess.check_output(
+            ["openssl", "x509", "-in", args.cert, "-subject_hash_old", "-noout"], text=True
+        ).strip()
+        assert len(android_ca_hash) == 8 and all(c in "0123456789abcdef" for c in android_ca_hash)
+        adb("shell", "mkdir", directory + "/platform")
+        adb("push", args.cert, f"{directory}/platform/{android_ca_hash}.0")
+        adb("push", helper, directory + "/trust-root")
+        adb("shell", "chmod", "755", directory + "/trust-root")
+        adb("push", args.cert, directory + "/test.pem")
+        adb("push", dex, directory + "/driver.jar")
+        adb("shell", "chmod", "444", directory + "/driver.jar")
+        if args.local_trust_only:
+            der = args.output / "server-key.der"
+            subprocess.run(
+                ["openssl", "pkcs8", "-topk8", "-nocrypt", "-in", args.key, "-outform", "DER", "-out", der], check=True
+            )
+            adb("push", der, directory + "/key.der")
+            for library in libraries:
+                adb("push", library, directory + "/" + library.name)
+                for mode in ("rejected", "trusted"):
+                    command = [
+                        "/system/bin/env",
+                        "PATH=/no-curl",
+                        "no_proxy=*",
+                        "CURL_CA_BUNDLE=",
+                        "SSL_CERT_FILE=",
+                        "SSL_CERT_DIR=",
+                        "CLASSPATH=" + directory + "/driver.jar",
+                        "/system/bin/app_process",
+                        "-Xcheck:jni",
+                        "/system/bin",
+                        "AndroidHTTPSLocal",
+                        directory + "/" + library.name,
+                        directory + "/test.pem",
+                        directory + "/key.der",
+                        mode,
+                    ]
+                    if mode == "trusted":
+                        command = [directory + "/trust-root", directory + "/platform", *command]
+                    result = adb("shell", shlex.join(command), text=True, capture_output=True, timeout=45)
+                    expected_status = 401 if mode == "trusted" else 0
+                    assert result.stdout.splitlines() == [
+                        f"Android challenge status {expected_status}",
+                        f"PASS isolated {mode} platform trust",
+                    ], result
+                    assert "JNI DETECTED ERROR" not in result.stderr, result
+                    print(f"{library.name}: {result.stdout.strip()}", flush=True)
+            return
+        server = stack.enter_context(http.server.ThreadingHTTPServer(("127.0.0.1", 0), Peer))
+        proxy = stack.enter_context(http.server.ThreadingHTTPServer(("127.0.0.1", 0), ConnectPeer))
+        tunnel = stack.enter_context(http.server.ThreadingHTTPServer(("127.0.0.1", 0), ConnectPeer))
+        tunnel.socket = tls.wrap_socket(tunnel.socket, server_side=True)
+        tunnel.origin = server.server_address
+        tunnel.tunnels = []
+        tunnel.require_credentials = True
+        forward_peer = stack.enter_context(http.server.ThreadingHTTPServer(("127.0.0.1", 0), ForwardPeer))
+        forward_peer.socket = tls.wrap_socket(forward_peer.socket, server_side=True)
+        forward_peer.requests = []
+        server.socket = tls.wrap_socket(server.socket, server_side=True)
+        server.leaked_proxy_credentials = False
+        server.cookie_requests = []
+        server.challenges = []
+        proxy.origin = server.server_address
+        proxy.tunnels = []
+        proxy.require_credentials = False
+        clear = stack.enter_context(http.server.ThreadingHTTPServer(("127.0.0.1", 0), Peer))
+        clear.challenges = []
+        clear.leaked_proxy_credentials = False
+        socks = stack.enter_context(socketserver.ThreadingTCPServer(("127.0.0.1", 0), SocksPeer))
+        socks.observed = []
+        for peer in (server, proxy, forward_peer, tunnel, clear, socks):
+            thread = threading.Thread(target=peer.serve_forever, daemon=True)
+            thread.start()
+            stack.callback(thread.join)
+            stack.callback(peer.shutdown)
+
+        def forward(local):
+            port = adb("reverse", "tcp:0", f"tcp:{local}", capture_output=True, text=True).stdout.strip()
+            stack.callback(adb, "reverse", "--remove", "tcp:" + port)
+            return port
+
+        port = forward(server.server_port)
+        proxy_port = forward(proxy.server_port)
+        forward_port = forward(forward_peer.server_port)
+        tunnel_port = forward(tunnel.server_port)
+        socks_port = forward(socks.server_address[1])
+        listing = adb(
+            "shell",
+            "for path in /apex/com.android.conscrypt/cacerts/* /system/etc/security/cacerts/*; "
+            'do if [ -f "$path" ]; then echo "$path"; break; fi; done',
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if not listing:
+            raise RuntimeError("the Android system trust store contains no control certificate")
+        system_ca = directory + "/unrelated.pem"
+        adb("shell", "cp", listing, system_ca)
+        proxy.authorities = {f"localhost:{port}", f"127.0.0.1:{port}"}
+        tunnel.authorities = proxy.authorities
+        ca_hash = subprocess.check_output(
+            ["openssl", "x509", "-in", args.cert, "-subject_hash", "-noout"], text=True
+        ).strip()
+        assert len(ca_hash) == 8 and all(c in "0123456789abcdef" for c in ca_hash)
+        for name, filename in (("indexed", ca_hash + ".0"), ("raw", "ca.pem"), ("gap", ca_hash + ".1")):
+            adb("shell", "mkdir", directory + "/" + name)
+            adb("push", args.cert, directory + "/" + name + "/" + filename)
+        # File-only selection leaves the installed curl's compiled-in directory
+        # in effect. This test double reports a distinct status when selected.
+        marker = args.output / "curl"
+        marker.write_text(
+            "#!/system/bin/sh\n/system/bin/toybox printf '\\n__BTRC_HTTP_STATUS__:218'\n", encoding="ascii"
+        )
+        adb("push", marker, directory + "/curl")
+        adb("shell", "chmod", "755", directory + "/curl")
+        for library in libraries:
+            adb("push", library, directory + "/" + library.name)
+            for mode in (
+                "challenge",
+                "bypass",
+                "proxy",
+                "cookies",
+                "isolated",
+                "isolated-proxy",
+                "authenticated-proxy",
+                "system-proxy",
+                "system-bypass",
+                "system-stalled",
+                "untrusted",
+                "ambient-origin",
+                "ambient-proxy",
+                "bundle-file",
+                "bundle-curl",
+                "bundle-invalid",
+                "bundle-indexed",
+                "installed-curl",
+                "bundle-raw-invalid",
+                "bundle-gap-invalid",
+                "nested-valid",
+                "nested-bad-proxy",
+                "nested-bad-root",
+                "nested-records",
+                "forward-valid",
+                "forward-bad-host",
+            ):
+                proxy.require_credentials = mode == "authenticated-proxy"
+                credentials = "user:pass@" if proxy.require_credentials else ""
+                bypass = (
+                    ""
+                    if mode in {"proxy", "isolated-proxy", "authenticated-proxy", "system-proxy", "system-stalled"}
+                    else "*"
+                )
+                before = len(proxy.tunnels)
+                ca_file = directory + "/test.pem"
+                missing = directory + "/missing.pem"
+                proxy_host = "127.0.0.1" if mode == "forward-bad-host" else "localhost"
+                if mode.startswith("forward-"):
+                    bypass = ""
+                before_nested = len(tunnel.tunnels)
+                proxy_setting = "" if mode.startswith("system-") else f"http://{credentials}127.0.0.1:{proxy_port}"
+                if mode.startswith("nested-"):
+                    bypass = ""
+                    proxy_host = "127.0.0.1" if mode == "nested-bad-proxy" else "localhost"
+                    proxy_setting = f"https://user:pass@{proxy_host}:{tunnel_port}"
+                if mode == "ambient-proxy":
+                    # Origin trusts its explicitly configured root. The app's
+                    # separate default must not authenticate the TLS proxy.
+                    bypass = ""
+                    proxy_setting = f"https://user:pass@localhost:{tunnel_port}"
+                cert_file = {
+                    "bundle-file": ca_file,
+                    "ambient-proxy": ca_file,
+                    "installed-curl": ca_file,
+                    "bundle-invalid": missing,
+                    "bundle-curl": missing,
+                    "nested-bad-root": system_ca,
+                    "bundle-indexed": system_ca,
+                    "bundle-raw-invalid": system_ca,
+                    "bundle-gap-invalid": system_ca,
+                }.get(mode, "")
+                before_forward = len(forward_peer.requests)
+                command = [
+                    "env",
+                    "PATH=" + (directory if mode == "installed-curl" else "/no-curl"),
+                    "https_proxy=" + proxy_setting,
+                    "HTTPS_PROXY=",
+                    "http_proxy="
+                    + (f"https://user:pass@{proxy_host}:{forward_port}" if mode.startswith("forward-") else ""),
+                    "all_proxy=",
+                    "ALL_PROXY=",
+                    "no_proxy=" + bypass,
+                    "NO_PROXY=",
+                    "CURL_CA_BUNDLE=" + (ca_file if mode == "bundle-curl" else ""),
+                    "SSL_CERT_FILE=" + cert_file,
+                    "SSL_CERT_DIR="
+                    + {
+                        "bundle-indexed": directory + "/raw:" + directory + "/indexed",
+                        "bundle-raw-invalid": directory + "/raw",
+                        "bundle-gap-invalid": directory + "/gap",
+                    }.get(mode, ""),
+                    "CLASSPATH=" + directory + "/driver.jar",
+                    "/system/bin/app_process",
+                    "-Xcheck:jni",
+                    "/system/bin",
+                    "AndroidHTTPS",
+                    directory + "/" + library.name,
+                    directory + "/test.pem",
+                    ("http://btrc.invalid" if mode.startswith("forward-") else f"https://localhost:{port}"),
+                    f"https://127.0.0.1:{port}",
+                    mode,
+                    proxy_port,
+                ]
+                if not (mode.startswith(("ambient-", "bundle-")) or mode in {"untrusted", "installed-curl"}):
+                    command = [directory + "/trust-root", directory + "/platform", "/system/bin/env", *command[1:]]
+                result = adb("shell", shlex.join(command), text=True, capture_output=True, timeout=45)
+                if mode == "challenge":
+                    assert result.stdout.strip() == "Android challenge status 401", result
+                    assert server.challenges == [False], server.challenges
+                    if args.observe_authenticator:
+                        print(
+                            f"{library.name} on {args.target}: {result.stdout.strip()}, Authorization absent",
+                            flush=True,
+                        )
+                    server.challenges.clear()
+                    continue
+                expected = {
+                    "installed-curl": "Android challenge status 218",
+                    "ambient-origin": "PASS Android HTTPS untrusted issuer",
+                    "ambient-proxy": "PASS Android HTTPS untrusted issuer",
+                    "cookies": "PASS Android HTTPS cookie isolation",
+                    "system-stalled": "PASS Android HTTPS proxy deadline",
+                    "untrusted": "PASS Android HTTPS untrusted issuer",
+                    "bundle-invalid": "PASS Android HTTPS untrusted issuer",
+                    "bundle-raw-invalid": "PASS Android HTTPS untrusted issuer",
+                    "bundle-gap-invalid": "PASS Android HTTPS untrusted issuer",
+                    "forward-bad-host": "PASS Android HTTPS untrusted issuer",
+                    "forward-valid": "PASS Android HTTPS forward proxy",
+                    "nested-bad-root": "PASS Android HTTPS untrusted issuer",
+                    "nested-bad-proxy": "PASS Android HTTPS untrusted issuer",
+                    "nested-records": "PASS Android HTTPS multi-record echo",
+                }.get(mode, "PASS Android HTTPS")
+                assert result.stdout.splitlines() == [expected], result
+                assert not server.leaked_proxy_credentials
+                assert not any(server.cookie_requests), server.cookie_requests
+                assert "JNI DETECTED ERROR" not in result.stderr, result
+                if mode.startswith("forward-"):
+                    assert len(forward_peer.requests) - before_forward == int(mode == "forward-valid")
+                if mode.startswith("nested-"):
+                    if mode == "nested-bad-proxy":
+                        assert len(tunnel.tunnels) == before_nested
+                    else:
+                        assert len(tunnel.tunnels) > before_nested
+                if mode == "ambient-proxy":
+                    assert len(tunnel.tunnels) == before_nested
+                if bypass or mode in {"system-stalled", "ambient-proxy"} or mode.startswith(("forward-", "nested-")):
+                    assert len(proxy.tunnels) == before, proxy.tunnels[before:]
+                else:
+                    assert len(proxy.tunnels) > before, "no CONNECT reached the configured proxy"
+            check_android_tunnels(adb, directory, library, socks, socks_port, clear, server)
+            print(f"{library.name} on {args.target}: HTTPS, proxy, bypass and binary imports passed", flush=True)
+
+
+if __name__ == "__main__":
+    main()

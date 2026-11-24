@@ -14,24 +14,32 @@ class HTTPProxy {
 	 * even across CONNECT. Preserve that installation's existing behavior. */
 	class bool needsLegacyHeaders(Vector<string> headers) { return HTTPExchange.names(headers, "proxy-authorization") && !ChildProcessExecutable.resolve("curl", "", [], []).isEmpty(); }
 
-	class string setting(HTTPClientAddress address) {
-		string proxy = Environment.get("http_proxy", "");
+	class string configured(HTTPClientAddress address) {
+		string proxy = address.secure ? Environment.get("https_proxy", Environment.get("HTTPS_PROXY", "")) : Environment.get("http_proxy", "");
 		if (proxy.isEmpty()) { proxy = Environment.get("all_proxy", Environment.get("ALL_PROXY", "")); }
-		if (proxy.isEmpty()) { return ""; }
+		return proxy;
+	}
+
+	class string setting(HTTPClientAddress address) {
+		string proxy = HTTPProxy.configured(address);
+		return proxy.isEmpty() || HTTPProxy.bypasses(address) ? "" : proxy;
+	}
+
+	class bool bypasses(HTTPClientAddress address) {
 		string rules = Environment.get("no_proxy", Environment.get("NO_PROXY", "")).trim();
-		if (rules.equals("*")) { return ""; }
+		if (rules.equals("*")) { return true; }
 		string host = address.resolvable().toLower();
 		if (host.endsWith(".")) { host = host.substring(0, host.len() - 1); }
 		for rule in Strings.split(rules, ",") {
 			string entry = rule.trim().toLower();
 			if (entry.isEmpty()) { continue; }
 			int numeric = btrcHttpProxyNetwork(host, entry);
-			if (numeric == 1) { return ""; }
+			if (numeric == 1) { return true; }
 			if (numeric == 0) { continue; }
 			if (entry.startsWith(".")) { entry = entry.substring(1, entry.len() - 1); }
 			if (entry.endsWith(".")) { entry = entry.substring(0, entry.len() - 1); }
-			if (!entry.isEmpty() && (host.equals(entry) || host.endsWith("." + entry))) { return ""; }
+			if (!entry.isEmpty() && (host.equals(entry) || host.endsWith("." + entry))) { return true; }
 		}
-		return proxy;
+		return false;
 	}
 }

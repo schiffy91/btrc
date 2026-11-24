@@ -6,22 +6,32 @@ import Library.Bytes;
 import Library.HTTP.HTTPExchange;
 import Library.Process;
 import Library.Strings;
+import Library.Timer;
 import Library.Vector;
 
 class HTTPCurlTransport {
-	class HTTPExchangeResult request(string method, string url, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes) {
+	class HTTPExchangeResult request(string method, string url, Vector<string> headers, string body, int timeoutSecs, int maxResponseBytes, long long deadline=0LL) {
 		int status = 0;
 		string responseBody = "";
 		bool hasBody = !body.isEmpty();
 		int curlResponseLimit = maxResponseBytes > 0 ? maxResponseBytes : 1;
 		int captureLimit = maxResponseBytes + 64;
 		string statusMarker = "\n__BTRC_HTTP_STATUS__:";
+		string duration = Strings.fromInt(timeoutSecs);
+		int childTimeout = timeoutSecs * 1000 + 1000;
+		if (deadline > 0LL) {
+			long long remaining = MonotonicClock.remaining(deadline);
+			if (remaining <= 0LL) { return HTTPExchangeResult.failed("request timed out"); }
+			childTimeout = (int)remaining;
+			string millis = Strings.fromInt(1000 + childTimeout % 1000).substring(1, 3);
+			duration = Strings.fromInt(childTimeout / 1000) + "." + millis;
+		}
 
 		Vector<string> arguments = [
 			"-sS",
 			"--proto", "=http,https",
 			"--proto-redir", "=http,https",
-			"--max-time", Strings.fromInt(timeoutSecs),
+			"--max-time", duration,
 			"--max-filesize", Strings.fromInt(curlResponseLimit),
 			"--request", method,
 			"--write-out", statusMarker + "%{http_code}"
@@ -38,7 +48,7 @@ class HTTPCurlTransport {
          * URL-controlled bytes as another option. */
 		arguments.push("--");
 		arguments.push(url);
-		var result = ChildProcess.run("curl", arguments, timeoutMilliseconds=timeoutSecs * 1000 + 1000, maxStdoutBytes=captureLimit, maxStderrBytes=65536, stdinData=body);
+		var result = ChildProcess.run("curl", arguments, timeoutMilliseconds=childTimeout, maxStdoutBytes=captureLimit, maxStderrBytes=65536, stdinData=body);
 		int marker = Strings.rfind(result.stdout(), statusMarker);
 		if (marker >= 0) {
 			int statusStart = marker + statusMarker.len();

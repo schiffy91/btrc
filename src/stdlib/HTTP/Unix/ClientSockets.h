@@ -16,6 +16,7 @@
 /* 0 transfers the result to the caller, -1 means timeout, -2 lookup failure. */
 int btrcHttpResolve(char *host, char *service, long long deadlineMs, void **result);
 
+int btrcHttpSocksAddress(char *host, int local, int onlyIPv4, long long deadline, char *output);
 int btrcHttpAddressSocket(void **cursor, struct sockaddr **address, socklen_t *length);
 void btrcHttpFreeAddresses(void *addresses);
 
