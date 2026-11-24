@@ -8,25 +8,27 @@ import Library.GUI.Shim.DialogPump;
 import Library.GUI.Shim.ShimWindow;
 import Library.GUI.IDirectoryPicker;
 import Library.GUI.Linux.PortalDirectoryPickerProvider;
-import Library.GUI.TextRun;
-import Library.Image;
 import Library.App;
 import Library.GUI.Linux.Fonts.SystemTextABI;
 
+import ./Accessibility.btrc;
+
 /* Direct Wayland clients can choose this preview while the default toolkit
- * supplies native alerts. */
+ * provides the full desktop integration. */
+extern int btrcWaylandShowAlert(BtrcShimWindow* owner, string title, string message);
+
 class ShimFeatures {
 	class bool fieldUsesWindowInput() { return true; }
 
-	class void initialize() { SystemTextABI.install(); }
+	class void initialize() { SystemTextABI.install(); WaylandAccessibility.install(); }
 
 	class ITextField createTextField(ShimContext context, string text, string placeholder) { return ShimTextField(context, text, placeholder); }
 
 	class ISelect createSelect(ShimContext context) { return ShimSelect(context); }
 
-	class void showAlert(BtrcShimWindow* window, string title, string message) { throw "Modal alerts require the default Linux GUI backend"; }
+	class void showAlert(BtrcShimWindow* window, string title, string message) {
+		if (btrcWaylandShowAlert(window, title, message) == 0) { throw "Cannot display native Wayland alert"; }
+	}
 
 	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) { return DirectoryPickerProvider.choose(window, pump, request); }
-
-	class Image rasterized(TextRun run) { throw "Standalone text rasterization requires the default Linux GUI backend"; }
 }

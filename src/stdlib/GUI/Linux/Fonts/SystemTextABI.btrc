@@ -59,6 +59,28 @@ double systemTextMeasure(void* handle, int field) {
 	return 1.0; // MASK8
 }
 
+double systemTextCaretX(void* opaque, int byteOffset) {
+	var run = ((struct NativeInkRun*)opaque)->value;
+	int index = run.caretBytes.indexOf(byteOffset);
+	return index < 0 ? -1.0 : run.caretPositions.get(index);
+}
+
+int systemTextHitTest(void* opaque, double x) {
+	var run = ((struct NativeInkRun*)opaque)->value;
+	int count = run.caretPositions.size();
+	if (count == 0 || x != x) { return -1; }
+	if (x <= 0.0) { return 0; }
+	int low = 0;
+	int high = count;
+	while (low < high) {
+		int middle = low + (high - low) / 2;
+		if (run.caretPositions.get(middle) <= x) { low = middle + 1; }
+		else { high = middle; }
+	}
+	if (low == count || x < (run.caretPositions.get(low - 1) + run.caretPositions.get(low)) / 2.0) { low--; }
+	return run.caretBytes.get(low);
+}
+
 const unsigned char* systemTextPixels(void* handle) { return (const unsigned char*)((struct NativeInkRun*)handle)->value.pixels.data; }
 
 void* systemTextOpenDefaultFace(double logicalSize, double scale, bool bold) {
@@ -76,9 +98,12 @@ typedef CFunction<void*, void*, const char*, double, int> TextShapeLineFn;
 typedef CFunction<double, void*, int> TextMeasureFn;
 typedef CFunction<const unsigned char*, void*> TextPixelsFn;
 
-extern void btrcSystemTextPublish(TextOpenDefaultFn openDefault, TextOpenFaceFn open, TextReleaseFn closeFace, TextShapeLineFn shape, TextReleaseFn closeRun, TextMeasureFn measure, TextPixelsFn pixels);
+typedef CFunction<double, void*, int> TextCaretFn;
+typedef CFunction<int, void*, double> TextHitTestFn;
+
+extern void btrcSystemTextPublish(TextOpenDefaultFn openDefault, TextOpenFaceFn open, TextReleaseFn closeFace, TextShapeLineFn shape, TextReleaseFn closeRun, TextMeasureFn measure, TextPixelsFn pixels, TextCaretFn caret, TextHitTestFn hitTest);
 
 class SystemTextABI {
 	class void install() { DefaultTextFont.invalidate();
-		btrcSystemTextPublish(systemTextOpenDefaultFace, systemTextOpenFace, systemTextCloseFace, systemTextShapeLine, systemTextCloseRun, systemTextMeasure, systemTextPixels); }
+		btrcSystemTextPublish(systemTextOpenDefaultFace, systemTextOpenFace, systemTextCloseFace, systemTextShapeLine, systemTextCloseRun, systemTextMeasure, systemTextPixels, systemTextCaretX, systemTextHitTest); }
 }

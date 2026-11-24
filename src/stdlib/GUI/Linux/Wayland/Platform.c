@@ -2,6 +2,8 @@
  * operation crosses threads, as permitted by the wire transport. */
 #define _POSIX_C_SOURCE 200809L
 #include "Platform.h"
+#include "Accessibility.h"
+#include "WirePrivate.h"
 #include "Client.h"
 #include "Clipboard.h"
 #include <errno.h>
@@ -16,6 +18,11 @@ static BtrcShimWindow *windows;
 static pthread_t thread;
 static int openError;
 static bool disconnected;
+static int (*accessibilityService)(int *);
+void btrcWaylandAccessibilityInstall(int (*service)(int *)) {
+    accessibilityService = service;
+    if (display) { display->accessibilityService = service; }
+}
 
 bool btrcShimInit(void) {
     if (display) { return !disconnected; }
@@ -24,6 +31,8 @@ bool btrcShimInit(void) {
     thread = pthread_self();
     opened->editContext = btrcWaylandSceneEditContext;
     opened->deleteAround = btrcWaylandSceneDeleteAround;
+    opened->activationChanged = btrcWaylandAccessibilityChanged;
+    opened->accessibilityService = accessibilityService;
     opened->routeInput = btrcWaylandSceneInput;
     display = opened;
     return true;
@@ -65,12 +74,12 @@ void btrcShimWindowDestroy(BtrcShimWindow *w) {
 }
 
 unsigned int btrcShimWindowId(BtrcShimWindow *w) { return btrcWaylandWindowId(w->native); }
-bool btrcShimWindowShow(BtrcShimWindow *w) { return btrcWaylandWindowShow(w->native); }
-bool btrcShimWindowHide(BtrcShimWindow *w) { return btrcWaylandWindowHide(w->native); }
+bool btrcShimWindowShow(BtrcShimWindow *w) { btrcWaylandAccessibilityChanged(); return btrcWaylandWindowShow(w->native); }
+bool btrcShimWindowHide(BtrcShimWindow *w) { btrcWaylandAccessibilityChanged(); return btrcWaylandWindowHide(w->native); }
 bool btrcShimWindowIsHidden(BtrcShimWindow *w) { return !w->native->visible; }
 bool btrcShimWindowIsMinimized(BtrcShimWindow *w) { return w->native->suspended; }
 void btrcShimWindowSetCursor(BtrcShimWindow *w, int kind) { btrcWaylandWindowCursor(w->native, kind); }
-void btrcShimWindowSetTitle(BtrcShimWindow *w, const char *title) { btrcWaylandWindowTitle(w->native, title); }
+void btrcShimWindowSetTitle(BtrcShimWindow *w, const char *title) { btrcWaylandAccessibilityChanged(); btrcWaylandWindowTitle(w->native, title); }
 void btrcShimWindowSetSize(BtrcShimWindow *w, int width, int height) { btrcWaylandWindowResize(w->native, width, height); }
 void btrcShimWindowSetMinimumSize(BtrcShimWindow *w, int width, int height) { btrcWaylandWindowMinimum(w->native, width, height); }
 int btrcShimWindowWidth(BtrcShimWindow *w) { return btrcWaylandWindowWidth(w->native); }

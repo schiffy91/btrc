@@ -15,6 +15,16 @@ implementation = "Shim.GUIProvider"
 os = ["linux", "windows", "android", "ios"]
 
 [[package.providers]]
+module = "Shim.ToolkitFeatures"
+implementation = "Linux.Fonts.GtkLayoutSetup"
+os = ["linux"]
+
+[[package.providers]]
+module = "Shim.ToolkitFeatures"
+implementation = "Shim.PlatformTextLayout"
+os = ["windows", "android", "ios"]
+
+[[package.providers]]
 module = "WebView"
 implementation = "MacOS.WebViewProvider"
 os = ["macos"]
@@ -141,6 +151,13 @@ os = ["linux"]
 
 [[native.sources]]
 path = "Linux/Viewport.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.Shim"]
+os = ["linux"]
+
+[[native.sources]]
+path = "Linux/GtkShapedText.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.Shim"]
@@ -1084,27 +1101,13 @@ standard = "c11"
 modules = ["Shim.ShimSurface"]
 os = ["windows"]
 
-# The web view is WebView2. Its SDK header comes from the per-slice
-# webview2 record (nix/webview2-sdk-prebuilt.nix); the engine itself is the
-# system's, reached at run time through WebView2Loader.dll beside the program.
+# First-party COM declarations, activated by the supported WebView2 loader.
 [[native.sources]]
 path = "Windows/Win32Web.c"
 language = "c"
 standard = "c11"
 modules = ["Shim.ShimWeb"]
 os = ["windows"]
-
-[[native.pkg-config]]
-name = "webview2-windows-x86_64"
-modules = ["Shim.ShimWeb"]
-os = ["windows"]
-arch = ["x86_64"]
-
-[[native.pkg-config]]
-name = "webview2-windows-aarch64"
-modules = ["Shim.ShimWeb"]
-os = ["windows"]
-arch = ["aarch64"]
 
 [[native.libraries]]
 name = "shlwapi"
@@ -1348,4 +1351,12 @@ path = "Text/SystemText.c"
 language = "c"
 standard = "c11"
 modules = ["Linux.Fonts.SystemTextABI"]
+os = ["linux"]
+
+[[native.bindings]]
+module = "Linux.Wayland.Accessibility"
+header = "Linux/Wayland/Accessibility.h"
+language = "c"
+standard = "c11"
+symbols = ["BtrcWaylandAccessible", "btrcWaylandAccessibleChild", "btrcWaylandAccessibleAction", "btrcWaylandAccessibilityRevision"]
 os = ["linux"]

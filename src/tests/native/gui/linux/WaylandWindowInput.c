@@ -13,6 +13,7 @@ int main(int argc, char **argv) {
     const RealInput *input = realInputWayland();
     const char *title = "btrc input and pixels";
     assert(input);
+    if (argc == 3 && !strcmp(argv[1], "close-title")) { return input->close(argv[2]) ? 0 : 1; }
     if (argc == 2 && !strcmp(argv[1], "close")) { return input->close(title) ? 0 : 1; }
     if (argc == 2 && !strcmp(argv[1], "keyboard")) {
         int command;
@@ -36,6 +37,7 @@ int main(int argc, char **argv) {
             else if (command == 'j') { assert(input->key(CONFORMANCE_KEY_DOWN)); }
             else if (command == 'e') { assert(input->key(CONFORMANCE_KEY_ESCAPE)); }
             else if (command == 'l') { assert(input->key(CONFORMANCE_KEY_LEFT)); }
+            else if (command == 'r') { assert(input->key(CONFORMANCE_KEY_RIGHT)); }
             else { assert(command == 'm'); }
             puts("sent");
             fflush(stdout);

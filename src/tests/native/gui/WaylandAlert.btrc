@@ -1,0 +1,50 @@
+import Library.Callback;
+import Library.Console;
+import Library.GUI;
+import Library.GUI.IApplication;
+import Library.GUI.IWindow;
+import Library.GUI.IButton;
+import Library.Image;
+
+#include <assert.h>
+
+class ParentAction implements IButtonAction {
+	public int count = 0;
+	public void invoke() { self.count++; Console.log("parent click"); GUI.requestQuit(); }
+}
+
+class DisplayAlerts implements IApplicationWork {
+	private IWindow _owner;
+	public DisplayAlerts(IWindow owner) { self._owner = owner; }
+
+	public void run() {
+		self._owner.showAlert("Keyboard alert", "Press Escape to dismiss this message.");
+		assert(self._owner.isOpen() && self._owner.isVisible());
+		Console.log("keyboard dismissed");
+		self._owner.showAlert("Pointer alert", "Click the Close button.");
+		assert(self._owner.isOpen() && self._owner.isVisible());
+		Console.log("pointer dismissed");
+		string detail = "First";
+		for (int index = 0; index < 12; index++) { detail += "VeryLongUnbreakableWord"; }
+		for (int row = 0; row < 36; row++) { detail += f"\n{row}. Additional details for this window"; }
+		detail += "\nFinal line of the alert";
+		self._owner.showAlert("Long alert", detail);
+		assert(self._owner.isOpen() && self._owner.isVisible());
+		Console.log("close requested");
+	}
+}
+
+int main() {
+	GUI.initialize();
+	var scope = CallbackScope();
+	try {
+		var window = GUI.createWindow("btrc input and pixels", 630.0, 420.0);
+		var panel=GUI.createPanel(RGBA(37,179,125));
+		var action=ParentAction(); var button=GUI.createButton("Parent action");
+		window.attachRoot(panel); panel.attach(button); button.arrange(12,12,116,34);
+		button.onAction(action,scope);
+		window.show(); GUI.post(DisplayAlerts(window)); GUI.run();
+		assert(action.count == 1);
+	} finally { scope.cancel(); GUI.close(); }
+	return 0;
+}

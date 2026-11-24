@@ -62,6 +62,11 @@ static bool redraw(BtrcWaylandWindow *window);
 
 bool btrcWaylandQueueEvent(BtrcWaylandDisplay *d, BtrcShimEvent event) {
     if (event.type != BTRC_SHIM_EVENT_USER && event.type != BTRC_SHIM_EVENT_WINDOW_EXPOSED) { ++d->arrivals; }
+    if (d->modalFilter) {
+        bool consumed = false;
+        if (!d->modalFilter(d->modal, &event, &consumed)) { d->failed = true; return false; }
+        if (consumed) { return true; }
+    }
     if (d->routeInput && event.window && event.type < BTRC_SHIM_EVENT_CONTROL_ACTIVATED) {
         bool handled = false;
         if (!d->routeInput(d, &event, &handled)) { d->failed = true; return false; }
@@ -270,6 +275,7 @@ static bool registryEvent(void *owner, uint32_t id, unsigned opcode, BtrcWayland
     BtrcWaylandDisplay *d = owner;
     uint32_t name = btrcWaylandUint(event);
     if (opcode == 1) {
+        if (name == d->dialogManagerName) { d->dialogManagerName = 0; }
         if (name == d->subcompositorName) { d->subcompositorName = 0; }
         for (int i = 0; i < 2; ++i) {
             if (name == d->exporterName[i]) {
@@ -296,6 +302,7 @@ static bool registryEvent(void *owner, uint32_t id, unsigned opcode, BtrcWayland
     if (!strcmp(interface, "wl_shm") && !d->shm) {
         return (d->shm = bindGlobal(d, name, "wl_shm", 1, d, shmEvent)) != 0;
     }
+    if (!strcmp(interface, "xdg_wm_dialog_v1")) { d->dialogManagerName = name; return true; }
     if (!strcmp(interface, "wp_cursor_shape_manager_v1") && !d->cursorManager) {
         return (d->cursorManager = bindGlobal(d, name, "wp_cursor_shape_manager_v1", 1, d, NULL)) != 0;
     }
@@ -344,12 +351,18 @@ BtrcWaylandDisplay *btrcWaylandDisplayOpen(void) {
 
 int btrcWaylandDisplayPoll(BtrcWaylandDisplay *d, int timeout) {
     if (d->failed) { return -1; }
-    int result = btrcWaylandPoll(d->wire, btrcWaylandRepeatTimeout(d, timeout));
+    /* Modal, clipboard and normal event loops all poll this display. An
+     * assistive action can complete the caller's wait without a queued event. */
+    int dispatched = 0;
+    if (d->accessibilityService) { d->wire->accessibility = d->accessibilityService(&dispatched); }
+    int result = btrcWaylandPoll(d->wire, btrcWaylandRepeatTimeout(d, dispatched ? 0 : timeout));
     if (result < 0) { return -1; }
     if (result == 2 && !btrcWaylandQueueEvent(d, (BtrcShimEvent){.type = BTRC_SHIM_EVENT_USER})) { return -1; }
     btrcWaylandClipboardTransfers(d);
     int repeated = btrcWaylandSendRepeats(d);
-    return repeated < 0 || !result ? repeated : result;
+    if (repeated < 0) { return repeated; }
+    if (result) { return result; }
+    return repeated ? repeated : dispatched;
 }
 
 bool btrcWaylandDisplayWake(BtrcWaylandDisplay *d) { return btrcWaylandWake(d->wire); }
@@ -450,6 +463,10 @@ static bool xdgEvent(void *owner, uint32_t id, unsigned opcode, BtrcWaylandEvent
     uint32_t serial = btrcWaylandUint(event);
     if (!btrcWaylandSend(event->wire, id, 4, "u", serial)) { return false; }
     w->configured = true;
+    if (w->activated != w->configuredActivated) {
+        w->activated = w->configuredActivated;
+        if (w->display->activationChanged) { w->display->activationChanged(); }
+    }
     if (w->suspended != w->configuredSuspended) {
         w->suspended = w->configuredSuspended;
         if (!windowEvent(w, w->suspended ? BTRC_SHIM_EVENT_WINDOW_MINIMIZED : BTRC_SHIM_EVENT_WINDOW_RESTORED, 0, 0)) { return false; }
@@ -478,10 +495,12 @@ static bool toplevelEvent(void *owner, uint32_t id, unsigned opcode, BtrcWayland
     uint32_t size;
     const unsigned char *states = btrcWaylandArray(event, &size);
     if (!event->valid || (size & 3u)) { return false; }
+    w->configuredActivated = false;
     w->configuredSuspended = false;
     for (size_t offset = 0; offset < size; offset += 4) {
         uint32_t state;
         memcpy(&state, states + offset, sizeof(state));
+        if (state == 4) { w->configuredActivated = true; } /* xdg_toplevel.state.activated */
         if (state == 9) { w->configuredSuspended = true; } /* xdg_toplevel.state.suspended */
     }
     return w->configuredWidth >= 0 && w->configuredHeight >= 0;
@@ -513,6 +532,22 @@ BtrcWaylandWindow *btrcWaylandWindowCreate(BtrcWaylandDisplay *d, const char *ti
         return NULL;
     }
     return w;
+}
+
+bool btrcWaylandWindowMakeDialog(BtrcWaylandWindow *w, BtrcWaylandWindow *owner) {
+    if (!w || !owner || w == owner || w->display != owner->display || w->visible || w->dialog) { return false; }
+    BtrcWaylandDisplay *d = w->display;
+    if (!btrcWaylandSend(d->wire, w->toplevel, 1, "u", owner->toplevel)) { return false; }
+    /* xdg_toplevel supplies the transient relationship on all desktops.
+     * xdg-dialog adds a modal hint on compositors that advertise it. */
+    if (!d->dialogManager && d->dialogManagerName) {
+        d->dialogManager = bindGlobal(d, d->dialogManagerName, "xdg_wm_dialog_v1", 1, d, NULL);
+        if (!d->dialogManager) { return false; }
+    }
+    if (!d->dialogManager) { return true; }
+    w->dialog = btrcWaylandObject(d->wire, "xdg_dialog_v1", w, NULL, 0);
+    return w->dialog && btrcWaylandSend(d->wire, d->dialogManager, 1, "uu", w->dialog, w->toplevel) &&
+           btrcWaylandSend(d->wire, w->dialog, 1, "");
 }
 
 bool btrcWaylandWindowTitle(BtrcWaylandWindow *w, const char *title) {
@@ -550,6 +585,7 @@ bool btrcWaylandWindowShow(BtrcWaylandWindow *w) {
 bool btrcWaylandWindowHide(BtrcWaylandWindow *w) {
     btrcWaylandWindowClosePopup(w);
     if (!w->visible) { return true; }
+    w->activated = w->configuredActivated = false;
     w->visible = w->configured = false;
     if (w->frame) { btrcWaylandRetire(w->display->wire, w->frame); w->frame = 0; }
     if (!btrcWaylandSend(w->display->wire, w->surface, 1, "uii", 0u, 0, 0) || !btrcWaylandSend(w->display->wire, w->surface, 6, "")) { return false; }
@@ -876,6 +912,7 @@ void btrcWaylandWindowDestroy(BtrcWaylandWindow *w) {
     while (w->gpuViews) { btrcWaylandGPUViewDestroy(w->gpuViews); }
     btrcWaylandSeatForget(d, w);
     if (w->frame) { btrcWaylandRetire(d->wire, w->frame); }
+    destroyRequest(d->wire, w->dialog, 0);
     destroyRequest(d->wire, w->toplevel, 0);
     destroyRequest(d->wire, w->xdg, 0);
     destroyRequest(d->wire, w->surface, 0);

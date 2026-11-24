@@ -25,8 +25,10 @@ class LatinLayout {
 	private OpenTypeData? gdef;
 	private OpenTypeData? kern;
 	private int classes = 0;
+	private bool requireDefaultEnglish;
 
-	public LatinLayout(OpenTypeData data, int faceOffset = 0) {
+	public LatinLayout(OpenTypeData data, int faceOffset = 0, bool requireDefaultEnglish = false) {
+		self.requireDefaultEnglish = requireDefaultEnglish;
 		var dir = SFNTDirectory(data, faceOffset, true);
 		if (dir.find(0x66766172LL, 0) != null || dir.find(0x6d6f7278LL, 0) != null || dir.find(0x6d6f7274LL, 0) != null || dir.find(0x53696c66LL, 0) != null) { throw "Unsupported variable or alternative shaping table"; }
 		self.units = data.u16(dir.required(0x68656164LL, 54).offset + 18);
@@ -51,7 +53,30 @@ class LatinLayout {
 
 	private LayoutTable? features(OpenTypeData data, OpenTypeSpan? table, Vector<long long> active) {
 		if (table == null) { return null; }
-		return new LayoutTable(OpenTypeData(data.slice(table.offset, table.length)), active, 0x6c61746eLL); // latn
+		return new LayoutTable(OpenTypeData(data.slice(table.offset, table.length)), active, 0x6c61746eLL, self.requireDefaultEnglish); // latn
+	}
+
+	/* Horizontal GDEF caret coordinates for a single substituted ligature.
+	 * Missing caret data permits even division of its shaped advance. */
+	public Vector<int> ligatureCarets(int glyph, int components) {
+		Vector<int> result = [];
+		var data = self.gdef;
+		if (data == null) { return result; }
+		int list = data.u16(8);
+		if (list == 0) { return result; }
+		int index = LayoutTable.coverageAt(data, list + data.u16(list), glyph);
+		if (index < 0) { return result; }
+		if (index >= data.u16(list + 2)) { throw "Invalid ligature caret index"; }
+		int table = list + data.u16(list + 4 + 2 * index);
+		int count = data.u16(table);
+		if (count == 0) { return result; }
+		if (count != components - 1) { throw "Ligature caret count does not match the text cluster"; }
+		for (int i = 0; i < count; i++) {
+			int caret = table + data.u16(table + 2 + i * 2);
+			if (data.u16(caret) != 1) { throw "Ligature caret requires outline or device adjustment"; }
+			result.push(data.s16(caret + 2));
+		}
+		return result;
 	}
 
 	private void requireBase(int id) {
@@ -81,6 +106,7 @@ class LatinLayout {
 				else if (pair > key) { low = mid + 1; }
 				else {
 					int adjustment = kern.s16(at + 4);
+					if (adjustment != 0) { run.legacyPositioned = true; }
 					int before = (int)OpenTypeFixed.floorDiv((long long)adjustment, 2LL);
 					left.advance += before;
 					right.advance += adjustment - before;
@@ -98,7 +124,8 @@ class LatinLayout {
 		while (at < text.length()) {
 			int cluster = at;
 			int scalar = UTF8.decode(text, text.length(), &at);
-			if ((scalar < 32 || scalar > 126) && scalar != 0x2026 && scalar != 0x00a0) { throw "Text needs another shaping engine"; }
+			bool latin1Letter = scalar >= 0xc0 && scalar <= 0xff && scalar != 0xd7 && scalar != 0xf7;
+			if ((scalar < 32 || scalar > 126) && !latin1Letter && scalar != 0x2026 && scalar != 0x00a0) { throw "Text needs another shaping engine"; }
 			int glyph = self.characters.glyphIndex(scalar);
 			if (glyph == 0) { throw "Text needs a fallback font"; }
 			self.requireBase(glyph);

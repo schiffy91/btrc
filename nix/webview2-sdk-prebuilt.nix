@@ -1,8 +1,7 @@
-# The WebView2 SDK the Windows web view is compiled against: Microsoft's
-# NuGet package, which holds the C header (build/native/include/WebView2.h)
-# and, per architecture, the loader a program ships beside itself
-# (build/native/<arch>/WebView2Loader.dll). The engine itself is the
-# system's Edge WebView2 runtime.
+# The ABI tests compare btrc's first-party COM declarations against the header
+# in this Microsoft NuGet package. Windows apps that embed web content ship
+# its architecture-specific WebView2Loader.dll alongside the executable.
+# The system Edge WebView2 runtime supplies the browser engine.
 #
 # The hash is the SHA-256 of the package file as downloaded from
 # https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/<version>

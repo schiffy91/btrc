@@ -23,8 +23,11 @@ class PortalDirectoryPicker implements IDirectoryPicker {
 	}
 
 	class string desktop() { return "org.freedesktop.portal.Desktop"; }
+
 	class string path() { return "/org/freedesktop/portal/desktop"; }
+
 	class string chooser() { return "org.freedesktop.portal.FileChooser"; }
+
 	class string requestInterface() { return "org.freedesktop.portal.Request"; }
 
 	private DirectoryPickerOutcome unavailable(DirectoryPickerRequest request) {

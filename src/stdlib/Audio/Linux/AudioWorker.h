@@ -4,6 +4,7 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 #include "LegacyPcm.h"
+#include "ConfiguredPcm.h"
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>

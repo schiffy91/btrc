@@ -43,13 +43,23 @@ symbols = [
 os = ["linux"]
 
 [[native.bindings]]
+module = "Linux.ConfiguredRoutes"
+header = "Linux/ConfiguredPcm.h"
+read-only-borrows = ["btrcConfiguredFileSupported.path", "btrcConfiguredSource.path"]
+language = "c"
+standard = "c11"
+symbols = ["btrcConfiguredFileSupported", "btrcConfiguredSource"]
+os = ["linux"]
+
+[[native.bindings]]
 module = "Linux.LinuxAudioDevice"
 header = "Linux/AudioWorker.h"
-read-only-borrows = ["btrcLegacyOpen.name"]
+read-only-borrows = ["btrcLegacyOpen.name", "btrcConfiguredOpen.path"]
 language = "c"
 standard = "c11"
 symbols = [
-	"btrcAlsaHostNanoseconds", "btrcAlsaRealtimePriority", "btrcLegacyHints", "btrcLegacyHintCount", "btrcLegacyHint", "btrcLegacyHintsClose", "btrcLegacyOpen",
+	"btrcConfiguredOpen", "btrcConfiguredTransfer", "btrcConfiguredClose",
+    "btrcAlsaHostNanoseconds", "btrcAlsaRealtimePriority", "btrcLegacyHints", "btrcLegacyHintCount", "btrcLegacyHint", "btrcLegacyHintsClose", "btrcLegacyOpen",
 	"btrcLegacyClose", "btrcLegacyProbe", "btrcLegacyConfigure", "btrcLegacyWait", "btrcLegacyPrepare",
 	"btrcLegacyStart", "btrcLegacyDrop", "btrcLegacyRecover", "btrcLegacyStartIfPrepared", "btrcLegacyNeedsDrop", "btrcLegacyTransfer"
 ]

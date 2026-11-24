@@ -1,5 +1,6 @@
 """Mount and click a public Library.GUI application on a real compositor in an empty runtime root."""
 
+import ctypes.util
 import os
 import platform
 import re
@@ -25,7 +26,7 @@ SDK_PACKAGES = {"gtk4", "gtk4-wayland", "gtk4-x11", "wayland-client", "x11", "we
 RUNTIME_FORBIDDEN = ("libgtk", "libgdk", "libX11", "libwayland", "libfontconfig", "libfreetype", "libpango")
 
 
-def build_app(frontend, source, tmp_path, request):
+def build_app(frontend, source, tmp_path, request, *, timeout=600):
     require_linux_reader()
     for tool in ("bwrap", "fc-match"):
         if not shutil.which(tool):
@@ -46,7 +47,7 @@ def build_app(frontend, source, tmp_path, request):
         cwd=ROOT,
         env=env,
         check=True,
-        timeout=600,
+        timeout=timeout,
     )
     subprocess.run(
         [
@@ -64,11 +65,15 @@ def build_app(frontend, source, tmp_path, request):
     return executable
 
 
-@pytest.mark.parametrize("frontend", ["python", "selfhost"])
-def test_preview(frontend, input_device, tmp_path, request):  # noqa: F811
+@pytest.fixture(scope="module", params=["python", "selfhost"])
+def preview_app(request, tmp_path_factory):
+    return build_app(request.param, SAMPLE, tmp_path_factory.mktemp("native-wayland-" + request.param), request)
+
+
+def test_preview(preview_app, input_device, tmp_path):  # noqa: F811
     if not shutil.which("grim"):
         pytest.skip("observing the window pixels requires grim")
-    executable = build_app(frontend, SAMPLE, tmp_path, request)
+    executable = preview_app
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, executable, input_device, tmp_path],
         check=True,
@@ -87,6 +92,17 @@ def test_preview_directory_picker(frontend, tmp_path, request):
     executable = build_app(frontend, source, tmp_path, request)
     subprocess.run(
         [SESSION, "--wayland", "--", sys.executable, __file__, "--portal", executable, tmp_path],
+        check=True,
+        timeout=45,
+    )
+
+
+def test_preview_accessibility(preview_app, tmp_path):
+    if not ctypes.util.find_library("atspi") or not os.environ.get("BTRC_ATSPI_LIBEXEC"):
+        pytest.skip("requires the desktop's AT-SPI client library and bus launcher")
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, "-m", "src.tests.native.gui.wayland_atspi", preview_app, tmp_path],
+        cwd=ROOT,
         check=True,
         timeout=45,
     )
