@@ -17,6 +17,9 @@ struct BtrcWaylandDisplay {
     bool (*deleteAround)(BtrcWaylandWindow *, unsigned, unsigned);
     void (*activationChanged)(void);
     bool (*routeInput)(BtrcWaylandDisplay *, const BtrcShimEvent *, bool *);
+    bool (*modalFilter)(void *, const BtrcShimEvent *, bool *);
+    void *modal;
+    uint32_t dialogManager, dialogManagerName;
     uint32_t registry;
     uint32_t compositor;
     uint32_t compositorVersion;
@@ -50,6 +53,7 @@ struct BtrcWaylandWindow {
     uint32_t xdg;
     uint32_t toplevel;
     uint32_t activationSeat, activationSerial;
+    uint32_t dialog;
     BtrcWaylandExport *exports;
     struct BtrcWaylandPopup *popup;
     char *title;

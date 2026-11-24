@@ -109,7 +109,7 @@ void btrcWaylandLabelSetFont(BtrcWaylandLabel *label, double size, bool bold) {
 }
 
 int btrcWaylandLabelMeasure(BtrcWaylandLabel *label, bool horizontal, int forWidth) {
-    BtrcWaylandTextLines *lines = layout(label, 1, horizontal ? -1 : forWidth);
+    BtrcWaylandTextLines *lines = layout(label, 1, forWidth);
     if (!lines) { return 0; }
     double size = ceil(horizontal ? lines->width : lines->height);
     return size < INT_MAX ? (int)size : INT_MAX;
