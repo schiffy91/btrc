@@ -1,0 +1,17 @@
+import Library.Bytes;
+
+/* Both WOFF containers omit the offset table's three search fields. */
+class SFNTHeader {
+	class Bytes create(unsigned int flavor, int count) {
+		int power = 1;
+		int selector = 0;
+		while (power * 2 <= count) { power *= 2; selector++; }
+		var result = Bytes();
+		result.appendU32BE(flavor);
+		result.appendU16BE(count);
+		result.appendU16BE(power * 16);
+		result.appendU16BE(selector);
+		result.appendU16BE((count - power) * 16);
+		return result;
+	}
+}

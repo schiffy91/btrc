@@ -1,0 +1,114 @@
+import Library.Bytes;
+import Library.Compression.ZlibReader;
+import Library.Vector;
+
+import ./SFNTHeader.btrc;
+
+class WOFFTable {
+	public unsigned int tag;
+	public unsigned int checksum;
+	public int offset;
+	public int compressed;
+	public int length;
+	public int output = 0;
+
+	public WOFFTable(Bytes bytes, int record) {
+		self.tag = bytes.readU32BE(record);
+		unsigned int offset = bytes.readU32BE(record + 4);
+		unsigned int compressed = bytes.readU32BE(record + 8);
+		unsigned int length = bytes.readU32BE(record + 12);
+		if (length > 268435456U || compressed > length || offset > (unsigned int)bytes.length() || compressed > (unsigned int)bytes.length() - offset) { throw "Invalid WOFF table bounds"; }
+		self.offset = (int)offset;
+		self.compressed = (int)compressed;
+		self.length = (int)length;
+		self.checksum = bytes.readU32BE(record + 16);
+	}
+}
+
+bool woffTableBefore(WOFFTable a, WOFFTable b) { return a.offset < b.offset || (a.offset == b.offset && a.compressed < b.compressed); }
+
+bool woffTagBefore(WOFFTable a, WOFFTable b) { return a.tag < b.tag; }
+
+/* In WOFF1 each table is independently uncompressed or packaged as
+ * one complete zlib stream. Preserve physical order and checksums when
+ * restoring the sfnt; the sfnt directory itself is sorted by tag. */
+class WOFFFont {
+	private int block(Bytes bytes, int previous, unsigned int offset, unsigned int length) {
+		if ((offset & 3U) != 0U || offset < (unsigned int)previous || offset - (unsigned int)previous > 3U || offset > (unsigned int)bytes.length() || length > (unsigned int)bytes.length() - offset) { throw "Invalid WOFF block bounds"; }
+		for (int i = previous; i < (int)offset; i++) {
+			if (bytes.get(i) != 0) { throw "Invalid WOFF alignment padding"; }
+		}
+		return (int)(offset + length);
+	}
+
+	private int optionalBlock(Bytes bytes, int previous, int field) {
+		unsigned int offset = bytes.readU32BE(field);
+		unsigned int length = bytes.readU32BE(field + 4);
+		if ((offset == 0U) != (length == 0U)) { throw "Invalid optional WOFF block"; }
+		return offset == 0U ? previous : self.block(bytes, previous, offset, length);
+	}
+
+	public Bytes unpack(Bytes bytes) {
+		if (bytes.length() < 44 || bytes.readU32BE(0) != 0x774f4646U || bytes.readU32BE(8) != (unsigned int)bytes.length() || bytes.readU16BE(14) != 0) { throw "Invalid WOFF header"; }
+		int count = bytes.readU16BE(12);
+		if (count < 1 || count > 4095 || count > (bytes.length() - 44) / 20) { throw "Invalid WOFF table count"; }
+		int total = 12 + count * 16;
+		Vector<WOFFTable> stored = [];
+		Vector<WOFFTable> directory = [];
+		for (int i = 0; i < count; i++) {
+			var table = WOFFTable(bytes, 44 + i * 20);
+			int size = (table.length + 3) & ~3;
+			if (size > 268435456 - total) { throw "WOFF font exceeds the table data limit"; }
+			total += size;
+			stored.push(table);
+			directory.push(table);
+		}
+		if (bytes.readU32BE(16) != (unsigned int)total) { throw "Invalid uncompressed WOFF size"; }
+		stored.sortBy(woffTableBefore);
+		directory.sortBy(woffTagBefore);
+		int input = 44 + count * 20;
+		int output = 12 + count * 16;
+		for (int i = 0; i < count; i++) {
+			var table = stored.get(i);
+			input = self.block(bytes, input, (unsigned int)table.offset, (unsigned int)table.compressed);
+			table.output = output;
+			output += (table.length + 3) & ~3;
+		}
+		/* Table padding, including the last table's padding, is required
+		 * even if neither optional block follows it. */
+		int padding = (4 - (input & 3)) & 3;
+		if (padding > bytes.length() - input) { throw "Missing WOFF final table padding"; }
+		for (int j = 0; j < padding; j++) { if (bytes.get(input + j) != 0) { throw "Invalid WOFF table padding"; } }
+		input += padding;
+		if ((bytes.readU32BE(24) == 0U) != (bytes.readU32BE(32) == 0U)) { throw "Invalid WOFF metadata length"; }
+		input = self.optionalBlock(bytes, input, 24);
+		input = self.optionalBlock(bytes, input, 36);
+		if (bytes.length() - input > ((4 - (input & 3)) & 3)) { throw "Excess WOFF data"; }
+		for (int i = input; i < bytes.length(); i++) { if (bytes.get(i) != 0) { throw "Invalid WOFF final padding"; } }
+
+		var result = SFNTHeader.create(bytes.readU32BE(4), count);
+		for (int i = 0; i < count; i++) {
+			var table = directory.get(i);
+			if (i > 0 && directory.get(i - 1).tag == table.tag) { throw "Duplicate WOFF font table"; }
+			result.appendU32BE(table.tag);
+			result.appendU32BE(table.checksum);
+			result.appendU32BE((unsigned int)table.output);
+			result.appendU32BE((unsigned int)table.length);
+		}
+		for (int i = 0; i < count; i++) {
+			var table = stored.get(i);
+			if (table.compressed == table.length) {
+				result.appendBytes(bytes.slice(table.offset, table.offset + table.length));
+			} else {
+				Vector<int> range = [table.offset, table.offset + table.compressed];
+				var stream = ZlibReader(bytes, range);
+				var decoded = Bytes.zeros(table.length);
+				stream.read((unsigned char*)decoded.data, table.length);
+				stream.finish();
+				result.appendBytes(decoded);
+			}
+			while ((result.length() & 3) != 0) { result.append(0); }
+		}
+		return result;
+	}
+}

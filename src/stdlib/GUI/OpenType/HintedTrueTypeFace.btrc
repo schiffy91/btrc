@@ -10,8 +10,9 @@ import ./OpenTypeHorizontalMetrics.btrc;
 import ./SFNTDirectory.btrc;
 import ./TrueTypeGlyphs.btrc;
 import ./WOFF2Font.btrc;
+import ./WOFFFont.btrc;
 
-/* A standalone WOFF2 face with TrueType outlines and its own grid-fitting
+/* A standalone SFNT or WOFF face with TrueType outlines and its own grid-fitting
  * programs. The public factory retains its original bytes for instructions
  * that require the SDK later. */
 class HintedTrueTypeFace implements IFontFace {
@@ -22,7 +23,9 @@ class HintedTrueTypeFace implements IFontFace {
 	public Bytes source;
 
 	class HintedTrueTypeFace? tryOpen(string path, int pixels) {
-		if (path == null || pixels < 1 || !path.toLower().endsWith(".woff2")) { return null; }
+		if (path == null || pixels < 1) { return null; }
+		string name = path.toLower();
+		if (!name.endsWith(".woff2") && !name.endsWith(".woff") && !name.endsWith(".ttf")) { return null; }
 		// Honor explicitly configured FreeType interpreter/renderer properties.
 		char* properties = getenv("FREETYPE_PROPERTIES");
 		if (properties != null && properties[0] != 0) { return null; }
@@ -30,10 +33,15 @@ class HintedTrueTypeFace implements IFontFace {
 		if (file == null) { return null; }
 		try {
 			var header = Bytes.zeros(48);
-			if (fread(header.data, 1, 48, file) != (size_t)48 || header.readU32BE(0) != 0x774f4632U || header.readU32BE(4) != 0x10000U) { return null; }
+			if (fread(header.data, 1, 48, file) != (size_t)48) { return null; }
+			unsigned int format = header.readU32BE(0);
+			bool wrapped = format == 0x774f4632U || format == 0x774f4646U;
+			if (wrapped && (header.readU32BE(4) != 0x10000U || header.readU32BE(16) > 33554432U)) { return null; }
+			if (!wrapped && format != 0x10000U) { return null; }
+			if (format != 0x774f4632U && !HintedTrueTypeFace.hasHintTables(file, header, wrapped)) { return null; }
 			if (fseek(file, 0L, SEEK_END) != 0) { return null; }
 			long length = ftell(file);
-			if (length < 48L || length > 16777216L || header.readU32BE(16) > 33554432U || fseek(file, 0L, SEEK_SET) != 0) { return null; }
+			if (length < 48L || length > 16777216L || fseek(file, 0L, SEEK_SET) != 0) { return null; }
 			var bytes = Bytes.zeros((int)length);
 			if (fread(bytes.data, 1, (size_t)length, file) != (size_t)length) { return null; }
 			return new HintedTrueTypeFace(bytes, pixels);
@@ -41,9 +49,32 @@ class HintedTrueTypeFace implements IFontFace {
 		finally { fclose(file); }
 	}
 
+	/* Leave bitmap, unhinted and non-TrueType files on the existing path
+	 * before allocating space for their entire contents. */
+	class bool hasHintTables(FILE* file, Bytes header, bool woff) {
+		int count = header.readU16BE(woff ? 12 : 4);
+		if (count < 1 || count > 4095 || fseek(file, woff ? 44L : 12L, SEEK_SET) != 0) { return false; }
+		int stride = woff ? 20 : 16;
+		var directory = Bytes.zeros(count * stride);
+		if (fread(directory.data, 1, (size_t)directory.length(), file) != (size_t)directory.length()) { return false; }
+		int found = 0;
+		for (int i = 0; i < count; i++) {
+			unsigned int tag = directory.readU32BE(i * stride);
+			if (tag == 0x676c7966U) { found |= 1; } // glyf
+			if (tag == 0x6670676dU) { found |= 2; } // fpgm
+			if (tag == 0x70726570U) { found |= 4; } // prep
+			if (tag == 0x63767420U) { found |= 8; } // cvt
+		}
+		return found == 15;
+	}
+
 	public HintedTrueTypeFace(Bytes bytes, int pixels) {
 		self.source = bytes;
-		var data = OpenTypeData(WOFF2Font().unpack(bytes));
+		unsigned int format = bytes.readU32BE(0);
+		Bytes sfnt = bytes;
+		if (format == 0x774f4632U) { sfnt = WOFF2Font().unpack(bytes); }
+		else if (format == 0x774f4646U) { sfnt = WOFFFont().unpack(bytes); }
+		var data = OpenTypeData(sfnt);
 		var directory = SFNTDirectory(data);
 		self.checkTables(directory);
 		var head = directory.required(0x68656164LL, 54);
@@ -86,7 +117,7 @@ class HintedTrueTypeFace implements IFontFace {
 	/* Only table families with defined behavior in this renderer are accepted.
 	 * Layout, identification and licensing tables do not change glyph images. */
 	private void checkTables(SFNTDirectory directory) {
-		string tags = "cmapglyflocaheadhheahmtxmaxpnameOS/2postcvt fpgmprepgaspGDEFGPOSGSUBkernDSIG";
+		string tags = "cmapglyflocaheadhheahmtxmaxpnameOS/2postcvt fpgmprepgaspGDEFGPOSGSUBkernDSIGFFTMMATHvheavmtx";
 		for (int i = 0; i < directory.count; i++) {
 			long long tag = directory.tag(i);
 			bool known = false;

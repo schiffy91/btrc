@@ -27,6 +27,6 @@ int main(int argc, char** argv) {
 			if (g.coverage(j / 6, j % 6) != expected.get(j)) { return 5; }
 		}
 	}
-	print("PASS: hinted WOFF2 snapshots after unlink");
+	print("PASS: hinted outline snapshots after unlink");
 	return 0;
 }
