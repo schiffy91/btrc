@@ -1,0 +1,43 @@
+import Library.Vector;
+
+import ./CFFTables.btrc;
+
+/* Type 2 alignment zones are pairs of delta-encoded character-space
+ * coordinates. A stem touching a zone needs coordinated blue alignment. */
+class CFFBlueZones {
+	private Vector<int> bounds = [];
+	private int fuzz = 1;
+	private bool usable = true;
+
+	public void read(CFFDict dictionary) {
+		if (dictionary.count(267) >= 0) {
+			if (dictionary.count(267) != 1) { self.usable = false; return; }
+			double n = dictionary.number(267, 0);
+			if (!(n >= 0.0 && n <= 32767.0) || (double)(int)n != n) { self.usable = false; return; }
+			self.fuzz = (int)n;
+		}
+		for (int key = 6; key <= 9; key++) {
+			int count = dictionary.count(key);
+			if (count < 0) { continue; }
+			if ((count & 1) != 0 || count > (key == 6 || key == 8 ? 14 : 10)) { self.usable = false; return; }
+			int edge = 0;
+			for (int i = 0; i < count; i++) {
+				double delta = dictionary.number(key, i);
+				if (!(delta >= -65535.0 && delta <= 65535.0) || (double)(int)delta != delta || ((i & 1) != 0 && delta < 0.0)) { self.usable = false; return; }
+				edge += (int)delta;
+				if (edge < -32768 || edge > 32767) { self.usable = false; return; }
+				self.bounds.push(edge);
+			}
+		}
+	}
+
+	public bool clearOf(int bottom, int top) {
+		if (!self.usable) { return false; }
+		for (int i = 0; i < self.bounds.size(); i += 2) {
+			int low = self.bounds.get(i) - self.fuzz;
+			int high = self.bounds.get(i + 1) + self.fuzz;
+			if ((low <= bottom && bottom <= high) || (low <= top && top <= high)) { return false; }
+		}
+		return true;
+	}
+}
