@@ -5,6 +5,7 @@
 #include <fnmatch.h>
 #include <glob.h>
 #include <regex.h>
+#include <stdint.h>
 #include <stdio.h>
 
 int overlay_helper_compile(regex_t *compiled, const char *pattern);
@@ -13,10 +14,14 @@ int overlay_helper_match(const char *pattern, const char *text);
 int main(void)
 {
 	regex_t compiled;
-	int compiled_status = overlay_helper_compile(&compiled, "b+");
+	if (overlay_helper_compile(&compiled, "b+") != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
 	regmatch_t match[1];
-	int matched = compiled_status == 0 && regexec(&compiled, "abbbc", 1, match, 0) == 0;
-	if (compiled_status == 0) regfree(&compiled);
+	int matched = regexec(&compiled, "abbbc", 1, match, 0) == 0;
+	regfree(&compiled);
+	regmatch_t nested[1];
+	if (overlay_helper_compile(&compiled, "((a{2})?b)?") != 0 || ((uintptr_t)compiled.__opaque & 1u)) return 1;
+	if (regexec(&compiled, "ab", 1, nested, 0) || nested[0].rm_so != 0 || nested[0].rm_eo != 2) return 1;
+	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;
 	int globbed = glob("no-such-directory-*/x", 0, NULL, &found);

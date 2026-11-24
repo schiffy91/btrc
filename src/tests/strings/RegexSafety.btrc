@@ -19,6 +19,22 @@ int main() {
 	assert(Regex.replace("^", "abc", "X").equals("Xabc"));
 	assert(Regex.replaceAll("$", "abc", "X").equals("abcX"));
 
+#if defined(_WIN32)
+	/* The Windows ERE dialect permits a hyphen-starting range directly
+	 * after another range or a named class. */
+	assert(Regex.first("[a-z--@]+", "_ab7@_").equals("ab7@"));
+	CompiledRegex hyphen = new CompiledRegex("[[:alpha:]--9]+");
+	assert(hyphen.fullMatch("Az1-"));
+	assert(!hyphen.fullMatch("Az:"));
+	delete hyphen;
+	assert(Regex.fullMatch("[0-[:alpha:]]", "5]"));
+
+	/* Keep the legacy provider for nested Windows intervals until their
+	 * observable whole-span semantics have a compatible replacement. */
+	assert(Regex.fullMatch("((a{2})?b)?", "ab"));
+	assert(Regex.first("((b{1,3}){2,3}|.x){0,2}", "ab").equals("ab"));
+#endif
+
 	print("PASS: test_regex_safety");
 	return 0;
 }

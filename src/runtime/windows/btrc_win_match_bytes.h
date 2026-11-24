@@ -82,11 +82,13 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 	int range = 0;
 	do {
 		if (!*p) return btrc_win_list_unclosed;
+		if (!shell && *p == '-' && previous >= 0 && !p[1]) return btrc_win_list_range;
 		if (*p == '-' && previous >= 0 && p[1] && p[1] != ']') {
 			++p;
 			range = 1;
 		}
-		if (p[0] == '[' && (p[1] == ':' || p[1] == '.' || p[1] == '=')) {
+		/* A regex range ends in one literal byte, including '['. */
+		if ((!range || shell) && p[0] == '[' && (p[1] == ':' || p[1] == '.' || p[1] == '=')) {
 			unsigned char type = p[1];
 			const unsigned char *name = p + 2;
 			const unsigned char *end = name;
@@ -95,7 +97,6 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 			if (type == ':') {
 				if (!btrc_win_set_class(set, name, (size_t)(end - name)) && !shell) return btrc_win_list_class;
 			} else if (!shell) return btrc_win_list_collate;
-			if (range && !shell) return btrc_win_list_range;
 			previous = -1;
 			p = end + 2;
 		} else {
@@ -107,6 +108,11 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 			btrc_win_set_add(set, (unsigned int)c);
 			previous = range && !shell ? -1 : c;
 		}
+		/* A completed range or named class cannot start a second range.
+		   Windows also accepts a new range with '-' as its lower endpoint,
+		   as in [a-z--@], where the second range is '-' through '@'. */
+		if (!shell && previous < 0 && p[0] == '-' && p[1] != ']' &&
+		    (p[1] != '-' || !p[2] || p[2] == ']')) return btrc_win_list_range;
 		range = 0;
 	} while (*p != ']');
 	btrc_win_set_finish(set, fold, negate);

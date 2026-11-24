@@ -2,8 +2,9 @@
    windows-aarch64). MinGW-w64 ships no regular-expression engine (PLAN.md
    D22: "Windows regex: a vendored POSIX regex").
 
-   The engine is musl 1.2.5's TRE-derived regcomp/regexec (musl/, MIT and
-   BSD-2-Clause; see musl/COPYRIGHT and README.md). This header declares the
+   Single-atom EREs use a first-party byte matcher. Other patterns and flags
+   use musl 1.2.5's TRE-derived regcomp/regexec (musl/, MIT and BSD-2-Clause;
+   see musl/COPYRIGHT and README.md). This header declares the
    POSIX interface and compiles the engine into the including translation
    unit with internal linkage, so every build that already puts this overlay
    on its include path (Makefile WIN_COMPAT, tools/native_plan.py, the target
@@ -60,17 +61,65 @@ typedef struct {
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
-static int btrc_win_regcomp(regex_t *restrict, const char *restrict, int);
-static int btrc_win_regexec(const regex_t *restrict, const char *restrict, size_t, regmatch_t *restrict, int);
-static void btrc_win_regfree(regex_t *);
-static size_t btrc_win_regerror(int, const regex_t *restrict, char *restrict, size_t);
+static int btrc_win_legacy_regcomp(regex_t *restrict, const char *restrict, int);
+static int btrc_win_legacy_regexec(const regex_t *restrict, const char *restrict, size_t, regmatch_t *restrict, int);
+static void btrc_win_legacy_regfree(regex_t *);
+static size_t btrc_win_legacy_regerror(int, const regex_t *restrict, char *restrict, size_t);
 #pragma GCC diagnostic pop
 
-#define regcomp btrc_win_regcomp
-#define regexec btrc_win_regexec
-#define regfree btrc_win_regfree
-#define regerror btrc_win_regerror
+#define regcomp btrc_win_legacy_regcomp
+#define regexec btrc_win_legacy_regexec
+#define regfree btrc_win_legacy_regfree
+#define regerror btrc_win_legacy_regerror
 
 #define BTRC_WIN_MUSL_PART_REGEX
 #include "btrc_win_musl.h"
 #undef BTRC_WIN_MUSL_PART_REGEX
+
+#undef regcomp
+#undef regexec
+#undef regfree
+#undef regerror
+
+#include "btrc_win_regex_atom.h"
+
+/* Both allocated representations have at least two-byte alignment. Tag the
+   new pointer so an untagged regex_t from existing code stays usable, even
+   when regcomp and regexec are compiled in different translation units. */
+static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *restrict pattern, int flags)
+{
+	btrc_win_regex_atom atom = {0};
+	if (flags == REG_EXTENDED && btrc_win_regex_parse_atom(pattern, &atom)) {
+		btrc_win_regex_atom *stored = (btrc_win_regex_atom *)malloc(sizeof *stored);
+		if (!stored) return REG_ESPACE;
+		*stored = atom;
+		memset(re, 0, sizeof *re);
+		re->__opaque = (void *)((uintptr_t)stored | (uintptr_t)1);
+		return 0;
+	}
+	return btrc_win_legacy_regcomp(re, pattern, flags);
+}
+
+static inline int btrc_win_dispatch_regexec(const regex_t *restrict re, const char *restrict subject,
+                                            size_t count, regmatch_t *restrict matches, int flags)
+{
+	uintptr_t pointer = (uintptr_t)re->__opaque;
+	if (!(pointer & (uintptr_t)1)) return btrc_win_legacy_regexec(re, subject, count, matches, flags);
+	return btrc_win_regex_match_atom((const btrc_win_regex_atom *)(pointer - 1), subject, count, matches);
+}
+
+static inline void btrc_win_dispatch_regfree(regex_t *re)
+{
+	uintptr_t pointer = (uintptr_t)re->__opaque;
+	if (pointer & (uintptr_t)1) {
+		free((void *)(pointer - 1));
+		re->__opaque = NULL;
+	} else {
+		btrc_win_legacy_regfree(re);
+	}
+}
+
+#define regcomp btrc_win_dispatch_regcomp
+#define regexec btrc_win_dispatch_regexec
+#define regfree btrc_win_dispatch_regfree
+#define regerror btrc_win_legacy_regerror
