@@ -80,7 +80,7 @@ def test_wayland_button_title_measurement_and_pixels(frontend, native_wayland_ro
     )
 
 
-def compare(program, probe, config):
+def compare(program, probe, config, click=None):
     width, height = 160, 60
     with subprocess.Popen([program], stdout=subprocess.PIPE, env={**os.environ, "FONTCONFIG_FILE": config}) as app:
         try:
@@ -106,7 +106,20 @@ def compare(program, probe, config):
                 ):
                     break
             else:
-                raise AssertionError("Compositor did not show the independently measured and rasterized button title")
+                raise AssertionError("Compositor did not show the independently measured and rasterized control text")
+            if click is not None:
+                y, x = divmod((start - header.end()) // 3, int(header[1]))
+                px, py = x + click[0], y + click[1]
+                pointer = subprocess.run(
+                    [probe, "mouse"],
+                    input=f"d {px} {py}\nu {px} {py}\n",
+                    capture_output=True,
+                    text=True,
+                    timeout=4,
+                    check=True,
+                )
+                assert pointer.stdout.splitlines() == ["sent", "sent"]
+                assert app.stdout.readline().strip() == b"activated"
             subprocess.run([probe, "close"], check=True)
             assert app.wait(timeout=5) == 0
         finally:

@@ -3,8 +3,9 @@
 
 #include "ControlText.h"
 
+typedef struct BtrcWaylandTextLine BtrcWaylandTextLine;
 typedef struct {
-    BtrcSystemTextRun **runs;
+    BtrcWaylandTextLine **rows;
     size_t count, capacity;
     double width, height;
 } BtrcWaylandTextLines;
@@ -14,6 +15,7 @@ typedef struct {
  * Unicode word opportunities and leaves an indivisible word intact.
  * A NULL result means the configured provider cannot render all lines. */
 BtrcWaylandTextLines *btrcWaylandShapeLines(BtrcSystemTextFont *font, const char *utf8, double width);
+double btrcWaylandLineAdvance(const BtrcWaylandTextLines *lines, size_t index);
 void btrcWaylandFreeLines(BtrcWaylandTextLines *lines);
 void btrcWaylandPaintLines(const BtrcWaylandControlCanvas *canvas, const BtrcWaylandTextLines *lines,
                            double left, double top, double availableWidth, bool centered,

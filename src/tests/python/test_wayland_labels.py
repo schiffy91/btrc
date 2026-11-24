@@ -78,4 +78,4 @@ def test_public_wayland_label_layout_and_compositor(frontend, native_wayland_roo
 
 
 if __name__ == "__main__":
-    compare(*sys.argv[1:])
+    compare(*sys.argv[1:], click=(17, 12))
