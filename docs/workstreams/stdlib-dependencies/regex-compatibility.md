@@ -71,3 +71,5 @@ Variable-width interior captures can use the tagged matcher when each variable-w
 Groups may also follow an initial byte sequence, as in `item([[:digit:]])+`, or appear in a later top-level alternative. The position matcher applies the same expansion and origin checks to the entire expression.
 
 The position matcher handles a single subject or word assertion inside a grouped expression by selecting transitions at each input boundary. Counted copies preserve Windows’ preference for the first syntactically nullable arm. For example, `(a|$){1,2}` matches the empty subject unless the caller supplies `REG_NOTEOL`. The legacy provider still handles repeated assertion-only bodies, nested counted copies of nullable asserted expressions, and ambiguous position aliases with different assertion histories.
+
+Raw BRE callers can use backreferences to completed, nonempty fixed-width groups and variable-width captures with an unambiguous preceding separator. For example, `\([a-z]\+\):\1` matches `Ab:Ab` with `REG_ICASE`. The captured bytes are case-sensitive when read by the backreference. A potentially empty referenced group keeps its legacy behavior.

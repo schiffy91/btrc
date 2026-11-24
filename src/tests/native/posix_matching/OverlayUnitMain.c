@@ -86,6 +86,17 @@ int main(void)
 	regfree(&compiled);
 	if (regcomp(&compiled, "(b*)(.{2,3})", REG_EXTENDED) || ((uintptr_t)compiled.__opaque & 3u) == 2) return 1;
 	regfree(&compiled);
+	if (regcomp(&compiled, "^\\([ab]\\{2\\}\\)\\1$", 0) || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
+	    regexec(&compiled, "baba", 3, capture, 0) || capture[0].rm_eo != 4 || capture[1].rm_so != 0 ||
+	    capture[1].rm_eo != 2 || capture[2].rm_so != -1 || regexec(&compiled, "baba", 0, NULL, REG_NOTBOL) != REG_NOMATCH) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "\\([a-z]\\+\\):\\1", REG_ICASE) || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
+	    regexec(&compiled, "!Ab:Ab.", 2, capture, 0) || capture[0].rm_so != 1 || capture[0].rm_eo != 6 ||
+	    capture[1].rm_so != 1 || capture[1].rm_eo != 3 || regexec(&compiled, "!Ab:ab.", 0, NULL, 0) != REG_NOMATCH) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "\\([a-z]\\?\\) \\1x", 0) || ((uintptr_t)compiled.__opaque & 3u) ||
+	    regexec(&compiled, "x xy", 1, span, 0) != REG_NOMATCH) return 1;
+	regfree(&compiled);
 	char literal[] = "ababaca";
 	if (overlay_helper_compile(&compiled, literal) != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
 	literal[0] = 'z';

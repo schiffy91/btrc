@@ -5,6 +5,7 @@
 #pragma once
 #include <stdlib.h>
 #include <stdint.h>
+#include <limits.h>
 #include "btrc_win_match_bytes.h"
 
 enum btrc_win_rx_op {
@@ -586,19 +587,31 @@ static inline int btrc_win_rx_fixed_spans(btrc_win_rx_program *rx, int n, int *p
 {
 	for (; n; n = rx->nodes[n].next) {
 		const btrc_win_rx_node *node = &rx->nodes[n];
+		int width;
 		if (node->op == btrc_win_rx_byte) {
-			++*position;
+			width = 1;
 		} else if (node->op == btrc_win_rx_repeat && rx->nodes[node->child].op == btrc_win_rx_byte &&
 		           node->min > 0 && node->min == node->max) {
-			*position += node->min;
+			width = node->min;
+		} else if (node->op == btrc_win_rx_assert && rx->references) {
+			continue;
+		} else if (node->op == btrc_win_rx_ref && node->arg <= rx->capture_count) {
+			/* A reference to a completed, positive-width capture consumes
+			   exactly that many bytes. Forward and open groups need ranking. */
+			const int *span = rx->fixed_spans + 2 * node->arg;
+			width = span[1] - span[0];
+			if (width <= 0) return 0;
 		} else if (node->op == btrc_win_rx_group && node->child) {
 			int *span = rx->fixed_spans + 2 * node->arg;
 			span[0] = *position;
 			if (!btrc_win_rx_fixed_spans(rx, node->child, position)) return 0;
 			span[1] = *position;
+			continue;
 		} else {
 			return 0;
 		}
+		if (width > INT_MAX - *position) return 0;
+		*position += width;
 	}
 	return 1;
 }
@@ -606,12 +619,25 @@ static inline int btrc_win_rx_fixed_spans(btrc_win_rx_program *rx, int n, int *p
 /* Pending holds variable-width byte sets that can reach the next atom
    across nullable intervening atoms. With disjoint boundaries, a match
    has a single decomposition and the tags determine each capture. */
-static inline int btrc_win_rx_separated_captures(const btrc_win_rx_node *nodes, int n, btrc_win_byte_set *pending)
+static inline int btrc_win_rx_separated_captures(const btrc_win_rx_node *nodes, int n, btrc_win_byte_set *pending,
+                                                unsigned int *closed, int *has_byte)
 {
 	for (; n; n = nodes[n].next) {
 		const btrc_win_rx_node *node = &nodes[n];
 		if (node->op == btrc_win_rx_group && node->child) {
-			if (!btrc_win_rx_separated_captures(nodes, node->child, pending)) return 0;
+			int child_has_byte = 0;
+			if (!btrc_win_rx_separated_captures(nodes, node->child, pending, closed, &child_has_byte)) return 0;
+			if (child_has_byte) {
+				*has_byte = 1;
+				if (node->arg <= 9) *closed |= 1u << node->arg;
+			}
+			continue;
+		}
+		if (node->op == btrc_win_rx_ref && (*closed & (1u << node->arg))) {
+			/* A fixed separator settles the preceding capture. From that
+			   boundary the reference consumes its exact recorded byte span. */
+			for (size_t i = 0; i < sizeof pending->bits; ++i) if (pending->bits[i]) return 0;
+			*has_byte = 1;
 			continue;
 		}
 		int minimum = 1, maximum = 1;
@@ -622,6 +648,7 @@ static inline int btrc_win_rx_separated_captures(const btrc_win_rx_node *nodes, 
 		}
 		if (node->op != btrc_win_rx_byte) return 0;
 		if (!maximum) continue;
+		if (minimum) *has_byte = 1;
 		for (size_t i = 0; i < sizeof pending->bits; ++i) {
 			unsigned char bits = node->bytes.bits[i];
 			if (pending->bits[i] & bits) return 0;
@@ -659,7 +686,9 @@ static inline int btrc_win_regcomp(regex_t *restrict re, const char *restrict pa
 				free(rx->fixed_spans);
 				rx->fixed_spans = NULL;
 				btrc_win_byte_set pending = {{0}};
-				if (btrc_win_rx_separated_captures(rx->nodes, root, &pending)) rx->report_interior = 1;
+				unsigned int closed = 0;
+				int has_byte = 0;
+				if (btrc_win_rx_separated_captures(rx->nodes, root, &pending, &closed, &has_byte)) rx->report_interior = 1;
 				else parser.error = REG_BADPAT;
 			}
 		} else {
