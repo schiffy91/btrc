@@ -21,7 +21,9 @@ import javax.net.ssl.TrustManagerFactory;
 
 /** A peer in the same AVD keeps TLS traffic independent of adb's control transport. */
 public class AndroidHTTPSLocal {
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) { AndroidHTTPS.finish(AndroidHTTPSLocal::probe, args); }
+
+    private static void probe(String[] args) throws Exception {
         boolean platformTrusted = args[3].equals("trusted");
         Certificate cert;
         try (InputStream pem = Files.newInputStream(Paths.get(args[1]))) {

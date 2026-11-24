@@ -10,7 +10,23 @@ import javax.net.ssl.TrustManagerFactory;
 public class AndroidHTTPS {
     static native int run(String trusted, String wrongName);
 
-    public static void main(String[] args) throws Exception {
+    interface Probe { void run(String[] args) throws Exception; }
+
+    // Android 16 Conscrypt can keep a non-daemon metrics thread alive after
+    // the probe finishes. Preserve failures and explicitly exit this test VM.
+    static void finish(Probe probe, String[] args) {
+        try {
+            probe.run(args);
+        } catch (Throwable error) {
+            error.printStackTrace();
+            System.exit(1);
+        }
+        System.exit(0);
+    }
+
+    public static void main(String[] args) { finish(AndroidHTTPS::probe, args); }
+
+    private static void probe(String[] args) throws Exception {
         if (args.length > 4 && args[4].equals("installed-curl")) {
             System.load(args[0]);
             if (run(args[2], "challenge") != 0) throw new AssertionError("installed curl trust defaults lost");
