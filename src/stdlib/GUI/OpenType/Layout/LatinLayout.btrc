@@ -98,7 +98,8 @@ class LatinLayout {
 		while (at < text.length()) {
 			int cluster = at;
 			int scalar = UTF8.decode(text, text.length(), &at);
-			if ((scalar < 32 || scalar > 126) && scalar != 0x2026 && scalar != 0x00a0) { throw "Text needs another shaping engine"; }
+			bool latin1Letter = scalar >= 0xc0 && scalar <= 0xff && scalar != 0xd7 && scalar != 0xf7;
+			if ((scalar < 32 || scalar > 126) && !latin1Letter && scalar != 0x2026 && scalar != 0x00a0) { throw "Text needs another shaping engine"; }
 			int glyph = self.characters.glyphIndex(scalar);
 			if (glyph == 0) { throw "Text needs a fallback font"; }
 			self.requireBase(glyph);

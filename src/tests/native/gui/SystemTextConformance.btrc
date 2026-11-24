@@ -71,6 +71,14 @@ int main(int argc, char** argv) {
 	btrcSystemTextCloseFont(bold);
 	btrcSystemTextCloseFont(installed);
 	btrcSystemTextCloseRun(measured);
+	// The fixture maps a precomposed Latin letter to its A glyph. A
+	// combining-mark sequence still needs a broader shaping engine.
+	void* precomposed = btrcSystemTextShapeLine(font, "ÁV", 0.0, 0);
+	void* plain = btrcSystemTextShapeLine(font, "AV", 0.0, 0);
+	if (precomposed == null || plain == null || btrcSystemTextAdvance(precomposed) != btrcSystemTextAdvance(plain) || btrcSystemTextInkWidth(precomposed) != btrcSystemTextInkWidth(plain) || btrcSystemTextInkHeight(precomposed) != btrcSystemTextInkHeight(plain)) { return 20; }
+	if (memcmp(btrcSystemTextPixels(precomposed), btrcSystemTextPixels(plain), (size_t)btrcSystemTextInkWidth(plain) * (size_t)btrcSystemTextInkHeight(plain)) != 0 || btrcSystemTextShapeLine(font, "A\u0301", 0.0, 0) != null) { return 21; }
+	btrcSystemTextCloseRun(precomposed);
+	btrcSystemTextCloseRun(plain);
 	void* lig = btrcSystemTextShapeLine(font, "fi", 0.0, 0);
 	void* pair = btrcSystemTextShapeLine(font, "AV", 0.0, 0);
 	void* ellipsis = btrcSystemTextShapeLine(font, "AVfi", 8.0, 1);
