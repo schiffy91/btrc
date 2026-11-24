@@ -52,7 +52,7 @@ enum btrc_win_pos_op { btrc_win_pos_empty, btrc_win_pos_byte, btrc_win_pos_bound
                        btrc_win_pos_union, btrc_win_pos_optional, btrc_win_pos_star, btrc_win_pos_plus };
 typedef struct {
 	enum btrc_win_pos_op op;
-	int left, right, width, requires_byte, has_boundary;
+	int left, right, width, requires_byte;
 } btrc_win_pos_node;
 
 typedef struct {
@@ -77,11 +77,9 @@ static inline int btrc_win_pos_new(btrc_win_pos_builder *b, enum btrc_win_pos_op
 	if (op == btrc_win_pos_byte) {
 		made.width = b->parser->program->nodes[left].copy_stride;
 		made.requires_byte = 1;
-	} else if (op == btrc_win_pos_boundary) made.has_boundary = 1;
-	else {
+	} else if (op != btrc_win_pos_boundary) {
 		const btrc_win_pos_node *a = &b->nodes[left], *z = &b->nodes[right];
 		made.width = a->width + z->width;
-		made.has_boundary = a->has_boundary || z->has_boundary;
 		made.requires_byte = op == btrc_win_pos_cat ? a->requires_byte || z->requires_byte :
 		                     op == btrc_win_pos_union ? a->requires_byte && z->requires_byte :
 		                     op == btrc_win_pos_plus && a->requires_byte;
@@ -115,18 +113,11 @@ static inline int btrc_win_pos_repeat(btrc_win_pos_builder *b, const btrc_win_rx
 	int child = btrc_win_pos_sequence(b, n->child, &inner_offset, depth + 1);
 	if (b->failed) return 0;
 	const btrc_win_pos_node *body = &b->nodes[child];
-	if (b->conditional && body->op == btrc_win_pos_boundary) {
+	if (!body->width) {
 		if (!depth) *offset = b->extra;
 		/* An optional counted tail selects its empty arm before the
-		   zero-width copy. Every other repetition visits the assertion once. */
+		   zero-width copy. Every other repetition evaluates its empty path once. */
 		return counted && !n->min ? 0 : child;
-	}
-	/* Repeating a zero-width assertion or copying a nullable asserted body
-	   inside another repetition requires ranking individual empty paths. */
-	if (b->conditional && body->has_boundary &&
-	    (!body->width || (counted && depth && !body->requires_byte))) {
-		b->failed = 1;
-		return 0;
 	}
 	if (!counted) {
 		if (!depth) *offset = b->extra;
@@ -136,7 +127,7 @@ static inline int btrc_win_pos_repeat(btrc_win_pos_builder *b, const btrc_win_rx
 	}
 	int copies = n->max < 0 ? n->min + 1 : n->max;
 	int width = b->nodes[child].width;
-	if (!width || copies > 255 / width) { b->failed = 1; return 0; }
+	if (copies > 255 / width) { b->failed = 1; return 0; }
 	int required = 0, tail = 0;
 	for (int i = 0; i < copies && !b->failed; ++i) {
 		int copy = btrc_win_pos_copy(b, child, *offset + i * width);
@@ -355,7 +346,7 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 			if (count < 2) assertions[count] = kind;
 			++count;
 		}
-		if ((index || count) && index <= btrc_win_pos_limit && count <= 2 && escapes == word_assertions) {
+		if (index <= btrc_win_pos_limit && count <= 2 && escapes == word_assertions) {
 			size_t bytes = sizeof *p + btrc_win_pos_limit * sizeof *p->edge + strlen(pattern) + 1;
 			p = (btrc_win_pos_program *)calloc(1, bytes);
 		}

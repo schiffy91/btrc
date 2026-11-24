@@ -93,6 +93,8 @@ int main() {
 	assert(Regex.first("((a*)b+):([0-9]*)", "bb:17").equals("bb:17"));
 	assert(Regex.fullMatch("x((a{2})?b)?", "xab"));
 	assert(Regex.fullMatch("item([[:digit:]])+", "item42"));
+	assert(Regex.first("((((^([[:digit:]]){0,2}){0,2}|a(b)*)){2,3})?", "aa").equals("a"));
+	assert(Regex.fullMatch("((((b){2}){2,}|([xyz]|(){0,2})))?", "b"));
 	assert(Regex.first("((((\\b|((|ab)){1,2}))?b|((ab){0}))){2}", "bb").equals("b"));
 	assert(Regex.fullMatch("(((a[a-z]){0,2}){2,}(((\\b|^)|bb)))?", "ba"));
 	assert(Regex.find("(\\B){2}", "ab") == 1);

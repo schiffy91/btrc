@@ -184,6 +184,10 @@ int main(void)
 	if (positions->assertion_count != 2 || regexec(&compiled, "", 1, span, REG_NOTEOL) || span[0].rm_so != 0 ||
 	    span[0].rm_eo != 0 || regexec(&compiled, "", 0, NULL, REG_NOTBOL) != REG_NOMATCH) return 1;
 	regfree(&compiled);
+	if (regcomp(&compiled, "((((^([[:digit:]]){0,2}){0,2}|a(b)*)){2,3})?", REG_EXTENDED) ||
+	    ((uintptr_t)compiled.__opaque & 3u) != 3 || regexec(&compiled, "aa", 1, span, REG_NOTBOL) ||
+	    span[0].rm_so != 0 || span[0].rm_eo != 1) return 1;
+	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;
 	int globbed = glob("no-such-directory-*/x", 0, NULL, &found);
