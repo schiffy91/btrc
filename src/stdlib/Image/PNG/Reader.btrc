@@ -39,6 +39,10 @@ class PNGReader {
 	private int paletteCount = 0;
 	private bool transparency = false;
 	private bool keyed = false;
+	private unsigned int gamma = 0u;
+	private int colorBits = 0;
+	private Bytes colorTable;
+	private int colorShift = 0;
 	private int keyRed = 0;
 	private int keyGreen = 0;
 	private int keyBlue = 0;
@@ -157,6 +161,19 @@ class PNGReader {
 				if (hasPalette) { throw "Duplicate PNG palette"; }
 				hasPalette = true;
 				if (!started) { self.readPalette(start, size); }
+			} else if (!hasPalette && !started && kind == 0x67414d41u && size == 4 && self.gamma == 0u) {
+				var gamma = self.bytes.readU32BE(start);
+				if (gamma > 0u && gamma <= 2147483647u) { self.gamma = gamma; }
+			} else if (!hasPalette && !started && kind == 0x73524742u && size == 1 && self.bytes.get(start) < 4) {
+				self.gamma = 45455u;
+			} else if (!hasPalette && !started && kind == 0x73424954u && self.depth == 16 && size == self.channels) {
+				int bits = 0;
+				for (int i = 0; i < size; i++) {
+					var value = self.bytes.get(start + i);
+					if (value < 1 || value > 16) { bits = 0; break; }
+					if (value > bits && (i == 0 || self.colorType == 2 || (self.colorType == 6 && i < 3))) { bits = value; }
+				}
+				self.colorBits = bits;
 			} else if (kind == 0x74524e53u) {
 				if (!started) { self.readTransparency(start, size); }
 			} else if ((kind & 0x20000000u) == 0u) { throw "Unknown critical PNG chunk"; }
@@ -194,6 +211,46 @@ class PNGReader {
 		} else { throw "Invalid PNG filter"; }
 	}
 
+	// The simplified image API represents 8-bit output in the sRGB encoding.
+	// Untagged 16-bit input is linear. Alpha always stays linear.
+	private void prepareColors() {
+		var gamma = self.gamma == 0u ? (self.depth == 16 ? 100000u : 45455u) : self.gamma;
+		double encoded = (double)gamma * 2.2;
+		double forward = floor(10000000000.0 / encoded + 0.5);
+		if (forward > 2147483647.0) { forward = 0.0; }
+		if ((encoded >= 95000.0 && encoded <= 105000.0) || (self.depth < 16 && forward >= 95000.0 && forward <= 105000.0)) { return; }
+		if (self.depth < 16) {
+			self.colorTable = Bytes.zeros(256);
+			for (int sample = 1; sample < 256; sample++) {
+				self.colorTable.set(sample, (int)(255.0 * pow((double)sample / 255.0, (double)forward / 100000.0) + 0.5));
+			}
+			return;
+		}
+		// Invert the 255 output decision boundaries onto a reduced input
+		// table. Eleven significant bits suffice for 8-bit display output.
+		var bits = self.colorBits > 0 && self.colorBits < 11 ? self.colorBits : 11;
+		if (bits < 8) { bits = 8; }
+		self.colorShift = 16 - bits;
+		var maximum = (1 << bits) - 1;
+		self.colorTable = Bytes.zeros(maximum + 1);
+		double reverse = forward > 0.0 ? floor(10000000000.0 / forward + 0.5) : 0.0;
+		if (reverse > 2147483647.0) { reverse = 0.0; }
+		reverse = reverse / 100000.0;
+		int sample = 0;
+		for (int level = 0; level < 255; level++) {
+			double midpoint = (double)(level * 257 + 128) / 65535.0;
+			int boundary = (int)(65535.0 * pow(midpoint, reverse) + 0.5);
+			int last = (boundary * maximum + 32768) / 65535;
+			while (sample <= last) { self.colorTable.set(sample, level); sample++; }
+		}
+		while (sample <= maximum) { self.colorTable.set(sample, 255); sample++; }
+	}
+
+	private int display16(int sample) {
+		if (self.colorShift != 0) { return self.colorTable.get(sample >> self.colorShift); }
+		return PNGReader.narrow(sample);
+	}
+
 	// Rounds a 16-bit sample to the nearest 8-bit level.
 	class int narrow(int sample) { return (sample * 255 + 32895) >> 16; }
 
@@ -203,7 +260,7 @@ class PNGReader {
 		unsigned char* target = image.data + ((long long)y * self.width + left) * 4LL;
 		var kind = self.colorType;
 		var depth = self.depth;
-		if (kind == 6 && depth == 8 && step == 1) {
+		if (kind == 6 && depth == 8 && step == 1 && self.colorTable == null) {
 			memcpy(target, row, (size_t)(columns * 4));
 			return;
 		}
@@ -248,14 +305,17 @@ class PNGReader {
 				if (kind == 0 || kind == 4) {
 					if (kind == 4) { alpha = PNGReader.narrow(((int)pixel[2] << 8) | (int)pixel[3]); }
 					else if (self.keyed && red == self.keyRed) { alpha = 0; }
-					red = PNGReader.narrow(red); green = red; blue = red;
+					red = self.display16(red); green = red; blue = red;
 				} else {
 					green = ((int)pixel[2] << 8) | (int)pixel[3];
 					blue = ((int)pixel[4] << 8) | (int)pixel[5];
 					if (kind == 6) { alpha = PNGReader.narrow(((int)pixel[6] << 8) | (int)pixel[7]); }
 					else if (self.keyed && red == self.keyRed && green == self.keyGreen && blue == self.keyBlue) { alpha = 0; }
-					red = PNGReader.narrow(red); green = PNGReader.narrow(green); blue = PNGReader.narrow(blue);
+					red = self.display16(red); green = self.display16(green); blue = self.display16(blue);
 				}
+			}
+			if (depth < 16 && self.colorTable != null) {
+				red = self.colorTable.get(red); green = self.colorTable.get(green); blue = self.colorTable.get(blue);
 			}
 			target[0] = (unsigned char)red;
 			target[1] = (unsigned char)green;
@@ -265,7 +325,7 @@ class PNGReader {
 		}
 	}
 
-	public Image decode() {
+	public Image decode(bool convertToSRGB = false) {
 		self.header();
 		if (!Image.validDimensions(self.width, self.height) || self.width > self.maxPixels / self.height) { throw "PNG exceeds pixel limit"; }
 		var pixelBits = self.channels * self.depth;
@@ -273,6 +333,7 @@ class PNGReader {
 		// A scanline may need no more memory than the largest raster does.
 		if (rowBytes > 1073740800LL) { throw "PNG row exceeds limit"; }
 		self.chunks();
+		if (convertToSRGB) { self.prepareColors(); }
 		// Adam7: the first column and row of each pass, then its steps.
 		Vector<int> passes = [0,0,1,1];
 		if (self.interlaced) { passes = [0,0,8,8, 4,0,8,8, 0,4,4,8, 2,0,4,4, 0,2,2,4, 1,0,2,2, 0,1,1,2]; }

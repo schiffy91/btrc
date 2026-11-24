@@ -4,7 +4,7 @@ import ./PNG/Reader.btrc;
 import ./PNG/Writer.btrc;
 
 class PNG {
-	class Image decode(Bytes bytes, int maxPixels = 64000000) { return PNGReader(bytes, maxPixels).decode(); }
+	class Image decode(Bytes bytes, int maxPixels = 64000000, bool convertToSRGB = false) { return PNGReader(bytes, maxPixels).decode(convertToSRGB); }
 
 	// Writes 8-bit RGB when every pixel is opaque, and RGBA otherwise.
 	class Bytes encode(Image image) { return PNGWriter().encode(image); }

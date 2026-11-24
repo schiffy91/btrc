@@ -1,4 +1,4 @@
-/* libpng and libjpeg-turbo behind the portable decoder contract: real pixels
+/* First-party PNG and libjpeg-turbo behind the portable decoder contract: real pixels
  * out, bounded limits enforced, corrupt input rejected without pixels. */
 import Library.Bytes;
 import Library.Image;
@@ -47,6 +47,19 @@ int main() {
 	assert(decoder.decode(corruptJpeg, limits).status() == ENCODED_IMAGE_DECODE_CORRUPT);
 	assert(decoder.decode(Bytes.fromString("GIF89a....."), limits).status() == ENCODED_IMAGE_DECODE_UNSUPPORTED);
 	assert(decoder.decode(Bytes(), limits).status() == ENCODED_IMAGE_DECODE_INVALID_ARGUMENT);
+	/* Display RGB from tagged linear 8-bit, untagged linear 16-bit and tagged sRGB. */
+	var linear8 = Bytes.fromHex("89504e470d0a1a0a0000000d494844520000000c000000010800000000cf8010e50000000467414d41000186a031e8965f0000001549444154789c63606014507048685870e0c187ff00151705812bfef5230000000049454e44ae426082");
+	if (linear8 == null) { return 1; }
+	var linear8Image = decoder.decode(linear8, limits).image();
+	assert(linear8Image.pixel(1, 0).equals(RGBA(21, 21, 21, 255)));
+	var linear16 = Bytes.fromHex("89504e470d0a1a0a0000000d494844520000000c0000000110000000009f10cca60000002249444154789c63606060641410505070704848686858b0e0c081070f3e7cf8ff1f004ec10b011544ddf30000000049454e44ae426082");
+	if (linear16 == null) { return 1; }
+	var linear16Image = decoder.decode(linear16, limits).image();
+	assert(linear16Image.pixel(1, 0).equals(RGBA(20, 20, 20, 255)));
+	var srgb16 = Bytes.fromHex("89504e470d0a1a0a0000000d494844520000000c0000000110000000009f10cca6000000017352474200aece1ce90000002249444154789c63606060641410505070704848686858b0e0c081070f3e7cf8ff1f004ec10b011544ddf30000000049454e44ae426082");
+	if (srgb16 == null) { return 1; }
+	var srgb16Image = decoder.decode(srgb16, limits).image();
+	assert(srgb16Image.pixel(6, 0).equals(RGBA(128, 128, 128, 255)));
 	Console.log("PASS: linux image decoding");
 	return 0;
 }
