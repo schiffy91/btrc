@@ -301,6 +301,7 @@ const RealInput *realInputWayland(void) {
     if (!wl.seat || !wl.output || !wl.pointers || !wl.keyboards || !wl.toplevels || wl.width <= 0) { return NULL; }
     wl.pointer = zwlr_virtual_pointer_manager_v1_create_virtual_pointer(wl.pointers, wl.seat);
     wl.keyboard = zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(wl.keyboards, wl.seat);
-    if (!keyFor('a')) { return NULL; }
+    /* Reserve evdev position 1 for Escape before assigning slots to the test layout. */
+    if (!keyFor(NAMED_KEY | 0xff1b)) { return NULL; }
     return &waylandInput;
 }
