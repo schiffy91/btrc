@@ -399,3 +399,31 @@ def test_linux_hinted_outlines_after_unlink(tmp_path, request, frontend, sanitiz
     if blocked is not None:
         early = run("woff2", 5, blocked, general)
         assert early.returncode != 0 and "Cannot initialize FreeType library" in early.stderr
+
+
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
+def test_linux_installed_font_catalog(tmp_path, request, gui_provider_root, frontend, sanitized):
+    from src.tests.python.linux_provider_fixtures import (
+        build_provider_program,
+        provider_environment,
+        require_linux_reader,
+    )
+
+    require_linux_reader()
+    tests = REPO / "src/tests/native/gui"
+    executable = build_provider_program(
+        tests / "InstalledFontConformance.btrc", tmp_path, frontend, sanitized, request, data_root=gui_provider_root
+    )
+    root = tmp_path / "font root"
+    root.mkdir()
+    (root / "subdir").mkdir()
+    (root / "subdir" / "collection file.ttc").write_bytes((tests / "fixtures/installed-families.ttc").read_bytes())
+    (root / "cycle").symlink_to(root, target_is_directory=True)
+    (root / "duplicate.ttc").symlink_to(root / "subdir" / "collection file.ttc")
+    (root / "invalid.otf").write_bytes(b"OTTO")
+    result = subprocess.run(
+        [executable, root], capture_output=True, text=True, env=provider_environment(sanitized), timeout=60
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS: installed font collections, Unicode family fallback and XDG precedence" in result.stdout
