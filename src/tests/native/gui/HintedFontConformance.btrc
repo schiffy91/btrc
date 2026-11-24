@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
 	// G has two distinct IUP anchors that round to the same 26.6 position.
 	string anchors = "0000000d00000035c2f9ac43affeffffffc4fffffffff177ffffdf720e00c75603000000";
 	Vector<string> masks = [anchors, interpolated, untouched, shifted, untouched, shifted, untouched];
-	int count = argv[2][0] == '5' ? 5 : 6;
+	int count = argv[2][0] == '6' ? 6 : 5;
 	for (int i = 0; i <= count; i++) {
 		int codepoint = i == 0 ? 71 : 64 + i;
 		var m = font.glyph(codepoint, false);
@@ -26,6 +26,15 @@ int main(int argc, char** argv) {
 		for (int j = 0; j < expected.length(); j++) {
 			if (g.coverage(j / 6, j % 6) != expected.get(j)) { return 5; }
 		}
+	}
+	if (argv[2][0] == 'u') {
+		// The full Unicode map supplies A at U+10000 and U+0041. The BMP
+		// table has a different glyph at U+0041.
+		var wide = font.glyph(0x10000, true);
+		var missing = font.glyph(0x10001, true);
+		var expected = Bytes.fromHex(interpolated);
+		if (wide == null || missing == null || expected == null || wide.advanceFixed() != 512LL || wide.width() != 6 || wide.rows() != 4 || missing.width() != 0) { return 6; }
+		for (int j = 0; j < expected.length(); j++) { if (wide.coverage(j / 6, j % 6) != expected.get(j)) { return 7; } }
 	}
 	print("PASS: hinted outline snapshots after unlink");
 	return 0;
