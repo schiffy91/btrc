@@ -2,6 +2,7 @@
 #include "Client.h"
 #include "ControlText.h"
 #include "EditBuffer.h"
+#include <limits.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +11,7 @@ struct BtrcWaylandTextField {
     BtrcEditBuffer edit;
     BtrcWaylandControlText display, placeholder;
     BtrcSystemTextFont *metricFont;
-    double size, scroll;
+    double size, scale, scroll;
     char *composition;
 };
 
@@ -37,6 +38,7 @@ BtrcShimControl *btrcShimTextCreate(unsigned id, const char *text, const char *p
     BtrcWaylandTextField *field = calloc(1, sizeof *field);
     if (!field) { return NULL; }
     field->size = 13;
+    field->scale = 1;
     field->metricFont = btrcSystemTextOpenDefaultFont(field->size, 1, false);
     if (!field->metricFont || !btrcEditReset(&field->edit, text ? text : "") || !refresh(field) ||
         !btrcWaylandSetControlText(&field->placeholder, placeholder ? placeholder : "")) {
@@ -76,8 +78,10 @@ void btrcShimTextSetPlaceholder(BtrcShimControl *control, const char *value) {
     if (field && value && btrcWaylandSetControlText(&field->placeholder, value)) { btrcWaylandControlChanged(control); }
 }
 
-static double advance(BtrcWaylandTextField *field, size_t offset) {
+static double advance(BtrcWaylandTextField *field, BtrcSystemTextRun *run, size_t offset) {
     if (!offset) { return 0; }
+    double position;
+    if (offset <= INT_MAX && btrcSystemTextCaretX(run, (int)offset, &position)) { return position; }
     char *text = field->edit.text;
     char saved = text[offset];
     text[offset] = 0;
@@ -92,10 +96,20 @@ void btrcWaylandFieldPoint(BtrcWaylandTextField *field, double x, bool extend) {
     BtrcEditBuffer *edit = &field->edit;
     size_t lo = 0, hi = edit->clusters.count;
     x += field->scroll - PADDING;
+    /* The editing buffer contains committed text; its offsets can be used
+     * directly against the display run until a preedit intervenes. */
+    BtrcSystemTextRun *run = field->composition ? NULL :
+        btrcWaylandLayoutControlText(&field->display, field->size, false, field->scale, -1, BTRC_TEXT_UNBOUNDED);
+    int hit;
+    if (btrcSystemTextHitTest(run, x, &hit) && hit >= 0 &&
+        btrcGraphemeFloor(&edit->clusters, (size_t)hit) == (size_t)hit) {
+        btrcEditSelect(edit, extend ? edit->anchor : (size_t)hit, (size_t)hit);
+        return;
+    }
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;
-        double left = advance(field, edit->clusters.byteOffsets[mid]);
-        double right = advance(field, edit->clusters.byteOffsets[mid + 1]);
+        double left = advance(field, run, edit->clusters.byteOffsets[mid]);
+        double right = advance(field, run, edit->clusters.byteOffsets[mid + 1]);
         if (x < (left + right) / 2) { hi = mid; } else { lo = mid + 1; }
     }
     edit->caret = edit->clusters.byteOffsets[lo];
@@ -117,6 +131,7 @@ static void fill(const BtrcWaylandControlCanvas *canvas, double x, double y, dou
 
 void btrcWaylandFieldPaint(BtrcWaylandTextField *field, const BtrcWaylandControlCanvas *canvas) {
     BtrcWaylandRect frame = canvas->frame;
+    field->scale = canvas->scale;
     unsigned char paper = canvas->dark ? 47 : 255, ink = canvas->dark ? 245 : 32;
     const unsigned char border[] = {128,128,128,255}, focus[] = {65,138,223,255}, selection[] = {56,112,182,255};
     unsigned char background[] = {paper,paper,paper,255};
@@ -127,7 +142,8 @@ void btrcWaylandFieldPaint(BtrcWaylandTextField *field, const BtrcWaylandControl
     BtrcSystemTextRun *run = btrcWaylandLayoutControlText(text, field->size, false, canvas->scale, -1, BTRC_TEXT_UNBOUNDED);
     double lineHeight = run ? btrcSystemTextLineHeight(run) : field->size;
     double top = frame.y + (frame.height - lineHeight) / 2;
-    double caret = advance(field, field->edit.caret), anchor = advance(field, field->edit.anchor);
+    BtrcSystemTextRun *committed = placeholder || field->composition ? NULL : run;
+    double caret = advance(field, committed, field->edit.caret), anchor = advance(field, committed, field->edit.anchor);
     double available = fmax(0, frame.width - 2 * PADDING);
     if (caret < field->scroll) { field->scroll = caret; }
     if (caret > field->scroll + available) { field->scroll = caret - available; }

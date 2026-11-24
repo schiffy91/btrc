@@ -1,6 +1,7 @@
 """Run the unchanged public native window example, editing its title in a GTK-free root."""
 
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -100,6 +101,46 @@ def test_switch_from_input_method_to_keyboard_menu(frontend, edit_devices, tmp_p
     assert result.returncode == 0
 
 
+def test_editing_uses_the_shaped_ligature_boundaries(edit_app, edit_devices, tmp_path):
+    driver, _ = edit_devices
+    subprocess.run(
+        [SESSION, "--wayland", "--", sys.executable, __file__, "caret", edit_app, driver, tmp_path],
+        check=True,
+        timeout=40,
+    )
+
+
+def point_inside_ligature(program, driver, folder):
+    # Noto Sans at 13px puts the first f caret of "office" at 12.095px
+    # inside the ffi cluster. The click ten pixels after the pen is closer
+    # to the preceding caret at 8px. Reshaping the prefix would insert after f.
+    with subprocess.Popen([driver, "caret"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as pointer:
+        try:
+            assert pointer.stdout.readline().strip() == "keyboard ready"
+            with subprocess.Popen(empty_root_command(program, folder)) as app:
+                try:
+                    assert pointer.stdout.readline().strip() == "ligature ready"
+                    shot = subprocess.check_output(["grim", "-t", "ppm", "-"])
+                    header = re.match(rb"P6\s+(\d+)\s+(\d+)\s+255\s", shot)
+                    assert header
+                    width = int(header[1])
+                    pixels = shot[header.end() :]
+                    border = bytes((65, 138, 223))
+                    first = pixels.find(border * 120)
+                    assert first >= 0 and first % 3 == 0
+                    top, left = divmod(first // 3, width)
+                    pointer.stdin.write(f"{left + 8 + 10} {top + 10}\n")
+                    pointer.stdin.flush()
+                    assert pointer.wait(timeout=10) == 0
+                    assert app.wait(timeout=7) == 0
+                finally:
+                    if app.poll() is None:
+                        app.kill()
+        finally:
+            if pointer.poll() is None:
+                pointer.kill()
+
+
 def exercise(program, driver, folder):
     with subprocess.Popen(empty_root_command(program, folder)) as app:
         try:
@@ -154,7 +195,9 @@ def input_method(program, driver, method, folder, *, menu=False):
 
 
 if __name__ == "__main__":
-    if sys.argv[1] in ("ime", "ime-menu"):
+    if sys.argv[1] == "caret":
+        point_inside_ligature(*sys.argv[2:])
+    elif sys.argv[1] in ("ime", "ime-menu"):
         input_method(*sys.argv[2:], menu=sys.argv[1] == "ime-menu")
     else:
         exercise(*sys.argv[1:])
