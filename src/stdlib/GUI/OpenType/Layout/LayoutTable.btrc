@@ -10,7 +10,7 @@ class LayoutTable {
 	public Vector<int> order = [];
 	public bool hasKerning = false;
 
-	public LayoutTable(OpenTypeData data, Vector<long long> active, long long script) {
+	public LayoutTable(OpenTypeData data, Vector<long long> active, long long script, bool requireDefaultEnglish = false) {
 		self.data = data;
 		if (data.u16(0) != 1 || data.u16(2) > 1) { throw "Unsupported layout table"; }
 		if (data.u16(2) == 1 && data.u32(10) != 0LL) { throw "Unsupported variable layout"; }
@@ -20,6 +20,7 @@ class LayoutTable {
 		int scriptBase = self.record(scripts, script);
 		if (scriptBase == 0) { scriptBase = self.record(scripts, 0x44464c54LL); } // DFLT
 		if (scriptBase == 0) { return; }
+		if (requireDefaultEnglish && self.record(scriptBase + 2, 0x454e4720LL) != 0) { throw "Font has language-specific English shaping"; }
 		int language = data.u16(scriptBase);
 		if (language == 0) { return; }
 		language += scriptBase;

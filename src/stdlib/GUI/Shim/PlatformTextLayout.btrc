@@ -1,0 +1,4 @@
+/* These targets draw their text through the SDK's own shaper. */
+class ShimTextLayoutSetup {
+	class void prepare() {}
+}

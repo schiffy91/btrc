@@ -12,7 +12,7 @@ import Library.GUI.Shim.ShimSelect;
 class ShimFeatures {
 	class bool fieldUsesWindowInput() { return false; }
 
-	class void initialize() {}
+	class void initialize() { ShimTextLayoutSetup.prepare(); }
 
 	class ITextField createTextField(ShimContext context, string text, string placeholder) { return ShimTextField(context, text, placeholder); }
 
