@@ -269,12 +269,6 @@ Keep the current working transport while qualification and review are pending.
 # ── Third-party requirements known today, awaiting removal ──────────────────
 
 [[pending]]
-dependency = "libjpeg-turbo"
-module = "Image/Linux/LinuxEncodedImageDecoder"
-os = ["linux"]
-resolution = "Library.Image.JPEG, the first-party codec already in the tree."
-
-[[pending]]
 dependency = "curl"
 module = "HTTP/HTTPCurlTransport"
 os = ["android", "linux", "macos"]

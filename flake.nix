@@ -74,7 +74,7 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             bubblewrap libx11.dev libxrandr.dev libxinerama.dev libxcursor.dev libxi.dev
             wayland.dev pkg-config dbus.dev   # native windowing and system-tray shims
-            fontconfig.dev libjpeg_turbo.dev alsa-lib.dev   # Linux font, image and audio providers
+            fontconfig.dev alsa-lib.dev   # Linux font and audio providers
             (curlHttpTransport pkgs).dev   # libcurl.pc: the Linux HTTP transport (OpenSSL 3, c-ares)
             openssh   # ssh-keygen: writes the key files the Library.Crypto driver reads back
             xvfb-run   # tools/virtual-display.sh: CI's X display for the GUI tests

@@ -1,60 +1,8 @@
-import Library.Bytes;
-import Library.Image.EncodedImage;
-import Library.Image.EncodedImageDispatch;
-import Library.Image.Pixels;
-import Library.Image.PNG;
+import Library.Image.PortableEncodedImageDecoder;
 
-/* Bounded, synchronous decoding through the first-party PNG reader and libjpeg-turbo: the portable
- * PNG/JPEG set. The SDK owns its decoders; this module owns the codec calls
- * and every handle's lifetime. EncodedImageDispatch owns admission, sniffing
- * and DDS; GIF and TIFF are a macOS extension and stay UNSUPPORTED here. */
-class LinuxEncodedImageDecoder implements IEncodedImageDecoder, IEncodedImageFormatDecoder {
+/* The Linux decoder under its earlier name. Linux decodes through BTRC's own
+ * PNG and JPEG codecs, as every target without an operating-system image
+ * codec does. */
+class LinuxEncodedImageDecoder extends PortableEncodedImageDecoder {
 	public LinuxEncodedImageDecoder() {}
-
-	public EncodedImageDecodeOutcome decode(Bytes encoded, EncodedImageDecodeLimits limits) { return EncodedImageDispatch.decode(encoded, limits, self); }
-
-	public EncodedImageDecodeOutcome decodeFormat(EncodedImageFormat format, Bytes encoded, EncodedImageDecodeLimits limits) {
-		if (format == ENCODED_IMAGE_FORMAT_PNG) { return self.decodePng(encoded, limits); }
-		if (format == ENCODED_IMAGE_FORMAT_JPEG) { return self.decodeJpeg(encoded, limits); }
-		return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_UNSUPPORTED, encoded.length());
-	}
-
-	private EncodedImageDecodeOutcome decodePng(Bytes encoded, EncodedImageDecodeLimits limits) {
-		try {
-			var header = PNGHeader.inspect(encoded);
-			if (!Image.validDimensions(header.width, header.height) || !limits.allowsDimensions(header.width, header.height)) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, encoded.length()); }
-			var image = PNG.decodeForDisplay(encoded, header.width * header.height);
-			return EncodedImageDecodeOutcome.decoded(image, encoded.length());
-		} catch (string error) {
-			if (error.startsWith("Could not allocate")) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }
-			if (error.endsWith("limit")) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED, encoded.length()); }
-			return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_CORRUPT, encoded.length());
-		}
-	}
-
-	/* tjhandle is `void*`, which the importer cannot declare as a resource
-	 * (native-interop.md, "Unmanaged void-pointer handles"), so this one
-	 * handle is released by hand: every path below reaches the single
-	 * tj3Destroy, and nothing between init and destroy can throw. */
-	private EncodedImageDecodeOutcome decodeJpeg(Bytes encoded, EncodedImageDecodeLimits limits) {
-		var handle = btrcJpegCreate(TJINIT_DECOMPRESS);
-		if (handle == null) { return EncodedImageDecodeOutcome.rejected(ENCODED_IMAGE_DECODE_OUT_OF_MEMORY, encoded.length()); }
-		EncodedImageDecodeStatus status = ENCODED_IMAGE_DECODE_OK;
-		Image? image = null;
-		if (tj3DecompressHeader(handle, (const unsigned char*)encoded.data, (size_t)encoded.length()) != 0) { status = ENCODED_IMAGE_DECODE_CORRUPT; }
-		else {
-			int width = tj3Get(handle, TJPARAM_JPEGWIDTH);
-			int height = tj3Get(handle, TJPARAM_JPEGHEIGHT);
-			if (width <= 0 || height <= 0) { status = ENCODED_IMAGE_DECODE_CORRUPT; }
-			else if (!Image.validDimensions((long long)width, (long long)height) || !limits.allowsDimensions(width, height)) { status = ENCODED_IMAGE_DECODE_LIMIT_EXCEEDED; }
-			else {
-				image = Image.tryCreate(width, height);
-				if (image == null) { status = ENCODED_IMAGE_DECODE_OUT_OF_MEMORY; }
-				else if (tj3Decompress8(handle, (const unsigned char*)encoded.data, (size_t)encoded.length(), image.data, width * 4, TJPF_RGBA) != 0) { status = ENCODED_IMAGE_DECODE_CORRUPT; image = null; }
-			}
-		}
-		tj3Destroy(handle);
-		if (status != ENCODED_IMAGE_DECODE_OK || image == null) { return EncodedImageDecodeOutcome.rejected(status == ENCODED_IMAGE_DECODE_OK ? ENCODED_IMAGE_DECODE_FAILED : status, encoded.length()); }
-		return EncodedImageDecodeOutcome.decoded(image, encoded.length());
-	}
 }

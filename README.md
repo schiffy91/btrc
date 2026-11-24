@@ -595,7 +595,7 @@ layout is part of the API. The complete rules are in
   `Library.FileSystem.FileTree`, `Library.Digest.SHA256`).
 - **Platform code lives in a platform subfolder of its group**
   (`Audio/MacOS`, `Audio/Linux`, `BackgroundJobs/Unix`, `Digest/Apple`,
-  `GUI/MacOS`, `GUI/Linux`, `Image/Apple`, `Image/Linux`,
+  `GUI/MacOS`, `GUI/Linux`, `Image/Apple`,
   `LocalApplicationChannel/Apple`, `LocalApplicationChannel/Linux`,
   `Tray/MacOS`, `Tray/Linux`) and implements that group's portable contract;
   an `Apple` folder holds what macOS, iOS and iPadOS share;
@@ -616,7 +616,7 @@ The current groups are:
 | `App`, `UI`, `GUI`, `Tray` | Application lifecycle, the BTRC-drawn declarative toolkit, native windows/controls/fonts (AppKit on macOS, GTK4 on Linux), system tray |
 | `Audio`, `Realtime` | Device enumeration, duplex sessions, realtime clocks, clip transport; `Audio/MacOS` is the CoreAudio provider, `Audio/Linux` the ALSA provider |
 | `GPU` | WebGPU device, programs, uniform buffers, image textures, surface rendering, offscreen targets, readback (`@gpu` compute dispatch is compiler-generated and links the separate runtime in `src/runtime/gpu`, built by `make gpu`) |
-| `Image` | [JPEG encoding, decoding and thumbnails](src/stdlib/Image/JPEG/README.md), DDS decoding, platform image decoding (ImageIO on macOS, iOS and iPadOS, first-party PNG and libjpeg-turbo on Linux), pixel access |
+| `Image` | [JPEG encoding, decoding and thumbnails](src/stdlib/Image/JPEG/README.md), [PNG decoding and encoding](src/stdlib/Image/PNG/README.md), DDS decoding, system image decoding (ImageIO on macOS, iOS and iPadOS, the BTRC PNG and JPEG codecs on Linux, Windows and Android), pixel access |
 | `FileSystem`, `HTTP`, `Terminal`, `Daemon`, `Digest` | Files, directories and application directories; HTTP client/server and framing; terminal control and password prompts; daemon control protocol; incremental SHA-256 |
 | `BackgroundJobs`, `Graph`, `LocalApplicationChannel` | Worker queues, graph utilities, local IPC between an app and its agent tools |
 | `Network` | IPv4 address values, TCP streams and listeners with deadlines (Linux, macOS, iOS and iPadOS) |

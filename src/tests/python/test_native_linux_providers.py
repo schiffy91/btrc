@@ -1,5 +1,5 @@
 """The Linux stdlib providers on real SDKs: the GTK4 GUI with WebGPU,
-first-party PNG and libjpeg-turbo decoding, and ALSA duplex sessions. The GUI's portable
+first-party PNG and JPEG decoding, and ALSA duplex sessions. The GUI's portable
 contract is held by the conformance suite (test_native_ui_conformance.py);
 here are the provider's own boundaries.
 
@@ -93,9 +93,7 @@ def test_linux_image_decoding(tmp_path, request, frontend, sanitized):
         "PASS: linux image decoding",
     )
     if not sanitized:
-        assert DependencyAudit().binary_problems(executable, TARGET) == [
-            f"third-party requirement: {executable.name} on target {TARGET} imports libjpeg-turbo"
-        ]
+        assert DependencyAudit().binary_problems(executable, TARGET) == []
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
