@@ -2,11 +2,10 @@
  * system TLS provider for HTTPS. Other configurations retain curl. */
 #if defined(__ANDROID__)
 import Library.Bytes;
-import Library.HTTP.HTTPFraming;
+import Library.HTTP.Unix.HTTPConnect;
 import Library.Timer;
 import Library.Java.JavaVirtualMachine;
 import Library.Platform;
-import Library.Strings;
 #endif
 #if defined(__ANDROID__) || defined(__linux__)
 import Library.HTTP.Unix.HTTPSocks;
@@ -89,30 +88,6 @@ class AndroidJSSEStream implements IHTTPByteStream {
 		return count;
 	}
 
-	private bool tunnel(HTTPClientAddress origin, HTTPClientAddress? proxy, Vector<string> headers, long long deadline) {
-		string authority = origin.host + ":" + Strings.fromInt(origin.port);
-		var fields = StringBuilder();
-		fields.append("CONNECT " + authority + " HTTP/1.1\r\nHost: " + authority + "\r\n");
-		if (proxy != null && !proxy.userInfo.isEmpty() && !HTTPExchange.names(headers, "proxy-authorization")) {
-			fields.append("Proxy-Authorization: Basic " + HTTPExchange.base64(HTTPExchange.credentials(proxy.userInfo)) + "\r\n");
-		}
-		for header in headers {
-			if (HTTPExchange.fieldName(header).equals("proxy-authorization")) { fields.append(header + "\r\n"); }
-		}
-		fields.append("\r\n");
-		if (!self.send(Bytes.fromString(fields.toString()), deadline)) { return false; }
-		Bytes response = Bytes();
-		while (response.len < 65536) {
-			if (self.receive(response, 65536 - response.len, deadline) <= 0) { return false; }
-			int end = HTTPFraming.headerEnd(response);
-			if (end >= 0) {
-				int status = HTTPExchange.statusOf(response.slice(0, end).toStringLossy());
-				return end + 4 == response.len && status >= 200 && status < 300;
-			}
-		}
-		return false;
-	}
-
 	public HTTPExchangeResult exchange(string method, HTTPClientAddress origin, HTTPClientAddress? proxy, Vector<string> headers, string body, long long deadline, int limit, string socks = "") {
 		HTTPClientAddress endpoint = origin;
 		if (proxy != null) { endpoint = proxy; }
@@ -130,8 +105,9 @@ class AndroidJSSEStream implements IHTTPByteStream {
 			string credentials = proxy != null ? proxy.userInfo : "";
 			if (!HTTPSocks.connect(self, origin, credentials, socks, deadline) && self.failure == 0) { self.failure = -2; }
 		}
-		if (self.failure == 0 && socks.isEmpty() && origin.secure && (proxy != null || systemTunnel == 1) && !self.tunnel(origin, proxy, headers, deadline)) {
-			if (self.failure == 0) { self.failure = -2; }
+		if (self.failure == 0 && socks.isEmpty() && origin.secure && (proxy != null || systemTunnel == 1)) {
+			string error = HTTPConnect.establish(self, origin, proxy, headers, deadline);
+			if (!error.isEmpty() && self.failure == 0) { self.failure = -2; }
 		}
 		if (self.failure == 0 && origin.secure) { self.failure = btrcJSSEHandshake(self.connection, 0); }
 		HTTPExchangeResult result = HTTPExchangeResult.failed("HTTPS request failed");
@@ -141,9 +117,7 @@ class AndroidJSSEStream implements IHTTPByteStream {
 				var fields = HTTPPlainTransport.forwardHeaders(headers, proxy);
 				result = HTTPExchange.run(self, method, target, fields, body, limit, deadline);
 			} else {
-				Vector<string> originHeaders = [];
-				for header in headers { if (!HTTPExchange.fieldName(header).equals("proxy-authorization")) { originHeaders.push(header); } }
-				result = HTTPExchange.run(self, method, origin, originHeaders, body, limit, deadline);
+				result = HTTPExchange.run(self, method, origin, HTTPConnect.originHeaders(headers), body, limit, deadline);
 			}
 		}
 		self.close();

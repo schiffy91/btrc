@@ -93,6 +93,8 @@ class ConnectPeer(http.server.BaseHTTPRequestHandler):
             return
         self.server.tunnels.append(self.path)
         with socket.create_connection(self.server.origin, timeout=5) as origin:
+            if getattr(self.server, "interim", False):
+                self.connection.sendall(b"HTTP/1.1 103 Early Hints\r\n\r\n")
             self.send_response(200)
             self.end_headers()
             while True:
@@ -383,6 +385,7 @@ def main():
             ):
                 proxy.require_credentials = mode == "authenticated-proxy"
                 proxy.expected_proxy_header = "Bearer caller" if mode == "explicit-proxy" else None
+                proxy.interim = mode in {"system-proxy", "explicit-proxy"}
                 credentials = "user:pass@" if proxy.require_credentials else ""
                 bypass = (
                     ""
