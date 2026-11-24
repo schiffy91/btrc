@@ -7,26 +7,37 @@
 #include "btrc_win_regex_suffix.h"
 #include "btrc_win_regex_boundary_blocks.h"
 
-enum { btrc_win_pos_limit = 127, btrc_win_pos_nodes = 512 };
-typedef struct { uint64_t low, high; } btrc_win_pos_bits;
+enum { btrc_win_pos_words = 4, btrc_win_pos_limit = 64 * btrc_win_pos_words - 1, btrc_win_pos_nodes = 512 };
+typedef struct { uint64_t word[btrc_win_pos_words]; } btrc_win_pos_bits;
 
 static inline btrc_win_pos_bits btrc_win_pos_bit(int index)
 {
-	uint64_t bit = UINT64_C(1) << (index % 64);
-	return index < 64 ? (btrc_win_pos_bits){bit, 0} : (btrc_win_pos_bits){0, bit};
+	btrc_win_pos_bits out = {{0}};
+	out.word[index / 64] = UINT64_C(1) << (index % 64);
+	return out;
 }
 
 static inline int btrc_win_pos_contains(btrc_win_pos_bits bits, int index)
 {
-	return (int)(((index < 64 ? bits.low : bits.high) >> (index % 64)) & 1);
+	return (int)((bits.word[index / 64] >> (index % 64)) & 1);
 }
 
 static inline btrc_win_pos_bits btrc_win_pos_union_bits(btrc_win_pos_bits a, btrc_win_pos_bits b)
 {
-	return (btrc_win_pos_bits){a.low | b.low, a.high | b.high};
+	for (int i = 0; i < btrc_win_pos_words; ++i) a.word[i] |= b.word[i];
+	return a;
 }
 
-static inline int btrc_win_pos_any(btrc_win_pos_bits bits) { return (bits.low | bits.high) != 0; }
+static inline int btrc_win_pos_any(btrc_win_pos_bits a)
+{
+	for (int i = 0; i < btrc_win_pos_words; ++i) if (a.word[i]) return 1;
+	return 0;
+}
+
+static inline void btrc_win_pos_remove_accept(btrc_win_pos_bits *bits)
+{
+	bits->word[btrc_win_pos_limit / 64] &= ~(UINT64_C(1) << (btrc_win_pos_limit % 64));
+}
 
 typedef struct {
 	int source;
@@ -250,9 +261,9 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 		       memcmp(&p->edge[slot].bytes, bytes, sizeof *bytes))) ++slot;
 		if (slot == p->edges) {
 			if (slot == btrc_win_pos_limit) { b->failed = 1; return empty; }
-			p->edge[p->edges++] = (btrc_win_pos_edge){label, {0, 0}, *bytes};
+			p->edge[p->edges++] = (btrc_win_pos_edge){label, {{0}}, *bytes};
 		}
-		return (btrc_win_pos_span){position, btrc_win_pos_bit(slot), 0, {label + 1, label + 1, 1, {0, 0}}};
+		return (btrc_win_pos_span){position, btrc_win_pos_bit(slot), 0, {label + 1, label + 1, 1, {{0}}}};
 	}
 	btrc_win_pos_span left = btrc_win_pos_span_for(b, n->left);
 	if (n->op == btrc_win_pos_cat || n->op == btrc_win_pos_union) {
@@ -270,7 +281,7 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 		if (!b->nodes[n->left].requires_byte) {
 			if (!left.nullable) {
 				right.runs.enabled = 0;
-				right.runs.rest = (btrc_win_pos_bits){0, 0};
+				right.runs.rest = (btrc_win_pos_bits){{0}};
 			}
 			runs = btrc_win_pos_join_runs(right.runs, runs);
 		}
@@ -396,7 +407,7 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 static inline btrc_win_pos_bits btrc_win_pos_step(const btrc_win_pos_program *p, btrc_win_pos_bits live, unsigned char byte,
                                                   const btrc_win_pos_bits *at_end)
 {
-	btrc_win_pos_bits next = {0, 0};
+	btrc_win_pos_bits next = {{0}};
 	for (int i = 0; i < p->edges; ++i) {
 		const btrc_win_pos_edge *edge = &p->edge[i];
 		if (btrc_win_pos_contains(live, edge->source) && btrc_win_set_has(&edge->bytes, byte))
@@ -447,10 +458,12 @@ static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *
 		if (!s[i]) break;
 		/* The legacy search admits a new start only at positions absent
 		   from the frontier before consuming this byte. */
-		btrc_win_pos_bits occupied = {0, 0};
+		btrc_win_pos_bits occupied = {{0}};
 		for (int k = 0; k < rows; ++k) occupied = btrc_win_pos_union_bits(occupied, row[k].live);
 		btrc_win_pos_bits first = context ? context[0] : p->initial;
-		btrc_win_pos_bits initial = {first.low & ~occupied.low, first.high & ~occupied.high & ~(UINT64_C(1) << 63)};
+		btrc_win_pos_bits initial = first;
+		for (int w = 0; w < btrc_win_pos_words; ++w) initial.word[w] &= ~occupied.word[w];
+		btrc_win_pos_remove_accept(&initial);
 		int candidates = rows + (admit && btrc_win_pos_any(initial));
 		context = btrc_win_pos_context(p, s, i + 1, flags);
 		int remaining = 0;
@@ -465,7 +478,7 @@ static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *
 				start = origin.start;
 				end = i + 1;
 			}
-			next.high &= ~(UINT64_C(1) << 63);
+			btrc_win_pos_remove_accept(&next);
 			if (btrc_win_pos_any(next)) {
 				/* Pure existence queries do not distinguish origins. */
 				if (!count && remaining) row[0].live = btrc_win_pos_union_bits(row[0].live, next);

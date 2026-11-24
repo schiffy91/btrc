@@ -199,6 +199,12 @@ int main(void)
 	    regexec(&compiled, " c", 1, span, REG_NOTBOL | REG_NOTEOL) || span[0].rm_so != 1 || span[0].rm_eo != 2 ||
 	    regexec(&compiled, "-d", 0, NULL, 0) != REG_NOMATCH) return 1;
 	regfree(&compiled);
+	if (regcomp(&compiled, "((((([ab]){2,}){2,}|((ab|ab)){2,})){2,4}){0,2}", REG_EXTENDED) ||
+	    ((uintptr_t)compiled.__opaque & 3u) != 3) return 1;
+	positions = (const btrc_win_pos_program *)((uintptr_t)compiled.__opaque - 3);
+	if (positions->edges <= 127 || regexec(&compiled, "aaaab", 1, span, 0) ||
+	    span[0].rm_so != 0 || span[0].rm_eo != 5) return 1;
+	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;
 	int globbed = glob("no-such-directory-*/x", 0, NULL, &found);
