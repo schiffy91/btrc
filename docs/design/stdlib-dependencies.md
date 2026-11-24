@@ -82,7 +82,7 @@ Keep the current working transport while qualification and review are pending.
 ## What each operating system supplies, as the stdlib uses it
 
 - **android**: classes: `android.app.*`, `android.content.*`, `android.graphics.*`, `android.net.*`, `android.os.*`, `android.text.*`, `android.util.*`, `android.view.*`, `android.webkit.*`, `android.widget.*`, `java.io.*`, `java.nio.*`, `java.util.*`; libraries: `android`, `log`
-- **ios**: frameworks: `CoreFoundation`, `CoreGraphics`, `CoreText`, `Foundation`, `ImageIO`, `Metal`, `QuartzCore`, `Security`, `UIKit`, `WebKit`
+- **ios**: frameworks: `CoreFoundation`, `CoreGraphics`, `CoreImage`, `CoreText`, `Foundation`, `IOSurface`, `ImageIO`, `Metal`, `QuartzCore`, `Security`, `UIKit`, `WebKit`
 - **linux**: libraries: `util`; programs: `/bin/sh`
 - **macos**: frameworks: `AVFoundation`, `AppKit`, `AudioToolbox`, `CFNetwork`, `CoreAudio`, `CoreFoundation`, `CoreGraphics`, `CoreMedia`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `QuartzCore`, `Security`, `WebKit`; libraries: `bsm`; programs: `/bin/sh`
 - **windows**: libraries: `bcrypt`, `comctl32`, `dwmapi`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `winhttp`, `ws2_32`
