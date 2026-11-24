@@ -1,10 +1,4 @@
-/* POSIX <fnmatch.h> for the MinGW-w64 Windows rows, which ship none.
-
-   fnmatch is musl 1.2.5's matcher (musl/fnmatch.c, MIT; see musl/COPYRIGHT),
-   compiled into the including translation unit with internal linkage by
-   btrc_win_musl.h exactly as regex.h compiles the regex engine. Like regex.h
-   it matches bytes with the C locale's ASCII classes, as glibc and macOS do
-   in the C locale every btrc program runs in. */
+/* POSIX shell patterns for the Windows overlay, operating on C-locale bytes. */
 #pragma once
 
 #define FNM_PATHNAME    0x1
@@ -17,13 +11,52 @@
 #define FNM_NOMATCH 1
 #define FNM_NOSYS   (-1)
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
-static int btrc_win_fnmatch(const char *, const char *, int);
-#pragma GCC diagnostic pop
+#include "btrc_win_match_bytes.h"
+
+/* Each star has the same alphabet within one pathname component. Once a
+   later star is reached, it can absorb any extra bytes the earlier one
+   could have absorbed. Only the most recent retry position is needed. */
+static inline int btrc_win_fnmatch(const char *pattern, const char *text, int flags)
+{
+	const unsigned char *p = (const unsigned char *)pattern;
+	const unsigned char *s = (const unsigned char *)text;
+	const unsigned char *star = NULL, *retry = NULL;
+	int pathname = flags & FNM_PATHNAME;
+	int fold = flags & FNM_CASEFOLD;
+	for (;;) {
+		if ((flags & FNM_PERIOD) && *s == '.' &&
+		    (s == (const unsigned char *)text || (pathname && s[-1] == '/')) && *p != '.') return FNM_NOMATCH;
+		if (*p == '*') {
+			do ++p; while (*p == '*');
+			star = p;
+			retry = s;
+			continue;
+		}
+		if (!*p && (!*s || ((flags & FNM_LEADING_DIR) && *s == '/'))) return 0;
+		if (*s && *p) {
+			const unsigned char *next = p + 1;
+			int match;
+			if (*p == '?') match = !pathname || *s != '/';
+			else if (*p == '[') {
+				btrc_win_byte_set set = {{0}};
+				enum btrc_win_list_error error = btrc_win_parse_list(&next, &set, 1, fold);
+				match = error == btrc_win_list_ok ? ((!pathname || *s != '/') && btrc_win_set_has(&set, *s)) : *s == '[';
+			} else {
+				unsigned char c = *p;
+				if (c == '\\' && !(flags & FNM_NOESCAPE) && *next) c = *next++;
+				match = fold ? btrc_win_fold(c) == btrc_win_fold(*s) : c == *s;
+			}
+			if (match) {
+				if (pathname && *s == '/') star = NULL;
+				p = next;
+				++s;
+				continue;
+			}
+		}
+		if (!star || !*retry || (pathname && *retry == '/')) return FNM_NOMATCH;
+		p = star;
+		s = ++retry;
+	}
+}
 
 #define fnmatch btrc_win_fnmatch
-
-#define BTRC_WIN_MUSL_PART_FNMATCH
-#include "btrc_win_musl.h"
-#undef BTRC_WIN_MUSL_PART_FNMATCH
