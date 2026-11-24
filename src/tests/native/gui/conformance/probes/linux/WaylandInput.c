@@ -176,6 +176,22 @@ static int keyFor(uint32_t keysym) {
     return uploadKeymap() ? wl.keysymCount : 0;
 }
 
+/* A compiled desktop map exercises physical keys and lock/group mappings.
+ * This connection belongs to the external input observer. */
+bool realInputWaylandUseKeymap(int fd, unsigned bytes) {
+    if (fd < 0 || !bytes) { return false; }
+    zwp_virtual_keyboard_v1_keymap(wl.keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, bytes);
+    return roundtrip();
+}
+
+bool realInputWaylandKeycode(unsigned evdev, unsigned depressed, unsigned locked) {
+    zwp_virtual_keyboard_v1_modifiers(wl.keyboard, depressed, 0, locked, 0);
+    zwp_virtual_keyboard_v1_key(wl.keyboard, now(), evdev, WL_KEYBOARD_KEY_STATE_PRESSED);
+    zwp_virtual_keyboard_v1_key(wl.keyboard, now(), evdev, WL_KEYBOARD_KEY_STATE_RELEASED);
+    zwp_virtual_keyboard_v1_modifiers(wl.keyboard, 0, 0, 0, 0);
+    return roundtrip();
+}
+
 static bool tap(uint32_t keysym, uint32_t modifiers) {
     int key = keyFor(keysym);
     if (!key) { return false; }

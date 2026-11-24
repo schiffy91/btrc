@@ -52,6 +52,8 @@ struct RealInput {
  * its display does. */
 const RealInput *realInputWayland(void);
 bool realInputWaylandHoldReturn(void);
+bool realInputWaylandUseKeymap(int fd, unsigned bytes);
+bool realInputWaylandKeycode(unsigned evdev, unsigned depressed, unsigned locked);
 const RealInput *realInputX11(void);
 const RealInput *realInputWin32(void);
 const RealInput *realInputAndroid(void);
