@@ -116,12 +116,42 @@ def controls_visible(pixels, width, left, top, background):
     return pixel(26, 70) != background and any(pixel(x, y) != background for x in range(16, 140) for y in range(12, 42))
 
 
+def elf_interpreter(executable):
+    headers = subprocess.check_output(["readelf", "-lW", executable], text=True, env={**os.environ, "LC_ALL": "C"})
+    requested = re.search(r"\[Requesting program interpreter: (/[^\]\n]+)\]", headers)
+    assert requested, headers
+    return requested[1]
+
+
+def test_empty_root_preserves_requested_interpreter(tmp_path, monkeypatch):
+    if platform.system() != "Linux" or not all(shutil.which(tool) for tool in ("cc", "bwrap", "fc-match", "readelf")):
+        pytest.skip("requires Linux ELF and empty-root tools")
+    alias = tmp_path / "program-interpreter"
+    alias.symlink_to(elf_interpreter(sys.executable))
+    program = tmp_path / "program"
+    subprocess.run(
+        ["cc", "-x", "c", "-", f"-Wl,--dynamic-linker={alias}", "-o", program],
+        input="int main(void) { return 0; }\n",
+        text=True,
+        check=True,
+    )
+    assert elf_interpreter(program) == str(alias)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("WAYLAND_DISPLAY", "unused-display")
+    (tmp_path / "unused-display").touch()
+    subprocess.run(empty_root_command(program, tmp_path), check=True)
+
+
 def empty_root_command(executable, work, options=()):
     executable, work = Path(executable).resolve(), Path(work)
     listing = subprocess.check_output(["ldd", executable], text=True)
     assert not any(lib in listing for lib in RUNTIME_FORBIDDEN), listing
     dependencies = re.findall(r"(?:=>\s+|^\s*)(/[^ ]+)\s+\(", listing, re.M)
     assert dependencies and "not found" not in listing
+    # The kernel opens PT_INTERP before the program can resolve any shared library.
+    interpreter = elf_interpreter(executable)
+    if interpreter not in dependencies:
+        dependencies.append(interpreter)
     font = subprocess.check_output(["fc-match", "-f", "%{file}", "Noto Sans"], text=True)
     assert Path(font).is_file()
     config = work / "preview-fonts.conf"
@@ -175,7 +205,7 @@ def empty_root_command(executable, work, options=()):
     ]
     for dependency in dependencies:
         name = Path(dependency).name
-        target = dependency if name.startswith("ld-linux") else f"/lib/{name}"
+        target = dependency if dependency == interpreter or name.startswith("ld-linux") else f"/lib/{name}"
         command.extend(("--ro-bind", dependency, target))
     return [*command, *options, "--", "/app"]
 
