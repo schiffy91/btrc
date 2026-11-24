@@ -21,6 +21,7 @@ class HintedTrueTypeFace implements IFontFace {
 	private OpenTypeCharacterMap characters;
 	private long long scale;
 	private FontMetrics lineMetrics;
+	private bool nativeVectorInk = false;
 	public Bytes source;
 
 	class HintedTrueTypeFace? tryOpen(string path, int pixels) {
@@ -95,14 +96,22 @@ class HintedTrueTypeFace implements IFontFace {
 		self.outlines = TrueTypeGlyphs(data, directory.required(0x676c7966LL, 0), loca, horizontal, glyphs, locaFormat != 0);
 		var cmap = directory.required(0x636d6170LL, 4);
 		self.characters = OpenTypeCharacterMap(data, cmap, glyphs);
-		if (!byGlyphIndex && !self.characters.unambiguousUnicodeMap(cmap) && !self.characters.preferredFullUnicodeMap(cmap)) { throw "Unsupported TrueType character map"; }
+		bool legacyBMP = false;
+		if (!byGlyphIndex && !self.characters.unambiguousUnicodeMap(cmap) && !self.characters.preferredFullUnicodeMap(cmap)) {
+			legacyBMP = self.characters.preferredBMPMap(cmap);
+			if (!legacyBMP) { throw "Unsupported TrueType character map"; }
+		}
 		self.lineMetrics = OpenTypeLineMetrics.scaled(data, directory, hhea, self.scale);
 
 		var cvt = directory.required(0x63767420LL, 2);
 		var prep = directory.required(0x70726570LL, 1);
 		var functions = directory.required(0x6670676dLL, 1);
 		var grid = TrueTypeProgram(data, cvt, maxp, pixels, self.scale);
-		grid.prepare(functions, prep, byGlyphIndex);
+		bool usesVectors = grid.prepare(functions, prep, byGlyphIndex || legacyBMP);
+		// The raw font exposes the whole Unicode map. Its vector-hinted
+		// advances agree, while visible outlines can require more native
+		// grid-fitting behavior than the shaped text path exercises.
+		self.nativeVectorInk = usesVectors && !byGlyphIndex;
 		self.outlines.prepare(grid);
 
 	}
@@ -136,6 +145,7 @@ class HintedTrueTypeFace implements IFontFace {
 		long long advance = OpenTypeFixed.pixelRound(self.outlines.load(glyph, self.scale, outline));
 		if (!render) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_UNSUPPORTED, 0, new Bytes()); }
 		if (outline.isEmpty()) { return new FontGlyph(advance, 0, 0, 0, 0, 0, FONT_PIXEL_GRAY, 256, new Bytes()); }
+		if (self.nativeVectorInk) { throw "TrueType outline needs the native vector hinter"; }
 		var box = outline.controlBox();
 		int left = (int)OpenTypeFixed.floorDiv((long long)box.get(0), 64LL);
 		int bottom = (int)OpenTypeFixed.floorDiv((long long)box.get(1), 64LL);

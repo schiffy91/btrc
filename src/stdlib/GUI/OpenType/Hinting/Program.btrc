@@ -447,7 +447,7 @@ class TrueTypeProgram {
 	/* The pre-program runs once per size. Each glyph starts with its own
 	 * copies of this prepared state, including twilight coordinates. A
 	 * failed glyph therefore cannot disturb a subsequent glyph. */
-	public void prepare(OpenTypeSpan functions, OpenTypeSpan prep, bool allowGeneralVectors = false) {
+	public bool prepare(OpenTypeSpan functions, OpenTypeSpan prep, bool allowGeneralVectors = false) {
 		self.generalVectors = self.hasGeneralDirections(functions) || self.hasGeneralDirections(prep);
 		if (self.generalVectors && !allowGeneralVectors) { throw "TrueType font requires general vector instructions"; }
 		self.run(functions);
@@ -457,6 +457,7 @@ class TrueTypeProgram {
 		self.preparedTwilight.copyFrom(self.twilight);
 		for (int i = 0; i < self.storage.len; i++) { self.preparedStorage.set(i, self.storage.get(i)); }
 		for (int i = 0; i < self.cvt.len; i++) { self.preparedCVT.set(i, self.cvt.get(i)); }
+		return self.generalVectors;
 	}
 
 	public void glyph(OpenTypeSpan code, TrueTypeZone points, bool composite = false) {
