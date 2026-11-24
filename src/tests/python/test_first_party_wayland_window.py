@@ -44,6 +44,7 @@ PLATFORM_SOURCES = tuple(
         "ControlText",
         "Tooltip",
         "Label",
+        "Select",
         "TextLines",
         "EditBuffer",
         "TextField",

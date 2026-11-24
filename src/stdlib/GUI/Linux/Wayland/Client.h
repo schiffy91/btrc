@@ -44,6 +44,7 @@ struct BtrcWaylandWindow {
     uint32_t surface;
     uint32_t xdg;
     uint32_t toplevel;
+    uint32_t activationSeat, activationSerial;
     BtrcWaylandExport *exports;
     struct BtrcWaylandPopup *popup;
     char *title;
@@ -76,6 +77,8 @@ struct BtrcWaylandWindow {
 
 bool btrcWaylandQueueEvent(BtrcWaylandDisplay *display, BtrcShimEvent event);
 BtrcWaylandWindow *btrcWaylandSurfaceWindow(BtrcWaylandDisplay *display, uint32_t surface);
+bool btrcWaylandMenuSurface(const BtrcWaylandWindow *window, uint32_t surface);
+bool btrcWaylandMenuPointer(BtrcWaylandWindow *window, uint32_t surface, const BtrcShimEvent *event);
 int btrcWaylandRepeatTimeout(BtrcWaylandDisplay *display, int timeout);
 int btrcWaylandSendRepeats(BtrcWaylandDisplay *display);
 bool btrcWaylandSeatBind(BtrcWaylandDisplay *display, uint32_t name, uint32_t version);

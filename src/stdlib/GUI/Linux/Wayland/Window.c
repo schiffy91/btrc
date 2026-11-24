@@ -164,7 +164,7 @@ static bool outputScale(BtrcWaylandWindow *w) {
 
 BtrcWaylandWindow *btrcWaylandSurfaceWindow(BtrcWaylandDisplay *d, uint32_t surface) {
     for (BtrcWaylandWindow *w = d->windows; w; w = w->next) {
-        if (w->surface == surface) { return w; }
+        if (w->surface == surface || btrcWaylandMenuSurface(w, surface)) { return w; }
     }
     return NULL;
 }
@@ -661,8 +661,19 @@ typedef struct BtrcWaylandPopup {
     BtrcWaylandWindow *parent;
     uint32_t surface, xdg, role;
     int width, height, scale;
+    bool configured;
+    const BtrcWaylandMenuEvents *events;
+    void *owner;
     BtrcWaylandBuffer *buffer;
 } BtrcWaylandPopup;
+
+bool btrcWaylandMenuSurface(const BtrcWaylandWindow *w, uint32_t surface) {
+    return w->popup && w->popup->events && w->popup->surface == surface;
+}
+
+bool btrcWaylandMenuPointer(BtrcWaylandWindow *w, uint32_t surface, const BtrcShimEvent *event) {
+    return !btrcWaylandMenuSurface(w, surface) || w->popup->events->input(w->popup->owner, event);
+}
 
 void btrcWaylandWindowClosePopup(BtrcWaylandWindow *w) {
     BtrcWaylandPopup *popup = w->popup;
@@ -682,7 +693,12 @@ static bool popupRoleEvent(void *owner, uint32_t id, unsigned opcode, BtrcWaylan
         /* With side flipping and sliding (no resizing), x and y are chosen
          * by the compositor; the client does not move the parent. */
         for (int i = 0; i < 4; i++) { (void)btrcWaylandInt(event); }
-    } else if (opcode == 1) { btrcWaylandWindowClosePopup(popup->parent); }
+    } else if (opcode == 1) {
+        const BtrcWaylandMenuEvents *events = popup->events;
+        void *target = popup->owner;
+        btrcWaylandWindowClosePopup(popup->parent);
+        return !events || events->dismissed(target);
+    }
     else if (opcode == 2) { (void)btrcWaylandUint(event); }
     else { return false; }
     return true;
@@ -693,6 +709,7 @@ static bool popupConfigure(void *owner, uint32_t id, unsigned opcode, BtrcWaylan
     BtrcWaylandWindow *w = popup->parent;
     BtrcWaylandWire *wire = w->display->wire;
     if (opcode || !btrcWaylandSend(wire, id, 4, "u", btrcWaylandUint(event))) { return false; }
+    popup->configured = true;
     bool ok = (w->display->compositorVersion < 3 || btrcWaylandSend(wire, popup->surface, 8, "i", popup->scale)) &&
               btrcWaylandSend(wire, popup->xdg, 3, "iiii", 0, 0, popup->width, popup->height) &&
               btrcWaylandSend(wire, popup->surface, 1, "uii", popup->buffer->object, 0, 0) &&
@@ -710,13 +727,17 @@ static bool transparentInput(BtrcWaylandDisplay *d, uint32_t surface) {
     return ok;
 }
 
-bool btrcWaylandWindowPopup(BtrcWaylandWindow *w, int x, int y, int width, int height, const uint32_t *pixels) {
+static bool showPopup(BtrcWaylandWindow *w, int x, int y, int anchorWidth, int anchorHeight, int width, int height,
+                      const uint32_t *pixels, const BtrcWaylandMenuEvents *events, void *owner) {
     if (!w || !w->mapped || !pixels || !dimensions(width, height, w->scale)) { return false; }
+    if (events && (!events->input || !events->dismissed || !w->activationSeat || !w->activationSerial)) { return false; }
     btrcWaylandWindowClosePopup(w);
     BtrcWaylandPopup *popup = calloc(1, sizeof(*popup));
     if (!popup) { return false; }
     w->popup = popup;
     popup->parent = w;
+    popup->events = events;
+    popup->owner = owner;
     popup->width = width;
     popup->height = height;
     popup->scale = w->scale;
@@ -731,20 +752,23 @@ bool btrcWaylandWindowPopup(BtrcWaylandWindow *w, int x, int y, int width, int h
     BtrcWaylandWire *wire = d->wire;
     x = x < 0 ? 0 : x >= w->width ? w->width - 1 : x;
     y = y < 0 ? 0 : y >= w->height ? w->height - 1 : y;
+    if (anchorWidth > w->width - x) { anchorWidth = w->width - x; }
+    if (anchorHeight > w->height - y) { anchorHeight = w->height - y; }
     uint32_t position = btrcWaylandObject(wire, "xdg_positioner", NULL, NULL, 0);
     if (!position || !btrcWaylandSend(wire, d->shell, 1, "u", position)) { goto failed; }
     popup->surface = btrcWaylandObject(wire, "wl_surface", popup, childSurfaceEvent, 0);
     if (!popup->surface || !btrcWaylandSend(wire, d->compositor, 0, "u", popup->surface) ||
-        !transparentInput(d, popup->surface)) { goto failed; }
+        (!events && !transparentInput(d, popup->surface))) { goto failed; }
     popup->xdg = btrcWaylandObject(wire, "xdg_surface", popup, popupConfigure, 0);
     if (!popup->xdg || !btrcWaylandSend(wire, d->shell, 2, "uu", popup->xdg, popup->surface) ||
         !btrcWaylandSend(wire, position, 1, "ii", width, height) ||
-        !btrcWaylandSend(wire, position, 2, "iiii", x, y, 1, 1) ||
-        !btrcWaylandSend(wire, position, 3, "u", 8u) || !btrcWaylandSend(wire, position, 4, "u", 8u) ||
+        !btrcWaylandSend(wire, position, 2, "iiii", x, y, anchorWidth, anchorHeight) ||
+        !btrcWaylandSend(wire, position, 3, "u", events ? 6u : 8u) || !btrcWaylandSend(wire, position, 4, "u", 8u) ||
         !btrcWaylandSend(wire, position, 5, "u", 1u|2u|4u|8u) ||
-        !btrcWaylandSend(wire, position, 6, "ii", 0, 12)) { goto failed; }
+        !btrcWaylandSend(wire, position, 6, "ii", 0, events ? 0 : 12)) { goto failed; }
     popup->role = btrcWaylandObject(wire, "xdg_popup", popup, popupRoleEvent, 0);
     if (!popup->role || !btrcWaylandSend(wire, popup->xdg, 2, "uuu", popup->role, w->xdg, position) ||
+        (events && !btrcWaylandSend(wire, popup->role, 1, "uu", w->activationSeat, w->activationSerial)) ||
         !btrcWaylandSend(wire, popup->surface, 6, "")) { goto failed; }
     destroyRequest(wire, position, 0);
     return true;
@@ -752,6 +776,35 @@ failed:
     destroyRequest(wire, position, 0);
     btrcWaylandWindowClosePopup(w);
     return false;
+}
+
+bool btrcWaylandWindowPopup(BtrcWaylandWindow *w, int x, int y, int width, int height, const uint32_t *pixels) {
+    return showPopup(w, x, y, 1, 1, width, height, pixels, NULL, NULL);
+}
+
+bool btrcWaylandWindowMenu(BtrcWaylandWindow *w, int x, int y, int anchorWidth, int anchorHeight,
+                           int width, int height, const uint32_t *pixels, size_t pixelCount, const BtrcWaylandMenuEvents *events, void *owner) {
+    if (!w || !events || anchorWidth < 1 || anchorHeight < 1 || !dimensions(width, height, w->scale) ||
+        pixelCount != (size_t)width * height * w->scale * w->scale) { return false; }
+    return showPopup(w, x, y, anchorWidth, anchorHeight, width, height, pixels, events, owner);
+}
+
+bool btrcWaylandWindowUpdateMenu(BtrcWaylandWindow *w, const uint32_t *pixels, size_t pixelCount) {
+    BtrcWaylandPopup *popup = w ? w->popup : NULL;
+    if (!popup || !popup->events || !pixels || pixelCount != popup->buffer->size / sizeof(*pixels)) { return false; }
+    BtrcWaylandBuffer *next = newBuffer(w, popup->width * popup->scale, popup->height * popup->scale);
+    if (!next) { return false; }
+    w->buffers = next->next;
+    next->popup = true;
+    memcpy(next->memory, pixels, next->size);
+    BtrcWaylandWire *wire = w->display->wire;
+    bool ok = !popup->configured || (btrcWaylandSend(wire, popup->surface, 1, "uii", next->object, 0, 0) &&
+        btrcWaylandSend(wire, popup->surface, 2, "iiii", 0, 0, popup->width, popup->height) &&
+        btrcWaylandSend(wire, popup->surface, 6, ""));
+    if (!ok) { freeBuffer(next); return false; }
+    freeBuffer(popup->buffer);
+    popup->buffer = next;
+    return true;
 }
 
 BtrcWaylandGPUView *btrcWaylandWindowAttachGPU(BtrcWaylandWindow *w, int x, int y) {

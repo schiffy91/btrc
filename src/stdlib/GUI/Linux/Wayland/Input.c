@@ -20,6 +20,7 @@ struct BtrcWaylandSeat {
     uint32_t version;
     uint32_t pointer;
     uint32_t pointerSerial;
+    uint32_t pointerSurface;
     BtrcWaylandCursor cursor;
     BtrcWaylandClipboard clipboard;
     BtrcWaylandTextInput text;
@@ -49,8 +50,10 @@ struct BtrcWaylandSeat {
 
 static bool pointerMessage(BtrcWaylandSeat *s, unsigned type, unsigned button, unsigned clicks, bool down) {
     if (!s->pointerFocus) { return true; }
-    return btrcWaylandQueueEvent(s->display, (BtrcShimEvent){.type = type, .window = s->pointerFocus->id,
-        .x = s->x, .y = s->y, .button = button, .clicks = clicks, .down = down, .modifiers = s->modifiers});
+    BtrcShimEvent event = {.type = type, .window = s->pointerFocus->id,
+        .x = s->x, .y = s->y, .button = button, .clicks = clicks, .down = down, .modifiers = s->modifiers};
+    if (s->pointerSurface != s->pointerFocus->surface) { return btrcWaylandMenuPointer(s->pointerFocus, s->pointerSurface, &event); }
+    return btrcWaylandQueueEvent(s->display, event);
 }
 
 static bool emitAxis(BtrcWaylandSeat *s) {
@@ -61,8 +64,10 @@ static bool emitAxis(BtrcWaylandSeat *s) {
     s->discrete[0] = s->discrete[1] = 0;
     s->source = 0;
     if (!s->pointerFocus || (dx == 0 && dy == 0)) { return true; }
-    return btrcWaylandQueueEvent(s->display, (BtrcShimEvent){.type = BTRC_SHIM_EVENT_MOUSE_WHEEL, .window = s->pointerFocus->id,
-        .x = s->x, .y = s->y, .wheelX = dx, .wheelY = -dy, .data1 = smooth, .modifiers = s->modifiers});
+    BtrcShimEvent event = {.type = BTRC_SHIM_EVENT_MOUSE_WHEEL, .window = s->pointerFocus->id,
+        .x = s->x, .y = s->y, .wheelX = dx, .wheelY = -dy, .data1 = smooth, .modifiers = s->modifiers};
+    if (s->pointerSurface != s->pointerFocus->surface) { return btrcWaylandMenuPointer(s->pointerFocus, s->pointerSurface, &event); }
+    return btrcWaylandQueueEvent(s->display, event);
 }
 
 static bool pointerEvent(void *owner, uint32_t object, unsigned opcode, BtrcWaylandEvent *e) {
@@ -71,7 +76,8 @@ static bool pointerEvent(void *owner, uint32_t object, unsigned opcode, BtrcWayl
     switch (opcode) {
     case 0:
         s->pointerSerial = btrcWaylandUint(e);
-        s->pointerFocus = btrcWaylandSurfaceWindow(s->display, btrcWaylandUint(e));
+        s->pointerSurface = btrcWaylandUint(e);
+        s->pointerFocus = btrcWaylandSurfaceWindow(s->display, s->pointerSurface);
         s->x = btrcWaylandInt(e) / 256.f;
         s->y = btrcWaylandInt(e) / 256.f;
         return pointerMessage(s, BTRC_SHIM_EVENT_WINDOW_MOUSE_ENTER, 0, 0, false);
@@ -87,10 +93,12 @@ static bool pointerEvent(void *owner, uint32_t object, unsigned opcode, BtrcWayl
         s->y = btrcWaylandInt(e) / 256.f;
         return pointerMessage(s, BTRC_SHIM_EVENT_MOUSE_MOTION, 0, 0, false);
     case 3: {
-        if (!btrcWaylandClipboardSerial(&s->clipboard, btrcWaylandUint(e))) { return false; }
+        uint32_t serial = btrcWaylandUint(e);
+        if (!btrcWaylandClipboardSerial(&s->clipboard, serial)) { return false; }
         uint32_t time = btrcWaylandUint(e);
         unsigned code = btrcWaylandUint(e);
         bool down = btrcWaylandUint(e) != 0;
+        if (down && s->pointerFocus) { s->pointerFocus->activationSeat = s->object; s->pointerFocus->activationSerial = serial; }
         unsigned button = code == BTN_LEFT ? 1 : code == BTN_MIDDLE ? 2 : code == BTN_RIGHT ? 3 : code == BTN_SIDE ? 4 : code == BTN_EXTRA ? 5 : 0;
         if (down && s->pointerFocus) {
             float dx = s->x - s->clickX;
@@ -196,11 +204,13 @@ static bool keyboardEvent(void *owner, uint32_t object, unsigned opcode, BtrcWay
         s->clipboard.lostFocus = true;
         return focus(s, NULL);
     case 3: {
-        if (!btrcWaylandClipboardSerial(&s->clipboard, btrcWaylandUint(e))) { return false; }
+        uint32_t serial = btrcWaylandUint(e);
+        if (!btrcWaylandClipboardSerial(&s->clipboard, serial)) { return false; }
         (void)btrcWaylandUint(e);
         unsigned keycode = btrcWaylandUint(e);
         bool down = btrcWaylandUint(e) != 0;
         if (!s->keyboardFocus) { return true; }
+        if (down) { s->keyboardFocus->activationSeat = s->object; s->keyboardFocus->activationSerial = serial; }
         BtrcWaylandKey key = btrcWaylandKey(s->keymap, keycode, s->active, s->group);
         if (down && key.repeats && s->repeatRate) {
             s->repeatCode = keycode;
@@ -278,6 +288,9 @@ void btrcWaylandSeatRemove(BtrcWaylandDisplay *d, uint32_t name) {
     if (!*where) { return; }
     BtrcWaylandSeat *s = *where;
     *where = s->next;
+    for (BtrcWaylandWindow *w = d->windows; w; w = w->next) {
+        if (w->activationSeat == s->object) { w->activationSeat = 0; w->activationSerial = 0; }
+    }
     btrcWaylandTextClose(&s->text);
     btrcWaylandClipboardClose(&s->clipboard);
     btrcWaylandCursorClose(s->display, &s->cursor);

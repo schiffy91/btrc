@@ -36,6 +36,17 @@ unsigned btrcWaylandWindowFrames(const BtrcWaylandWindow *window);
 /* Display an input-transparent, compositor-positioned tooltip anchored to
  * the parent. Pixels are premultiplied ARGB at the parent's current scale. */
 bool btrcWaylandWindowPopup(BtrcWaylandWindow *window, int x, int y, int width, int height, const uint32_t *pixels);
+/* An interactive xdg-popup uses the seat serial from the real opening
+ * press. Pointer events use popup-local points. An outside click notifies
+ * dismissed once; a client closing its own popup receives no notification. */
+typedef struct {
+    bool (*input)(void *owner, const BtrcShimEvent *event);
+    bool (*dismissed)(void *owner);
+} BtrcWaylandMenuEvents;
+bool btrcWaylandWindowMenu(BtrcWaylandWindow *window, int x, int y, int anchorWidth, int anchorHeight,
+                           int width, int height, const uint32_t *pixels, size_t pixelCount, const BtrcWaylandMenuEvents *events,
+                           void *owner);
+bool btrcWaylandWindowUpdateMenu(BtrcWaylandWindow *window, const uint32_t *pixels, size_t pixelCount);
 void btrcWaylandWindowClosePopup(BtrcWaylandWindow *window);
 
 /* A portal holds this export while its native dialog is parented to the
