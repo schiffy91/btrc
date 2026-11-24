@@ -175,9 +175,13 @@ def local_server(tmp_path_factory, request):
             thread.join()
 
 
-@pytest.fixture(scope="module")
-def compiled_clients():
-    return {}
+_CLIENT_BINARIES = pytest.StashKey[dict[str, Path]]()
+
+
+@pytest.fixture(scope="session")
+def compiled_clients(pytestconfig):
+    # HTTP, proxy and certificate modules all execute the same public program.
+    return pytestconfig.stash.setdefault(_CLIENT_BINARIES, {})
 
 
 @pytest.fixture
