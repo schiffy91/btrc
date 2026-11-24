@@ -59,3 +59,5 @@ A leading word-boundary alternative can compete with the repeated choice of a nu
 The flat matcher also reports raw subgroups when every capture encloses the complete expression or every captured span has a fixed byte offset. Those groups either share the whole match or use offsets calculated once during compilation. Variable interior captures continue to use the historical ranking rules.
 
 For eligible flat expressions the hosted interface supports BRE and ERE, including `REG_ICASE`, `REG_NEWLINE` and `REG_NOSUB`. The compiled object retains these flags when it needs the legacy retry for a resource limit. In no-submatch mode the caller’s match array remains untouched.
+
+Escaped consuming atoms can enter the same flat matcher, including Windows shorthand classes and escaped BRE groups. Hex escapes retain their exact byte in case-insensitive mode. Negated shorthand classes exclude a newline in newline-sensitive mode.

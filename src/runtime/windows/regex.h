@@ -109,7 +109,7 @@ static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *re
 		re->__opaque = (void *)((uintptr_t)program | (uintptr_t)1);
 		return 0;
 	}
-	if (!(flags & ~(REG_EXTENDED | REG_NOSUB | REG_ICASE | REG_NEWLINE)) && !strchr(pattern, '\\')) {
+	if (!(flags & ~(REG_EXTENDED | REG_NOSUB | REG_ICASE | REG_NEWLINE))) {
 		size_t length = strlen(pattern);
 		/* Longer expressions retain their established resource handling.
 		   This also excludes the legacy limit on negated named classes. */

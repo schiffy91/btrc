@@ -164,9 +164,14 @@ static inline int btrc_win_rx_atom(btrc_win_rx_parser *parser, int first, int de
 			btrc_win_set_class(&node->bytes, (const unsigned char *)name, strlen(name));
 			if (lower == 'w') btrc_win_set_add(&node->bytes, '_');
 			btrc_win_set_finish(&node->bytes, fold, c != lower);
+			/* Negated shorthand classes follow bracket newline exclusions. */
+			if (c != lower && (parser->program->flags & REG_NEWLINE))
+				node->bytes.bits['\n' / 8] &= (unsigned char)~(1u << ('\n' % 8));
 			return n;
 		}
 		if (c == 'x') {
+			/* A hex escape denotes its exact byte even in an ICASE expression. */
+			fold = 0;
 			int braces = *parser->p == '{';
 			if (braces) ++parser->p;
 			c = 0;
