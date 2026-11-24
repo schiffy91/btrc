@@ -2,6 +2,7 @@
 
 import ast
 import ctypes
+import platform
 import subprocess
 import sys
 import time
@@ -47,8 +48,9 @@ def main(executable, directory, orca_trace=None):
     perform = function(library, "atspi_action_do_action", integer, pointer, integer, pointer)
     iterate = function(ctypes.CDLL("libglib-2.0.so.0"), "g_main_context_iteration", integer, pointer, integer)
 
-    command = empty_root_command(executable, directory)[:-1]
-    assert not DependencyAudit().binary_problems(Path(executable), "linux-x86_64")
+    command = empty_root_command(executable, directory)
+    assert command.pop() == "/app"
+    assert not DependencyAudit().binary_problems(Path(executable), f"linux-{platform.machine()}")
     assert not any("atspi" in item or "dbus" in item for item in BinaryImports.read(Path(executable)))
     # The accessibility bus is itself an OS service outside the app namespace.
     address = subprocess.check_output(
