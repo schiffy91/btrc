@@ -92,3 +92,19 @@ def test_a_control_shows_over_drawn_content_on_the_screen(simulators, request, t
     )
     assert abs(height - PANEL[1] * scale) <= 2, f"the panel is {width} by {height} pixels\n{report}"
     assert count >= 0.98 * width * height, f"only {count} of the panel's {width * height} pixels show\n{report}"
+
+
+@pytest.mark.parametrize("frontend", FRONTENDS)
+def test_shared_frame_reconnects_and_presents_the_surface(simulators, request, tmp_path, frontend):  # noqa: F811
+    source = REPO / "src/tests/native/gui/ios/shared_frame/Main.btrc"
+    runner = simulators.runner("iphone", "sharedframe", source, frontend, False, request)
+    capture = tmp_path / "shared-frame.bmp"
+    status, stdout, stderr = runner.run([], {}, 60, observe=(4.0, lambda: simulators.screenshot(capture)))
+    assert status == 0, stdout + stderr
+    bitmap = Bitmap(capture)
+    top = bitmap.box(red)
+    bottom = bitmap.box(lambda r, g, b: b > 150 and r < 100 and g < 100)
+    assert top and bottom, "the simulator screen is missing the shared frame's two bands"
+    assert top[4] > 5000 and bottom[4] > 5000
+    assert abs(top[0] - bottom[0]) < 3 and abs(top[2] - bottom[2]) < 3
+    assert abs(top[3] + 1 - bottom[1]) < 3

@@ -1193,7 +1193,7 @@ os = ["android"]
 
 [[native.libraries]]
 name = "android"
-modules = ["Shim.Shim", "Shim.ShimSurface"]
+modules = ["Shim.Shim", "Shim.ShimSurface", "Shim.ShimSharedFrameView"]
 os = ["android"]
 
 [[native.libraries]]
@@ -1277,7 +1277,44 @@ os = ["macos"]
 [[package.providers]]
 module = "SharedFrameView"
 implementation = "Unavailable.SharedFrameViewProvider"
-os = ["windows", "ios", "android"]
+os = ["windows"]
+
+[[package.providers]]
+module = "SharedFrameView"
+implementation = "Shim.SharedFrameViewProvider"
+os = ["ios", "android"]
+
+[[native.bindings]]
+module = "Shim.ShimSharedFrameView"
+header = "Shim/SharedFrame.h"
+language = "c"
+standard = "c11"
+symbols = ["btrcShimFrameTransport", "btrcShimFrameCreate", "btrcShimFrameListen", "btrcShimFrameDisconnect", "btrcShimFramePresent", "btrcShimFrameWidth", "btrcShimFrameHeight"]
+os = ["ios", "android"]
+
+[[native.sources]]
+path = "Android/AndroidSharedFrame.c"
+language = "c"
+standard = "c11"
+modules = ["Shim.ShimSharedFrameView"]
+os = ["android"]
+
+[[native.sources]]
+path = "IOS/UIKitSharedFrame.m"
+language = "objective-c"
+standard = "c11"
+modules = ["Shim.ShimSharedFrameView"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "IOSurface"
+modules = ["Shim.ShimSharedFrameView"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "CoreImage"
+modules = ["Shim.ShimSharedFrameView"]
+os = ["ios"]
 
 [[package.providers]]
 module = "SharedFrameView"

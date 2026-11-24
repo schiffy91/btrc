@@ -3,7 +3,7 @@
 The header reader evaluates an object-like macro's replacement tokens through
 Clang's Sema, so a macro constant carries the exact C type and value the SDK
 gives it, and btrc code names it directly instead of through a handwritten
-re-spelling in a wrapper header (FreeType's FT_LOAD_* flags, WebGPU's
+re-spelling in a wrapper header (poll's event flags, WebGPU's
 WGPU_DEPTH_SLICE_UNDEFINED and CoreAudio's string keys, for example). Integer
 macros import as `enum_constant` records, ordinary string-literal macros as
 `string_constant` records typed `const char*`, and numeric pointer sentinels as
@@ -65,11 +65,9 @@ int main() {
 \tassert(CAST == 65535);
 \tassert(NEG == -5);
 \tassert(FROM_ENUM == 4);
-\tassert(FT_LOAD_DEFAULT == 0);
-\tassert(FT_LOAD_RENDER == 4);
-\tFT_Library library = null;
-\tassert(FT_Init_FreeType(&library) == 0);
-\tassert(FT_Done_FreeType(library) == 0);
+\tassert(POLLIN == 1);
+\tassert(POLLOUT == 4);
+\tassert(poll(null, 0UL, 0) == 0);
 \tprintf("PASS: native macro constants\\n");
 \treturn 0;
 }
@@ -87,14 +85,10 @@ symbols = ["FLAG_A", "SHIFTED", "WIDE", "CAST", "NEG", "FROM_ENUM"]
 
 [[native.bindings]]
 module = "Main"
-header = "FreeType.h"
+header = "Poll.h"
 language = "c"
 standard = "c11"
-symbols = ["FT_Library", "FT_Init_FreeType", "FT_Done_FreeType", "FT_LOAD_DEFAULT", "FT_LOAD_RENDER"]
-
-[[native.pkg-config]]
-name = "freetype2"
-modules = ["Main"]
+symbols = ["POLLIN", "POLLOUT", "poll"]
 
 [[native.include-directories]]
 path = "."
@@ -196,16 +190,11 @@ def test_non_integer_macros_refuse(reader, tmp_path, symbol, reason) -> None:
     assert f"Native macro {symbol} {reason}" in result.stderr
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="the FreeType proof builds against the Linux SDK")
+@pytest.mark.skipif(sys.platform != "linux", reason="the poll proof builds against the Linux SDK")
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
-def test_freetype_macro_constants_build_and_run(reader, tmp_path, request, frontend) -> None:
+def test_poll_macro_constants_build_and_run(reader, tmp_path, request, frontend) -> None:
     del reader  # The compilers locate it through BTRC_NATIVE_HEADER_READER.
-    if (
-        not shutil.which("pkg-config")
-        or subprocess.run(["pkg-config", "--exists", "freetype2"], timeout=TOOL_TIMEOUT).returncode
-    ):
-        pytest.skip("requires the optional FreeType SDK through pkg-config")
-    shutil.copyfile(REPO / "src/stdlib/GUI/FreeType/FreeType.h", tmp_path / "FreeType.h")
+    (tmp_path / "Poll.h").write_text("#include <poll.h>\n", encoding="utf-8")
     (tmp_path / "Macros.h").write_text(MACROS, encoding="utf-8")
     (tmp_path / "btrc.toml").write_text(MANIFEST, encoding="utf-8")
     source = tmp_path / "Main.btrc"
@@ -222,7 +211,8 @@ def test_freetype_macro_constants_build_and_run(reader, tmp_path, request, front
     assert compiled.returncode == 0, compiled.stderr
     if frontend == "selfhost":
         generated.write_text(compiled.stdout, encoding="utf-8")
-    assert "BTRC_FT_" not in generated.read_text(encoding="utf-8")
+    emitted = generated.read_text(encoding="utf-8")
+    assert "POLLIN" in emitted and "POLLOUT" in emitted
     executable = tmp_path / "program"
     NativePlanBuilder().build(plan_path=plan, generated_c=generated, output=executable, cc="cc", cxx="c++")
     ran = subprocess.run([str(executable)], capture_output=True, text=True, timeout=RUN_TIMEOUT)

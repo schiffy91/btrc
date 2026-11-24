@@ -1,0 +1,39 @@
+import Library.Callback;
+import Library.GUI;
+import Library.GUI.SharedFrameView;
+
+class FinishFrameTest implements IApplicationWork {
+	public void run() { GUI.requestQuit(); }
+}
+
+int main() {
+	GUI.initialize();
+	try {
+		var window = GUI.createWindow("Shared frame", 300.0, 200.0);
+		var root = GUI.createContainer();
+		window.attachRoot(root);
+		var view = SharedFrameView.create();
+		root.attach(view);
+		view.arrange(40.0, 80.0, 192.0, 96.0);
+		window.show();
+		var pid = frameProducerPid();
+		var stranger = view.listen(pid + 1);
+		if (sendTestFrame(stranger.address(), 64, true) || view.presentPending()) { throw "Wrong producer accepted"; }
+		var first = view.listen(pid);
+		if (first.transport() != "iosurface-xpc" || sendTestFrame(first.address(), 64, false)) { throw "Invalid frame format accepted"; }
+		if (!sendTestFrame(first.address(), 32, true) || !view.presentPending() || view.frameWidth() != 32) { throw "First frame was not presented"; }
+		if (!sendTestFrame(first.address(), 32, true) || !sendTestFrame(first.address(), 64, true)) { throw "Valid frames refused"; }
+		if (!view.presentPending() || view.frameWidth() != 64 || view.frameHeight() != 32 || view.presentPending()) { throw "Expected only the latest frame"; }
+		view.disconnect();
+		if (view.frameWidth() != 0 || view.frameHeight() != 0 || view.presentPending()) { throw "Frame survived disconnect"; }
+		var next = view.listen(pid);
+		if (first.address() == next.address() || sendTestFrame(first.address(), 64, true)) { throw "Old endpoint survived reconnect"; }
+		if (!sendTestFrame(next.address(), 64, true) || !view.presentPending()) { throw "Cannot present after reconnect"; }
+		var quit = GUI.postAfter(8.0, FinishFrameTest());
+		GUI.run();
+		quit.cancel();
+	} finally {
+		GUI.close();
+	}
+	return 0;
+}
