@@ -202,9 +202,13 @@ void btrcShimWindowSetCursor(BtrcShimWindow* window, int cursor);
 /* A modal message with one button; returns when it is dismissed. */
 void btrcShimWindowShowMessage(BtrcShimWindow* window, const char* title, const char* message);
 
+/* Whether native controls and RGBA frames can be presented before a GPU view requests a device. */
+bool btrcShimWindowSupportsSoftware(BtrcShimWindow* window);
+
 /* Whether frames reach the screen as pictures and not on the surface. */
 bool btrcShimWindowShowsPictures(BtrcShimWindow* window);
-/* One frame: `pixelWidth` by `pixelHeight` RGBA, row after row, copied. */
+/* One copied RGBA frame, or NULL to remove a software image after the
+ * first frame has actually been presented on the GPU surface below it. */
 void btrcShimWindowShowPicture(BtrcShimWindow* window, const unsigned char* pixels, int pixelWidth, int pixelHeight);
 
 /* Text entry for the provider's own editor. Text a key types always follows

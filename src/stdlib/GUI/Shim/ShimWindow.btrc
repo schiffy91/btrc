@@ -437,7 +437,8 @@ class ShimWindow implements IShimWindow, IShimDevicePoller, IControlEventTarget 
 	 * GPU view's deviceReady path starts a driver on a software window. */
 	public bool readyForFrame() {
 		if (self._closing || self._closed) { return false; }
-		return self._software || self.pollDevice();
+		if (self._software && self._surface == null) { return true; }
+		return self.pollDevice() || self._software;
 	}
 
 	/* Advance device creation; true once frames can render. */
