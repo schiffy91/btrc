@@ -783,14 +783,15 @@ bool btrcWaylandWindowPopup(BtrcWaylandWindow *w, int x, int y, int width, int h
 }
 
 bool btrcWaylandWindowMenu(BtrcWaylandWindow *w, int x, int y, int anchorWidth, int anchorHeight,
-                           int width, int height, const uint32_t *pixels, const BtrcWaylandMenuEvents *events, void *owner) {
-    if (!events || anchorWidth < 1 || anchorHeight < 1) { return false; }
+                           int width, int height, const uint32_t *pixels, size_t pixelCount, const BtrcWaylandMenuEvents *events, void *owner) {
+    if (!w || !events || anchorWidth < 1 || anchorHeight < 1 || !dimensions(width, height, w->scale) ||
+        pixelCount != (size_t)width * height * w->scale * w->scale) { return false; }
     return showPopup(w, x, y, anchorWidth, anchorHeight, width, height, pixels, events, owner);
 }
 
-bool btrcWaylandWindowUpdateMenu(BtrcWaylandWindow *w, const uint32_t *pixels) {
+bool btrcWaylandWindowUpdateMenu(BtrcWaylandWindow *w, const uint32_t *pixels, size_t pixelCount) {
     BtrcWaylandPopup *popup = w ? w->popup : NULL;
-    if (!popup || !popup->events || !pixels) { return false; }
+    if (!popup || !popup->events || !pixels || pixelCount != popup->buffer->size / sizeof(*pixels)) { return false; }
     BtrcWaylandBuffer *next = newBuffer(w, popup->width * popup->scale, popup->height * popup->scale);
     if (!next) { return false; }
     w->buffers = next->next;

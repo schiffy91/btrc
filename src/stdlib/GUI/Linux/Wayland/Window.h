@@ -44,9 +44,9 @@ typedef struct {
     bool (*dismissed)(void *owner);
 } BtrcWaylandMenuEvents;
 bool btrcWaylandWindowMenu(BtrcWaylandWindow *window, int x, int y, int anchorWidth, int anchorHeight,
-                           int width, int height, const uint32_t *pixels, const BtrcWaylandMenuEvents *events,
+                           int width, int height, const uint32_t *pixels, size_t pixelCount, const BtrcWaylandMenuEvents *events,
                            void *owner);
-bool btrcWaylandWindowUpdateMenu(BtrcWaylandWindow *window, const uint32_t *pixels);
+bool btrcWaylandWindowUpdateMenu(BtrcWaylandWindow *window, const uint32_t *pixels, size_t pixelCount);
 void btrcWaylandWindowClosePopup(BtrcWaylandWindow *window);
 
 /* A portal holds this export while its native dialog is parented to the

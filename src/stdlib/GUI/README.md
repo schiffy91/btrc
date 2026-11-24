@@ -293,10 +293,13 @@ The unchanged `examples/gui/Native.btrc` also runs through the same command.
 It uses a text field and two buttons. Editing the draft and activating Apply
 changes the real window title. Text fields support grapheme-aware selection,
 deletion and undo. The current Latin renderer has limited font and script
-coverage. The preview uses software rendering for these controls. Applications that
-need select menus, native alerts,
+coverage. The preview also supports keyed selection menus through `GUI.createSelect()`.
+A click or Return opens the menu. Arrow keys move between enabled options,
+Return commits the choice, and Escape cancels. Long lists accept wheel input.
+The preview uses software rendering for these controls. Applications that
+need native alerts,
 standalone text rasterization, embedded web views, desktop accessibility, or
-shared-frame views should use the default Linux GUI build. Selects, alerts and embedded web views report the unavailable operation.
+shared-frame views should use the default Linux GUI build. Alerts and embedded web views report the unavailable operation.
 Shared-frame creation returns its usual unavailable result. Runtime backend
 selection is fixed when the application is built.
 

@@ -19,7 +19,9 @@ static bool popupInput(void *owner, const BtrcShimEvent *event) {
         for (size_t i = 0; i < 72 * 26; i++) {
             m->pixels[i] = 0xff643ad3;
         }
-        return btrcWaylandWindowUpdateMenu(m->window, m->pixels);
+        size_t count = sizeof(m->pixels) / sizeof(m->pixels[0]);
+        assert(!btrcWaylandWindowUpdateMenu(m->window, m->pixels, count - 1));
+        return btrcWaylandWindowUpdateMenu(m->window, m->pixels, count);
     }
     if (event->type == BTRC_SHIM_EVENT_MOUSE_BUTTON_DOWN && event->button == 1) {
         printf("menu press %d %d\n", (int)event->x, (int)event->y);
@@ -61,7 +63,7 @@ int main(void) {
                 for (size_t i = 0; i < 72 * 26; i++) {
                     m.pixels[i] = 0xffab316d;
                 }
-                assert(btrcWaylandWindowMenu(m.window, 12, 8, 50, 26, 72, 26, m.pixels, &methods, &m));
+                assert(btrcWaylandWindowMenu(m.window, 12, 8, 50, 26, 72, 26, m.pixels, 72 * 26, &methods, &m));
                 m.opened++;
                 puts("opened");
             } else if (event.type == BTRC_SHIM_EVENT_KEY_DOWN && event.key == BTRC_SHIM_KEY_ESCAPE) {

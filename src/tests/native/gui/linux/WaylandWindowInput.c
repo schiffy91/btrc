@@ -32,6 +32,8 @@ int main(int argc, char **argv) {
             if (command == 'd') { assert(input->button(true)); }
             else if (command == 'u') { assert(input->button(false)); }
             else if (command == 'w') { assert(input->wheel(0, 1)); }
+            else if (command == 'v') { assert(input->wheel(0, -1)); }
+            else if (command == 'j') { assert(input->key(CONFORMANCE_KEY_DOWN)); }
             else if (command == 'e') { assert(input->key(CONFORMANCE_KEY_ESCAPE)); }
             else if (command == 'l') { assert(input->key(CONFORMANCE_KEY_LEFT)); }
             else { assert(command == 'm'); }

@@ -31,6 +31,7 @@ struct BtrcShimWindow {
     int backgroundWidth;
     int backgroundHeight;
     long long animationAt;
+    struct BtrcWaylandSelect *menu;
     BtrcShimControl *tooltipTarget;
     long long tooltipAt;
     double tooltipX, tooltipY;
