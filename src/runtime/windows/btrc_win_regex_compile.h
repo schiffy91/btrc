@@ -573,10 +573,10 @@ static inline int btrc_win_rx_flat_eligible(const btrc_win_rx_parser *parser)
 		const btrc_win_rx_node *node = &nodes[i];
 		if (node->op == btrc_win_rx_byte || node->op == btrc_win_rx_group || node->op == btrc_win_rx_assert) continue;
 		if (node->op == btrc_win_rx_repeat && nodes[node->child].op == btrc_win_rx_byte) continue;
-		if (node->op == btrc_win_rx_choice && node->child) continue;
+		if (node->op == btrc_win_rx_choice) continue;
 		return 0;
 	}
-	return parser->nodes > 0;
+	return 1;
 }
 
 /* All positions in a concatenation of positive fixed-width atoms are
@@ -619,7 +619,7 @@ static inline int btrc_win_regcomp(regex_t *restrict re, const char *restrict pa
 			++enclosing;
 			inner = rx->nodes[inner].child;
 		}
-		if (inner && enclosing == parser.groups && btrc_win_rx_flat_eligible(&parser)) {
+		if (enclosing == parser.groups && btrc_win_rx_flat_eligible(&parser)) {
 			root = inner;
 			parser.groups = 0;
 		} else if (root && parser.groups) {

@@ -63,3 +63,5 @@ For eligible flat expressions the hosted interface supports BRE and ERE, includi
 Escaped consuming atoms can enter the same flat matcher, including Windows shorthand classes and escaped BRE groups. Hex escapes retain their exact byte in case-insensitive mode. Negated shorthand classes exclude a newline in newline-sensitive mode.
 
 Flat sequences and alternatives also support subject and word assertions. In newline-sensitive mode, internal line boundaries can satisfy a subject anchor even when the caller suppresses beginning-of-subject or end-of-subject matches.
+
+Empty patterns, empty alternatives and captures around an empty expression retain their zero-length spans in the flat matcher.

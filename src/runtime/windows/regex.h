@@ -113,7 +113,7 @@ static inline int btrc_win_dispatch_regcomp(regex_t *restrict re, const char *re
 		size_t length = strlen(pattern);
 		/* Longer expressions retain their established resource handling.
 		   This also excludes the legacy limit on negated named classes. */
-		if (length && length <= 255) {
+		if (length <= 255) {
 			btrc_win_regex_flat *flat = (btrc_win_regex_flat *)malloc(sizeof *flat + length + 1);
 			if (flat) {
 				if (!btrc_win_regcomp(&flat->compiled, pattern, flags)) {

@@ -71,6 +71,14 @@ int main(void)
 	if (regcomp(&compiled, "(\\bword\\b)", REG_EXTENDED) || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
 	    regexec(&compiled, "-word!", 2, capture, 0) || capture[1].rm_so != 1 || capture[1].rm_eo != 5) return 1;
 	regfree(&compiled);
+	if (regcomp(&compiled, "(())", REG_EXTENDED) || compiled.re_nsub != 2 || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
+	    regexec(&compiled, "x", 4, capture, 0)) return 1;
+	for (int g = 0; g < 3; ++g) if (capture[g].rm_so != 0 || capture[g].rm_eo != 0) return 1;
+	if (capture[3].rm_so != -1 || capture[3].rm_eo != -1) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "", 0) || ((uintptr_t)compiled.__opaque & 3u) != 2 ||
+	    regexec(&compiled, "", 1, span, REG_NOTBOL | REG_NOTEOL) || span[0].rm_so || span[0].rm_eo) return 1;
+	regfree(&compiled);
 	char literal[] = "ababaca";
 	if (overlay_helper_compile(&compiled, literal) != 0 || !((uintptr_t)compiled.__opaque & 1u)) return 1;
 	literal[0] = 'z';
