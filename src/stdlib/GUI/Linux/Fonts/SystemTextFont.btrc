@@ -30,6 +30,8 @@ class SystemInkRun {
 	public int width = 0;
 	public int height = 0;
 	public Bytes pixels = Bytes();
+	public Vector<int> caretBytes = [];
+	public Vector<double> caretPositions = [];
 }
 
 class SystemTextFont {
@@ -92,11 +94,49 @@ class SystemTextFont {
 		return (int)value;
 	}
 
+	/* Each supported Latin scalar is an editing boundary. Position it inside
+	 * the shaped cluster, including any kerning in the final advance. */
+	private void placeCarets(SystemInkRun ink, string text, LayoutGlyphRun run) {
+		long long accumulated = 0LL;
+		double pen = 0.0;
+		double unit = (double)self.ppem / ((double)run.unitsPerEm * self.scale);
+		ink.caretBytes.push(0);
+		ink.caretPositions.push(0.0);
+		for (int i = 0; i < run.glyphs.size(); i++) {
+			var g = run.glyphs.get(i);
+			int end = i + 1 == run.glyphs.size() ? text.length() : run.glyphs.get(i + 1).cluster;
+			if (end <= g.cluster || g.advance < 0) { throw "Unsupported caret cluster order"; }
+			accumulated += self.desktopPositions ? (long long)self.rounded((long long)g.advance, run.unitsPerEm) : (long long)g.advance;
+			double next = self.desktopPositions ? (double)accumulated / self.scale : unit * (double)accumulated;
+			double width = next - pen;
+			int start = ink.caretBytes.size();
+			int off = g.cluster;
+			while (off < end) {
+				UTF8.decode(text, end, &off);
+				ink.caretBytes.push(off);
+			}
+			int components = ink.caretBytes.size() - start;
+			if (components > 1) {
+				var carets = self.layout.ligatureCarets(g.id, components);
+				for (int j = 1; j < components; j++) {
+					double x = pen + width * j / components;
+					if (!carets.isEmpty()) { x = pen + unit * ((double)g.xOffset + (double)carets.get(j - 1)); }
+					if (x < ink.caretPositions.last() || x > pen + width) { throw "Invalid ligature caret order"; }
+					ink.caretPositions.push(x);
+				}
+			}
+			pen = next;
+			ink.caretPositions.push(i + 1 == run.glyphs.size() ? ink.advance : pen);
+		}
+	}
+
 	public SystemInkRun shape(string text, double maximumWidth, int overflow) {
 		var run = self.layout.shape(text);
+		bool truncated = false;
 		if (overflow != 0 && overflow != 1) { throw "Unsupported text overflow mode"; }
 		if (overflow == 1 && !(maximumWidth >= 0.0)) { throw "Invalid text width"; }
 		if (overflow == 1 && self.logicalAdvance(run) > maximumWidth) {
+			truncated = true;
 			var marks = self.layout.shape("…");
 			run = marks;
 			// Reshape each surviving prefix: removing a letter may break a
@@ -110,6 +150,10 @@ class SystemTextFont {
 		}
 		var result = SystemInkRun();
 		result.advance = self.logicalAdvance(run);
+		if (!truncated) {
+			try { self.placeCarets(result, text, run); }
+			catch (string error) { result.caretBytes.clear(); result.caretPositions.clear(); }
+		}
 		var metrics = self.outlines.metrics();
 		result.ascent = (double)metrics.ascenderFixed() / (64.0 * self.scale);
 		result.descent = self.descent;

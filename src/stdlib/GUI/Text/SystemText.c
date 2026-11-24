@@ -9,6 +9,9 @@ typedef void *(*TextShapeLine)(void *, const char *, double, int);
 typedef double (*TextMeasure)(void *, int);
 typedef const unsigned char *(*TextPixels)(void *);
 
+typedef double (*TextCaret)(void *, int);
+typedef int (*TextHitTest)(void *, double);
+
 static struct {
     TextOpenDefault openDefault;
     TextOpenFace open;
@@ -17,12 +20,14 @@ static struct {
     TextRelease closeRun;
     TextMeasure measure;
     TextPixels pixels;
+    TextCaret caret;
+    TextHitTest hitTest;
 } text;
 
 /* Installed once by the BTRC provider on its GUI thread. Native controls
  * retain only opaque handles and need no knowledge of BTRC object layout. */
 void btrcSystemTextPublish(TextOpenDefault openDefault, TextOpenFace open, TextRelease closeFace, TextShapeLine shape, TextRelease closeRun,
-                          TextMeasure measure, TextPixels pixels) {
+                          TextMeasure measure, TextPixels pixels, TextCaret caret, TextHitTest hitTest) {
     text.openDefault = openDefault;
     text.open = open;
     text.closeFace = closeFace;
@@ -30,6 +35,8 @@ void btrcSystemTextPublish(TextOpenDefault openDefault, TextOpenFace open, TextR
     text.closeRun = closeRun;
     text.measure = measure;
     text.pixels = pixels;
+    text.caret = caret;
+    text.hitTest = hitTest;
 }
 
 BtrcSystemTextFont *btrcSystemTextOpenDefaultFont(double logicalSize, double scale, bool bold) {
@@ -57,3 +64,19 @@ int btrcSystemTextInkWidth(BtrcSystemTextRun *run) { return (int)text.measure(ru
 int btrcSystemTextInkHeight(BtrcSystemTextRun *run) { return (int)text.measure(run, 7); }
 int btrcSystemTextPixelFormat(BtrcSystemTextRun *run) { return (int)text.measure(run, 8); }
 const unsigned char *btrcSystemTextPixels(BtrcSystemTextRun *run) { return text.pixels(run); }
+
+bool btrcSystemTextCaretX(BtrcSystemTextRun *run, int utf8ByteOffset, double *logicalX) {
+    if (!run || !logicalX || !text.caret) return false;
+    double x = text.caret(run, utf8ByteOffset);
+    if (x < 0) return false;
+    *logicalX = x;
+    return true;
+}
+
+bool btrcSystemTextHitTest(BtrcSystemTextRun *run, double logicalX, int *utf8ByteOffset) {
+    if (!run || !utf8ByteOffset || !text.hitTest) return false;
+    int offset = text.hitTest(run, logicalX);
+    if (offset < 0) return false;
+    *utf8ByteOffset = offset;
+    return true;
+}

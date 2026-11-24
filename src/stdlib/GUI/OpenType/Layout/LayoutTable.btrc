@@ -71,22 +71,24 @@ class LayoutTable {
 
 	/* Coverage formats use sorted glyphs or sorted disjoint ranges. The
 	 * returned index addresses the parallel subtable record. */
-	public int coverage(int base, int id) {
-		int format = self.data.u16(base);
+	public int coverage(int base, int id) { return LayoutTable.coverageAt(self.data, base, id); }
+
+	class int coverageAt(OpenTypeData data, int base, int id) {
+		int format = data.u16(base);
 		if (format != 1 && format != 2) { throw "Unsupported layout coverage"; }
-		int count = self.data.u16(base + 2);
+		int count = data.u16(base + 2);
 		int stride = format == 1 ? 2 : 6;
-		self.data.need((long long)base + 4LL, (long long)count * (long long)stride);
+		data.need((long long)base + 4LL, (long long)count * (long long)stride);
 		int low = 0;
 		int high = count;
 		while (low < high) {
 			int mid = low + (high - low) / 2;
 			int at = base + 4 + mid * stride;
-			int first = self.data.u16(at);
-			int last = format == 1 ? first : self.data.u16(at + 2);
+			int first = data.u16(at);
+			int last = format == 1 ? first : data.u16(at + 2);
 			if (id < first) { high = mid; }
 			else if (id > last) { low = mid + 1; }
-			else { return format == 1 ? mid : self.data.u16(at + 4) + id - first; }
+			else { return format == 1 ? mid : data.u16(at + 4) + id - first; }
 		}
 		return -1;
 	}

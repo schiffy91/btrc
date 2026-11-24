@@ -49,4 +49,10 @@ int btrcSystemTextInkWidth(BtrcSystemTextRun *run);
 int btrcSystemTextInkHeight(BtrcSystemTextRun *run);
 int btrcSystemTextPixelFormat(BtrcSystemTextRun *run);
 const unsigned char *btrcSystemTextPixels(BtrcSystemTextRun *run);
+/* Editing positions are baseline-relative logical units in the shaped
+ * run. CaretX requires an exact UTF-8 editing boundary. HitTest clamps to
+ * the line and chooses the later boundary at a midpoint. Truncated runs
+ * and unavailable caret data return false, preserving the output value. */
+bool btrcSystemTextCaretX(BtrcSystemTextRun *run, int utf8ByteOffset, double *logicalX);
+bool btrcSystemTextHitTest(BtrcSystemTextRun *run, double logicalX, int *utf8ByteOffset);
 #endif
