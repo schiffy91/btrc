@@ -235,7 +235,7 @@ def test_explicit_bzero_exists_on_linux_and_on_no_android_api_level() -> None:
 )
 def test_posix_matching_exists_on_every_row_but_msvc(kind: str, name: str) -> None:
     """The gnu Windows rows declare regex, fnmatch and glob through the overlay's
-    vendored musl engine (src/runtime/windows); MSVC builds have no overlay."""
+    first-party POSIX matching engine (src/runtime/windows); MSVC builds have no overlay."""
     assert name in PLATFORM[kind]
     for label in LABELS:
         assert _unavailable(label, kind, name) == (label == MSVC), label

@@ -60,6 +60,8 @@ fills exactly those gaps — nothing more.
     capacity is unknowable and Windows paths can exceed POSIX `PATH_MAX`.
   - `mkdtemp` (real Win32 implementation)
 
+The Windows overlay supplies the `regerror` diagnostic strings and buffer-size behavior.
+
 ## Shell patterns and filesystem globbing
 
 `fnmatch.h` matches C-locale bytes using a single wildcard retry position
@@ -70,50 +72,44 @@ paths. It sorts matches bytewise unless the caller requests `GLOB_NOSORT`.
 
 ## Regular expressions
 
-PLAN.md D22 names a vendored POSIX regex for Windows. `musl/` holds
-musl 1.2.5's TRE-derived regex engine
-(<https://musl.libc.org/releases/musl-1.2.5.tar.gz>, SHA-256
-`a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4`; the
-release zig 0.16.0 bundles in `lib/libc/musl`, and 1.2.6 changed none of these
-files). musl is MIT-licensed and TRE, its regex engine, BSD-2-Clause; both
-notices are in `musl/COPYRIGHT` and the files' headers, and both are
-compatible with btrc's MIT licence.
+`regex.h` and its helper headers (`btrc_win_match_bytes.h`,
+`btrc_win_regex_atom.h`, `btrc_win_regex_literal.h`,
+`btrc_win_regex_compile.h`, `btrc_win_regex_exec.h`) implement POSIX ERE and
+BRE matching (`regcomp`, `regexec`, `regerror`, `regfree`) in first-party C11
+with internal linkage and zero third-party source:
 
-| File | Upstream (SHA-256 of the 1.2.5 file) | Here |
-| --- | --- | --- |
-| `musl/regcomp.c` | `src/regex/regcomp.c` (`56b0a765…`) | unmodified |
-| `musl/regerror.c` | `src/regex/regerror.c` (`72b3ab9c…`) | unmodified |
-| `musl/regexec.c` | `src/regex/regexec.c` (`072e8a10…`) | aligns to `void *`, not `long` (LLP64) |
-| `musl/tre-mem.c` | `src/regex/tre-mem.c` (`4721979c…`) | aligns to `void *`, not `long` (LLP64) |
-| `musl/tre.h` | `src/regex/tre.h` (`e734e68d…`) | include guard; `tre_cint_t` is `int` (Windows' 16-bit `wint_t` cannot hold `TRE_CHAR_MAX+1`); `ALIGN` through `uintptr_t`; no `__tre_mem_*` link aliases |
-| `musl/locale_impl.h` | stands in for musl's internal `src/internal/locale_impl.h` | `LCTRANS_CUR` is the identity, `MB_CUR_MAX` is 1 |
+* Fast-path zero-allocation matchers handle plain literal searches (KMP) and
+  single-atom expressions under `REG_EXTENDED` (with optional `^`/`$` anchors
+  and `REG_NOSUB`).
+* All other ERE and BRE patterns compile to an NFA bytecode program with
+  `RE_DUP_MAX = 255`, depth cap 256, and instruction budget 262,144 (`REG_ESPACE`
+  on overflow).
+* Non-backreference matching finds `[rm_so, rm_eo)` in linear `O(|code| * |text|)`
+  time using sorted start origins, then extracts exact IEEE Std 1003.1
+  leftmost-longest subgroup offsets on `[rm_so, rm_eo)` with a backward-pruned
+  top-down extractor (capped at 16 MiB workspace, falling back cleanly to a
+  bounded tagged NFA on multi-megabyte spans).
+* BRE backreferences (`\1`–`\9`) run in a bounded state-keyed tagged NFA with
+  strict per-byte and total work limits and a 16 MiB frontier cap against ReDoS.
+* All file-scope declarations carry `static` linkage and the `btrc_win_`
+  namespace; the header leaves only the POSIX `<regex.h>` interface macros
+  defined. Matching operates byte-wise in the C locale (ASCII character classes
+  and ASCII `REG_ICASE` folding) even after `setlocale`.
 
-Every change is marked `btrc:` in the source.
-
-`btrc_win_musl.h` compiles the regex sources into each unit including `regex.h`, with internal linkage, so the build
-paths that already force-include this overlay link it without a separate
-object and two units of one program keep separate copies. Because generated
-code, MinGW headers and `windows.h` share that unit, it saves and restores
-every macro it touches (`push_macro`/`pop_macro`: a caller's `MIN`, `END` or
-`assert` survives), renames every file-scope name the sources declare into
-`btrc_win_musl_`, and maps the POSIX entry points to `btrc_win_` names. It
-also redirects the locale-dependent calls (`mbtowc`, the wide-character
-classes and case mappings, `isdigit`) to C-locale versions: a byte is a
-character and only ASCII is classified or case-folded, which is how glibc and
-macOS match in the C locale every btrc program runs in.
-
-`src/tests/python/test_regex_parity.py` runs a table of regex and fnmatch cases
-against the host C library and the Windows overlay and requires identical
-results; windows.yml runs the same table, the regex, fnmatch and glob corpus
-programs and a non-ASCII glob natively on x64 and ARM64.
-`src/tests/python/test_windows_posix_overlay.py` checks the hygiene. Known
-differences that remain: a malformed pattern can get a different `REG_*` code
-than on glibc or macOS (`Library.Regex` reports every one as an invalid
-pattern); `RE_DUP_MAX` is 255, as on macOS, where glibc allows 32767; an empty
-pattern compiles, as on glibc, where macOS refuses it; an unmatched `)` in an
-extended pattern is an error, as on macOS, where glibc reads it as a literal;
-and matching stays byte-wise in the C locale even after `setlocale`. The
-parity table holds only cases on which glibc and macOS agree.
+`src/tests/python/test_regex_parity.py` runs `PosixMatching.c` against the host
+C library and the Windows overlay (requiring identical output), verifies POSIX
+disambiguation, error codes and ReDoS bounds in `PosixRegexSemantics.c`, and
+cross-builds both fixtures plus the regex, fnmatch and glob corpus programs for
+Windows x64 and ARM64 (`windows.yml` executes them natively on Windows).
+`src/tests/python/test_windows_posix_overlay.py` checks macro and symbol
+hygiene and cross-TU compilation/execution. Known dialect notes relative to
+glibc and macOS: `RE_DUP_MAX` is 255 (as on macOS; glibc allows 32767); empty
+patterns compile (as on glibc; macOS refuses them); unmatched `)` in ERE is a
+literal `')'` (as in POSIX, glibc and macOS); single-byte C-locale collating
+elements `[[.a.]]` and equivalence classes `[[=a=]]` are supported while
+multi-byte forms fail with `REG_ECOLLATE`; and matching stays byte-wise in the
+C locale. See `docs/workstreams/stdlib-dependencies/regex-compatibility.md` for
+the full compatibility record against the retired bundled implementation.
 
 ## Coverage
 

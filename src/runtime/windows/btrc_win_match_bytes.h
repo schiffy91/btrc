@@ -82,6 +82,7 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 	int range = 0;
 	do {
 		if (!*p) return btrc_win_list_unclosed;
+		if (!shell && *p == '-' && previous >= 0 && !p[1]) return btrc_win_list_unclosed;
 		if (*p == '-' && previous >= 0 && p[1] && p[1] != ']') {
 			++p;
 			range = 1;
@@ -92,11 +93,32 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 			const unsigned char *end = name;
 			while (*end && !(end[0] == type && end[1] == ']')) ++end;
 			if (!*end) return btrc_win_list_unclosed;
+			size_t len = (size_t)(end - name);
 			if (type == ':') {
-				if (!btrc_win_set_class(set, name, (size_t)(end - name)) && !shell) return btrc_win_list_class;
-			} else if (!shell) return btrc_win_list_collate;
-			if (range && !shell) return btrc_win_list_range;
-			previous = -1;
+				if (range && !shell) return btrc_win_list_range;
+				if (!btrc_win_set_class(set, name, len) && !shell) return btrc_win_list_class;
+				previous = -1;
+			} else if (type == '.') {
+				if (!shell) {
+					if (len != 1) return btrc_win_list_collate;
+					int c = *name;
+					if (range) {
+						if (previous > c) return btrc_win_list_range;
+						for (int i = previous; i < c; ++i) btrc_win_set_add(set, (unsigned int)i);
+					}
+					btrc_win_set_add(set, (unsigned int)c);
+					previous = range ? -1 : c;
+				} else {
+					previous = -1;
+				}
+			} else {
+				if (!shell) {
+					if (range) return btrc_win_list_range;
+					if (len != 1) return btrc_win_list_collate;
+					btrc_win_set_add(set, *name);
+				}
+				previous = -1;
+			}
 			p = end + 2;
 		} else {
 			int c = *p++;
@@ -106,6 +128,13 @@ static inline enum btrc_win_list_error btrc_win_parse_list(
 			}
 			btrc_win_set_add(set, (unsigned int)c);
 			previous = range && !shell ? -1 : c;
+		}
+		/* A completed range or named class cannot start a second range.
+		   Also accept a new range whose lower endpoint is '-' (as in
+		   [a-z--@], where the second range is '-' through '@'). */
+		if (!shell && previous < 0 && p[0] == '-' && p[1] != ']') {
+			if (!p[1]) return btrc_win_list_unclosed;
+			if (p[1] != '-' || !p[2] || p[2] == ']') return btrc_win_list_range;
 		}
 		range = 0;
 	} while (*p != ']');

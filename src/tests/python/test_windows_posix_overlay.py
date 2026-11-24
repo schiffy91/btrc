@@ -58,8 +58,6 @@ REGEX_MACROS = {
     "REG_ESPACE",
     "REG_BADRPT",
     "REG_ENOSYS",
-    "BTRC_WIN_MUSL_REGEX",
-    "BTRC_WIN_MUSL_C_LOCALE",
 }
 FNMATCH_MACROS = {
     "fnmatch",
@@ -91,7 +89,16 @@ HEADERS = {"regex.h": REGEX_MACROS, "fnmatch.h": FNMATCH_MACROS, "glob.h": GLOB_
 PUBLIC_DECLARATIONS = {"regex_t", "re_pattern_buffer", "regmatch_t", "regoff_t", "glob_t"}
 # Engine files whose declarations must stay in btrc's namespace (btrc_win_compat.h and
 # its realpath and error seams predate the engine and are covered by test_native_win_compat.py).
-ENGINE_FILES = ("regex.h", "fnmatch.h", "glob.h", "btrc_win_match_bytes.h", "btrc_win_musl.h", "/musl/")
+ENGINE_FILES = (
+    "regex.h",
+    "fnmatch.h",
+    "glob.h",
+    "btrc_win_match_bytes.h",
+    "btrc_win_regex_atom.h",
+    "btrc_win_regex_literal.h",
+    "btrc_win_regex_compile.h",
+    "btrc_win_regex_exec.h",
+)
 
 # What a caller has defined before it includes an overlay header: the system
 # headers the engine itself includes, an assert, and macros named like the

@@ -455,7 +455,7 @@ jobs:
   # (interop step 5's exit: a registry-free server DLL with a BTRC sink, and
   # an ole32 stream), through both compilers (test_native_win32_subclass.py,
   # test_native_com_windows.py). Regex, fnmatch and glob over the overlay's
-  # vendored musl engine: the PosixMatching parity table with the Linux C
+  # first-party POSIX matching engine: the PosixMatching parity table with the Linux C
   # library's output to match, the regex, fnmatch and glob corpus programs
   # through both compilers, a non-ASCII glob and two linked overlay units
   # (test_regex_parity.py, test_windows_posix_overlay.py). The console
@@ -629,9 +629,9 @@ jobs:
           ./win32/posix-matching-${{ matrix.target }}.exe | tr -d '\r' > posix-matching.actual
           diff -u "win32/posix-matching-${{ matrix.target }}.stdout" posix-matching.actual
           tail -n 1 posix-matching.actual
-      - name: Glob non-ASCII names and link two units of the overlay
+      - name: Glob non-ASCII names, verify POSIX regex semantics, and link two units of the overlay
         run: |
-          for program in glob-unicode posix-overlay-units; do
+          for program in glob-unicode posix-overlay-units posix-regex-semantics; do
             output=$("./win32/$program-${{ matrix.target }}.exe" | tr -d '\r')
             echo "$program ${{ matrix.target }}: $output"
             test "$output" = "$(tr -d '\r' < "win32/$program-${{ matrix.target }}.stdout")"
@@ -653,7 +653,7 @@ jobs:
             echo "$(basename "$base"): $(tail -n 1 program.stdout.lf)"
             count=$((count + 1))
           done
-          test "$count" -eq 10
+          test "$count" -eq 12
       - name: Drive the console terminal through a pseudoconsole with each compiler's program
         run: |
           for frontend in reference selfhost; do

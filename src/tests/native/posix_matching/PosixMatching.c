@@ -172,8 +172,8 @@ static const PatternCase PATTERN_CASES[] = {
 };
 
 /* POSIX fixes which conditions are errors, not which code each one gets
-   (an unterminated BRE interval is REG_EBRACE on macOS and REG_BADBR in
-   musl), so a failed compile prints only that it failed: Library.Regex
+   (an unterminated BRE interval is REG_EBRACE on some platforms and REG_BADBR
+   on others), so a failed compile prints only that it failed: Library.Regex
    reports every one the same way. */
 static const char *match_result(int code)
 {

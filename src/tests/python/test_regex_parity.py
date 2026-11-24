@@ -1,16 +1,19 @@
 """Regular expressions, fnmatch and glob match on Windows as on Linux and macOS.
 
-The MinGW-w64 overlay supplies first-party shell patterns and globbing, and
-bundles musl 1.2.5's POSIX regex (src/runtime/windows/README.md). The overlay's
+The MinGW-w64 overlay supplies first-party C11 implementations of POSIX regex,
+shell patterns and globbing (src/runtime/windows/README.md). The overlay's
 regex.h, fnmatch.h and glob.h declare the POSIX interfaces and compile the
-engine into each unit, so the hosted-ABI names are available on the gnu
-Windows rows and Library.Regex, Library.Pattern and glob(3) programs build
-there unchanged. This module proves the matching is the same:
+engine into each unit with internal linkage, so the hosted-ABI names are
+available on the gnu Windows rows and Library.Regex, Library.Pattern and
+glob(3) programs build there unchanged. This module proves the matching:
 
 - PosixMatching.c, a fixed table of regcomp/regexec and fnmatch cases, prints
   identical lines built against the host C library (glibc, or macOS's libc)
   and against the Windows overlay compiled for the host.
-- The same program, and the regex, fnmatch and glob corpus programs through
+- PosixRegexSemantics.c verifies IEEE Std 1003.1 leftmost-longest submatch
+  disambiguation, BRE backreferences, all regcomp error codes, regerror sizing
+  and ReDoS time bounds on the host and cross-built for Windows.
+- The same programs, and the regex, fnmatch and glob corpus programs through
   both compilers, cross-build for windows-x64 and windows-arm64 under the
   strict flags every Windows unit gets, and are published with the output
   each must print (the host library's, and the corpus goldens): windows.yml's
@@ -49,19 +52,13 @@ def _run(executable: Path) -> str:
 
 
 def _build_host(output: Path, include: Path | None = None, driver: Path = DRIVER) -> Path:
-    """The parity driver for this host, against its C library or, with
-    `include`, against the vendored engine. The engine's warning policy is the
-    Windows units' (zig's clang under -Werror, checked by the Windows builds
-    below and test_windows_posix_overlay.py), not the host compiler's."""
+    """Build a parity driver for this host against its C library or, with
+    `include`, against the first-party Windows overlay under strict C11."""
     compiler = host_c_compiler()
     if compiler is None or sys.platform == "win32":
         pytest.skip("requires a POSIX host C compiler and C library")
-    # The feature macro btrc's own prologue defines: glibc declares the
-    # engine's strnlen only with it, MinGW-w64 unconditionally.
-    command = [*compiler, "-std=c11", "-O2", "-D_DEFAULT_SOURCE"]
-    if include is None:
-        command += ["-Wall", "-Wextra", "-Werror"]
-    else:
+    command = [*compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-D_DEFAULT_SOURCE"]
+    if include is not None:
         command += ["-I", str(include)]
     built = subprocess.run(
         [*command, str(driver), "-o", str(output)],
@@ -82,17 +79,33 @@ def host_library_output(tmp_path_factory) -> str:
     return output
 
 
-def test_vendored_engine_matches_the_host_library(host_library_output, tmp_path):
+def test_first_party_engine_matches_the_host_library(host_library_output, tmp_path):
     """The byte-oriented Windows overlay answers the shared cases as the host C library does."""
     shim = tmp_path / "include"
     shim.mkdir()
     for header in ("regex.h", "fnmatch.h"):
         (shim / header).write_text(f'#include "{OVERLAY / header}"\n', encoding="utf-8")
-    vendored = _run(_build_host(tmp_path / "vendored", include=shim))
+    overlay = _run(_build_host(tmp_path / "overlay", include=shim))
     difference = difflib.unified_diff(
-        host_library_output.splitlines(), vendored.splitlines(), "host library", "vendored engine", lineterm=""
+        host_library_output.splitlines(), overlay.splitlines(), "host library", "first-party overlay", lineterm=""
     )
-    assert vendored == host_library_output, "\n".join(difference)
+    assert overlay == host_library_output, "\n".join(difference)
+
+
+def test_regex_recovers_from_workspace_allocation_failure(tmp_path):
+    shim = tmp_path / "include"
+    shim.mkdir()
+    (shim / "regex.h").write_text(f'#include "{OVERLAY / "regex.h"}"\n', encoding="utf-8")
+    driver = DRIVER.with_name("RegexDispatchRecovery.c")
+    assert _run(_build_host(tmp_path / "recovery", shim, driver)) == ""
+
+
+def test_first_party_regex_posix_semantics_and_redos(tmp_path):
+    shim = tmp_path / "include"
+    shim.mkdir()
+    (shim / "regex.h").write_text(f'#include "{OVERLAY / "regex.h"}"\n', encoding="utf-8")
+    driver = DRIVER.with_name("PosixRegexSemantics.c")
+    assert _run(_build_host(tmp_path / "semantics", shim, driver)) == "posix-regex-semantics ok\n"
 
 
 def test_generated_shell_patterns_match_the_host_library(tmp_path):
@@ -110,7 +123,15 @@ def test_generated_shell_patterns_match_the_host_library(tmp_path):
 @pytest.mark.parametrize("target", sorted(WINDOWS_TARGETS))
 def test_windows_matching_driver_builds_strictly(host_library_output, target, tmp_path):
     executable = build_c_fixture([DRIVER], target, tmp_path / "posix-matching.exe")
+    assert not DependencyAudit().binary_problems(executable, target)
     publish(executable, f"posix-matching-{target}", host_library_output.encode())
+
+
+@pytest.mark.parametrize("target", sorted(WINDOWS_TARGETS))
+def test_windows_regex_semantics_builds_strictly(target, tmp_path):
+    executable = build_c_fixture([DRIVER.with_name("PosixRegexSemantics.c")], target, tmp_path / "posix-semantics.exe")
+    assert not DependencyAudit().binary_problems(executable, target)
+    publish(executable, f"posix-regex-semantics-{target}", b"posix-regex-semantics ok\n")
 
 
 @pytest.mark.parametrize("target", sorted(WINDOWS_TARGETS))

@@ -242,12 +242,6 @@ source = "https://github.com/unicode-org/unicodetools/tree/725fb6055cd42915c74bc
 "src/stdlib/GUI/Text/GraphemeData.h" = "8996d4574374a85fb6576cccf0d990cd46dd45264d2151eed2e4e27b0ae38c54"
 "src/stdlib/GUI/Text/UNICODE-LICENSE.txt" = "fe5c62b543e287981db198f2acfa0ca732d12591a1024536dc8fd85dacd77104"
 
-[[bundled]]
-path = "src/runtime/windows/musl"
-dependency = "musl's regex (bundled source)"
-modules = ["Regex"]
-os = ["windows"]
-
 # Owner decisions on capability, packaging and the supported OS baseline.
 # Keep requirements pending until their approved replacements are qualified.
 
@@ -318,9 +312,3 @@ dependency = "the WebView2 SDK (header and loader DLL)"
 module = "GUI/Shim/ShimWeb"
 os = ["windows"]
 resolution = "The COM declarations are first-party. The supported Win32 activation API is supplied by Microsoft's SDK loader. Decide whether to retain the loader or rely on the runtime's changeable internal export."
-
-[[pending]]
-dependency = "musl's regex (bundled source)"
-module = "Regex"
-os = ["windows"]
-resolution = "A first-party matcher; Windows supplies no POSIX regex."

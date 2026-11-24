@@ -298,7 +298,7 @@ MATCHING_PROGRAM = {
 
 @pytest.mark.parametrize("target", ("linux-x86_64", "windows-x86_64", "windows-aarch64", "windows-aarch64-msvc"))
 def test_regex_fnmatch_and_glob_reach_every_row_but_msvc(target: str, frontends: Frontends) -> None:
-    """The gnu Windows rows declare them through the overlay's vendored musl engine
+    """The gnu Windows rows declare them through the overlay's first-party POSIX matching engine
     (src/runtime/windows); the MSVC row has no overlay and refuses them in both compilers."""
 
     outcomes = frontends.compile(MATCHING_PROGRAM, target)
