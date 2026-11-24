@@ -172,6 +172,13 @@ int main(void)
 	    span[0].rm_eo != 0 || regexec(&compiled, "", 0, NULL, REG_NOTEOL) != REG_NOMATCH ||
 	    regexec(&compiled, "a", 1, span, REG_NOTBOL | REG_NOTEOL) || span[0].rm_so != 0 || span[0].rm_eo != 1) return 1;
 	regfree(&compiled);
+	if (regcomp(&compiled, "(\\B){2}", REG_EXTENDED) || ((uintptr_t)compiled.__opaque & 3u) != 3 ||
+	    regexec(&compiled, "ab", 1, span, REG_NOTBOL | REG_NOTEOL) || span[0].rm_so != 1 || span[0].rm_eo != 1 ||
+	    regexec(&compiled, "a", 0, NULL, 0) != REG_NOMATCH) return 1;
+	regfree(&compiled);
+	if (regcomp(&compiled, "(\\B){0,2}", REG_EXTENDED) || ((uintptr_t)compiled.__opaque & 3u) != 3 ||
+	    regexec(&compiled, "a", 1, span, REG_NOTBOL) || span[0].rm_so != 0 || span[0].rm_eo != 0) return 1;
+	regfree(&compiled);
 	int helper = overlay_helper_match("*.c", "unit.c");
 	glob_t found;
 	int globbed = glob("no-such-directory-*/x", 0, NULL, &found);

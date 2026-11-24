@@ -116,6 +116,12 @@ static inline int btrc_win_pos_repeat(btrc_win_pos_builder *b, const btrc_win_rx
 	int child = btrc_win_pos_sequence(b, n->child, &inner_offset, depth + 1);
 	if (b->failed) return 0;
 	const btrc_win_pos_node *body = &b->nodes[child];
+	if (b->conditional && body->op == btrc_win_pos_boundary) {
+		if (!depth) *offset = b->extra;
+		/* An optional counted tail selects its empty arm before the
+		   zero-width copy. Every other repetition visits the assertion once. */
+		return counted && !n->min ? 0 : child;
+	}
 	/* Repeating a zero-width assertion or copying a nullable asserted body
 	   inside another repetition requires ranking individual empty paths. */
 	if (b->conditional && body->has_boundary &&
@@ -296,7 +302,7 @@ static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, si
 				++assertions;
 			}
 		}
-		if (index && index <= btrc_win_pos_limit && (!escape || assertions == 1)) p = (btrc_win_pos_program *)calloc(1, sizeof *p + btrc_win_pos_limit * sizeof *p->edge + strlen(pattern) + 1);
+		if ((index || assertions == 1) && index <= btrc_win_pos_limit && (!escape || assertions == 1)) p = (btrc_win_pos_program *)calloc(1, sizeof *p + btrc_win_pos_limit * sizeof *p->edge + strlen(pattern) + 1);
 		if (p) {
 			btrc_win_pos_builder builder = { .parser = &parser, .program = p, .conditional = assertions == 1 };
 			int offset = 0;
