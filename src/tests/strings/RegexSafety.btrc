@@ -72,6 +72,12 @@ int main() {
 	assert(Regex.first("((..){1,3})+", "abcde").equals("bcde"));
 	assert(Regex.first("(((b)?){2})?([abc]){2,4}", "abbba").equals("bbba"));
 	assert(Regex.replace("(((b)?){2})?([abc]){2,4}", "abbba", "X").equals("aX"));
+	string boundary = "(\\B|(((a){0,3}|([^ab]){2})){2,4})";
+	assert(Regex.matches(boundary, "xxx"));
+	assert(Regex.first(boundary, "xxx").equals("xx"));
+	assert(Regex.replace(boundary, "xxx", "X").equals("xX"));
+	assert(!Regex.fullMatch(boundary, "x"));
+	assert(Regex.fullMatch(boundary, "xxxx"));
 	assert(Regex.first("((a){2})", "aaaa").equals("aa"));
 
 	/* The repeated capture changes the Windows start offset when two

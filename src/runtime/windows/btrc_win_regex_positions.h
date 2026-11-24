@@ -6,6 +6,7 @@
 #include "btrc_win_regex_compile.h"
 #include "btrc_win_regex_block.h"
 #include "btrc_win_regex_suffix.h"
+#include "btrc_win_regex_boundary_blocks.h"
 
 enum { btrc_win_pos_limit = 127, btrc_win_pos_nodes = 512 };
 typedef struct { uint64_t low, high; } btrc_win_pos_bits;
@@ -38,6 +39,7 @@ typedef struct {
 	btrc_win_group_header header;
 	btrc_win_rx_blocks ranked_blocks;
 	btrc_win_suffix_span optional_suffix;
+	btrc_win_boundary_blocks boundary_blocks;
 	btrc_win_pos_bits initial;
 	int edges, nullable;
 	btrc_win_pos_edge edge[];
@@ -241,13 +243,26 @@ static inline btrc_win_pos_span btrc_win_pos_span_for(btrc_win_pos_builder *b, i
 
 static inline btrc_win_pos_program *btrc_win_pos_compile(const char *pattern, size_t *groups)
 {
-	if (*pattern != '(' || strlen(pattern) > 255 || strchr(pattern, '\\')) return NULL;
+	if (*pattern != '(' || strlen(pattern) > 255) return NULL;
+	const char *escape = strchr(pattern, '\\');
+	if (escape && ((escape[1] != 'B' && escape[1] != 'b') || strchr(escape + 1, '\\'))) return NULL;
 	btrc_win_rx_program parsed = {0};
 	parsed.flags = REG_EXTENDED;
 	btrc_win_rx_parser parser = {&parsed, (const unsigned char *)pattern, 0, 0, 0, 0};
 	int root = btrc_win_rx_expression(&parser, 0);
 	btrc_win_pos_program *p = NULL;
-	if (!parser.error && root && parser.groups) {
+	if (!parser.error && root && parser.groups && escape) {
+		btrc_win_boundary_blocks boundary = {0};
+		if (btrc_win_rx_detect_boundary_blocks(&boundary, parsed.nodes, root)) {
+			p = (btrc_win_pos_program *)calloc(1, sizeof *p + strlen(pattern) + 1);
+			if (p) {
+				p->header.kind = btrc_win_group_positions;
+				p->boundary_blocks = boundary;
+				strcpy((char *)p->edge, pattern);
+				*groups = (size_t)parser.groups;
+			}
+		}
+	} else if (!parser.error && root && parser.groups) {
 		int index = 0;
 		for (int i = 1; i <= parser.nodes; ++i)
 			if (parsed.nodes[i].op == btrc_win_rx_byte) parsed.nodes[i].arg = index++;
@@ -301,6 +316,8 @@ static inline int btrc_win_pos_ranked(const btrc_win_pos_program *p, const char 
 static inline int btrc_win_pos_match(const btrc_win_pos_program *p, const char *subject,
                                      size_t count, regmatch_t *matches)
 {
+	if (p->boundary_blocks.width)
+		return btrc_win_rx_match_boundary_blocks(&p->boundary_blocks, subject, count, matches);
 	btrc_win_pos_origin row[btrc_win_pos_origin_limit] = {{0, {0, 0}}};
 	int rows = p->nullable ? 1 : 0;
 	regoff_t start = p->nullable ? 0 : -1, end = start;
