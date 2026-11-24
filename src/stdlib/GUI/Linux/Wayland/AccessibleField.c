@@ -2,7 +2,7 @@
 #include "TextField.h"
 #include "EditBuffer.h"
 
-BtrcShimControl *btrcWaylandAccessibleControl(unsigned window, unsigned id, BtrcShimWindow **owner);
+BtrcShimControl *btrcWaylandAccessibleControl(unsigned window, unsigned id, bool vertical, BtrcShimWindow **owner);
 
 void btrcWaylandDescribeField(BtrcWaylandAccessible *out, const BtrcWaylandTextField *field) {
     const BtrcEditBuffer *edit = btrcWaylandFieldBuffer(field);
@@ -13,7 +13,7 @@ void btrcWaylandDescribeField(BtrcWaylandAccessible *out, const BtrcWaylandTextF
 }
 
 static BtrcWaylandTextField *lookup(unsigned window, unsigned id, BtrcShimWindow **owner) {
-    return btrcWaylandFieldState(btrcWaylandAccessibleControl(window, id, owner));
+    return btrcWaylandFieldState(btrcWaylandAccessibleControl(window, id, false, owner));
 }
 
 bool btrcWaylandAccessibleSelect(unsigned window, unsigned id, int anchor, int caret) {

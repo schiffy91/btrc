@@ -7,7 +7,8 @@ import ./AccessibleText.btrc;
 #include <unistd.h>
 
 class WaylandAccessible {
-	public unsigned window; public unsigned control; public unsigned role; public unsigned state;
+	public unsigned window; public unsigned control; public unsigned role; public unsigned state; public unsigned stateHigh;
+	public double value; public double minimum; public double maximum; public double increment;
 	public string path; public string parent; public string name; public string description;
 	public int index; public int count;
 	public WaylandAccessibleText? text;
@@ -22,8 +23,15 @@ class WaylandAccessible {
 		if (self.role == 23) { return "frame"; }
 		if (self.role == 16) { return "dialog"; }
 		if (self.role == 43) { return "push button"; }
-		return self.role == 79 ? "entry" : "label";
+		if (self.role == 79) { return "entry"; }
+		if (self.role == 42) { return "progress bar"; }
+		if (self.role == 48) { return "scroll bar"; }
+		if (self.role == 51) { return "slider"; }
+		if (self.role == 103) { return "level bar"; }
+		return "label";
 	}
+
+	class bool hasValue(unsigned role) { return role == 48 || role == 51 || role == 103; }
 
 	public void interfaces(DBusWriter writer) {
 		var list = writer.openArray("s");
@@ -31,18 +39,20 @@ class WaylandAccessible {
 		if (self.role == 75) { list.appendString("org.a11y.atspi.Application"); }
 		else { list.appendString("org.a11y.atspi.Component"); }
 		if (self.role == 79) { list.appendString("org.a11y.atspi.Text"); list.appendString("org.a11y.atspi.EditableText"); }
+		if (WaylandAccessible.hasValue(self.role)) { list.appendString("org.a11y.atspi.Value"); }
 		if (self.role == 43) { list.appendString("org.a11y.atspi.Action"); }
 		list.close();
 	}
 
 	public void states(DBusWriter writer) {
-		var list = writer.openArray("u"); list.appendUInt32(self.state); list.appendUInt32(0); list.close();
+		var list = writer.openArray("u"); list.appendUInt32(self.state); list.appendUInt32(self.stateHigh); list.close();
 	}
 }
 
 class WaylandAccessibility {
 	class DBusConnection? bus = null;
 	class bool attempted = false;
+	class DBusMessage? valueReply = null;
 	class int appId = -1;
 	class unsigned embedSerial = 0;
 	class string desktopOwner = "org.a11y.atspi.Registry";
@@ -70,8 +80,11 @@ class WaylandAccessibility {
 				if (!btrcWaylandAccessibleChild(parent.window, child, &native)) { break; }
 				string path = "/org/a11y/atspi/accessible/w" + f"{native.window}";
 				if (native.control != 0) { path = path + "/c" + f"{native.control}"; }
+				/* Both native scrollbars route to one public scroll view id. */
+				if (native.role == 48u) { path = path + ((native.state & (1u << 29)) != 0 ? "/vertical" : "/horizontal"); }
 				var item = WaylandAccessible(path, parent.path, Strings.copy((string)native.name), native.role, child);
-				item.window = native.window; item.control = native.control; item.state = native.state;
+				item.window = native.window; item.control = native.control; item.state = native.state; item.stateHigh = native.stateHigh;
+				item.minimum = native.minimum; item.maximum = native.maximum; item.increment = native.increment; item.value = native.value;
 				item.description = Strings.copy((string)native.description);
 				if (item.role == 79) { item.text = WaylandAccessibleText(item.window, item.control, Strings.copy((string)native.text), native.anchor, native.caret); }
 				item.x = native.x; item.y = native.y; item.width = native.width; item.height = native.height;
@@ -102,6 +115,7 @@ class WaylandAccessibility {
 			return ["Name", "Description", "Parent", "ChildCount", "Locale", "AccessibleId", "HelpText"];
 		}
 		if (iface == "org.a11y.atspi.Application" && role == 75) { return ["ToolkitName", "ToolkitVersion", "AtspiVersion", "Version", "Id"]; }
+		if (iface == "org.a11y.atspi.Value" && WaylandAccessible.hasValue(role)) { return ["MinimumValue", "MaximumValue", "MinimumIncrement", "CurrentValue", "Text"]; }
 		if (iface == "org.a11y.atspi.Text" && role == 79) { return ["CharacterCount", "CaretOffset"]; }
 		if (iface == "org.a11y.atspi.Action" && role == 43) { return ["NActions"]; }
 		return [];
@@ -122,6 +136,11 @@ class WaylandAccessibility {
 			if (key == "ToolkitName" || key == "ToolkitVersion" || key == "Version" || key == "AtspiVersion") {
 				out.variantString(key == "ToolkitName" ? "BTRC" : key == "AtspiVersion" ? "2.1" : "1.0"); return true;
 			}
+		}
+		if (iface == "org.a11y.atspi.Value" && WaylandAccessible.hasValue(node.role)) {
+			if (key == "Text") { out.variantString(""); return true; }
+			if (key != "MinimumValue" && key != "MaximumValue" && key != "MinimumIncrement" && key != "CurrentValue") { return false; }
+			var value = out.openVariant("d"); value.appendDouble(key == "MinimumValue" ? node.minimum : key == "MaximumValue" ? node.maximum : key == "MinimumIncrement" ? node.increment : node.value); value.close(); return true;
 		}
 		var text = node.text;
 		if (text != null && iface == "org.a11y.atspi.Text" && (key == "CharacterCount" || key == "CaretOffset")) { out.variantInt32(key == "CharacterCount" ? text.count : text.caret); return true; }
@@ -150,6 +169,13 @@ class WaylandAccessibility {
 				}
 				args.next(); string key = args.readString();
 				if (member == "Get" && call.signature() == "ss" && WaylandAccessibility.property(out, node, owner, target, key)) { return reply; }
+				if (member == "Set" && call.signature() == "ssv" && key == "CurrentValue" && target == "org.a11y.atspi.Value" && WaylandAccessible.hasValue(node.role)) {
+					if (node.role == 103) { return DBusMessage.error(call, "org.freedesktop.DBus.Error.PropertyReadOnly", key); }
+					args.next(); var proposed = args.recurse();
+					if (proposed.signature() != "d" || !btrcWaylandAccessibleSetValue(node.window, node.control, (node.state & (1u << 29)) != 0, proposed.readDouble())) { return DBusMessage.error(call, "org.freedesktop.DBus.Error.InvalidArgs", key); }
+					if (!call.noReply()) { WaylandAccessibility.valueReply = reply; }
+					return reply;
+				}
 				if (member == "Set" && call.signature() == "ssv" && node.role == 75 && target == "org.a11y.atspi.Application" && key == "Id") {
 					args.next(); WaylandAccessibility.appId = args.recurse().readInt32(); return reply;
 				}
@@ -213,6 +239,7 @@ class WaylandAccessibility {
 		var message = DBusMessage.signal(node.path, "org.a11y.atspi.Event.Object", member);
 		var out = message.writer(); out.appendString(detail); out.appendInt32(enabled); out.appendInt32(0);
 		if (detail == "accessible-name") { out.variantString(node.name); }
+		else if (detail == "accessible-value") { var value = out.openVariant("d"); value.appendDouble(node.value); value.close(); }
 		else if (detail == "accessible-description") { out.variantString(node.description); }
 		else { out.variantInt32(0); }
 		out.openArray("{sv}").close(); bus.send(message);
@@ -244,12 +271,14 @@ class WaylandAccessibility {
 			}
 			var oldText = before.text; var newText = after.text;
 			if (oldText != null && newText != null) { newText.changes(bus, after.path, oldText); }
+			if (before.value != after.value) { WaylandAccessibility.changed(bus, after, "PropertyChange", "accessible-value", 0); }
+			if (((before.stateHigh ^ after.stateHigh) & 1u) != 0) { WaylandAccessibility.changed(bus, after, "StateChanged", "indeterminate", (after.stateHigh & 1u) != 0 ? 1 : 0); }
 			if (before.name != after.name) { WaylandAccessibility.changed(bus, after, "PropertyChange", "accessible-name", 0); }
 			if (before.description != after.description) { WaylandAccessibility.changed(bus, after, "PropertyChange", "accessible-description", 0); }
 			if (before.state != after.state) {
-				Vector<string> labels = ["enabled", "focusable", "focused", "sensitive", "showing", "visible"];
-				int bits[6] = {8, 11, 12, 24, 25, 30};
-				for (int i = 0; i < 6; i++) {
+				Vector<string> labels = ["enabled", "focusable", "focused", "sensitive", "showing", "visible", "busy"];
+				int bits[7] = {8, 11, 12, 24, 25, 30, 3};
+				for (int i = 0; i < 7; i++) {
 					uint bit = 1u << bits[i];
 					if (((before.state ^ after.state) & bit) != 0) { WaylandAccessibility.changed(bus, after, "StateChanged", labels.get(i), (after.state & bit) != 0 ? 1 : 0); }
 				}
@@ -295,7 +324,13 @@ class WaylandAccessibility {
 		var channel = WaylandAccessibility.bus;
 		if (channel == null) { return -1; }
 		if (!channel.readWrite(0)) { channel.close(); WaylandAccessibility.bus = null; return -1; }
+		/* The public control owns snapping, scroll constraints and callbacks. A
+		 * successful write reply must follow its GUI event, even when the client
+		 * pipelines a Get behind the Set. */
+		if (btrcWaylandAccessibleValuePending()) { return channel.descriptor(); }
 		WaylandAccessibility.snapshot(channel);
+		var settled = WaylandAccessibility.valueReply;
+		if (settled != null) { channel.send(settled); WaylandAccessibility.valueReply = null; }
 		var message = channel.popMessage();
 		if (message != null) {
 			*dispatched = 1;
@@ -307,6 +342,7 @@ class WaylandAccessibility {
 				}
 				if (message.type() == DBUS_MESSAGE_TYPE_METHOD_CALL) {
 					var answer = WaylandAccessibility.dispatch(channel, message, WaylandAccessibility.snapshot(channel));
+					if (btrcWaylandAccessibleValuePending()) { break; }
 					if (!message.noReply()) { channel.send(answer); }
 				}
 				message = channel.popMessage();

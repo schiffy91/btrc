@@ -115,7 +115,8 @@ enum BtrcShimSliderChange {
 	BTRC_SHIM_SLIDER_PAGE_BACKWARD,
 	BTRC_SHIM_SLIDER_PAGE_FORWARD,
 	BTRC_SHIM_SLIDER_START,
-	BTRC_SHIM_SLIDER_END
+	BTRC_SHIM_SLIDER_END,
+	BTRC_SHIM_SLIDER_ASSISTIVE_VALUE
 };
 
 /* An event's `key`: the keys the provider acts on. Letters and brackets

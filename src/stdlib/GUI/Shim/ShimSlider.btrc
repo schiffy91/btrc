@@ -61,6 +61,10 @@ class ShimSlider extends ShimNodeView implements ISlider {
 	/* A jump while the pointer is down previews the value under it. Anything
 	 * else is one relative adjustment: a key, the wheel, a click beside the knob. */
 	private void changed(int change, double value) {
+		if (change == (int)BTRC_SHIM_SLIDER_ASSISTIVE_VALUE) {
+			if (!self._interaction.assistiveValue(self.node().generation(), value)) { throw "Slider assistive adjustment admission unavailable"; }
+			return;
+		}
 		if (change == (int)BTRC_SHIM_SLIDER_JUMP && self._interaction.active()) {
 			if (!self._interaction.preview(value)) { throw "Slider preview queue cannot admit native input"; }
 			return;

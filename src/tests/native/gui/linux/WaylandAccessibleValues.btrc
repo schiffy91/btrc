@@ -1,0 +1,54 @@
+import Library.Callback;
+import Library.Console;
+import Library.GUI;
+import Library.GUI.ControlEvents;
+import Library.GUI.IButton;
+import Library.GUI.ILevelIndicator;
+import Library.GUI.IProgressIndicator;
+import Library.GUI.IScrollView;
+import Library.GUI.ISlider;
+import Library.Image;
+
+class AccessibleRangeListener implements ISliderControlEventHandler, IScrollControlEventHandler, IButtonAction {
+	private ILevelIndicator level; private IProgressIndicator activity; private ISlider slider; private IScrollView scroll;
+
+	public AccessibleRangeListener(ILevelIndicator level, IProgressIndicator activity, ISlider slider, IScrollView scroll) {
+		self.level = level; self.activity = activity; self.slider = slider; self.scroll = scroll;
+	}
+
+	public void sliderEvent(SliderControlEvent event) {
+		if (event.input != SLIDER_INPUT_ABSOLUTE_ASSISTIVE || event.phase != CONTROL_PHASE_COMMIT || event.context.origin != CONTROL_ORIGIN_USER) { throw "Unexpected slider input"; }
+		self.level.setValue(0.75); self.activity.setRunning(false);
+		Console.log("Assistive slider " + f"{(int)event.value}");
+	}
+
+	public void scrollEvent(ScrollControlEvent event) {
+		if (event.context.origin != CONTROL_ORIGIN_USER) { throw "Unexpected scroll input"; }
+		Console.log("Scroll " + f"{(int)event.offset.x} {(int)event.offset.y}");
+	}
+
+	public void invoke() {
+		if (self.slider.value() != 6.0 || self.scroll.offset().x != 100.0 || self.scroll.offset().y != 80.0 || self.level.value() != 0.75 || self.activity.isRunning()) { throw "Incorrect final accessible range state"; }
+		Console.log("Clicked Quit"); GUI.requestQuit();
+	}
+}
+
+int main() {
+	GUI.initialize();
+	var scope = CallbackScope();
+	try {
+		var window = GUI.createWindow("Accessible ranges", 340.0, 330.0);
+		var panel = GUI.createPanel(RGBA(37, 179, 125)); window.attachRoot(panel);
+		var label = GUI.createLabel("Native Wayland"); panel.attach(label); label.arrange(8.0, 6.0, 180.0, 28.0);
+		var slider = GUI.createSlider(0.0, 10.0, 5); slider.setToolTip("Output gain"); panel.attach(slider); slider.arrange(8.0, 38.0, 180.0, 36.0);
+		var level = GUI.createLevelIndicator(0.6, 0.9); level.setValue(0.25); panel.attach(level); level.arrange(8.0, 78.0, 150.0, 20.0);
+		var activity = GUI.createProgressIndicator(); activity.setRunning(true); panel.attach(activity); activity.arrange(170.0, 78.0, 20.0, 20.0);
+		var scroll = GUI.createScrollView(); var content = GUI.createContainer(); scroll.attach(content); scroll.setContentSize(500.0, 320.0);
+		panel.attach(scroll); scroll.arrange(8.0, 108.0, 240.0, 100.0);
+		var quit = GUI.createButton("Quit"); panel.attach(quit); quit.arrange(8.0, 224.0, 100.0, 36.0);
+		var listener = AccessibleRangeListener(level, activity, slider, scroll);
+		slider.onCommit(listener, scope); scroll.onOffsetChanged(listener, scope); quit.onAction(listener, scope);
+		window.show(); GUI.run();
+	} finally { scope.cancel(); GUI.close(); }
+	return 0;
+}

@@ -98,6 +98,10 @@ bool btrcWaylandDisplayPop(BtrcWaylandDisplay *d, BtrcShimEvent *event) {
     free(d->lastText);
     d->lastText = (char *)item->value.text;
     *event = item->value;
+    if (event->data2 == 1 && (event->type == BTRC_SHIM_EVENT_CONTROL_SCROLLBAR_CHANGED ||
+        (event->type == BTRC_SHIM_EVENT_CONTROL_SLIDER_CHANGED && event->data1 == BTRC_SHIM_SLIDER_ASSISTIVE_VALUE))) {
+        d->accessibilityValuePending = false;
+    }
     free(item);
     return true;
 }

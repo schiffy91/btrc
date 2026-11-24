@@ -17,6 +17,8 @@ struct BtrcWaylandDisplay {
     bool (*deleteAround)(BtrcWaylandWindow *, unsigned, unsigned);
     void (*accessibilityChanged)(void);
     int (*accessibilityService)(int *);
+    /* A D-Bus Set awaits the normal GUI dispatch of the marked control event. */
+    bool accessibilityValuePending;
     bool (*routeInput)(BtrcWaylandDisplay *, const BtrcShimEvent *, bool *);
     bool (*modalFilter)(void *, const BtrcShimEvent *, bool *);
     void *modal;

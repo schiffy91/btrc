@@ -124,6 +124,7 @@ void btrcShimControlSetToolTip(BtrcShimControl *control, const char *text) {
     }
     free(control->tooltip);
     control->tooltip = copy;
+    btrcWaylandAccessibilityChanged();
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
         if (w->tooltipTarget == control) {
             dismissTooltip(w);
@@ -909,6 +910,20 @@ extern const char *btrcWaylandLabelAccessibleName(BtrcWaylandLabel *);
 
 void btrcWaylandDescribeField(BtrcWaylandAccessible *out, const BtrcWaylandTextField *field);
 
+/* Numeric roles and state bits are the AT-SPI wire ABI. */
+static unsigned accessibleRole(enum ControlType type) {
+    switch (type) {
+    case LABEL: return 29;
+    case BUTTON: return 43;
+    case TEXT_FIELD: return 79;
+    case LEVEL: return 103;
+    case SPINNER: return 42;
+    case SCROLLBAR: return 48;
+    case SLIDER: return 51;
+    default: return 0;
+    }
+}
+
 bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessible *out) {
     if (index < 0 || !out) { return false; }
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
@@ -927,15 +942,27 @@ bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessibl
         for (size_t i = 0; i < w->visible.count; ++i) {
             BtrcWaylandPlacement *p = &w->visible.items[i];
             BtrcShimControl *c = p->control;
-            if (!c || c->closed || (c->type != LABEL && c->type != BUTTON && c->type != TEXT_FIELD)) { continue; }
+            if (!c || c->closed || !accessibleRole(c->type)) { continue; }
             if (index-- != 0) { continue; }
             if (enabled && c->enabled) { state |= (1u << 8) | (1u << 24); }
-            if (enabled && (c->type == BUTTON || c->type == TEXT_FIELD) && c->enabled) { state |= 1u << 11; }
+            if (enabled && (c->type == BUTTON || c->type == TEXT_FIELD || c->type == SLIDER) && c->enabled) { state |= 1u << 11; }
             if (enabled && w->focused == c) { state |= 1u << 12; }
-            *out = (BtrcWaylandAccessible){.window=wid, .control=c->id, .role=c->type == TEXT_FIELD ? 79u : c->type == BUTTON ? 43u : 29u,
+            *out = (BtrcWaylandAccessible){.window=wid, .control=c->id, .role=accessibleRole(c->type),
                 .state=state, .name=c->type == BUTTON ? btrcWaylandButtonAccessibleName(c->button) : c->label ? btrcWaylandLabelAccessibleName(c->label) : "",
                 .description=c->tooltip ? c->tooltip : "", .x=(int)p->frame.x, .y=(int)p->frame.y,
                 .width=(int)p->frame.width, .height=(int)p->frame.height};
+            if (c->type == LEVEL) {
+                out->maximum = 1.0; out->value = c->value;
+                out->state |= 1u << 14; out->stateHigh |= 1u << (43 - 32); /* horizontal, read-only */
+            } else if (c->type == SPINNER && c->running) {
+                out->state |= 1u << 3; out->stateHigh |= 1u; /* busy, indeterminate */
+            } else if (c->type == SCROLLBAR) {
+                out->maximum = fmax(0, c->content - c->viewport); out->value = c->value; out->increment = 48.0;
+                out->state |= 1u << (c->vertical ? 29 : 14);
+            } else if (c->type == SLIDER) {
+                out->minimum = c->slider.minimum; out->maximum = c->slider.maximum;
+                out->increment = c->slider.step; out->value = c->slider.value; out->state |= 1u << 14;
+            }
             if (c->field) {
                 out->state |= 1u << 26;  /* single line */
                 if (enabled && c->enabled) { out->state |= 1u << 7; } /* editable */
@@ -947,13 +974,13 @@ bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessibl
     return false;
 }
 
-BtrcShimControl *btrcWaylandAccessibleControl(unsigned window, unsigned control, BtrcShimWindow **owner) {
+BtrcShimControl *btrcWaylandAccessibleControl(unsigned window, unsigned control, bool vertical, BtrcShimWindow **owner) {
     for (BtrcShimWindow *w = btrcWaylandPlatformWindows(); w; w = w->next) {
         if (!w->native->visible || btrcShimWindowId(w) != window) { continue; }
         if (w->native->display->modalWindow && w->native->display->modalWindow != w->native) { return NULL; }
         for (size_t i = 0; i < w->visible.count; ++i) {
             BtrcShimControl *c = w->visible.items[i].control;
-            if (c && c->id == control && c->enabled && !c->closed) {
+            if (c && c->id == control && c->enabled && !c->closed && (c->type != SCROLLBAR || c->vertical == vertical)) {
                 *owner = w;
                 return c;
             }
@@ -964,7 +991,32 @@ BtrcShimControl *btrcWaylandAccessibleControl(unsigned window, unsigned control,
 
 bool btrcWaylandAccessibleAction(unsigned window, unsigned control, bool focusOnly) {
     BtrcShimWindow *w = NULL;
-    BtrcShimControl *c = btrcWaylandAccessibleControl(window, control, &w);
-    if (!c || (c->type != BUTTON && !(focusOnly && c->type == TEXT_FIELD))) { return false; }
+    BtrcShimControl *c = btrcWaylandAccessibleControl(window, control, false, &w);
+    if (!c || (c->type != BUTTON && !(focusOnly && (c->type == TEXT_FIELD || c->type == SLIDER)))) { return false; }
     return setFocus(w, c) && (focusOnly || controlEvent(w, c, BTRC_SHIM_EVENT_CONTROL_ACTIVATED));
+}
+
+bool btrcWaylandAccessibleValuePending(void) {
+    BtrcShimWindow *window = btrcWaylandPlatformWindows();
+    return window && window->native->display->accessibilityValuePending;
+}
+
+bool btrcWaylandAccessibleSetValue(unsigned window, unsigned control, bool vertical, double value) {
+    BtrcShimWindow *w = NULL;
+    BtrcShimControl *c = btrcWaylandAccessibleControl(window, control, vertical, &w);
+    if (!c || !isfinite(value) || w->native->display->accessibilityValuePending) { return false; }
+    /* data2 marks this value change for completion in btrcWaylandDisplayPop. */
+    BtrcShimEvent event = {.window=window, .control=control, .value=value, .data2=1};
+    if (c->type == SLIDER) {
+        if (value < c->slider.minimum || value > c->slider.maximum) { return false; }
+        event.type = BTRC_SHIM_EVENT_CONTROL_SLIDER_CHANGED;
+        event.data1 = BTRC_SHIM_SLIDER_ASSISTIVE_VALUE;
+    } else if (c->type == SCROLLBAR) {
+        if (value < 0 || value > c->content - c->viewport) { return false; }
+        event.type = BTRC_SHIM_EVENT_CONTROL_SCROLLBAR_CHANGED;
+        event.data1 = c->vertical;
+    } else { return false; }
+    if (!btrcWaylandQueueEvent(w->native->display, event)) { return false; }
+    w->native->display->accessibilityValuePending = true;
+    return true;
 }
