@@ -6,9 +6,12 @@ to the bus daemon's socket and links no D-Bus library: on Linux what the
 system supplies is the kernel and the C library, and a system service is
 reached over its socket by code in this tree.
 
-The Linux Bluetooth provider uses this client to call BlueZ on the system
-bus and serve the application's pairing agent and published profile. The
-package exports a client connection to a message bus.
+It exists for the stdlib's own Linux providers. `Tray/Linux/LinuxTray.btrc`
+serves a StatusNotifierItem and its menu on the session bus with it, and
+`Bluetooth/Linux/BluetoothAdapterProvider.btrc` drives BlueZ on the system
+bus. It is exported so those groups can import it, and it is a general
+client, but it carries only what they need: a client connection to a message
+bus, with no server side, no peer-to-peer listener and no object tree.
 
 ## Modules
 

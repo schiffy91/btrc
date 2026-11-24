@@ -88,19 +88,18 @@ Check-item probes refresh after command execution.
 
 `Linux/LinuxTray.btrc` speaks the KDE StatusNotifierItem spec
 (`org.kde.StatusNotifierItem`) plus Canonical's `com.canonical.dbusmenu`, which
-Plasma, GNOME's AppIndicator extension and the wlroots bars consume. It binds
-libdbus-1 through a typed native import on `Linux/DBus.h`; every call,
-header getters included, is bound directly except what the importer cannot
-lower faithfully: `DBusError` (bitfields) stays C-side behind call adapters,
-and the by-address basic marshalling (`dbus_message_iter_append_basic` /
-`get_basic`) becomes by-value helpers. A popped message is released even when
-answering it throws.
-`[[native.pkg-config]]` names `dbus-1` for the header read and the link.
+Plasma, GNOME's AppIndicator extension and the wlroots bars consume. It
+reaches the bus through `Library.DBus`, the stdlib's own D-Bus client
+(`../DBus/README.md`): the provider is BTRC from the menu model down to the
+socket, the manifest names no pkg-config package for it, and a tray program
+links no D-Bus library. A message that is malformed, or text that is not
+UTF-8, cannot be sent: the writer throws, where a bus would have dropped the
+connection.
 
 The provider owns a private session-bus connection named
 `org.kde.StatusNotifierItem-<pid>-<connection serial>` and pumps it by pull:
 `pump()` reads the socket, pops every queued method call and answers it itself,
-so no native callback or object-path vtable is involved and activations run on
+so no callback or object-path table is involved and activations run on
 the caller's thread after their reply has left. Every unhandled method call
 gets an `UnknownMethod` error reply rather than a silent timeout. Clicks arrive
 through `Event` or libdbusmenu's `EventGroup` (answered with the unknown ids

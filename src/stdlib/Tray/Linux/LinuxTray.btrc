@@ -1,3 +1,5 @@
+import Library.DBus.DBusConnection;
+import Library.DBus.DBusMessage;
 import Library.FileSystem;
 import Library.Platform;
 import Library.Process;
@@ -7,119 +9,41 @@ import Library.Vector;
 import Library.Tray.ITray;
 import Library.Tray.TrayModel;
 
-/* Marshalling helpers for the a{sv} dictionaries both interfaces speak. */
-class DBusWriter {
-	class void variantString(DBusMessageIter* parent, string value) {
-		DBusMessageIter variant;
-		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "s", &variant);
-		btrcDBusAppendString(&variant, DBUS_TYPE_STRING, value);
-		dbus_message_iter_close_container(parent, &variant);
-	}
-
-	class void variantObjectPath(DBusMessageIter* parent, string path) {
-		DBusMessageIter variant;
-		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "o", &variant);
-		btrcDBusAppendString(&variant, DBUS_TYPE_OBJECT_PATH, path);
-		dbus_message_iter_close_container(parent, &variant);
-	}
-
-	class void variantBool(DBusMessageIter* parent, bool value) {
-		DBusMessageIter variant;
-		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "b", &variant);
-		btrcDBusAppendBool(&variant, value ? 1u : 0u);
-		dbus_message_iter_close_container(parent, &variant);
-	}
-
-	class void variantInt32(DBusMessageIter* parent, int value) {
-		DBusMessageIter variant;
-		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "i", &variant);
-		btrcDBusAppendInt32(&variant, value);
-		dbus_message_iter_close_container(parent, &variant);
-	}
-
-	class void variantUInt32(DBusMessageIter* parent, unsigned int value) {
-		DBusMessageIter variant;
-		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "u", &variant);
-		btrcDBusAppendUInt32(&variant, value);
-		dbus_message_iter_close_container(parent, &variant);
-	}
-
-	class void variantStringArray(DBusMessageIter* parent) {
-		DBusMessageIter variant;
-		DBusMessageIter array;
-		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "as", &variant);
-		dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "s", &array);
-		dbus_message_iter_close_container(&variant, &array);
-		dbus_message_iter_close_container(parent, &variant);
+/* The two property values with a shape of their own. */
+class TrayVariant {
+	class void stringArray(DBusWriter parent) {
+		DBusWriter variant = parent.openVariant("as");
+		DBusWriter array = variant.openArray("s");
+		array.close();
+		variant.close();
 	}
 
 	/* ToolTip is (icon name, icon pixmaps, title, description). */
-	class void variantToolTip(DBusMessageIter* parent, string icon, string title, string description) {
-		DBusMessageIter variant;
-		DBusMessageIter tooltip;
-		DBusMessageIter pixmaps;
-		dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "(sa(iiay)ss)", &variant);
-		dbus_message_iter_open_container(&variant, DBUS_TYPE_STRUCT, null, &tooltip);
-		btrcDBusAppendString(&tooltip, DBUS_TYPE_STRING, icon);
-		dbus_message_iter_open_container(&tooltip, DBUS_TYPE_ARRAY, "(iiay)", &pixmaps);
-		dbus_message_iter_close_container(&tooltip, &pixmaps);
-		btrcDBusAppendString(&tooltip, DBUS_TYPE_STRING, title);
-		btrcDBusAppendString(&tooltip, DBUS_TYPE_STRING, description);
-		dbus_message_iter_close_container(&variant, &tooltip);
-		dbus_message_iter_close_container(parent, &variant);
-	}
-
-	class void openDictEntry(DBusMessageIter* dictionary, DBusMessageIter* entry, string key) {
-		dbus_message_iter_open_container(dictionary, DBUS_TYPE_DICT_ENTRY, null, entry);
-		btrcDBusAppendString(entry, DBUS_TYPE_STRING, key);
-	}
-
-	class void dictString(DBusMessageIter* dictionary, string key, string value) {
-		DBusMessageIter entry;
-		DBusWriter.openDictEntry(dictionary, &entry, key);
-		DBusWriter.variantString(&entry, value);
-		dbus_message_iter_close_container(dictionary, &entry);
-	}
-
-	class void dictObjectPath(DBusMessageIter* dictionary, string key, string path) {
-		DBusMessageIter entry;
-		DBusWriter.openDictEntry(dictionary, &entry, key);
-		DBusWriter.variantObjectPath(&entry, path);
-		dbus_message_iter_close_container(dictionary, &entry);
-	}
-
-	class void dictBool(DBusMessageIter* dictionary, string key, bool value) {
-		DBusMessageIter entry;
-		DBusWriter.openDictEntry(dictionary, &entry, key);
-		DBusWriter.variantBool(&entry, value);
-		dbus_message_iter_close_container(dictionary, &entry);
-	}
-
-	class void dictInt32(DBusMessageIter* dictionary, string key, int value) {
-		DBusMessageIter entry;
-		DBusWriter.openDictEntry(dictionary, &entry, key);
-		DBusWriter.variantInt32(&entry, value);
-		dbus_message_iter_close_container(dictionary, &entry);
-	}
-
-	class void dictUInt32(DBusMessageIter* dictionary, string key, unsigned int value) {
-		DBusMessageIter entry;
-		DBusWriter.openDictEntry(dictionary, &entry, key);
-		DBusWriter.variantUInt32(&entry, value);
-		dbus_message_iter_close_container(dictionary, &entry);
+	class void toolTip(DBusWriter parent, string icon, string title, string description) {
+		DBusWriter variant = parent.openVariant("(sa(iiay)ss)");
+		DBusWriter tooltip = variant.openStruct();
+		tooltip.appendString(icon);
+		DBusWriter pixmaps = tooltip.openArray("(iiay)");
+		pixmaps.close();
+		tooltip.appendString(title);
+		tooltip.appendString(description);
+		tooltip.close();
+		variant.close();
 	}
 }
 
 /* StatusNotifierItem plus com.canonical.dbusmenu served over a private
- * session-bus connection. The connection is pumped by pull: pump() reads the
- * socket and answers every queued method call itself, so no native callback
- * or object-path vtable is involved and activations run on the caller's
- * thread after their reply has left. Losing the bus or failing to
- * re-register with a restarted watcher is terminal: pump() and run() throw
- * that failure, as the macOS tray throws its own. */
+ * session-bus connection of the stdlib's own D-Bus client (Library.DBus):
+ * no D-Bus library is linked. The connection is pumped by pull: pump() reads
+ * the socket and answers every queued method call itself, so no callback is
+ * involved and activations run on the caller's thread after their reply has
+ * left. Losing the bus or failing to re-register with a restarted watcher is
+ * terminal: pump() and run() throw that failure, as the macOS tray throws its
+ * own. */
 class LinuxTray implements ITray {
 	private Tray _model;
-	private DBusConnection* _connection;
+	private DBusConnection _connection;
+	private bool _open = false;
 	private string _busName;
 	private string _iconName;
 	private UnixShell _shell;
@@ -156,12 +80,13 @@ class LinuxTray implements ITray {
 			self._texts.push("");
 		}
 		if (!model.attentionIconPath.isEmpty()) { self._attentionIconName = LinuxTray.resolveIcon(model.attentionIconPath); }
-		self._connection = btrcDBusOpenSessionBus();
-		if (self._connection == null) { throw "No D-Bus session bus"; }
-		dbus_connection_set_exit_on_disconnect(self._connection, 0u);
+		DBusConnection? session = DBusConnection.session();
+		if (session == null) { throw "No D-Bus session bus"; }
+		self._connection = session;
+		self._open = true;
 		try {
 			self._busName = "org.kde.StatusNotifierItem-" + Strings.fromInt(Platform.pid()) + "-" + self.connectionSerial();
-			if (!btrcDBusOwnName(self._connection, self._busName)) { throw "Cannot own " + self._busName + " on the session bus"; }
+			if (!self._connection.ownName(self._busName)) { throw "Cannot own " + self._busName + " on the session bus"; }
 			self.probeCheckItems();
 			self._attention = self.probeAttention();
 			self._attentionDeadline = self.nextAttention();
@@ -182,39 +107,31 @@ class LinuxTray implements ITray {
 		return resolved.isEmpty() ? fallback : resolved;
 	}
 
-	/* libdbus header fields and names may be absent; BTRC strings may not be null. */
-	class string text(const char* raw) { return raw == null ? "" : Strings.copy((char*)raw); }
-
 	/* ":1.54" -> "54": unique per connection, so a closed and reopened tray
 	 * never races the bus daemon for the name its old connection still holds. */
 	private string connectionSerial() {
-		string unique = LinuxTray.text(dbus_bus_get_unique_name(self._connection));
+		string unique = self._connection.uniqueName();
 		int dot = Strings.rfind(unique, ".");
 		return dot < 0 ? "1" : unique.substring(dot + 1, unique.len() - dot - 1);
 	}
 
 	private bool registerWithWatcher() {
-		DBusMessage* request = dbus_message_new_method_call(LinuxTray.watcherName(), "/StatusNotifierWatcher", LinuxTray.watcherName(), "RegisterStatusNotifierItem");
-		if (request == null) { return false; }
-		DBusMessageIter arguments;
-		dbus_message_iter_init_append(request, &arguments);
-		btrcDBusAppendString(&arguments, DBUS_TYPE_STRING, self._busName);
-		bool registered = btrcDBusCallSucceeds(self._connection, request, 2000) != 0u;
-		dbus_message_unref(request);
-		return registered;
+		DBusMessage request = DBusMessage.methodCall(LinuxTray.watcherName(), "/StatusNotifierWatcher", LinuxTray.watcherName(), "RegisterStatusNotifierItem");
+		request.writer().appendString(self._busName);
+		return self._connection.call(request, 2000) != null;
 	}
 
 	/* A restarted watcher (kded/plasmashell crash recovery) forgets every item;
 	 * the spec has items re-register when the well-known name changes owner. */
 	private void watchWatcher() {
 		string rule = "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='" + LinuxTray.watcherName() + "'";
-		if (!btrcDBusAddMatch(self._connection, rule)) { throw "Cannot watch the StatusNotifierWatcher"; }
+		if (!self._connection.addMatch(rule)) { throw "Cannot watch the StatusNotifierWatcher"; }
 	}
 
-	private void handleWatcherOwnerChange(DBusMessage* message) {
-		DBusMessageIter arguments;
-		if (dbus_message_iter_init(message, &arguments) == 0u || !dbus_message_iter_next(&arguments) || !dbus_message_iter_next(&arguments)) { return; }
-		string newOwner = Strings.copy((char*)btrcDBusReadString(&arguments));
+	private void handleWatcherOwnerChange(DBusMessage message) {
+		DBusReader arguments = message.reader();
+		if (arguments.type() == DBUS_TYPE_INVALID || !arguments.next() || !arguments.next()) { return; }
+		string newOwner = arguments.readString();
 		if (!newOwner.isEmpty() && !self.registerWithWatcher()) { self.fail("Cannot re-register with the restarted StatusNotifierWatcher"); }
 	}
 
@@ -254,7 +171,7 @@ class LinuxTray implements ITray {
 			if (!entry.stateCommand.isEmpty() && shown) {
 				bool checked = self._shell.run(entry.stateCommand, logFailure=false).ok();
 				if (checked != self._checked.get(index)) { self._checked.set(index, checked); changed.push(index); }
-				if (self._connection != null) { self.drain(0); }  /* a request waits on one command at most */
+				if (self._open) { self.drain(0); }  /* a request waits on one command at most */
 			}
 			if (!entry.textCommand.isEmpty() && shown) {
 				string text = LinuxTray.firstLine(self._shell.run(entry.textCommand, logFailure=false).stdout());
@@ -262,7 +179,7 @@ class LinuxTray implements ITray {
 					self._texts.set(index, text);
 					if (!changed.contains(index)) { changed.push(index); }
 				}
-				if (self._connection != null) { self.drain(0); }
+				if (self._open) { self.drain(0); }
 			}
 			index++;
 		}
@@ -282,30 +199,25 @@ class LinuxTray implements ITray {
 		bool asked = false;
 		for command in self._model.attentionCommands {
 			if (!asked) { asked = self._shell.run(command, logFailure=false).ok(); }
-			if (self._connection != null) { self.drain(0); }
+			if (self._open) { self.drain(0); }
 		}
 		return asked;
 	}
 
 	/* Ask the attention commands again and tell the host when the answer changed. */
 	private void refreshAttention() {
-		if (self._model.attentionCommands.len == 0 || self._connection == null) { return; }
+		if (self._model.attentionCommands.len == 0 || !self._open) { return; }
 		self._attentionDeadline = self.nextAttention();
 		bool asked = self.probeAttention();
 		if (asked == self._attention) { return; }
 		self._attention = asked;
-		DBusMessage* signal = dbus_message_new_signal(LinuxTray.itemPath(), LinuxTray.itemInterface(), "NewStatus");
-		if (signal == null) { return; }
-		DBusMessageIter arguments;
-		dbus_message_iter_init_append(signal, &arguments);
-		btrcDBusAppendString(&arguments, DBUS_TYPE_STRING, self.status());
-		dbus_connection_send(self._connection, signal, null);
-		dbus_message_unref(signal);
-		dbus_connection_flush(self._connection);
+		DBusMessage signal = DBusMessage.signal(LinuxTray.itemPath(), LinuxTray.itemInterface(), "NewStatus");
+		signal.writer().appendString(self.status());
+		self._connection.send(signal);
 	}
 
 	public void refreshCheckItems() {
-		if (self._connection == null) { return; }
+		if (!self._open) { return; }
 		self.announceCheckItems(self.probeCheckItems());
 	}
 
@@ -313,41 +225,29 @@ class LinuxTray implements ITray {
 	 * would make the host rebuild, and close, a submenu that is opening. */
 	private void announceCheckItems(Vector<int> indices) {
 		if (indices.len == 0) { return; }
-		DBusMessage* signal = dbus_message_new_signal(LinuxTray.menuPath(), LinuxTray.menuInterface(), "ItemsPropertiesUpdated");
-		if (signal == null) { return; }
-		DBusMessageIter arguments;
-		DBusMessageIter updated;
-		DBusMessageIter removed;
-		dbus_message_iter_init_append(signal, &arguments);
-		dbus_message_iter_open_container(&arguments, DBUS_TYPE_ARRAY, "(ia{sv})", &updated);
+		DBusMessage signal = DBusMessage.signal(LinuxTray.menuPath(), LinuxTray.menuInterface(), "ItemsPropertiesUpdated");
+		DBusWriter arguments = signal.writer();
+		DBusWriter updated = arguments.openArray("(ia{sv})");
 		for index in indices {
-			DBusMessageIter item;
-			DBusMessageIter properties;
-			dbus_message_iter_open_container(&updated, DBUS_TYPE_STRUCT, null, &item);
-			btrcDBusAppendInt32(&item, index + 1);
-			dbus_message_iter_open_container(&item, DBUS_TYPE_ARRAY, "{sv}", &properties);
+			DBusWriter item = updated.openStruct();
+			item.appendInt32(index + 1);
+			DBusWriter properties = item.openArray("{sv}");
 			TrayItem entry = self._model.items.get(index);
-			if (!entry.stateCommand.isEmpty()) { DBusWriter.dictInt32(&properties, "toggle-state", self._checked.get(index) ? 1 : 0); }
-			if (!entry.textCommand.isEmpty()) { DBusWriter.dictString(&properties, "label", self.shownLabel(index)); }
-			dbus_message_iter_close_container(&item, &properties);
-			dbus_message_iter_close_container(&updated, &item);
+			if (!entry.stateCommand.isEmpty()) { properties.dictInt32("toggle-state", self._checked.get(index) ? 1 : 0); }
+			if (!entry.textCommand.isEmpty()) { properties.dictString("label", self.shownLabel(index)); }
+			properties.close();
+			item.close();
 		}
-		dbus_message_iter_close_container(&arguments, &updated);
-		dbus_message_iter_open_container(&arguments, DBUS_TYPE_ARRAY, "(ias)", &removed);
-		dbus_message_iter_close_container(&arguments, &removed);
-		dbus_connection_send(self._connection, signal, null);
-		dbus_message_unref(signal);
-		dbus_connection_flush(self._connection);
+		updated.close();
+		DBusWriter removed = arguments.openArray("(ias)");
+		removed.close();
+		self._connection.send(signal);
 	}
 
 	/* A host reads the item's properties once and again only when told they changed. */
 	private void announce(string member) {
-		if (self._connection == null) { return; }
-		DBusMessage* signal = dbus_message_new_signal(LinuxTray.itemPath(), LinuxTray.itemInterface(), member);
-		if (signal == null) { return; }
-		dbus_connection_send(self._connection, signal, null);
-		dbus_message_unref(signal);
-		dbus_connection_flush(self._connection);
+		if (!self._open) { return; }
+		self._connection.send(DBusMessage.signal(LinuxTray.itemPath(), LinuxTray.itemInterface(), member));
 	}
 
 	public void setIcon(string path) {
@@ -373,7 +273,7 @@ class LinuxTray implements ITray {
 
 	public bool pump(int timeoutMs) {
 		if (!self._failure.isEmpty()) { throw self._failure; }
-		if (self._connection == null || self._quitRequested) { return false; }
+		if (!self._open || self._quitRequested) { return false; }
 		/* A tray that watches for attention wakes when its commands are due, however long it may wait. */
 		bool watching = self._model.attentionCommands.len > 0;
 		int wait = timeoutMs;
@@ -401,26 +301,25 @@ class LinuxTray implements ITray {
 
 	public void run() {
 		if (!self._failure.isEmpty()) { throw self._failure; }
-		if (self._connection == null) { throw "Native tray is closed"; }
+		if (!self._open) { throw "Native tray is closed"; }
 		while (self.pump(-1)) {}
 	}
 
 	public void close() {
-		if (self._connection == null) { return; }
-		dbus_connection_close(self._connection);
-		dbus_connection_unref(self._connection);
-		self._connection = null;
+		if (!self._open) { return; }
+		self._open = false;
+		self._connection.close();
 	}
 
 	public void __del__() { self.close(); }
 
-	private void handle(DBusMessage* message) {
-		if (dbus_message_is_signal(message, "org.freedesktop.DBus", "NameOwnerChanged")) { self.handleWatcherOwnerChange(message); return; }
-		if (dbus_message_get_type(message) != DBUS_MESSAGE_TYPE_METHOD_CALL) { return; }
-		string path = LinuxTray.text(dbus_message_get_path(message));
-		string iface = LinuxTray.text(dbus_message_get_interface(message));
-		string member = LinuxTray.text(dbus_message_get_member(message));
-		DBusMessage* reply = null;
+	private void handle(DBusMessage message) {
+		if (message.isSignal("org.freedesktop.DBus", "NameOwnerChanged")) { self.handleWatcherOwnerChange(message); return; }
+		if (message.type() != DBUS_MESSAGE_TYPE_METHOD_CALL) { return; }
+		string path = message.path();
+		string iface = message.interfaceName();
+		string member = message.member();
+		DBusMessage? reply = null;
 		if (iface.equals("org.freedesktop.DBus.Introspectable") && member.equals("Introspect")) {
 			reply = self.introspectReply(message, path);
 		} else if (iface.equals("org.freedesktop.DBus.Properties")) {
@@ -428,29 +327,23 @@ class LinuxTray implements ITray {
 		} else if (path.equals(LinuxTray.itemPath()) && iface.equals(LinuxTray.itemInterface())) {
 			/* ContextMenu and Scroll: the host shows the menu itself. Activate is the click on the icon. */
 			if (member.equals("Activate") && !self._model.clickCommand.isEmpty()) { self._pendingCommands.push(self._model.clickCommand); }
-			reply = dbus_message_new_method_return(message);
+			reply = DBusMessage.methodReturn(message);
 		} else if (path.equals(LinuxTray.menuPath()) && iface.equals(LinuxTray.menuInterface())) {
 			reply = self.menuReply(message, member);
 		}
-		if (reply == null) { reply = dbus_message_new_error(message, "org.freedesktop.DBus.Error.UnknownMethod", "Unknown method on the native tray"); }
-		if (reply != null) {
-			if (!dbus_message_get_no_reply(message)) { dbus_connection_send(self._connection, reply, null); }
-			dbus_message_unref(reply);
-		}
-		dbus_connection_flush(self._connection);
+		if (reply == null) { reply = DBusMessage.error(message, "org.freedesktop.DBus.Error.UnknownMethod", "Unknown method on the native tray"); }
+		if (!message.noReply()) { self._connection.send(reply); }
 	}
 
 	/* Answers whatever arrived without blocking; replies only queue commands and probes. */
 	private void drain(int timeoutMs) {
-		if (!dbus_connection_read_write(self._connection, timeoutMs)) { self.fail("The D-Bus session bus disconnected"); }
-		DBusMessage* message = dbus_connection_pop_message(self._connection);
+		if (!self._connection.readWrite(timeoutMs)) { self.fail("The D-Bus session bus disconnected"); }
+		DBusMessage? message = self._connection.popMessage();
 		while (message != null && !self._quitRequested) {
-			/* A popped message is owned here, so it is released even when
-			 * answering it fails. */
-			try { self.handle(message); } finally { dbus_message_unref(message); }
-			message = dbus_connection_pop_message(self._connection);
+			DBusMessage arrived = message;
+			self.handle(arrived);
+			message = self._connection.popMessage();
 		}
-		if (message != null) { dbus_message_unref(message); }
 	}
 
 	private void activate(string command) {
@@ -460,7 +353,7 @@ class LinuxTray implements ITray {
 		self.refreshAttention();
 	}
 
-	private DBusMessage* introspectReply(DBusMessage* message, string path) {
+	private DBusMessage introspectReply(DBusMessage message, string path) {
 		string body = "";
 		if (path.equals(LinuxTray.itemPath())) {
 			body = "<interface name=\"org.kde.StatusNotifierItem\">" + "<property name=\"Category\" type=\"s\" access=\"read\"/><property name=\"Id\" type=\"s\" access=\"read\"/>" + "<property name=\"Title\" type=\"s\" access=\"read\"/><property name=\"Status\" type=\"s\" access=\"read\"/>" + "<property name=\"IconName\" type=\"s\" access=\"read\"/><property name=\"AttentionIconName\" type=\"s\" access=\"read\"/><property name=\"IconThemePath\" type=\"s\" access=\"read\"/>" + "<property name=\"ToolTip\" type=\"(sa(iiay)ss)\" access=\"read\"/><property name=\"ItemIsMenu\" type=\"b\" access=\"read\"/>" + "<property name=\"Menu\" type=\"o\" access=\"read\"/>" + "<method name=\"Activate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"SecondaryActivate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"ContextMenu\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>" + "<method name=\"Scroll\"><arg name=\"delta\" type=\"i\" direction=\"in\"/><arg name=\"orientation\" type=\"s\" direction=\"in\"/></method>" + "<signal name=\"NewIcon\"/><signal name=\"NewAttentionIcon\"/><signal name=\"NewToolTip\"/><signal name=\"NewStatus\"><arg name=\"status\" type=\"s\"/></signal>" + "</interface>";
@@ -468,158 +361,134 @@ class LinuxTray implements ITray {
 			body = "<interface name=\"com.canonical.dbusmenu\">" + "<property name=\"Version\" type=\"u\" access=\"read\"/><property name=\"Status\" type=\"s\" access=\"read\"/>" + "<property name=\"TextDirection\" type=\"s\" access=\"read\"/><property name=\"IconThemePath\" type=\"as\" access=\"read\"/>" + "<method name=\"GetLayout\"><arg name=\"parentId\" type=\"i\" direction=\"in\"/><arg name=\"recursionDepth\" type=\"i\" direction=\"in\"/>" + "<arg name=\"propertyNames\" type=\"as\" direction=\"in\"/><arg name=\"revision\" type=\"u\" direction=\"out\"/><arg name=\"layout\" type=\"(ia{sv}av)\" direction=\"out\"/></method>" + "<method name=\"GetGroupProperties\"><arg name=\"ids\" type=\"ai\" direction=\"in\"/><arg name=\"propertyNames\" type=\"as\" direction=\"in\"/><arg name=\"properties\" type=\"a(ia{sv})\" direction=\"out\"/></method>" + "<method name=\"GetProperty\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"name\" type=\"s\" direction=\"in\"/><arg name=\"value\" type=\"v\" direction=\"out\"/></method>" + "<method name=\"Event\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"eventId\" type=\"s\" direction=\"in\"/><arg name=\"data\" type=\"v\" direction=\"in\"/><arg name=\"timestamp\" type=\"u\" direction=\"in\"/></method>" + "<method name=\"EventGroup\"><arg name=\"events\" type=\"a(isvu)\" direction=\"in\"/><arg name=\"idErrors\" type=\"ai\" direction=\"out\"/></method>" + "<method name=\"AboutToShow\"><arg name=\"id\" type=\"i\" direction=\"in\"/><arg name=\"needUpdate\" type=\"b\" direction=\"out\"/></method>" + "<signal name=\"LayoutUpdated\"><arg name=\"revision\" type=\"u\"/><arg name=\"parent\" type=\"i\"/></signal>" + "<signal name=\"ItemsPropertiesUpdated\"><arg name=\"updatedProps\" type=\"a(ia{sv})\"/><arg name=\"removedProps\" type=\"a(ias)\"/></signal>" + "</interface>";
 		}
 		string xml = "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">" + "<node>" + body + "<interface name=\"org.freedesktop.DBus.Introspectable\"><method name=\"Introspect\"><arg name=\"data\" type=\"s\" direction=\"out\"/></method></interface>" + "<interface name=\"org.freedesktop.DBus.Properties\"><method name=\"Get\"><arg type=\"s\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/><arg type=\"v\" direction=\"out\"/></method>" + "<method name=\"GetAll\"><arg type=\"s\" direction=\"in\"/><arg type=\"a{sv}\" direction=\"out\"/></method></interface>" + "</node>";
-		DBusMessage* reply = dbus_message_new_method_return(message);
-		if (reply == null) { return null; }
-		DBusMessageIter arguments;
-		dbus_message_iter_init_append(reply, &arguments);
-		btrcDBusAppendString(&arguments, DBUS_TYPE_STRING, xml);
+		DBusMessage reply = DBusMessage.methodReturn(message);
+		reply.writer().appendString(xml);
 		return reply;
 	}
 
-	private DBusMessage* propertiesReply(DBusMessage* message, string path, string member) {
+	private DBusMessage? propertiesReply(DBusMessage message, string path, string member) {
 		bool item = path.equals(LinuxTray.itemPath());
 		bool menu = path.equals(LinuxTray.menuPath());
 		if (!item && !menu) { return null; }
 		if (member.equals("GetAll")) {
-			DBusMessage* reply = dbus_message_new_method_return(message);
-			if (reply == null) { return null; }
-			DBusMessageIter arguments;
-			DBusMessageIter dictionary;
-			dbus_message_iter_init_append(reply, &arguments);
-			dbus_message_iter_open_container(&arguments, DBUS_TYPE_ARRAY, "{sv}", &dictionary);
+			DBusMessage reply = DBusMessage.methodReturn(message);
+			DBusWriter dictionary = reply.writer().openArray("{sv}");
 			if (item) {
-				DBusWriter.dictString(&dictionary, "Category", "ApplicationStatus");
-				DBusWriter.dictString(&dictionary, "Id", self._model.title);
-				DBusWriter.dictString(&dictionary, "Title", self._model.title);
-				DBusWriter.dictString(&dictionary, "Status", self.status());
-				DBusWriter.dictString(&dictionary, "IconName", self._iconName);
-				DBusWriter.dictString(&dictionary, "AttentionIconName", self.attentionIcon());
-				DBusWriter.dictString(&dictionary, "IconThemePath", "");
-				DBusMessageIter entry;
-				DBusWriter.openDictEntry(&dictionary, &entry, "ToolTip");
-				DBusWriter.variantToolTip(&entry, self._iconName, self._model.title, self._model.tooltip);
-				dbus_message_iter_close_container(&dictionary, &entry);
-				DBusWriter.dictBool(&dictionary, "ItemIsMenu", self._model.clickCommand.isEmpty());
-				DBusWriter.dictObjectPath(&dictionary, "Menu", LinuxTray.menuPath());
+				dictionary.dictString("Category", "ApplicationStatus");
+				dictionary.dictString("Id", self._model.title);
+				dictionary.dictString("Title", self._model.title);
+				dictionary.dictString("Status", self.status());
+				dictionary.dictString("IconName", self._iconName);
+				dictionary.dictString("AttentionIconName", self.attentionIcon());
+				dictionary.dictString("IconThemePath", "");
+				DBusWriter entry = dictionary.openEntry("ToolTip");
+				TrayVariant.toolTip(entry, self._iconName, self._model.title, self._model.tooltip);
+				entry.close();
+				dictionary.dictBool("ItemIsMenu", self._model.clickCommand.isEmpty());
+				dictionary.dictObjectPath("Menu", LinuxTray.menuPath());
 			} else {
-				DBusWriter.dictUInt32(&dictionary, "Version", 3u);
-				DBusWriter.dictString(&dictionary, "Status", "normal");
-				DBusWriter.dictString(&dictionary, "TextDirection", "ltr");
-				DBusMessageIter entry;
-				DBusWriter.openDictEntry(&dictionary, &entry, "IconThemePath");
-				DBusWriter.variantStringArray(&entry);
-				dbus_message_iter_close_container(&dictionary, &entry);
+				dictionary.dictUInt32("Version", 3u);
+				dictionary.dictString("Status", "normal");
+				dictionary.dictString("TextDirection", "ltr");
+				DBusWriter entry = dictionary.openEntry("IconThemePath");
+				TrayVariant.stringArray(entry);
+				entry.close();
 			}
-			dbus_message_iter_close_container(&arguments, &dictionary);
+			dictionary.close();
 			return reply;
 		}
 		if (!member.equals("Get")) { return null; }
-		DBusMessageIter request;
+		DBusReader request = message.reader();
 		string name = "";
-		if (dbus_message_iter_init(message, &request) != 0u && dbus_message_iter_next(&request) != 0u) { name = Strings.copy((char*)btrcDBusReadString(&request)); }
-		DBusMessage* reply = dbus_message_new_method_return(message);
-		if (reply == null) { return null; }
-		DBusMessageIter arguments;
-		dbus_message_iter_init_append(reply, &arguments);
+		if (request.type() != DBUS_TYPE_INVALID && request.next()) { name = request.readString(); }
+		DBusMessage reply = DBusMessage.methodReturn(message);
+		DBusWriter arguments = reply.writer();
 		bool known = true;
 		if (item) {
-			if (name.equals("Category")) { DBusWriter.variantString(&arguments, "ApplicationStatus"); }
-			else if (name.equals("Id") || name.equals("Title")) { DBusWriter.variantString(&arguments, self._model.title); }
-			else if (name.equals("Status")) { DBusWriter.variantString(&arguments, self.status()); }
-			else if (name.equals("IconName")) { DBusWriter.variantString(&arguments, self._iconName); }
-			else if (name.equals("AttentionIconName")) { DBusWriter.variantString(&arguments, self.attentionIcon()); }
-			else if (name.equals("IconThemePath")) { DBusWriter.variantString(&arguments, ""); }
-			else if (name.equals("ToolTip")) { DBusWriter.variantToolTip(&arguments, self._iconName, self._model.title, self._model.tooltip); }
-			else if (name.equals("ItemIsMenu")) { DBusWriter.variantBool(&arguments, self._model.clickCommand.isEmpty()); }
-			else if (name.equals("Menu")) { DBusWriter.variantObjectPath(&arguments, LinuxTray.menuPath()); }
+			if (name.equals("Category")) { arguments.variantString("ApplicationStatus"); }
+			else if (name.equals("Id") || name.equals("Title")) { arguments.variantString(self._model.title); }
+			else if (name.equals("Status")) { arguments.variantString(self.status()); }
+			else if (name.equals("IconName")) { arguments.variantString(self._iconName); }
+			else if (name.equals("AttentionIconName")) { arguments.variantString(self.attentionIcon()); }
+			else if (name.equals("IconThemePath")) { arguments.variantString(""); }
+			else if (name.equals("ToolTip")) { TrayVariant.toolTip(arguments, self._iconName, self._model.title, self._model.tooltip); }
+			else if (name.equals("ItemIsMenu")) { arguments.variantBool(self._model.clickCommand.isEmpty()); }
+			else if (name.equals("Menu")) { arguments.variantObjectPath(LinuxTray.menuPath()); }
 			else { known = false; }
 		} else {
-			if (name.equals("Version")) { DBusWriter.variantUInt32(&arguments, 3u); }
-			else if (name.equals("Status")) { DBusWriter.variantString(&arguments, "normal"); }
-			else if (name.equals("TextDirection")) { DBusWriter.variantString(&arguments, "ltr"); }
-			else if (name.equals("IconThemePath")) { DBusWriter.variantStringArray(&arguments); }
+			if (name.equals("Version")) { arguments.variantUInt32(3u); }
+			else if (name.equals("Status")) { arguments.variantString("normal"); }
+			else if (name.equals("TextDirection")) { arguments.variantString("ltr"); }
+			else if (name.equals("IconThemePath")) { TrayVariant.stringArray(arguments); }
 			else { known = false; }
 		}
 		if (known) { return reply; }
-		dbus_message_unref(reply);
-		return dbus_message_new_error(message, "org.freedesktop.DBus.Error.UnknownProperty", "Unknown property on the native tray");
+		return DBusMessage.error(message, "org.freedesktop.DBus.Error.UnknownProperty", "Unknown property on the native tray");
 	}
 
 	/* dbusmenu ids: 0 is the root; items are 1-based in model order. */
-	private void appendItemProperties(DBusMessageIter* node, int index) {
+	private void appendItemProperties(DBusWriter node, int index) {
 		TrayItem entry = self._model.items.get(index);
-		DBusMessageIter properties;
-		dbus_message_iter_open_container(node, DBUS_TYPE_ARRAY, "{sv}", &properties);
-		DBusWriter.dictString(&properties, "label", self.shownLabel(index));
-		DBusWriter.dictBool(&properties, "enabled", entry.enabled);
-		DBusWriter.dictBool(&properties, "visible", true);
-		if (entry.isSubmenu) { DBusWriter.dictString(&properties, "children-display", "submenu"); }
+		DBusWriter properties = node.openArray("{sv}");
+		properties.dictString("label", self.shownLabel(index));
+		properties.dictBool("enabled", entry.enabled);
+		properties.dictBool("visible", true);
+		if (entry.isSubmenu) { properties.dictString("children-display", "submenu"); }
 		if (!entry.stateCommand.isEmpty()) {
-			DBusWriter.dictString(&properties, "toggle-type", entry.isRadio ? "radio" : "checkmark");
-			DBusWriter.dictInt32(&properties, "toggle-state", self._checked.get(index) ? 1 : 0);
+			properties.dictString("toggle-type", entry.isRadio ? "radio" : "checkmark");
+			properties.dictInt32("toggle-state", self._checked.get(index) ? 1 : 0);
 		}
-		dbus_message_iter_close_container(node, &properties);
+		properties.close();
 	}
 
 	/* Root and nested nodes use the same stable, one-based model ids. */
-	private void appendLayoutNode(DBusMessageIter* parent, int id, int depth) {
-		DBusMessageIter node;
-		DBusMessageIter children;
-		dbus_message_iter_open_container(parent, DBUS_TYPE_STRUCT, null, &node);
-		btrcDBusAppendInt32(&node, id);
+	private void appendLayoutNode(DBusWriter parent, int id, int depth) {
+		DBusWriter node = parent.openStruct();
+		node.appendInt32(id);
 		if (id == 0) {
-			DBusMessageIter properties;
-			dbus_message_iter_open_container(&node, DBUS_TYPE_ARRAY, "{sv}", &properties);
-			DBusWriter.dictString(&properties, "children-display", "submenu");
-			dbus_message_iter_close_container(&node, &properties);
-		} else { self.appendItemProperties(&node, id - 1); }
-		dbus_message_iter_open_container(&node, DBUS_TYPE_ARRAY, "v", &children);
+			DBusWriter properties = node.openArray("{sv}");
+			properties.dictString("children-display", "submenu");
+			properties.close();
+		} else { self.appendItemProperties(node, id - 1); }
+		DBusWriter children = node.openArray("v");
 		if (depth != 0) {
 			for (int index = 0; index < self._model.items.len; index++) {
 				if (self._model.items.get(index).parentId != id) { continue; }
-				DBusMessageIter variant;
-				dbus_message_iter_open_container(&children, DBUS_TYPE_VARIANT, "(ia{sv}av)", &variant);
-				self.appendLayoutNode(&variant, index + 1, depth < 0 ? -1 : depth - 1);
-				dbus_message_iter_close_container(&children, &variant);
+				DBusWriter variant = children.openVariant("(ia{sv}av)");
+				self.appendLayoutNode(variant, index + 1, depth < 0 ? -1 : depth - 1);
+				variant.close();
 			}
 		}
-		dbus_message_iter_close_container(&node, &children);
-		dbus_message_iter_close_container(parent, &node);
+		children.close();
+		node.close();
 	}
 
-	private DBusMessage* layoutReply(DBusMessage* message) {
-		DBusMessageIter request;
-		if (dbus_message_iter_init(message, &request) == 0u) { return null; }
-		int id = btrcDBusReadInt32(&request);
-		if (dbus_message_iter_next(&request) == 0u) { return null; }
-		int depth = btrcDBusReadInt32(&request);
+	private DBusMessage? layoutReply(DBusMessage message) {
+		DBusReader request = message.reader();
+		if (request.type() == DBUS_TYPE_INVALID) { return null; }
+		int id = request.readInt32();
+		if (!request.next()) { return null; }
+		int depth = request.readInt32();
 		if (id < 0 || id > self._model.items.len) {
-			return dbus_message_new_error(message, "com.canonical.dbusmenu.Error.InvalidMenuItem", "Unknown menu node");
+			return DBusMessage.error(message, "com.canonical.dbusmenu.Error.InvalidMenuItem", "Unknown menu node");
 		}
-		DBusMessage* reply = dbus_message_new_method_return(message);
-		if (reply == null) { return null; }
-		DBusMessageIter arguments;
-		dbus_message_iter_init_append(reply, &arguments);
-		btrcDBusAppendUInt32(&arguments, self._revision);
-		self.appendLayoutNode(&arguments, id, depth);
+		DBusMessage reply = DBusMessage.methodReturn(message);
+		DBusWriter arguments = reply.writer();
+		arguments.appendUInt32(self._revision);
+		self.appendLayoutNode(arguments, id, depth);
 		return reply;
 	}
 
-	private DBusMessage* groupPropertiesReply(DBusMessage* message) {
-		DBusMessage* reply = dbus_message_new_method_return(message);
-		if (reply == null) { return null; }
-		DBusMessageIter arguments;
-		DBusMessageIter array;
-		DBusMessageIter node;
-		dbus_message_iter_init_append(reply, &arguments);
-		dbus_message_iter_open_container(&arguments, DBUS_TYPE_ARRAY, "(ia{sv})", &array);
+	private DBusMessage groupPropertiesReply(DBusMessage message) {
+		DBusMessage reply = DBusMessage.methodReturn(message);
+		DBusWriter array = reply.writer().openArray("(ia{sv})");
 		for (int index = 0; index < self._model.items.len; index++) {
-			dbus_message_iter_open_container(&array, DBUS_TYPE_STRUCT, null, &node);
-			btrcDBusAppendInt32(&node, index + 1);
-			self.appendItemProperties(&node, index);
-			dbus_message_iter_close_container(&array, &node);
+			DBusWriter node = array.openStruct();
+			node.appendInt32(index + 1);
+			self.appendItemProperties(node, index);
+			node.close();
 		}
-		dbus_message_iter_close_container(&arguments, &array);
+		array.close();
 		return reply;
 	}
 
@@ -635,81 +504,71 @@ class LinuxTray implements ITray {
 	}
 
 	/* Event(id, eventId, data, timestamp). */
-	private DBusMessage* eventReply(DBusMessage* message) {
-		DBusMessageIter request;
-		if (dbus_message_iter_init(message, &request) == 0u) { return null; }
-		int id = btrcDBusReadInt32(&request);
-		if (dbus_message_iter_next(&request) == 0u) { return null; }
-		self.recordEvent(id, Strings.copy((char*)btrcDBusReadString(&request)));
-		return dbus_message_new_method_return(message);
+	private DBusMessage? eventReply(DBusMessage message) {
+		DBusReader request = message.reader();
+		if (request.type() == DBUS_TYPE_INVALID) { return null; }
+		int id = request.readInt32();
+		if (!request.next()) { return null; }
+		self.recordEvent(id, request.readString());
+		return DBusMessage.methodReturn(message);
 	}
 
 	/* EventGroup(a(isvu) events) -> ai idErrors: libdbusmenu hosts send
 	 * clicks here and fall back to Event only on UnknownMethod. */
-	private DBusMessage* eventGroupReply(DBusMessage* message) {
-		DBusMessageIter request;
-		DBusMessageIter events;
-		DBusMessageIter event;
-		if (dbus_message_iter_init(message, &request) == 0u || dbus_message_iter_get_arg_type(&request) != DBUS_TYPE_ARRAY) { return null; }
+	private DBusMessage? eventGroupReply(DBusMessage message) {
+		DBusReader request = message.reader();
+		if (request.type() != DBUS_TYPE_ARRAY) { return null; }
 		Vector<int> unknown = [];
-		dbus_message_iter_recurse(&request, &events);
-		while (dbus_message_iter_get_arg_type(&events) == DBUS_TYPE_STRUCT) {
-			dbus_message_iter_recurse(&events, &event);
-			int id = btrcDBusReadInt32(&event);
-			string name = dbus_message_iter_next(&event) != 0u ? Strings.copy((char*)btrcDBusReadString(&event)) : "";
+		DBusReader events = request.recurse();
+		while (events.type() == DBUS_TYPE_STRUCT) {
+			DBusReader event = events.recurse();
+			int id = event.readInt32();
+			string name = event.next() ? event.readString() : "";
 			if (!self.recordEvent(id, name)) { unknown.push(id); }
-			dbus_message_iter_next(&events);
+			events.next();
 		}
-		DBusMessage* reply = dbus_message_new_method_return(message);
-		if (reply == null) { return null; }
-		DBusMessageIter arguments;
-		DBusMessageIter errors;
-		dbus_message_iter_init_append(reply, &arguments);
-		dbus_message_iter_open_container(&arguments, DBUS_TYPE_ARRAY, "i", &errors);
-		for id in unknown { btrcDBusAppendInt32(&errors, id); }
-		dbus_message_iter_close_container(&arguments, &errors);
+		DBusMessage reply = DBusMessage.methodReturn(message);
+		DBusWriter errors = reply.writer().openArray("i");
+		for id in unknown { errors.appendInt32(id); }
+		errors.close();
 		return reply;
 	}
 
 	/* GetProperty(id, name) -> v, typed as GetLayout reports the same property. */
-	private DBusMessage* propertyReply(DBusMessage* message) {
-		DBusMessageIter request;
+	private DBusMessage propertyReply(DBusMessage message) {
+		DBusReader request = message.reader();
 		int id = -1;
 		string name = "";
-		if (dbus_message_iter_init(message, &request) != 0u) {
-			id = btrcDBusReadInt32(&request);
-			if (dbus_message_iter_next(&request) != 0u) { name = Strings.copy((char*)btrcDBusReadString(&request)); }
+		if (request.type() != DBUS_TYPE_INVALID) {
+			id = request.readInt32();
+			if (request.next()) { name = request.readString(); }
 		}
-		DBusMessage* reply = dbus_message_new_method_return(message);
-		if (reply == null) { return null; }
-		DBusMessageIter arguments;
-		dbus_message_iter_init_append(reply, &arguments);
-		if (self.appendMenuProperty(&arguments, id, name)) { return reply; }
-		dbus_message_unref(reply);
-		return dbus_message_new_error(message, "org.freedesktop.DBus.Error.UnknownProperty", "Unknown menu property on the native tray");
+		DBusMessage reply = DBusMessage.methodReturn(message);
+		if (self.appendMenuProperty(reply.writer(), id, name)) { return reply; }
+		return DBusMessage.error(message, "org.freedesktop.DBus.Error.UnknownProperty", "Unknown menu property on the native tray");
 	}
 
-	private bool appendMenuProperty(DBusMessageIter* arguments, int id, string name) {
+	private bool appendMenuProperty(DBusWriter arguments, int id, string name) {
 		if (id == 0) {
 			if (!name.equals("children-display")) { return false; }
-			DBusWriter.variantString(arguments, "submenu");
+			arguments.variantString("submenu");
 			return true;
 		}
 		int index = id - 1;
 		if (index < 0 || index >= self._model.items.len) { return false; }
 		TrayItem entry = self._model.items.get(index);
 		bool checkable = !entry.stateCommand.isEmpty();
-		if (name.equals("label")) { DBusWriter.variantString(arguments, self.shownLabel(index)); }
-		else if (name.equals("enabled")) { DBusWriter.variantBool(arguments, entry.enabled); }
-		else if (name.equals("visible")) { DBusWriter.variantBool(arguments, true); }
-		else if (name.equals("children-display") && entry.isSubmenu) { DBusWriter.variantString(arguments, "submenu"); }
-		else if (name.equals("toggle-type") && checkable) { DBusWriter.variantString(arguments, entry.isRadio ? "radio" : "checkmark"); }
-		else if (name.equals("toggle-state") && checkable) { DBusWriter.variantInt32(arguments, self._checked.get(index) ? 1 : 0); }
+		if (name.equals("label")) { arguments.variantString(self.shownLabel(index)); }
+		else if (name.equals("enabled")) { arguments.variantBool(entry.enabled); }
+		else if (name.equals("visible")) { arguments.variantBool(true); }
+		else if (name.equals("children-display") && entry.isSubmenu) { arguments.variantString("submenu"); }
+		else if (name.equals("toggle-type") && checkable) { arguments.variantString(entry.isRadio ? "radio" : "checkmark"); }
+		else if (name.equals("toggle-state") && checkable) { arguments.variantInt32(self._checked.get(index) ? 1 : 0); }
 		else { return false; }
 		return true;
 	}
 
-	private DBusMessage* menuReply(DBusMessage* message, string member) {
+	private DBusMessage? menuReply(DBusMessage message, string member) {
 		if (member.equals("GetLayout")) { return self.layoutReply(message); }
 		if (member.equals("GetGroupProperties")) { return self.groupPropertiesReply(message); }
 		if (member.equals("Event")) { return self.eventReply(message); }
@@ -718,16 +577,13 @@ class LinuxTray implements ITray {
 		if (member.equals("AboutToShow")) {
 			/* Answer at once from the cached states: hosts drop a submenu whose AboutToShow is
 			 * slow, then open it only on the next pointer move. Its states refresh after the reply. */
-			DBusMessageIter request;
-			if (dbus_message_iter_init(message, &request) != 0u) {
-				int id = btrcDBusReadInt32(&request);
+			DBusReader request = message.reader();
+			if (request.type() != DBUS_TYPE_INVALID) {
+				int id = request.readInt32();
 				if (!self._pendingProbes.contains(id)) { self._pendingProbes.push(id); }
 			}
-			DBusMessage* reply = dbus_message_new_method_return(message);
-			if (reply == null) { return null; }
-			DBusMessageIter arguments;
-			dbus_message_iter_init_append(reply, &arguments);
-			btrcDBusAppendBool(&arguments, 0u);
+			DBusMessage reply = DBusMessage.methodReturn(message);
+			reply.writer().appendBool(false);
 			return reply;
 		}
 		return null;

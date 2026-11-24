@@ -279,12 +279,6 @@ os = ["linux"]
 resolution = "Only a legacy X11 session without a reachable XDG bus socket or saved bus address needs the installed dbus-x11 service helper. Moving activation out of the stdlib or retiring automatic startup needs an owner decision."
 
 [[pending]]
-dependency = "libdbus"
-module = "Tray/Linux/LinuxTray"
-os = ["linux"]
-resolution = "A first-party D-Bus client: the wire protocol over the bus's own socket."
-
-[[pending]]
 dependency = "curl"
 module = "HTTP/HTTPCurlTransport"
 os = ["android", "linux", "macos"]

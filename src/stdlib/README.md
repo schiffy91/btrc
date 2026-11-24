@@ -40,7 +40,7 @@ the API surface, so the layout follows a few fixed rules.
   that compiler-generated COM bindings call.
 - **Platform code lives in a platform subfolder of its group** (`Audio/MacOS`,
   `Audio/Linux`, `GUI/MacOS`, `GUI/Linux`, `GUI/Windows`, `GUI/IOS`,
-  `LocalApplicationChannel/Linux`, `Tray/MacOS`, `Tray/Linux`,
+  `LocalApplicationChannel/Linux`, `DBus/Linux`, `Tray/MacOS`, `Tray/Linux`,
   `BackgroundJobs/Linux`, `Terminal/Windows`; `BackgroundJobs/Unix` and
   `Terminal/Unix` for code the Unix rows share, and `BackgroundJobs/Apple`,
   `Digest/Apple`, `Image/Apple`, `USB/Apple` and `LocalApplicationChannel/Apple` for code macOS, iOS and

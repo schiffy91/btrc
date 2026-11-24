@@ -363,9 +363,9 @@ The real bindings look the same, only longer:
 and [`src/stdlib/GUI/FreeType/FreeTypeFace.btrc`](src/stdlib/GUI/FreeType/FreeTypeFace.btrc)
 is the btrc side of it. C++ and Objective-C work the same way, projected
 through one generated `extern "C"` adapter, which is how CoreAudio, AppKit,
-ImageIO, libdbus and WebGPU are all reached. A few hand-written C pieces
+ImageIO and WebGPU are all reached. A few hand-written C pieces
 remain where the header reader cannot yet express an API: `static inline`
-adapters in the Linux SDL, ALSA, D-Bus and image-codec headers, and the
+adapters in the Linux SDL, ALSA and image-codec headers, and the
 `@gpu` compute runtime in `src/runtime/gpu`.
 [docs/design/native-interop.md](docs/design/native-interop.md) inventories
 them and tracks their migration.
@@ -625,6 +625,7 @@ The current groups are:
 | `Bluetooth` | Addresses, the HID protocol and service record; on Linux, L2CAP channels, the adapter (pairing, discoverability, service records) and a HID device served over the HID profile |
 | `Crypto` | Base64; Ed25519 identities in OpenSSH's formats, a trusted-key file and an encrypted, mutually authenticated channel over a TCP stream (first-party btrc: Ed25519, X25519, BLAKE2b, XChaCha20-Poly1305) |
 | `Steam` | A profile's non-Steam shortcuts: read, change and write `shortcuts.vdf` with every other byte kept, the number and picture names Steam uses |
+| `DBus` | A first-party D-Bus client: addresses, message marshalling and a bus connection over a Unix socket (Linux) |
 
 The everyday surfaces are intentionally practical:
 
@@ -1503,7 +1504,7 @@ Clang-based `NativeHeaderReader`, types the declarations against
 strings through one generated `extern "C"` adapter unit in both compilers.
 
 This is how the standard library's platform providers are written -- CoreAudio,
-AppKit, ImageIO, FreeType, libdbus, Metal through WebGPU -- with lifetimes and
+AppKit, ImageIO, FreeType, Metal through WebGPU -- with lifetimes and
 failure paths modelled in BTRC; the few remaining hand-written C adapters are
 listed in the native-interop design. A package
 declares its native units, headers, frameworks, and pkg-config requirements in
@@ -1895,7 +1896,7 @@ src/
     IO.btrc Console.btrc CLI.btrc Process.btrc Platform.btrc
     Result.btrc Callback.btrc OwnedBuffer.btrc SPSC.btrc
     App/ Audio/ BackgroundJobs/ Bluetooth/ Crypto/ Daemon/ Digest/ FileSystem/ GPU/ GUI/
-    Graph/ HID/ HTTP/ Image/ LocalApplicationChannel/ Network/ Realtime/ Steam/ Terminal/ Tray/ UI/ USB/
+    DBus/ Graph/ HID/ HTTP/ Image/ LocalApplicationChannel/ Network/ Realtime/ Steam/ Terminal/ Tray/ UI/ USB/
 
   tests/                       # One framework for both compilers
     runner.py                  # Unified runner: each .btrc test through BOTH compilers
