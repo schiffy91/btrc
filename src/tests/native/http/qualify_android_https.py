@@ -276,10 +276,8 @@ def main():
                     if mode == "trusted":
                         command = [directory + "/trust-root", directory + "/platform", *command]
                     result = adb("shell", shlex.join(command), text=True, capture_output=True, timeout=45)
-                    expected_status = 401 if mode == "trusted" else 0
-                    assert result.stdout.splitlines() == [
-                        f"Android challenge status {expected_status}",
-                        f"PASS isolated {mode} platform trust",
+                    assert result.returncode == 0 and result.stdout.splitlines() == [
+                        f"PASS isolated {mode} platform trust"
                     ], result
                     assert "JNI DETECTED ERROR" not in result.stderr, result
                     print(f"{library.name}: {result.stdout.strip()}", flush=True)

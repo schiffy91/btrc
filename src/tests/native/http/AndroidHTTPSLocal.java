@@ -77,10 +77,10 @@ public class AndroidHTTPSLocal {
             });
             peer.start();
             System.load(args[0]);
-            int result = AndroidHTTPS.run("https://localhost:" + server.getLocalPort(), "challenge");
+            int status = AndroidHTTPS.run("https://localhost:" + server.getLocalPort(), "platform-status");
             peer.join(18000);
-            if (peer.isAlive() || result != 0 || received[0] != platformTrusted || failure[0] != null)
-                throw new AssertionError("unexpected Android trust result", failure[0]);
+            if (peer.isAlive() || status != (platformTrusted ? 401 : 0) || received[0] != platformTrusted || failure[0] != null)
+                throw new AssertionError("unexpected Android trust result: HTTP " + status + ", received " + received[0], failure[0]);
             System.out.println("PASS isolated " + args[3] + " platform trust");
         }
     }

@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "JNI.h"
 #include <stdlib.h>
 
@@ -20,6 +21,8 @@ JNIEXPORT jint JNICALL Java_AndroidHTTPS_run(JNIEnv *env, jclass type, jstring g
     if (bad && wrong == NULL) { free(trusted); return 1; }
     char *args[] = {"AndroidHTTPS", trusted, wrong, NULL};
     int status = btrc_program_main(bad ? 3 : 2, args);
+    /* app_process can exit without flushing Bionic's C streams. */
+    fflush(stdout);
     free(trusted);
     free(wrong);
     return status;

@@ -51,6 +51,10 @@ int main(int argc, char** argv) {
 		print(f"Android explicit header status {result.status}");
 		return 0;
 	}
+	if (wrongName.equals("platform-status")) {
+		var result = client.get(origin + "/challenge", []);
+		return result.status == 0 && !result.error.equals("HTTPS request failed") ? -1 : result.status;
+	}
 	if (wrongName.equals("challenge")) {
 		var result = client.get(origin + "/challenge", []);
 		print(f"Android challenge status {result.status}");
