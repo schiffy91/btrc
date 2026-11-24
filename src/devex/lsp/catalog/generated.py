@@ -461,6 +461,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("AESBlock", (
         BuiltinMemberSpec("doubleByte", "unsigned int", "method", (("unsigned int", "value"),), "doubleByte"),
         BuiltinMemberSpec("product", "unsigned int", "method", (("unsigned int", "left"), ("unsigned int", "right"),), "product"),
+        BuiltinMemberSpec("square", "unsigned int", "method", (("unsigned int", "value"),), "square"),
         BuiltinMemberSpec("substitute", "unsigned char", "method", (("unsigned int", "value"),), "substitute"),
         BuiltinMemberSpec("expand", "int", "method", (("unsigned char*", "schedule"), ("unsigned char*", "key"), ("int", "keyLength"),), "expand"),
         BuiltinMemberSpec("encrypt", "void", "method", (("unsigned char*", "out"), ("unsigned char*", "input"), ("unsigned char*", "schedule"), ("int", "rounds"),), "encrypt"),
