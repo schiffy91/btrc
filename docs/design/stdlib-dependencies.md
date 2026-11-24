@@ -4,7 +4,8 @@
      tools/qualification/stdlib-dependencies.toml, not this file. -->
 
 The rule: a stdlib module requires first-party code and what its target's operating
-system supplies. wgpu-native is the only third-party exception. `python -m
+system supplies. wgpu-native is the only general third-party exception. Feature-specific
+runtime loads are restricted to their recorded source and target. `python -m
 tools.qualification.dependencies check` enforces it on every manifest link record,
 every system header a native source or module includes, every literal run-time load
 and process launch, and every file that carries someone else's copyright notice. A
@@ -18,6 +19,9 @@ failure names the module, the target and the dependency.
 | GTK 4 | `GUI/Shim/Shim` | linux | headers `gdk/gdkkeysyms.h`; headers `gdk/wayland/gdkwayland.h`; headers `gdk/x11/gdkx.h`; headers `gtk/gtk.h`; pkg-config `gtk4-wayland`; pkg-config `gtk4-x11`; pkg-config `gtk4` | First-party windows and controls over the display server's protocol. |
 | a desktop JVM (HotSpot) | `Java/JavaVirtualMachine` | linux, macos, windows | headers `jni.h`; pkg-config `btrc-jni` | Move desktop VM hosting to an optional JDK-backed package and retain checked-JNI tests. |
 | alsa-lib | `Audio/Linux/LinuxAudioDevice` | linux | loads `libasound.so.2` | Kernel PCM, PulseAudio and PipeWire sessions use first-party code. Opening an existing user-configured ALSA plugin PCM, including a JACK-only route, still needs its installed libasound runtime. Retiring that compatibility path requires an owner decision. |
+| bundled source src/stdlib/GUI/Text/GraphemeData.h | `GUI/Text/GraphemeData.h` | android, ios, linux, macos, windows | bundled `src/stdlib/GUI/Text/GraphemeData.h` | **unlisted** |
+| bundled source src/stdlib/GUI/Text/LineBreakData.h | `GUI/Text/LineBreakData.h` | android, ios, linux, macos, windows | bundled `src/stdlib/GUI/Text/LineBreakData.h` | **unlisted** |
+| bundled source src/stdlib/GUI/Text/UNICODE-LICENSE.txt | `GUI/Text/UNICODE-LICENSE.txt` | android, ios, linux, macos, windows | bundled `src/stdlib/GUI/Text/UNICODE-LICENSE.txt` | **unlisted** |
 | curl | `HTTP/HTTPCurlTransport` | android, linux, macos | programs `curl` | On Android, Linux and macOS, plain HTTP and HTTP forward proxies use first-party code. On Linux, plain HTTP also supports SOCKS4/4a/5/5h without curl. An installed curl still handles explicit Proxy-Authorization fields on SOCKS routes and optional SOCKS5 GSSAPI authentication. HTTPS, including standalone Android clients without a VM and caller-configured trust, and remaining proxy paths retain curl until their target transports are qualified. Windows uses WinHTTP. |
 | dbus-launch (legacy X11 session activation) | `DBus/Linux/DBusTransportProvider` | linux | programs `dbus-launch` | Only a legacy X11 session without a reachable XDG bus socket or saved bus address needs the installed dbus-x11 service helper. Moving activation out of the stdlib or retiring automatic startup needs an owner decision. |
 | libX11 | `GUI/Shim/Shim` | linux | headers `X11/Xlib.h`; pkg-config `x11` | Use native Wayland, including GPU presentation. Preserve inexpensive X11 compatibility without a new X11 backend. |
@@ -60,10 +64,17 @@ Keep the current working transport while qualification and review are pending.
 | Dependency | Module | Targets | How it is required |
 | --- | --- | --- | --- |
 | wgpu-native | `GPU/WebGPU` | android, ios, linux, macos, windows | headers `webgpu.h`; libraries `wgpu_native`; pkg-config `wgpu-native-windows-aarch64`; pkg-config `wgpu-native-windows-x86_64`; pkg-config `wgpu-native` |
+| wgpu-native | `GUI/Linux/Wayland/Surface.c` | linux | headers `webgpu.h` |
 | wgpu-native | `GUI/MacOS/WebGPUSurface` | macos | headers `webgpu.h`; pkg-config `wgpu-native` |
 | wgpu-native | `GUI/Shim/ShimSurface` | android, ios, linux, windows | headers `webgpu.h`; headers `wgpu.h`; pkg-config `wgpu-native-windows-aarch64`; pkg-config `wgpu-native-windows-x86_64`; pkg-config `wgpu-native` |
 | wgpu-native | `runtime/gpu/btrc_gpu.c` | android, ios, linux, macos, windows | headers `webgpu.h` |
 | wgpu-native | `runtime/gpu/btrc_gpu_async.c` | android, ios, linux, macos, windows | headers `webgpu.h` |
+
+## Feature-specific runtime loads
+
+| Dependency | Module | Targets | How it is required |
+| --- | --- | --- | --- |
+| libwayland-client | `GUI/Linux/Wayland/GPUWire.c` | linux | loads `libwayland-client.so.0` |
 
 ## What each operating system supplies, as the stdlib uses it
 
