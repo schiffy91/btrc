@@ -229,6 +229,7 @@ class WaylandAccessibility {
 				continue;
 			}
 			if (after.role == 23 && ((after.state ^ before.state) & 2u) != 0) {
+				WaylandAccessibility.changed(bus, after, "StateChanged", "active", (after.state & 2u) != 0 ? 1 : 0);
 				WaylandAccessibility.windowEvent(bus, after, (after.state & 2u) != 0);
 			}
 			if (before.name != after.name) { WaylandAccessibility.changed(bus, after, "PropertyChange", "accessible-name", 0); }

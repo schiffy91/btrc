@@ -913,7 +913,7 @@ bool btrcWaylandAccessibleChild(unsigned window, int index, BtrcWaylandAccessibl
         unsigned state = (1u << 25) | (1u << 30); // AT-SPI showing, visible
         if (!window) {
             if (index-- != 0) { continue; }
-            *out = (BtrcWaylandAccessible){.window=wid, .role=23, .state=state | (w->accessibilityActive ? (1u << 1) : 0u) | (1u<<8) | (1u<<24),
+            *out = (BtrcWaylandAccessible){.window=wid, .role=23, .state=state | (w->native->activated ? (1u << 1) : 0u) | (1u<<8) | (1u<<24),
                 .name=w->native->title, .description="", .width=btrcShimWindowWidth(w), .height=btrcShimWindowHeight(w)};
             return true;
         }

@@ -28,6 +28,7 @@ bool btrcShimInit(void) {
     thread = pthread_self();
     opened->editContext = btrcWaylandSceneEditContext;
     opened->deleteAround = btrcWaylandSceneDeleteAround;
+    opened->activationChanged = btrcWaylandAccessibilityChanged;
     opened->routeInput = btrcWaylandSceneInput;
     display = opened;
     return true;
@@ -103,27 +104,13 @@ bool btrcShimPushWake(void) {
     return current && btrcWaylandDisplayWake(current);
 }
 
-static bool popEvent(BtrcShimEvent *out) {
-    if (!btrcWaylandDisplayPop(display, out)) { return false; }
-    if (out->type == BTRC_SHIM_EVENT_WINDOW_FOCUS_GAINED || out->type == BTRC_SHIM_EVENT_WINDOW_FOCUS_LOST) {
-        for (BtrcShimWindow *window = windows; window; window = window->next) {
-            if (btrcShimWindowId(window) == out->window) {
-                window->accessibilityActive = out->type == BTRC_SHIM_EVENT_WINDOW_FOCUS_GAINED;
-                btrcWaylandAccessibilityChanged();
-                break;
-            }
-        }
-    }
-    return true;
-}
-
 int btrcShimWaitEvent(BtrcShimEvent *out, int timeout) {
     if (!display || !out) { return 0; }
     long long deadline = btrcWaylandMilliseconds() + timeout;
     int remaining = timeout;
     for (;;) {
         if (accessibilityService) { display->wire->accessibility = accessibilityService(); }
-        if (popEvent(out)) { return 1; }
+        if (btrcWaylandDisplayPop(display, out)) { return 1; }
         if (disconnected) { return 0; }
         int result = btrcWaylandDisplayPoll(display, btrcWaylandSceneAdvance(remaining));
         if (result < 0) {
@@ -131,7 +118,7 @@ int btrcShimWaitEvent(BtrcShimEvent *out, int timeout) {
             *out = (BtrcShimEvent){.type = BTRC_SHIM_EVENT_QUIT};
             return 1;
         }
-        if (popEvent(out)) { return 1; }
+        if (btrcWaylandDisplayPop(display, out)) { return 1; }
         if (timeout >= 0) {
             long long left = deadline - btrcWaylandMilliseconds();
             if (left <= 0) { return 0; }

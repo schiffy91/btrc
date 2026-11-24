@@ -450,6 +450,10 @@ static bool xdgEvent(void *owner, uint32_t id, unsigned opcode, BtrcWaylandEvent
     uint32_t serial = btrcWaylandUint(event);
     if (!btrcWaylandSend(event->wire, id, 4, "u", serial)) { return false; }
     w->configured = true;
+    if (w->activated != w->configuredActivated) {
+        w->activated = w->configuredActivated;
+        if (w->display->activationChanged) { w->display->activationChanged(); }
+    }
     if (w->suspended != w->configuredSuspended) {
         w->suspended = w->configuredSuspended;
         if (!windowEvent(w, w->suspended ? BTRC_SHIM_EVENT_WINDOW_MINIMIZED : BTRC_SHIM_EVENT_WINDOW_RESTORED, 0, 0)) { return false; }
@@ -478,10 +482,12 @@ static bool toplevelEvent(void *owner, uint32_t id, unsigned opcode, BtrcWayland
     uint32_t size;
     const unsigned char *states = btrcWaylandArray(event, &size);
     if (!event->valid || (size & 3u)) { return false; }
+    w->configuredActivated = false;
     w->configuredSuspended = false;
     for (size_t offset = 0; offset < size; offset += 4) {
         uint32_t state;
         memcpy(&state, states + offset, sizeof(state));
+        if (state == 4) { w->configuredActivated = true; } /* xdg_toplevel.state.activated */
         if (state == 9) { w->configuredSuspended = true; } /* xdg_toplevel.state.suspended */
     }
     return w->configuredWidth >= 0 && w->configuredHeight >= 0;
@@ -550,6 +556,7 @@ bool btrcWaylandWindowShow(BtrcWaylandWindow *w) {
 bool btrcWaylandWindowHide(BtrcWaylandWindow *w) {
     btrcWaylandWindowClosePopup(w);
     if (!w->visible) { return true; }
+    w->activated = w->configuredActivated = false;
     w->visible = w->configured = false;
     if (w->frame) { btrcWaylandRetire(w->display->wire, w->frame); w->frame = 0; }
     if (!btrcWaylandSend(w->display->wire, w->surface, 1, "uii", 0u, 0, 0) || !btrcWaylandSend(w->display->wire, w->surface, 6, "")) { return false; }

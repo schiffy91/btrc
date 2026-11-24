@@ -1,9 +1,11 @@
 """Drive the public Wayland sample with the desktop's AT-SPI client library."""
 
+import ast
 import ctypes
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -16,6 +18,15 @@ def function(library, name, result, *arguments):
     method.restype = result
     method.argtypes = list(arguments)
     return method
+
+
+def announced_button(log):
+    for line in Path(log).read_text(errors="replace").splitlines():
+        if ":DATA:|<speak>" in line and "</speak>" in line:
+            message = line[line.index("<speak>") : line.index("</speak>") + len("</speak>")]
+            if " ".join("".join(ET.fromstring(message).itertext()).split()) == "Quit button.":
+                return True
+    return False
 
 
 def main(executable, directory, orca_trace=None):
@@ -54,8 +65,6 @@ def main(executable, directory, orca_trace=None):
         ],
         text=True,
     )
-    import ast
-
     value = ast.literal_eval(address)[0]
     socket = unquote(value.split("unix:path=", 1)[1].split(",", 1)[0])
     command.extend(["--ro-bind", socket, "/run/gui/a11y", "--setenv", "AT_SPI_BUS_ADDRESS", "unix:path=/run/gui/a11y"])
@@ -81,6 +90,8 @@ def main(executable, directory, orca_trace=None):
                         controls = [child(window, k, None) for k in range(count(window, None))]
                         entries = {(role(c, None), name(c, None)): c for c in controls if c}
                         if (29, b"Native Wayland") in entries and (43, b"Quit") in entries:
+                            if orca_trace and not has_state(states(window), 1):
+                                continue
                             assert name(window, None)
                             button = entries[(43, b"Quit")]
                             break
@@ -100,8 +111,7 @@ def main(executable, directory, orca_trace=None):
             if orca_trace:
                 deadline = time.monotonic() + 12
                 while time.monotonic() < deadline:
-                    trace = Path(orca_trace).read_text(errors="replace")
-                    if any("SPEECH OUTPUT:" in line and "Quit" in line for line in trace.splitlines()):
+                    if announced_button(orca_trace):
                         break
                     while iterate(None, False):
                         pass
