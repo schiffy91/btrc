@@ -24,6 +24,37 @@ static int fail(const char *what)
 	return 1;
 }
 
+static int flags_match(const char *root)
+{
+	char pattern[4096];
+	glob_t found = {0};
+	found.gl_offs = 2;
+	if (snprintf(pattern, sizeof pattern, "%s/ascii.txt", root) < 0) return 0;
+	int rc = glob(pattern, GLOB_DOOFFS, NULL, &found);
+	int ok = rc == 0 && found.gl_pathc == 1 && !found.gl_pathv[0] &&
+	         !found.gl_pathv[1] && strcmp(found.gl_pathv[2], pattern) == 0 && !found.gl_pathv[3];
+	snprintf(pattern, sizeof pattern, "%s/*.md", root);
+	if (ok) ok = !glob(pattern, GLOB_APPEND | GLOB_DOOFFS | GLOB_NOSORT, NULL, &found) &&
+	             found.gl_pathc == 2 && strstr(found.gl_pathv[3], "/skip.md") && !found.gl_pathv[4];
+	globfree(&found);
+	snprintf(pattern, sizeof pattern, "%s/*.none", root);
+	if (ok) ok = glob(pattern, 0, NULL, &found) == GLOB_NOMATCH;
+	if (ok) ok = glob(pattern, GLOB_NOCHECK | GLOB_NOESCAPE, NULL, &found) == 0 &&
+	             found.gl_pathc == 1 && strcmp(found.gl_pathv[0], pattern) == 0;
+	globfree(&found);
+	snprintf(pattern, sizeof pattern, "%s\\/ascii.txt", root);
+	if (ok) ok = !glob(pattern, 0, NULL, &found) && found.gl_pathc == 1 &&
+	             !strchr(found.gl_pathv[0], '\\');
+	globfree(&found);
+	snprintf(pattern, sizeof pattern, "%s/\\", root);
+	if (ok) ok = glob(pattern, 0, NULL, &found) == GLOB_NOMATCH;
+	globfree(&found);
+	if (ok) ok = !glob(root, GLOB_MARK, NULL, &found) && found.gl_pathc == 1 &&
+	             found.gl_pathv[0][strlen(found.gl_pathv[0]) - 1] == '/';
+	globfree(&found);
+	return ok;
+}
+
 int main(void)
 {
 	const wchar_t *temporary = _wgetenv(L"TEMP");
@@ -46,6 +77,7 @@ int main(void)
 	for (char *p = pattern; *p; p++) {
 		if (*p == '\\') *p = '/';
 	}
+	if (!flags_match(pattern)) return fail("glob flags");
 	size_t prefix = strlen(pattern) + 1;
 	strcat(pattern, "/*.txt");
 

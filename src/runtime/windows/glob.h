@@ -203,10 +203,21 @@ static inline int btrc_win_glob(const char *restrict pattern, int flags,
 		while (*next == '/') ++next;
 		char *part = btrc_win_path_concat("", p, (size_t)(end - p));
 		if (!part) { result = GLOB_NOSPACE; break; }
-		int magic = 0;
+		int magic = 0, incomplete_escape = 0;
 		for (char *s = part; *s; ++s) {
-			if (!(flags & GLOB_NOESCAPE) && *s == '\\' && s[1]) ++s;
-			else if (*s == '*' || *s == '?' || *s == '[') { magic = 1; break; }
+			if (!(flags & GLOB_NOESCAPE) && *s == '\\') {
+				if (s[1]) ++s;
+				else if (*end) *s = 0; /* the separator itself was escaped */
+				else incomplete_escape = 1;
+			} else if (*s == '*' || *s == '?') magic = 1;
+			else if (*s == '[') {
+				const unsigned char *after = (const unsigned char *)s + 1;
+				btrc_win_byte_set set = {{0}};
+				if (btrc_win_parse_list(&after, &set, 1, 0) == btrc_win_list_ok) {
+					magic = 1;
+					s = (char *)after - 1;
+				}
+			}
 		}
 		if (!magic && !(flags & GLOB_NOESCAPE)) {
 			char *out = part;
@@ -217,7 +228,7 @@ static inline int btrc_win_glob(const char *restrict pattern, int flags,
 			*out = 0;
 		}
 		btrc_win_path_list expanded = {NULL, 0, 0};
-		for (size_t i = 0; !result && i < paths.count; ++i) {
+		for (size_t i = 0; !incomplete_escape && !result && i < paths.count; ++i) {
 			int component_flags = *next ? (flags & ~GLOB_MARK) : flags;
 			if (magic) result = btrc_win_glob_scan(&expanded, paths.items[i], part,
 			                                       (size_t)(next - end), component_flags, onerror);

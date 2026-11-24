@@ -1,7 +1,7 @@
 """Regular expressions, fnmatch and glob match on Windows as on Linux and macOS.
 
-MinGW-w64 has no regex, fnmatch or glob, so the Windows overlay vendors
-musl 1.2.5's (PLAN.md D22; src/runtime/windows/README.md). The overlay's
+The MinGW-w64 overlay supplies first-party shell patterns and globbing, and
+bundles musl 1.2.5's POSIX regex (src/runtime/windows/README.md). The overlay's
 regex.h, fnmatch.h and glob.h declare the POSIX interfaces and compile the
 engine into each unit, so the hosted-ABI names are available on the gnu
 Windows rows and Library.Regex, Library.Pattern and glob(3) programs build
@@ -9,7 +9,7 @@ there unchanged. This module proves the matching is the same:
 
 - PosixMatching.c, a fixed table of regcomp/regexec and fnmatch cases, prints
   identical lines built against the host C library (glibc, or macOS's libc)
-  and against the vendored engine compiled for the host.
+  and against the Windows overlay compiled for the host.
 - The same program, and the regex, fnmatch and glob corpus programs through
   both compilers, cross-build for windows-x64 and windows-arm64 under the
   strict flags every Windows unit gets, and are published with the output
@@ -35,6 +35,7 @@ from src.tests.python.windows_evidence_fixtures import (
     build_corpus_program,
     publish,
 )
+from tools.qualification.dependencies import DependencyAudit
 
 REPO = Path(__file__).resolve().parents[3]
 DRIVER = REPO / "src" / "tests" / "native" / "posix_matching" / "PosixMatching.c"
@@ -47,7 +48,7 @@ def _run(executable: Path) -> str:
     return ran.stdout
 
 
-def _build_host(output: Path, include: Path | None = None) -> Path:
+def _build_host(output: Path, include: Path | None = None, driver: Path = DRIVER) -> Path:
     """The parity driver for this host, against its C library or, with
     `include`, against the vendored engine. The engine's warning policy is the
     Windows units' (zig's clang under -Werror, checked by the Windows builds
@@ -63,7 +64,7 @@ def _build_host(output: Path, include: Path | None = None) -> Path:
     else:
         command += ["-I", str(include)]
     built = subprocess.run(
-        [*command, str(DRIVER), "-o", str(output)],
+        [*command, str(driver), "-o", str(output)],
         capture_output=True,
         text=True,
         timeout=C_COMPILE_TIMEOUT,
@@ -82,7 +83,7 @@ def host_library_output(tmp_path_factory) -> str:
 
 
 def test_vendored_engine_matches_the_host_library(host_library_output, tmp_path):
-    """The overlay's musl engine, built for this host, answers every case as its C library does."""
+    """The byte-oriented Windows overlay answers the shared cases as the host C library does."""
     shim = tmp_path / "include"
     shim.mkdir()
     for header in ("regex.h", "fnmatch.h"):
@@ -92,6 +93,18 @@ def test_vendored_engine_matches_the_host_library(host_library_output, tmp_path)
         host_library_output.splitlines(), vendored.splitlines(), "host library", "vendored engine", lineterm=""
     )
     assert vendored == host_library_output, "\n".join(difference)
+
+
+def test_generated_shell_patterns_match_the_host_library(tmp_path):
+    shim = tmp_path / "include"
+    shim.mkdir()
+    (shim / "fnmatch.h").write_text(f'#include "{OVERLAY / "fnmatch.h"}"\n', encoding="utf-8")
+    driver = DRIVER.with_name("GeneratedShellPatterns.c")
+    host = _run(_build_host(tmp_path / "libc", driver=driver)).splitlines()
+    overlay = _run(_build_host(tmp_path / "overlay", include=shim, driver=driver)).splitlines()
+    assert len(host) == len(overlay) == 11**3
+    for row, (expected, actual) in enumerate(zip(host, overlay, strict=True)):
+        assert actual == expected, f"generated shell pattern {row}"
 
 
 @pytest.mark.parametrize("target", sorted(WINDOWS_TARGETS))
@@ -106,6 +119,7 @@ def test_windows_matching_driver_builds_strictly(host_library_output, target, tm
 def test_matching_corpus_builds_for_windows(source, frontend, target, request, tmp_path):
     btrcc = request.getfixturevalue("immutable_btrcc") if frontend == "selfhost" else None
     executable = build_corpus_program(source, frontend, target, btrcc, tmp_path)
+    assert not DependencyAudit().binary_problems(executable, target)
     program = CORPUS / source
     expected = program.parent / "expected"
     stderr = expected / f"{program.stem}.stderr"
