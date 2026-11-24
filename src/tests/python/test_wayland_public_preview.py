@@ -25,7 +25,7 @@ SDK_PACKAGES = {"gtk4", "gtk4-wayland", "gtk4-x11", "wayland-client", "x11", "we
 RUNTIME_FORBIDDEN = ("libgtk", "libgdk", "libX11", "libwayland", "libfontconfig", "libfreetype", "libpango")
 
 
-def build_app(frontend, source, tmp_path, request):
+def build_app(frontend, source, tmp_path, request, *, timeout=600):
     require_linux_reader()
     for tool in ("bwrap", "fc-match"):
         if not shutil.which(tool):
@@ -46,7 +46,7 @@ def build_app(frontend, source, tmp_path, request):
         cwd=ROOT,
         env=env,
         check=True,
-        timeout=600,
+        timeout=timeout,
     )
     subprocess.run(
         [

@@ -214,6 +214,8 @@ void btrcShimControlSetFont(BtrcShimControl *control, double size, bool bold) {
     }
 }
 
+bool btrcWaylandSceneDark(void) { return darkTheme; }
+
 void btrcShimSetDarkAppearance(bool dark) {
     if (darkTheme == dark) { return; }
     darkTheme = dark;
