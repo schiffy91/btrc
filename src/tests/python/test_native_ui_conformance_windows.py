@@ -67,7 +67,7 @@ def test_windows_conformance_builds(tmp_path, request, monkeypatch, frontend, ta
     for path in (
         executable,
         dll,
-        tmp_path / "wgpu/webview2" / ("x64" if target == "windows-x64" else "arm64") / "WebView2Loader.dll",
+        shell.webview2_loader(target, tmp_path),
     ):
         shutil.copy2(path, directory / path.name)
     shutil.copytree(SUITE / "web", directory / "web", dirs_exist_ok=True)
