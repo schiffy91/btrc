@@ -142,6 +142,11 @@ class ImageGallery implements IApplicationWork {
 	private double _pendingHoverSinceMs = 0.0;
 	private int _lastGridClickItem = -1;
 	private double _lastGridClickMs = -10000.0;
+	private bool _viewerSawScroll = false;
+	private bool _viewerSawMagnify = false;
+	private bool _suppressGridScrollUntilNewGesture = false;
+	private double _suppressGridScrollUntilMs = 0.0;
+	private bool _suppressGridMagnifyUntilNewGesture = false;
 	private bool _userPinchedGrid = false;
 	private bool _closed = false;
 
@@ -490,6 +495,11 @@ class ImageGallery implements IApplicationWork {
 		Timer t = Timer();
 		t.start();
 		self._lastGridClickItem = -1;
+		self._viewerSawScroll = false;
+		self._viewerSawMagnify = false;
+		self._suppressGridScrollUntilNewGesture = false;
+		self._suppressGridScrollUntilMs = 0.0;
+		self._suppressGridMagnifyUntilNewGesture = false;
 		self.mode = GALLERY_MODE_VIEWER;
 		int pos = self.visiblePositionOf(itemIndex);
 		self._pager.open(pos, self._visibleOrder.length, self.aspectForItem(itemIndex));
@@ -504,6 +514,9 @@ class ImageGallery implements IApplicationWork {
 
 	public void dismissViewer() {
 		self._lastGridClickItem = -1;
+		self._suppressGridScrollUntilNewGesture = true;
+		if (self._viewerSawScroll) { self._suppressGridScrollUntilMs = self.nowMs() + 350.0; }
+		if (self._viewerSawMagnify) { self._suppressGridMagnifyUntilNewGesture = true; }
 		self._scrubber.collapseNow();
 		var g = self._grid;
 		if (g != null) {
@@ -519,6 +532,11 @@ class ImageGallery implements IApplicationWork {
 
 	public void closeViewer() {
 		self._lastGridClickItem = -1;
+		self._suppressGridScrollUntilNewGesture = true;
+		if (self._viewerSawScroll) { self._suppressGridScrollUntilMs = self.nowMs() + 350.0; }
+		if (self._viewerSawMagnify) { self._suppressGridMagnifyUntilNewGesture = true; }
+		self._viewerSawScroll = false;
+		self._viewerSawMagnify = false;
 		self.mode = GALLERY_MODE_GRID;
 		self._pager.resetToFitted();
 		self._scrubber.collapseNow();
@@ -650,12 +668,37 @@ class ImageGallery implements IApplicationWork {
 		self.markInteractive(280.0);
 
 		if (self.mode == GALLERY_MODE_VIEWER) {
-			if (!self._verifyCapture && self._scrubber.onScroll(ev, scale, (double)self._lastVw, (double)self._lastVh, now)) {
+			/* Starting a brand-new touch scroll while the dismiss animation is finishing snaps immediately to Grid. */
+			if (self._pager.closing && ev.phase == APP_SCROLL_BEGAN && ev.momentumPhase == APP_SCROLL_NONE) {
+				self.closeViewer();
+				self._suppressGridScrollUntilNewGesture = false;
+			} else {
+				self._viewerSawScroll = true;
+				if (!self._verifyCapture && self._scrubber.onScroll(ev, scale, (double)self._lastVw, (double)self._lastVh, now)) {
+					return true;
+				}
+				bool handled = self._pager.scroll(ev, scale, (double)self._lastVw, (double)self._lastVh, now);
+				if (self._pager.isDismissPending()) { self.dismissViewer(); }
+				return handled;
+			}
+		}
+
+		/* Swallow leftover inertial momentum and trailing scroll phases from a dismissed viewer gesture
+		 * until either the momentum ends or the user starts a fresh gesture in the grid. */
+		if (self._suppressGridScrollUntilNewGesture) {
+			if (ev.phase == APP_SCROLL_BEGAN && ev.momentumPhase == APP_SCROLL_NONE) {
+				self._suppressGridScrollUntilNewGesture = false;
+			} else if (ev.phase == APP_SCROLL_NONE && (ev.momentumPhase == APP_SCROLL_ENDED || ev.momentumPhase == APP_SCROLL_CANCELLED)) {
+				self._suppressGridScrollUntilNewGesture = false;
+				return true;
+			} else if (ev.phase == APP_SCROLL_NONE && ev.momentumPhase == APP_SCROLL_NONE && now >= self._suppressGridScrollUntilMs) {
+				self._suppressGridScrollUntilNewGesture = false;
+			} else {
 				return true;
 			}
-			bool handled = self._pager.scroll(ev, scale, (double)self._lastVw, (double)self._lastVh, now);
-			if (self._pager.isDismissPending()) { self.dismissViewer(); }
-			return handled;
+		}
+		if (ev.phase == APP_SCROLL_MAY_BEGIN || ev.phase == APP_SCROLL_STATIONARY) {
+			return true;
 		}
 
 		self._scrollQuietUntilMs = now + 200.0;
@@ -686,9 +729,21 @@ class ImageGallery implements IApplicationWork {
 		self.markInteractive(300.0);
 
 		if (self.mode == GALLERY_MODE_VIEWER) {
+			self._viewerSawMagnify = true;
 			bool handled = self._pager.magnify(ev, scale, (double)self._lastVw, (double)self._lastVh, now);
 			if (self._pager.isDismissPending()) { self.dismissViewer(); }
 			return handled;
+		}
+
+		if (self._suppressGridMagnifyUntilNewGesture) {
+			if (ev.phase == APP_GESTURE_BEGAN) {
+				self._suppressGridMagnifyUntilNewGesture = false;
+			} else if (ev.phase == APP_GESTURE_ENDED || ev.phase == APP_GESTURE_CANCELLED) {
+				self._suppressGridMagnifyUntilNewGesture = false;
+				return true;
+			} else {
+				return true;
+			}
 		}
 
 		float px = (float)(ev.logicalX * scale);
