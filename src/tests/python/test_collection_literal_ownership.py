@@ -129,7 +129,12 @@ def test_sequence_literal_classifies_later_element_after_callable_rebind(
     observer = (
         'char* foreignString(void) { return (char*)"borrowed"; }\n\n'
         "static size_t collectionLiteralLiveStrings(void) {\n"
-        "    return __btrc_string_entry_count;\n"
+        "    size_t total = 0;\n"
+        "    for (size_t i = 0; i < __BTRC_STRING_SHARD_COUNT; i++) {\n"
+        "        total += atomic_load_explicit(\n"
+        "            &__btrc_string_shard_locks[i].count, memory_order_acquire);\n"
+        "    }\n"
+        "    return total;\n"
         "}\n\n"
     )
     generated = generated.replace(marker, observer + marker, 1)

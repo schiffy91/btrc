@@ -258,7 +258,12 @@ def test_lambda_managed_returns_transfer_one_reference(
     counter = (
         'char* borrowedForeign(void) { return "borrowed"; }\n\n'
         "static size_t lambda_test_live_strings(void) {\n"
-        "    return __btrc_string_entry_count;\n"
+        "    size_t total = 0;\n"
+        "    for (size_t i = 0; i < __BTRC_STRING_SHARD_COUNT; i++) {\n"
+        "        total += atomic_load_explicit(\n"
+        "            &__btrc_string_shard_locks[i].count, memory_order_acquire);\n"
+        "    }\n"
+        "    return total;\n"
         "}\n\n"
     )
     for generated in (selfhost_source, reference_source):

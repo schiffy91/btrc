@@ -29,7 +29,12 @@ def _instrument_live_strings(generated: Path, definition: str = "") -> None:
     observer = (
         definition
         + "static size_t callable_test_live_strings(void) {\n"
-        + "    return __btrc_string_entry_count;\n"
+        + "    size_t total = 0;\n"
+        + "    for (size_t i = 0; i < __BTRC_STRING_SHARD_COUNT; i++) {\n"
+        + "        total += atomic_load_explicit(\n"
+        + "            &__btrc_string_shard_locks[i].count, memory_order_acquire);\n"
+        + "    }\n"
+        + "    return total;\n"
         + "}\n\n"
     )
     generated.write_text(emitted.replace(marker, observer + marker, 1))

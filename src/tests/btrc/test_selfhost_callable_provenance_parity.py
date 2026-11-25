@@ -572,7 +572,16 @@ void mayThrow(void) {}
 def _instrument_callable_runtime(generated: Path) -> None:
     emitted = generated.read_text()
     main_marker = "int main(void) {"
-    observer = "static size_t callable_test_live_strings(void) {\n    return __btrc_string_entry_count;\n}\n\n"
+    observer = (
+        "static size_t callable_test_live_strings(void) {\n"
+        "    size_t total = 0;\n"
+        "    for (size_t i = 0; i < __BTRC_STRING_SHARD_COUNT; i++) {\n"
+        "        total += atomic_load_explicit(\n"
+        "            &__btrc_string_shard_locks[i].count, memory_order_acquire);\n"
+        "    }\n"
+        "    return total;\n"
+        "}\n\n"
+    )
     assert main_marker in emitted
     generated.write_text(emitted.replace(main_marker, observer + main_marker, 1) + FOREIGN_CALLBACKS)
 

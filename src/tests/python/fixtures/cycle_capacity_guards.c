@@ -49,7 +49,7 @@ static int run_success_paths(void) {
     free(context.slot_marks);
 
     __btrc_reverse_reserve_queue(257);
-    __btrc_reverse_grow_keys();
+    __btrc_reverse_grow_keys(0);
     if (__btrc_reverse_queue_cap != 512
             || __btrc_reverse_key_cap != 256) return 15;
     __btrc_reverse_epoch = UINT_MAX;

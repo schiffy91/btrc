@@ -243,7 +243,12 @@ class CallableRuntimeHarness:
             return NULL;
         }
         int callableLiveStrings(void) {
-            return (int)__btrc_string_entry_count;
+            size_t total = 0;
+            for (size_t i = 0; i < __BTRC_STRING_SHARD_COUNT; i++) {
+                total += atomic_load_explicit(
+                    &__btrc_string_shard_locks[i].count, memory_order_acquire);
+            }
+            return (int)total;
         }
     """
 

@@ -1308,6 +1308,12 @@ static void __btrc_arc_maybe_suspect_pinned(
         __btrc_arc_suspect_lock();
         __btrc_suspect_locked(object, type->visit, type->destroy);
         __btrc_arc_suspect_unlock();
+        if (__btrc_tls.arc_topology_depth > 0
+                && atomic_load_explicit(
+                    &__btrc_suspect_count_atomic, memory_order_acquire) > 0) {
+            atomic_store_explicit(
+                &__btrc_arc_topology_flush_pending, 1, memory_order_release);
+        }
     }
     atomic_fetch_sub_explicit(&root_hdr->pin_lock, 1u, memory_order_release);
     __btrc_arc_obj_unlock(object);
@@ -1649,11 +1655,14 @@ static inline int __btrc_arc_destroy_edge(
     int owner_state = atomic_load_explicit(&owner_header->state, memory_order_acquire);
     int owner_valid = owner_state == __BTRC_ARC_LIVE
         || owner_state == __BTRC_ARC_DESTROYING;
+    int incoming_unique = (header->type && header->type->visit)
+        ? (header->incoming && header->incoming->owner == owner
+            && header->incoming->next == NULL)
+        : (header->incoming == NULL);
     int unique = atomic_load_explicit(&header->state, memory_order_acquire) == __BTRC_ARC_LIVE
         && atomic_load_explicit(&header->rc, memory_order_acquire) == 1
         && atomic_load_explicit(&header->edge_rc, memory_order_acquire) == 1
-        && header->incoming && header->incoming->owner == owner
-        && header->incoming->next == NULL;
+        && incoming_unique;
     if (!owner_valid || !unique) {
         __btrc_arc_unlock_objs(locks, lock_count);
         __btrc_arc_slot_unlock(slot_s);

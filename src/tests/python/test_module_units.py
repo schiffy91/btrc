@@ -1443,7 +1443,7 @@ def test_runtime_helpers_are_compiled_once_in_the_runtime_unit(compiler: str, tm
     defined = _runtime_definitions(runtime.read_text())
     # The ARC release path and the try stack are always in a program with
     # cycles and exceptions; each is defined here and declared elsewhere.
-    assert {"__btrc_arc_release_impl", "__btrc_push_try"} <= defined.keys()
+    assert {"__btrc_arc_release", "__btrc_arc_release_locked_obj", "__btrc_push_try"} <= defined.keys()
     assert not any("static" in storage or "inline" in storage for storage in defined.values())
     for path in others:
         text = path.read_text()

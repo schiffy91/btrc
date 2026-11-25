@@ -223,12 +223,30 @@ class RuntimeHelperCatalog {
 		return false;
 	}
 
+	private void removeGeneratedPreprocessor(IRModule module) {
+		if (module.generatedRuntimePreprocessor.len == 0) { return; }
+		Vector<IRPreprocessorDecl> kept = [];
+		for declaration in module.preprocessorDecls {
+			bool isGenerated = false;
+			for generated in module.generatedRuntimePreprocessor {
+				if (declaration == generated) {
+					isGenerated = true;
+					break;
+				}
+			}
+			if (!isGenerated) { kept.push(declaration); }
+		}
+		module.preprocessorDecls = kept;
+		module.generatedRuntimePreprocessor = [];
+	}
+
 	/* Replace the runtime seam from the optimizer's live helper set.  Source
      * bodies follow the canonical catalog order. The hosted headers the live
      * helpers and structured IR need follow every source-derived include,
      * sorted by name and skipping any already included, as Python's
      * IROptimizer._refresh_hosted_runtime_headers places them. */
 	public void materializeInto(IRModule module, Map<string, bool> selected, Map<string, bool> structuredHeaders) {
+		self.removeGeneratedPreprocessor(module);
 		Vector<string> materialized = [];
 		Vector<string> ordered = self.selectedInCanonicalOrder(selected);
 		Map<string, bool> required = {};
@@ -243,7 +261,9 @@ class RuntimeHelperCatalog {
 		headers.sort();
 		for header in headers {
 			if (!self.hasSystemInclude(module, header)) {
-				module.preprocessorDecls.push(IRPreprocessorDecl.include(header, true));
+				IRPreprocessorDecl declaration = IRPreprocessorDecl.include(header, true);
+				module.preprocessorDecls.push(declaration);
+				module.generatedRuntimePreprocessor.push(declaration);
 			}
 		}
 	}
