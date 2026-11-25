@@ -4,12 +4,14 @@ import base64
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.test_network_runtime import _transpile
 from src.tests.python.test_tls_x509 import change, children, tlv
 from tools.native_plan import NativePlanBuilder
@@ -208,8 +210,13 @@ def chains(tmp_path_factory):
     return directory
 
 
-@pytest.mark.parametrize("c_compiler,sanitized", [("gcc", False), ("clang", False), ("gcc", True), ("clang", True)])
+@pytest.mark.parametrize(
+    "c_compiler,sanitized",
+    [("gcc", False), ("clang", False), *([("gcc", True)] if sys.platform != "darwin" else []), ("clang", True)],
+)
 def test_tls_server_path(tmp_path, compiler, request, c_compiler, sanitized, chains):
+    if sanitized and sys.platform == "darwin" and c_compiler == "clang":
+        c_compiler = "/usr/bin/clang"
     if not shutil.which(c_compiler):
         pytest.skip(f"{c_compiler} is unavailable")
     for path in (ROOT / "src/stdlib/TLS").glob("*.btrc"):
@@ -221,18 +228,29 @@ def test_tls_server_path(tmp_path, compiler, request, c_compiler, sanitized, cha
     plan = _transpile(compiler, source, generated, request)
     flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
     client = tmp_path / "Program"
-    NativePlanBuilder().build(
+    builder, toolchain = NativePlanBuilder(), {"cc": c_compiler}
+    base_env = os.environ
+    if sanitized and sys.platform == "darwin":
+
+        def run(command, **options):
+            return subprocess.run(command, **{**options, "env": apple_environment(options.get("env"))})
+
+        builder = NativePlanBuilder(runner=run)
+        toolchain = {"cc": "/usr/bin/clang", "cxx": "/usr/bin/clang++"}
+        base_env = apple_environment(base_env)
+    builder.build(
         plan_path=plan,
         generated_c=generated,
         output=client,
-        cc=c_compiler,
         optimization=1 if sanitized else 2,
         compile_flags=["-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", *flags],
         link_flags=flags,
+        **toolchain,
     )
     assert DependencyAudit().binary_problems(client, PackageTarget.parse(None).label) == []
     now = int(time.time())
-    env = os.environ | {"ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1", "UBSAN_OPTIONS": "halt_on_error=1"}
+    asan_options = "halt_on_error=1" if sys.platform == "darwin" else "detect_leaks=1:halt_on_error=1"
+    env = base_env | {"ASAN_OPTIONS": asan_options, "UBSAN_OPTIONS": "halt_on_error=1"}
 
     def check(
         expected,

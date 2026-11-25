@@ -12,6 +12,8 @@ import pytest
 from src.tests.python.test_first_party_wayland_window import NATIVE, PROBE, ROOT, SESSION, wayland_session_env
 from src.tests.python.test_wayland_public_preview import build_app, empty_root_command
 
+pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="requires Linux Wayland client and compositor")
+
 
 def test_unicode_edit_transactions(tmp_path):
     sources = ROOT / "src/stdlib/GUI"

@@ -46,6 +46,12 @@ PORTABLE_STDLIB_RECORDS = {
         "program supplies CoInitializeEx and CoUninitialize, as the proxy COM fixtures do"
     ),
     ("COM", "binding", "COM.h"): "declares only the btrcCOM* runtime functions and includes no SDK header",
+    ("FileSystem", "source", "MappedFileNative.c"): (
+        "C11; it uses POSIX mmap only when _WIN32 is not defined and falls back to stdio fopen/fread on Windows"
+    ),
+    ("FileSystem", "binding", "MappedFileNative.h"): (
+        "declares only BtrcMappedRegion and btrcMappedFile* C11 functions and includes only <stddef.h> and <stdint.h>"
+    ),
 }
 
 

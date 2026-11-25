@@ -573,6 +573,60 @@
       "category": "platform",
       "covered_by": [],
       "note": "These Linux integration cases require the kernel loopback card, a configured monitor source or the optional ALSA plugin runtime."
+    },
+    {
+      "id": "linux-wayland-session",
+      "files": [
+        "src/tests/python/test_first_party_wayland_window.py",
+        "src/tests/python/test_wayland_*.py"
+      ],
+      "reason": "^(headless GUI sessions are Linux-only|requires Linux and the explicitly built native header reader|the native Wayland client requires Linux|requires Linux Wayland client and compositor|the independent physical keyboard oracle requires the host xkbcommon SDK|requires the desktop's AT-SPI client library, bus launcher, and gdbus|requires Linux ELF and empty-root tools)$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The first-party Wayland client, compositor, xkbcommon, AT-SPI, and empty-root GUI suites are Linux-only and run inside the devcontainer under tools/ui/headless-session.sh."
+    },
+    {
+      "id": "linux-tls-provider",
+      "files": [
+        "src/tests/python/test_linux_tls_*.py",
+        "src/tests/python/test_tls13_*.py",
+        "src/tests/python/test_tls_alerts.py",
+        "src/tests/python/test_tls_handshake.py",
+        "src/tests/python/test_tls_http_*.py",
+        "src/tests/python/test_tls_trust_store.py"
+      ],
+      "reason": "^(Linux transport|candidate Linux TLS provider|Linux TLS provider|Linux TLS qualification requires an OpenSSL TLS 1\\.3 server|requires Linux CA path interfaces)$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The Linux TLS transport, TLS 1.3 provider, HTTP over TLS, and Linux CA trust store tests require Linux and run in the devcontainer."
+    },
+    {
+      "id": "linux-dmabuf-receiver",
+      "files": [
+        "src/tests/python/test_linux_dmabuf_receiver.py"
+      ],
+      "reason": "^Linux DMA-BUF socket$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "DmaBufReceiver uses Linux SCM_RIGHTS /proc/self/fd verification and runs in the devcontainer."
+    },
+    {
+      "id": "linux-portal-picker",
+      "files": [
+        "src/tests/python/test_linux_portal_picker.py"
+      ],
+      "reason": "^requires Linux and the explicitly built native header reader$",
+      "category": "platform",
+      "covered_by": [
+        "linux-devcontainer"
+      ],
+      "note": "The Linux XDG portal directory and file picker suite requires the Linux native header reader and runs in the devcontainer."
     }
   ]
 }

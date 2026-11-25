@@ -5,12 +5,14 @@ import select
 import shutil
 import ssl
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.test_network_runtime import _transpile
 from src.tests.python.test_tls12_records import SUITES, records
 from tools.native_plan import NativePlanBuilder
@@ -137,7 +139,7 @@ def handshake_messages(data):
     return result
 
 
-def live(exe, suite, name, root, fault=None, credential=None):
+def live(exe, suite, name, root, fault=None, credential=None, *, env=None):
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_2
     context.set_ciphers(name)
@@ -155,7 +157,7 @@ def live(exe, suite, name, root, fault=None, credential=None):
     now = str(int(time.time()))
     cmd = [exe, "new", authority, "loopback.test", now]
     with subprocess.Popen(
-        cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0
+        cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, env=env
     ) as client:
         try:
             hello = next_record(client)
@@ -210,7 +212,7 @@ def live(exe, suite, name, root, fault=None, credential=None):
                 client.kill()
 
 
-def negatives(exe, root, cmd, hello, messages):
+def negatives(exe, root, cmd, hello, messages, *, env=None):
     now = cmd[-1]
     good_anchor = cmd[2]
     server_hello, certificate, key_exchange = messages[:3]
@@ -223,6 +225,7 @@ def negatives(exe, root, cmd, hello, messages):
             input=b"".join(record(22, m) for m in parts),
             capture_output=True,
             timeout=15,
+            env=env,
         )
         assert run.returncode == code and run.stdout == record(22, hello), (run.returncode, run.stderr)
 
@@ -243,6 +246,7 @@ def negatives(exe, root, cmd, hello, messages):
         input=record(22, server_hello) + record(21, b"\x01\x64") * 5,
         capture_output=True,
         timeout=15,
+        env=env,
     )
     assert warning_flood.returncode == 5 and warning_flood.stdout == record(22, hello)
     # Excessive 1-byte handshake record flood (> 256 records) must be rejected.
@@ -252,6 +256,7 @@ def negatives(exe, root, cmd, hello, messages):
         input=b"".join(record(22, joined[i : i + 1]) for i in range(min(len(joined), 260))),
         capture_output=True,
         timeout=15,
+        env=env,
     )
     assert fragment_flood.returncode == 5 and fragment_flood.stdout == record(22, hello)
     # Oversized plaintext alert record (> 16384 bytes) must be rejected with record_overflow.
@@ -260,6 +265,7 @@ def negatives(exe, root, cmd, hello, messages):
         input=record(21, b"\x01\x64" * 8193),
         capture_output=True,
         timeout=15,
+        env=env,
     )
     assert oversized_alert.returncode == 5 and oversized_alert.stdout == record(22, hello)
     # Strip required extensions (EMS 0x0017 and renegotiation_info 0xff01) individually.
@@ -282,7 +288,7 @@ def negatives(exe, root, cmd, hello, messages):
 
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "asan-ubsan"])
 def test_tls12_client(tmp_path, request, compiler, sanitized, pki):
-    cc = "clang" if sanitized else "cc"
+    cc = ("/usr/bin/clang" if sys.platform == "darwin" else "clang") if sanitized else "cc"
     if not shutil.which(cc):
         pytest.skip(f"{cc} is required to build the TLS 1.2 client")
     for module in (ROOT / "src/stdlib/TLS").glob("*.btrc"):
@@ -292,22 +298,32 @@ def test_tls12_client(tmp_path, request, compiler, sanitized, pki):
     generated, exe = tmp_path / "Program.c", tmp_path / "Program"
     plan = _transpile(compiler, source, generated, request)
     flags = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitized else []
-    NativePlanBuilder().build(
+    builder, toolchain = NativePlanBuilder(), {"cc": cc}
+    run_env = None
+    if sanitized and sys.platform == "darwin":
+
+        def run(command, **options):
+            return subprocess.run(command, **{**options, "env": apple_environment(options.get("env"))})
+
+        builder = NativePlanBuilder(runner=run)
+        toolchain = {"cc": "/usr/bin/clang", "cxx": "/usr/bin/clang++"}
+        run_env = apple_environment()
+    builder.build(
         plan_path=plan,
         generated_c=generated,
         output=exe,
-        cc=cc,
         optimization=1 if sanitized else 2,
         compile_flags=["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic-errors", *flags],
         link_flags=flags,
+        **toolchain,
     )
     assert not DependencyAudit().binary_problems(exe, PackageTarget.parse(None).label)
     assert all("ssl" not in lib.lower() and "crypto" not in lib.lower() for lib in BinaryImports.read(exe))
     for suite, name in SUITES.items():
-        cmd, hello, messages, _ = live(exe, suite, name, pki)
+        cmd, hello, messages, _ = live(exe, suite, name, pki, env=run_env)
         if suite == 0xC02B:
-            negatives(exe, pki, cmd, hello, messages)
+            negatives(exe, pki, cmd, hello, messages, env=run_env)
             for fault in ["finished-tag", "missing-ccs", "early-application"]:
-                live(exe, suite, name, pki, fault)
+                live(exe, suite, name, pki, fault, env=run_env)
     for credential, suite in [("P384", 0xC02C), ("Ed25519", 0xCCA9), ("PSS", 0xC02F)]:
-        live(exe, suite, SUITES[suite], pki, credential=credential)
+        live(exe, suite, SUITES[suite], pki, credential=credential, env=run_env)

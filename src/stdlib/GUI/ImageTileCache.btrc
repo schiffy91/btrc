@@ -11,7 +11,7 @@
 import Library.Array;
 import Library.BackgroundJobs;
 import Library.Bytes;
-import Library.FileSystem.FileSystem;
+import Library.FileSystem;
 import Library.FileSystem.MappedFile;
 import Library.GPU.GPUDevice;
 import Library.GPU.GPUTexture;
@@ -59,7 +59,6 @@ class ImageAtlasAllocator {
 	public int layerCount;
 	public int totalSlots;
 	public int usedCount;
-
 	private Array<int> _slotItem;
 	private Array<unsigned long long> _slotLastTouch;
 	private Array<bool> _slotPinned;
@@ -540,21 +539,13 @@ class ImageTileStreamer {
 	private Map<long long, bool> _inFlightKeys = {};
 	private Vector<ImageTileWork> _readyPreviewUploads = [];
 	private Vector<ImageTileWork> _readyTileUploads = [];
-
 	public int totalSubmitted;
 	public int totalUploaded;
 	public int totalDroppedStale;
 	public int totalCancelledGenerations;
 	public bool aspectRatiosUpdated;
 
-	public ImageTileStreamer(
-		IImageGridSource source,
-		ImageMicroAtlas microAtlas,
-		ImageThumbnailAtlas thumbnailAtlas,
-		ImagePreviewCache previewCache,
-		int workerCount = 4,
-		int maxInFlight = 24
-	) {
+	public ImageTileStreamer(IImageGridSource source, ImageMicroAtlas microAtlas, ImageThumbnailAtlas thumbnailAtlas, ImagePreviewCache previewCache, int workerCount = 4, int maxInFlight = 24) {
 		self._source = source;
 		self._microAtlas = microAtlas;
 		self._thumbnailAtlas = thumbnailAtlas;

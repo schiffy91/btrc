@@ -3,11 +3,13 @@
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.test_network_runtime import _transpile
 from src.tests.python.test_tls_x509 import body, children, tlv
 from tools.native_plan import NativePlanBuilder
@@ -86,27 +88,37 @@ def key_exchanges(tmp_path_factory):
 
 @pytest.mark.parametrize("sanitized", [False, True], ids=["plain", "asan-ubsan"])
 def test_ecdh(tmp_path, request, compiler, sanitized, key_exchanges):
-    cc = "clang" if sanitized else "cc"
+    cc = ("/usr/bin/clang" if sys.platform == "darwin" else "clang") if sanitized else "cc"
     if not shutil.which(cc):
         pytest.skip(f"{cc} is required to build ECDH")
     source = ROOT / "src/tests/native/tls/ECDHCheck.btrc"
     generated, binary = tmp_path / "Program.c", tmp_path / "Program"
     plan = _transpile(compiler, source, generated, request)
     flags = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all"] if sanitized else []
-    NativePlanBuilder().build(
+    builder, toolchain = NativePlanBuilder(), {"cc": cc}
+    run_env = os.environ
+    if sanitized and sys.platform == "darwin":
+
+        def run(command, **options):
+            return subprocess.run(command, **{**options, "env": apple_environment(options.get("env"))})
+
+        builder = NativePlanBuilder(runner=run)
+        toolchain = {"cc": "/usr/bin/clang", "cxx": "/usr/bin/clang++"}
+        run_env = apple_environment(run_env)
+    builder.build(
         plan_path=plan,
         generated_c=generated,
         output=binary,
-        cc=cc,
         optimization=1 if sanitized else 2,
         compile_flags=["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic-errors", *flags],
         link_flags=flags,
+        **toolchain,
     )
     assert not DependencyAudit().binary_problems(binary, PackageTarget.parse(None).label)
     for args, expected in key_exchanges:
         result = subprocess.run(
             [binary, *map(str, args)],
-            env={**os.environ, "UBSAN_OPTIONS": "halt_on_error=1"},
+            env={**run_env, "UBSAN_OPTIONS": "halt_on_error=1"},
             check=True,
             capture_output=True,
             text=True,

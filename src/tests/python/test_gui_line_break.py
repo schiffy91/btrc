@@ -4,12 +4,14 @@ import lzma
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.native_bindings import NativeBindingPackage
+from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.test_network_runtime import _transpile
 from tools.native_plan import NativePlanBuilder
 from tools.qualification.dependencies import DependencyAudit
@@ -69,19 +71,31 @@ def test_gui_line_break(tmp_path, compiler, request, line_break_cases, sanitized
     generated, program = tmp_path / "Program.c", tmp_path / "Program"
     plan = _transpile(compiler, source, generated, request)
     flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
-    NativePlanBuilder().build(
+    builder, toolchain = NativePlanBuilder(), {}
+    run_env = os.environ
+    if sanitized and sys.platform == "darwin":
+
+        def run(command, **options):
+            return subprocess.run(command, **{**options, "env": apple_environment(options.get("env"))})
+
+        builder = NativePlanBuilder(runner=run)
+        toolchain = {"cc": "/usr/bin/clang", "cxx": "/usr/bin/clang++"}
+        run_env = apple_environment(run_env)
+    builder.build(
         plan_path=plan,
         generated_c=generated,
         output=program,
         optimization=1 if sanitized else 2,
         compile_flags=["-Wall", "-Wextra", "-Werror", "-pedantic-errors", *flags],
         link_flags=flags,
+        **toolchain,
     )
     assert not DependencyAudit().binary_problems(program, PackageTarget.parse(None).label)
+    asan_options = "halt_on_error=1" if sys.platform == "darwin" else "detect_leaks=1:halt_on_error=1"
     result = subprocess.run(
         [program, line_break_cases],
         capture_output=True,
         timeout=30,
-        env=os.environ | {"ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1", "UBSAN_OPTIONS": "halt_on_error=1"},
+        env=run_env | {"ASAN_OPTIONS": asan_options, "UBSAN_OPTIONS": "halt_on_error=1"},
     )
     assert result.returncode == 0, result.stderr.decode(errors="replace")

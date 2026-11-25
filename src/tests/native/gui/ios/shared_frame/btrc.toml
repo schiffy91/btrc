@@ -16,3 +16,4 @@ path = "Producer.m"
 modules = ["Main"]
 language = "objective-c"
 standard = "c11"
+os = ["ios"]

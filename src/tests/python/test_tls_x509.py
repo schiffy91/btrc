@@ -3,12 +3,14 @@
 import os
 import shutil
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.test_network_runtime import _transpile
 from tools.native_plan import NativePlanBuilder
 from tools.qualification.dependencies import DependencyAudit
@@ -114,12 +116,14 @@ def certificates(tmp_path_factory):
     return examples
 
 
-def run_batch(client, directory, records, *, details=False, anchor=False):
+def run_batch(client, directory, records, *, details=False, anchor=False, env=None):
     source = directory / "records"
     with source.open("wb") as file:
         for record in records:
             file.write(len(record).to_bytes(3, "big") + record)
-    env = os.environ | {"ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1", "UBSAN_OPTIONS": "halt_on_error=1"}
+    if env is None:
+        asan_options = "halt_on_error=1" if sys.platform == "darwin" else "detect_leaks=1:halt_on_error=1"
+        env = os.environ | {"ASAN_OPTIONS": asan_options, "UBSAN_OPTIONS": "halt_on_error=1"}
     result = subprocess.run(
         [str(client), str(source), *(["details"] if details else (["anchor"] if anchor else []))],
         env=env,
@@ -136,8 +140,8 @@ def unix_seconds(value):
     return int(datetime.strptime(body(value).decode("ascii"), "%y%m%d%H%M%SZ").replace(tzinfo=UTC).timestamp())
 
 
-def verify_fields(client, directory, scheme, bits, cert):
-    fields = run_batch(client, directory, [cert], details=True)
+def verify_fields(client, directory, scheme, bits, cert, *, env=None):
+    fields = run_batch(client, directory, [cert], details=True, env=env)
     tbs, _, signature = children(cert)
     _, _, _, issuer, validity, subject, key_info, _ = children(tbs)
     since, until = children(validity)
@@ -307,8 +311,13 @@ def malformed_keys_and_signatures(certificates):
     return invalid
 
 
-@pytest.mark.parametrize("c_compiler,sanitized", [("gcc", False), ("clang", False), ("gcc", True), ("clang", True)])
+@pytest.mark.parametrize(
+    "c_compiler,sanitized",
+    [("gcc", False), ("clang", False), *([("gcc", True)] if sys.platform != "darwin" else []), ("clang", True)],
+)
 def test_x509_reader(tmp_path, request, compiler, c_compiler, sanitized, certificates):
+    if sanitized and sys.platform == "darwin" and c_compiler == "clang":
+        c_compiler = "/usr/bin/clang"
     if not shutil.which(c_compiler):
         pytest.skip(f"{c_compiler} is unavailable")
     for path in (ROOT / "src/stdlib/TLS").glob("*.btrc"):
@@ -320,21 +329,33 @@ def test_x509_reader(tmp_path, request, compiler, c_compiler, sanitized, certifi
     plan = _transpile(compiler, source, generated, request)
     client = tmp_path / "Program"
     flags = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"] if sanitized else []
-    NativePlanBuilder().build(
+    builder, toolchain = NativePlanBuilder(), {"cc": c_compiler}
+    base_env = os.environ
+    if sanitized and sys.platform == "darwin":
+
+        def run(command, **options):
+            return subprocess.run(command, **{**options, "env": apple_environment(options.get("env"))})
+
+        builder = NativePlanBuilder(runner=run)
+        toolchain = {"cc": "/usr/bin/clang", "cxx": "/usr/bin/clang++"}
+        base_env = apple_environment(base_env)
+    builder.build(
         plan_path=plan,
         generated_c=generated,
         output=client,
-        cc=c_compiler,
         optimization=1 if sanitized else 2,
         compile_flags=["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic-errors", *flags],
         link_flags=flags,
+        **toolchain,
     )
     assert DependencyAudit().binary_problems(client, PackageTarget.parse(None).label) == []
+    asan_options = "halt_on_error=1" if sys.platform == "darwin" else "detect_leaks=1:halt_on_error=1"
+    run_env = base_env | {"ASAN_OPTIONS": asan_options, "UBSAN_OPTIONS": "halt_on_error=1"}
     for _, scheme, bits, cert in certificates:
-        verify_fields(client, tmp_path, scheme, bits, cert)
+        verify_fields(client, tmp_path, scheme, bits, cert, env=run_env)
     ed = next(cert for name, _, _, cert in certificates if name == "ed25519")
     invalid = malformed(ed) + malformed_keys_and_signatures(certificates)
-    assert run_batch(client, tmp_path, invalid) == ["invalid"] * len(invalid)
+    assert run_batch(client, tmp_path, invalid, env=run_env) == ["invalid"] * len(invalid)
     tbs = children(ed)[0]
     year = body(children(children(tbs)[4])[0])
     legacy_time = change(tbs, 4, change(children(tbs)[4], 0, tlv(24, b"20" + year)))
@@ -349,15 +370,15 @@ def test_x509_reader(tmp_path, request, compiler, c_compiler, sanitized, certifi
         change(ed, 0, legacy_time),
         change(ed, 0, change(tbs, -1, tlv(163, tlv(48, b"".join(legacy_key_usage))))),
     ]
-    assert run_batch(client, tmp_path, historical) == ["invalid"] * 3
-    assert run_batch(client, tmp_path, historical, anchor=True) == ["valid"] * 3
+    assert run_batch(client, tmp_path, historical, env=run_env) == ["invalid"] * 3
+    assert run_batch(client, tmp_path, historical, anchor=True, env=run_env) == ["valid"] * 3
     unknown = change(
         ed, 0, change(tbs, -1, tlv(163, tlv(48, b"".join(entries) + extension("2a0304", tlv(5, b""), True))))
     )
     rsa = next(cert for name, _, _, cert in certificates if name == "RSA")
     _, rsa_alg, _ = children(rsa)
     rsa_no_null_outer = change(rsa, 1, tlv(48, children(rsa_alg)[0]))
-    assert run_batch(client, tmp_path, [unknown, ed[:-1], rsa_no_null_outer], anchor=True) == [
+    assert run_batch(client, tmp_path, [unknown, ed[:-1], rsa_no_null_outer], anchor=True, env=run_env) == [
         "invalid",
         "invalid",
         "invalid",
@@ -365,7 +386,7 @@ def test_x509_reader(tmp_path, request, compiler, c_compiler, sanitized, certifi
     # L3: 20-octet positive serial whose MSB >= 0x80 encodes as 21 content bytes with leading 0x00.
     max_serial = change(ed, 0, change(tbs, 1, tlv(2, b"\x00\x80" + b"\x01" * 19)))
     too_long_serial = change(ed, 0, change(tbs, 1, tlv(2, b"\x01" * 21)))
-    assert run_batch(client, tmp_path, [max_serial, too_long_serial]) == ["valid", "invalid"]
+    assert run_batch(client, tmp_path, [max_serial, too_long_serial], env=run_env) == ["valid", "invalid"]
     # Real-world trust-anchor compatibility: P-521 (secp521r1) + ecdsa-with-SHA512,
     # X.509 v1, legacy negative serial, and non-DNS/IP Name Constraints are rejected
     # on peer certs, parsed on trust anchors (marked unsupported where needed), while
@@ -411,7 +432,7 @@ def test_x509_reader(tmp_path, request, compiler, c_compiler, sanitized, certifi
         for e in entries
     ]
     email_nc_anchor = change(ed, 0, change(tbs, -1, tlv(163, tlv(48, b"".join(email_nc_entries)))))
-    assert run_batch(client, tmp_path, [p521, v1_anchor, neg_serial, email_nc_anchor]) == ["invalid"] * 4
+    assert run_batch(client, tmp_path, [p521, v1_anchor, neg_serial, email_nc_anchor], env=run_env) == ["invalid"] * 4
     assert run_batch(
         client,
         tmp_path,
@@ -426,9 +447,10 @@ def test_x509_reader(tmp_path, request, compiler, c_compiler, sanitized, certifi
             non_minimal_neg_serial,
         ],
         anchor=True,
+        env=run_env,
     ) == ["valid", "valid", "valid", "valid", "invalid", "invalid", "invalid", "invalid"]
     # Mutating public keys or signatures can leave the DER syntactically valid;
     # that is the later cryptographic verifier's responsibility.
     flips = [ed[:i] + bytes([ed[i] ^ (1 << (i % 8))]) + ed[i + 1 :] for i in range(len(ed))]
-    results = run_batch(client, tmp_path, flips)
+    results = run_batch(client, tmp_path, flips, env=run_env)
     assert len(results) == len(flips) and set(results) == {"valid", "invalid"}
