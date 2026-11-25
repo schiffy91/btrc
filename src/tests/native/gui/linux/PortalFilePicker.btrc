@@ -1,0 +1,50 @@
+import Library.GUI.IFilePicker;
+import Library.GUI.Linux.PortalFilePicker;
+import Library.GUI.Shim.DialogPump;
+import Library.Platform;
+import Library.Timer;
+import Library.Vector;
+
+class TestPortalFileHost implements IShimDialogPump {
+	private string _mode;
+	private long long _started;
+	public int pumps = 0;
+
+	public TestPortalFileHost(string mode) { self._mode = mode; self._started = MonotonicClock.milliseconds(); }
+
+	public bool isDispatching() { return self._mode.equals("dispatch"); }
+
+	public bool quitRequested() { return self._mode.equals("quit") && MonotonicClock.milliseconds() - self._started >= 250LL; }
+
+	public void pumpOnce(int timeoutMilliseconds) { self.pumps++; Timer.sleepMillis(timeoutMilliseconds); }
+}
+
+int main() {
+	string mode = Environment.get("BTRC_PORTAL_TEST", "open-file");
+	TestPortalFileHost host = TestPortalFileHost(mode);
+	IFilePicker picker = PortalFilePicker(Environment.get("BTRC_PORTAL_PARENT", "wayland:parent"), host);
+	string initial = Environment.get("BTRC_PORTAL_INITIAL", "input folder");
+	Vector<FilePickerFilter> diskFilters = [FilePickerFilter("Disk images", ["raw", "qcow2"])];
+	FilePickerRequest request = FilePickerRequest.openFile(mode, initial, diskFilters);
+	if (mode.equals("open-files")) {
+		request = FilePickerRequest.openFiles(mode, initial, diskFilters);
+	} else if (mode.equals("open-dir") || mode.equals("old-dir")) {
+		request = FilePickerRequest.openDirectory(mode, initial, true);
+	} else if (mode.equals("open-dirs")) {
+		request = FilePickerRequest.openDirectories(mode, initial, true);
+	} else if (mode.equals("mixed")) {
+		request = FilePickerRequest.openFilesAndDirectories(mode, initial, diskFilters, true);
+	} else if (mode.equals("save-file") || mode.equals("save-v2")) {
+		request = FilePickerRequest.saveFile(mode, "snapshot.qcow2", initial, diskFilters, true);
+	} else if (mode.equals("invalid")) {
+		request = FilePickerRequest.openFile("");
+	}
+	try {
+		FilePickerOutcome outcome = picker.chooseFile(request);
+		printf("%d %s\n", (int)outcome.kind, outcome.paths.join("|"));
+		var error = outcome.error;
+		if (error != null) { printf("error %d %s\n", (int)error.code, error.message); }
+		printf("pumps %d\n", host.pumps);
+	} catch (string error) { printf("exception %s\n", error); }
+	return 0;
+}

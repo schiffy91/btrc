@@ -2,7 +2,7 @@ manifest-version = 1
 
 [package]
 name = "btrc_stdlib_gui"
-exports = ["ActionMailbox", "ControlEvents", "FilmstripScrubber", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFontFace", "IGPUView", "IGrid", "IImageHandle", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISharedFrameView", "ISlider", "IStack", "ITextField", "IView", "IWebView", "IWindow", "ImageGallery", "ImageGrid", "ImageTileCache", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "MediaPagerInteraction", "Raster", "SharedFrameView", "TextRun", "WebView", "ZoomGridInteraction"]
+exports = ["ActionMailbox", "ControlEvents", "FilmstripScrubber", "Font", "FreeType", "GUI", "GUICaptureLayer", "GUIInt", "IApplication", "IButton", "IContainer", "IDirectoryPicker", "IFilePicker", "IFontFace", "IGPUView", "IGrid", "IImageHandle", "IImageView", "ILabel", "ILevelIndicator", "IPanel", "IProgressIndicator", "IScrollView", "ISelect", "ISharedFrameView", "ISlider", "IStack", "ITextField", "IView", "IWebView", "IWindow", "ImageGallery", "ImageGrid", "ImageTileCache", "MacOS.AppKitText", "MacOS.MacOSRunLoop", "MediaPagerInteraction", "Raster", "SharedFrameView", "TextRun", "WebView", "ZoomGridInteraction"]
 
 [[package.providers]]
 module = "GUI"
@@ -68,7 +68,7 @@ header = "Shim/Shim.h"
 language = "c"
 standard = "c11"
 symbols = [
-	"BtrcShimWindow", "BtrcShimEvent", "BtrcShimFolderDialog", "btrcShimInit", "btrcShimError", "btrcShimSetDarkAppearance", "btrcShimIsMainThread",
+	"BtrcShimWindow", "BtrcShimEvent", "BtrcShimFolderDialog", "BtrcShimFileDialog", "btrcShimInit", "btrcShimError", "btrcShimSetDarkAppearance", "btrcShimIsMainThread",
 	"btrcShimTicksNS", "btrcShimWindowCreate", "btrcShimWindowDestroy", "btrcShimWindowId", "btrcShimWindowShow", "btrcShimWindowHide",
 	"btrcShimWindowIsHidden", "btrcShimWindowIsMinimized", "btrcShimWindowSetTitle", "btrcShimWindowSetSize", "btrcShimWindowSetMinimumSize",
 	"btrcShimWindowWidth", "btrcShimWindowHeight", "btrcShimWindowPixelWidth", "btrcShimWindowPixelHeight", "btrcShimWindowPixelDensity",
@@ -76,7 +76,7 @@ symbols = [
 	"btrcShimWindowStopTextInput", "btrcShimWindowTextInputActive", "btrcShimWindowClearComposition", "btrcShimWindowSetTextInputArea",
 	"btrcShimModState", "btrcShimSetClipboardText", "btrcShimHasClipboardText", "btrcShimRasterizeText", "btrcShimFreePixels",
 	"btrcShimGetClipboardText", "btrcShimFree", "btrcShimPollEvent", "btrcShimWaitEvent", "btrcShimPushWake", "btrcShimFolderDialogOpen",
-	"btrcShimFolderDialogState", "btrcShimFolderDialogPath", "btrcShimFolderDialogRelease", "BTRC_SHIM_EVENT_NONE", "BTRC_SHIM_EVENT_QUIT",
+	"btrcShimFolderDialogState", "btrcShimFolderDialogPath", "btrcShimFolderDialogRelease", "btrcShimFileDialogOpen", "btrcShimFileDialogState", "btrcShimFileDialogPathCount", "btrcShimFileDialogPathAt", "btrcShimFileDialogRelease", "BTRC_SHIM_EVENT_NONE", "BTRC_SHIM_EVENT_QUIT",
 	"BTRC_SHIM_EVENT_USER", "BTRC_SHIM_EVENT_WINDOW_SHOWN", "BTRC_SHIM_EVENT_WINDOW_HIDDEN", "BTRC_SHIM_EVENT_WINDOW_EXPOSED",
 	"BTRC_SHIM_EVENT_WINDOW_RESIZED", "BTRC_SHIM_EVENT_WINDOW_PIXEL_SIZE_CHANGED", "BTRC_SHIM_EVENT_WINDOW_DISPLAY_SCALE_CHANGED",
 	"BTRC_SHIM_EVENT_WINDOW_MINIMIZED", "BTRC_SHIM_EVENT_WINDOW_RESTORED", "BTRC_SHIM_EVENT_WINDOW_MOUSE_ENTER", "BTRC_SHIM_EVENT_WINDOW_MOUSE_LEAVE",
@@ -100,7 +100,7 @@ symbols = [
 	"BTRC_SHIM_SCANCODE_END", "BTRC_SHIM_MOD_SHIFT", "BTRC_SHIM_MOD_CTRL", "BTRC_SHIM_MOD_ALT", "BTRC_SHIM_MOD_GUI", "BTRC_SHIM_CURSOR_DEFAULT",
 	"BTRC_SHIM_CURSOR_TEXT"
 ]
-read-only-borrows = ["btrcShimWindowCreate.title", "btrcShimWindowSetTitle.title", "btrcShimWindowShowMessage.title", "btrcShimWindowShowMessage.message", "btrcShimWindowShowPicture.pixels", "btrcShimSetClipboardText.text", "btrcShimRasterizeText.text", "btrcShimFolderDialogOpen.initialDirectory", "btrcShimFolderDialogOpen.title"]
+read-only-borrows = ["btrcShimWindowCreate.title", "btrcShimWindowSetTitle.title", "btrcShimWindowShowMessage.title", "btrcShimWindowShowMessage.message", "btrcShimWindowShowPicture.pixels", "btrcShimSetClipboardText.text", "btrcShimRasterizeText.text", "btrcShimFolderDialogOpen.initialDirectory", "btrcShimFolderDialogOpen.title", "btrcShimFileDialogOpen.title", "btrcShimFileDialogOpen.initialDirectory", "btrcShimFileDialogOpen.defaultName", "btrcShimFileDialogOpen.filters"]
 os = ["linux", "windows", "android", "ios"]
 
 [[native.bindings]]
@@ -370,6 +370,39 @@ symbols = [
 os = ["macos"]
 
 [[native.bindings]]
+module = "MacOS.MacOSFilePicker"
+header = "MacOS/AppKit.h"
+language = "objective-c"
+standard = "c11"
+symbols = ["+[NSThread isMainThread]"]
+os = ["macos"]
+
+[[native.bindings]]
+module = "MacOS.MacOSFilePicker"
+header = "MacOS/AppKitFilePicker.h"
+language = "c"
+standard = "c11"
+symbols = [
+	"BtrcMacFilePickerResult", "btrcMacFilePickerRun", "btrcMacFilePickerState",
+	"btrcMacFilePickerPathCount", "btrcMacFilePickerPathAt", "btrcMacFilePickerError",
+	"btrcMacFilePickerRelease"
+]
+read-only-borrows = ["btrcMacFilePickerRun.title", "btrcMacFilePickerRun.prompt", "btrcMacFilePickerRun.initialDirectory", "btrcMacFilePickerRun.defaultName", "btrcMacFilePickerRun.filters"]
+os = ["macos"]
+
+[[native.sources]]
+modules = ["MacOS.MacOSFilePicker"]
+path = "MacOS/AppKitFilePicker.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+
+[[native.frameworks]]
+name = "UniformTypeIdentifiers"
+modules = ["MacOS.MacOSFilePicker"]
+os = ["macos"]
+
+[[native.bindings]]
 module = "MacOS.MacOSTextField"
 header = "MacOS/AppKit.h"
 language = "objective-c"
@@ -431,7 +464,7 @@ read-only-borrows = ["sel_registerName.str"]
 
 [[native.frameworks]]
 name = "AppKit"
-modules = ["MacOS.GUIProvider", "MacOS.MacOSGPUView", "MacOS.MacOSViewInput", "MacOS.MacOSSlider", "MacOS.AppKitEvents", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSTextField", "MacOS.MacOSWindow", "MacOS.AppKitText", "MacOS.MacOSScrollView", "MacOS.MacOSApplication", "MacOS.MetalLayer", "MacOS.MacOSViewCapture", "MacOS.MacOSComposedCapture", "MacOS.MacOSView", "MacOS.MacOSLabel", "MacOS.MacOSImageView", "MacOS.MacOSImageHandle", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSActionQueue", "MacOS.MacOSButton", "MacOS.MacOSSelect", "MacOS.MacOSGrid", "MacOS.MacOSLevelIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSStack", "MacOS.MacOSContainer", "MacOS.AppKitWeb", "MacOS.MacOSWebView", "MacOS.MacOSSharedFrameView"]
+modules = ["MacOS.GUIProvider", "MacOS.MacOSGPUView", "MacOS.MacOSViewInput", "MacOS.MacOSSlider", "MacOS.AppKitEvents", "MacOS.MacOSDirectoryPicker", "MacOS.MacOSFilePicker", "MacOS.MacOSTextField", "MacOS.MacOSWindow", "MacOS.AppKitText", "MacOS.MacOSScrollView", "MacOS.MacOSApplication", "MacOS.MetalLayer", "MacOS.MacOSViewCapture", "MacOS.MacOSComposedCapture", "MacOS.MacOSView", "MacOS.MacOSLabel", "MacOS.MacOSImageView", "MacOS.MacOSImageHandle", "MacOS.MacOSPanel", "MacOS.MacOSProgressIndicator", "MacOS.MacOSActionQueue", "MacOS.MacOSButton", "MacOS.MacOSSelect", "MacOS.MacOSGrid", "MacOS.MacOSLevelIndicator", "MacOS.MacOSRunLoop", "MacOS.MacOSStack", "MacOS.MacOSContainer", "MacOS.AppKitWeb", "MacOS.MacOSWebView", "MacOS.MacOSSharedFrameView"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -839,7 +872,7 @@ read-only-borrows = ["sel_registerName.str"]
 
 [[native.frameworks]]
 name = "Foundation"
-modules = ["MacOS.MacOSDirectoryPicker"]
+modules = ["MacOS.MacOSDirectoryPicker", "MacOS.MacOSFilePicker"]
 os = ["macos"]
 
 [[native.bindings]]
@@ -1298,6 +1331,11 @@ os = ["ios"]
 [[native.frameworks]]
 name = "UIKit"
 modules = ["Shim.Shim", "Shim.ShimWeb"]
+os = ["ios"]
+
+[[native.frameworks]]
+name = "UniformTypeIdentifiers"
+modules = ["Shim.Shim"]
 os = ["ios"]
 
 [[native.frameworks]]

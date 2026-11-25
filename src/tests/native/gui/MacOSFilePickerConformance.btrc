@@ -1,0 +1,97 @@
+import Library.App;
+import Library.GUI.IFilePicker;
+import Library.GUI.MacOS.MacOSFilePicker;
+import Library.Vector;
+
+#include <assert.h>
+
+void requireFailure(FilePickerOutcome outcome, AppErrorCode expected) {
+	assert(outcome.kind == FILE_PICKER_FAILED);
+	assert(outcome.paths.isEmpty());
+	assert(outcome.path().isEmpty());
+	var error = outcome.error;
+	assert(error != null);
+	if (error != null) { assert(error.code == expected); }
+}
+
+int main(int argc, char** argv) {
+	int mode = argc > 1 ? atoi(argv[1]) : 0;
+	var picker = MacOSFilePicker();
+	Vector<FilePickerFilter> diskFilters = [FilePickerFilter("Disk images", ["raw", "qcow2"])];
+	Vector<FilePickerFilter> qcowFilter = [FilePickerFilter("QCOW2", ["qcow2"])];
+	var openOne = FilePickerRequest.openFile("Choose disk", "/tmp", diskFilters);
+	requireFailure(picker.chooseFile(FilePickerRequest.openFile("")), APP_ERROR_INVALID_ARGUMENT);
+	requireFailure(picker.chooseFile(FilePickerRequest.openFile("Bad ext", "/tmp", [FilePickerFilter("Bad", [".raw"])])), APP_ERROR_INVALID_ARGUMENT);
+	requireFailure(picker.chooseFile(FilePickerRequest.openFile("Bad label", "/tmp", [FilePickerFilter("Bad\tlabel", ["raw"])])), APP_ERROR_INVALID_ARGUMENT);
+	requireFailure(picker.chooseFile(FilePickerRequest("Bad default", FILE_PICKER_OPEN_FILE, "/tmp", "name.raw")), APP_ERROR_INVALID_ARGUMENT);
+	requireFailure(picker.chooseFile(FilePickerRequest.saveFile("Bad slash", "sub/file.qcow2", "/tmp")), APP_ERROR_INVALID_ARGUMENT);
+	requireFailure(picker.chooseFile(FilePickerRequest("Bad dir filter", FILE_PICKER_OPEN_DIRECTORY, "/tmp", "", diskFilters)), APP_ERROR_INVALID_ARGUMENT);
+	requireFailure(MacOSFilePicker("", 128).chooseFile(openOne), APP_ERROR_INVALID_ARGUMENT);
+	requireFailure(MacOSFilePicker("Choose", 0).chooseFile(openOne), APP_ERROR_INVALID_ARGUMENT);
+	assert(openOne.encodedFilters().equals("Disk images\traw,qcow2"));
+	Thread<int> worker = spawn(() => {
+			requireFailure(picker.chooseFile(openOne), APP_ERROR_NOT_MAIN_THREAD);
+			return 0;
+		});
+	assert(worker.join() == 0);
+	filePickerPrepare(mode);
+	FilePickerOutcome result = FilePickerOutcome.cancelled();
+	if (mode == 2) {
+		result = picker.chooseFile(FilePickerRequest.openFiles("Choose disks", "/tmp", diskFilters));
+	} else if (mode == 3) {
+		result = picker.chooseFile(FilePickerRequest.openDirectory("Choose folder", "/tmp", true));
+	} else if (mode == 4) {
+		result = picker.chooseFile(FilePickerRequest.openDirectories("Choose folders", "/tmp", true));
+	} else if (mode == 5) {
+		result = picker.chooseFile(FilePickerRequest.openFilesAndDirectories("Choose items", "/tmp", qcowFilter, true));
+	} else if (mode == 6) {
+		result = picker.chooseFile(FilePickerRequest.saveFile("Save image", "snapshot.qcow2", "/tmp", qcowFilter, true));
+	} else if (mode == 10) {
+		result = MacOSFilePicker("Choose", 2).chooseFile(openOne);
+	} else {
+		result = picker.chooseFile(openOne);
+	}
+	assert(filePickerCalls() == 1);
+	if (mode == 0 || mode == 11 || mode == 12) {
+		assert(result.kind == FILE_PICKER_CANCELLED);
+		assert(result.paths.isEmpty() && result.error == null);
+	} else if (mode == 1) {
+		assert(result.kind == FILE_PICKER_SELECTED);
+		assert(result.paths.len == 1);
+		/* NSURL's filesystem representation uses decomposed Unicode on macOS. */
+		assert(result.path().equals("/tmp/Música 🎸.qcow2"));
+		assert(result.error == null);
+	} else if (mode == 2) {
+		assert(result.kind == FILE_PICKER_SELECTED);
+		assert(result.paths.len == 2);
+		assert(result.paths.get(0).equals("/tmp/one.raw"));
+		assert(result.paths.get(1).equals("/tmp/two.qcow2"));
+		assert(result.error == null);
+	} else if (mode == 3) {
+		assert(result.kind == FILE_PICKER_SELECTED);
+		assert(result.paths.len == 1);
+		assert(result.path().equals("/tmp/vm-dir"));
+		assert(result.error == null);
+	} else if (mode == 4) {
+		assert(result.kind == FILE_PICKER_SELECTED);
+		assert(result.paths.len == 2);
+		assert(result.paths.get(0).equals("/tmp/dir-a"));
+		assert(result.paths.get(1).equals("/tmp/dir-b"));
+		assert(result.error == null);
+	} else if (mode == 5) {
+		assert(result.kind == FILE_PICKER_SELECTED);
+		assert(result.paths.len == 2);
+		assert(result.paths.get(0).equals("/tmp/disk.raw"));
+		assert(result.paths.get(1).equals("/tmp/shared"));
+		assert(result.error == null);
+	} else if (mode == 6) {
+		assert(result.kind == FILE_PICKER_SELECTED);
+		assert(result.paths.len == 1);
+		assert(result.path().equals("/tmp/snapshot.qcow2"));
+		assert(result.error == null);
+	} else {
+		requireFailure(result, APP_ERROR_INTERNAL);
+	}
+	printf("PASS: BTRC file picker mode %d\n", mode);
+	return 0;
+}

@@ -1,0 +1,57 @@
+import Library.App;
+import Library.Strings;
+import Library.Vector;
+import Library.GUI.IFilePicker;
+import Library.GUI.Shim.Shim;
+import Library.GUI.Shim.ShimWindow;
+import Library.GUI.Shim.DialogPump;
+
+class ShimFilePicker implements IFilePicker {
+	private ShimWindow? _parent;
+	private IShimDialogPump _pump;
+
+	public ShimFilePicker(ShimWindow? parent, IShimDialogPump pump) { self._parent = parent; self._pump = pump; }
+
+	public FilePickerOutcome chooseFile(FilePickerRequest request) {
+		if (request == null || !request.isValid()) { return FilePickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid file picker request")); }
+		if (self._pump.isDispatching()) { throw "Native event dispatch is already active"; }
+		var parent = self._parent;
+		if (parent != null && !parent.isOpen()) { return FilePickerOutcome.cancelled(); }
+		var dialog = btrcShimFileDialogOpen(parent == null ? null : parent.nativeWindow(), (int)request.mode, request.title, request.initialDirectory == null ? "" : request.initialDirectory, request.defaultName == null ? "" : request.defaultName, request.encodedFilters(), request.canCreateDirectories);
+		if (dialog == null) {
+			string detail = Strings.copy((char*)btrcShimError());
+			return FilePickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, detail.isEmpty() ? "file picker is unavailable" : detail));
+		}
+		FilePickerOutcome outcome = FilePickerOutcome.cancelled();
+		try {
+			while (btrcShimFileDialogState(dialog) == 0) {
+				if (self._pump.quitRequested()) { return FilePickerOutcome.cancelled(); }
+				self._pump.pumpOnce(50);
+			}
+			int state = btrcShimFileDialogState(dialog);
+			if (state == 1) {
+				int count = btrcShimFileDialogPathCount(dialog);
+				Vector<string> paths = [];
+				for (int index = 0; index < count; index++) {
+					string path = Strings.copy((char*)btrcShimFileDialogPathAt(dialog, index));
+					if (path.isEmpty()) {
+						return FilePickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "file picker selected an empty path"));
+					}
+					paths.push(path);
+				}
+				if (paths.isEmpty()) { outcome = FilePickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "file picker selected no path")); }
+				else if (!request.allowsMultiple() && paths.len > 1) { outcome = FilePickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "file picker returned multiple paths for a single-selection request")); }
+				else { outcome = FilePickerOutcome.selected(paths); }
+			} else if (state == 2) {
+				outcome = FilePickerOutcome.cancelled();
+			} else if (state == 4) {
+				string detail = Strings.copy((char*)btrcShimError());
+				outcome = FilePickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, detail.isEmpty() ? "file picker mode is unavailable" : detail));
+			} else {
+				string detail = Strings.copy((char*)btrcShimError());
+				outcome = FilePickerOutcome.failed(AppError(APP_ERROR_INTERNAL, detail.isEmpty() ? "file picker failed" : "file picker failed: " + detail));
+			}
+		} finally { btrcShimFileDialogRelease(dialog); }
+		return outcome;
+	}
+}

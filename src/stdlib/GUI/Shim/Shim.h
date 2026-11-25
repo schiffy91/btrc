@@ -245,6 +245,16 @@ int btrcShimFolderDialogState(BtrcShimFolderDialog* dialog);
 const char* btrcShimFolderDialogPath(const BtrcShimFolderDialog* dialog);
 void btrcShimFolderDialogRelease(BtrcShimFolderDialog* dialog);
 
+/* One general file/folder-dialog transaction: 0 while pending, then 1 selected,
+ * 2 cancelled, 3 failed, 4 unavailable/unsupported. The caller releases what
+ * Open returned. */
+typedef struct BtrcShimFileDialog BtrcShimFileDialog;
+BtrcShimFileDialog* btrcShimFileDialogOpen(BtrcShimWindow* window, int mode, const char* title, const char* initialDirectory, const char* defaultName, const char* filters, bool canCreateDirectories);
+int btrcShimFileDialogState(BtrcShimFileDialog* dialog);
+int btrcShimFileDialogPathCount(const BtrcShimFileDialog* dialog);
+const char* btrcShimFileDialogPathAt(const BtrcShimFileDialog* dialog, int index);
+void btrcShimFileDialogRelease(BtrcShimFileDialog* dialog);
+
 /* Automation: what a tool that sends real input through the display server
  * cannot learn from it. None of these delivers input. */
 enum BtrcShimDisplay {

@@ -181,6 +181,21 @@ int btrcShimFolderDialogState(BtrcShimFolderDialog *dialog) { (void)dialog; retu
 const char *btrcShimFolderDialogPath(const BtrcShimFolderDialog *dialog) { (void)dialog; return ""; }
 void btrcShimFolderDialogRelease(BtrcShimFolderDialog *dialog) { (void)dialog; }
 
+BtrcShimFileDialog *btrcShimFileDialogOpen(BtrcShimWindow *window, int mode, const char *title, const char *initialDirectory, const char *defaultName, const char *filters, bool canCreateDirectories) {
+    (void)window;
+    (void)mode;
+    (void)title;
+    (void)initialDirectory;
+    (void)defaultName;
+    (void)filters;
+    (void)canCreateDirectories;
+    return NULL;
+}
+int btrcShimFileDialogState(BtrcShimFileDialog *dialog) { (void)dialog; return 4; }
+int btrcShimFileDialogPathCount(const BtrcShimFileDialog *dialog) { (void)dialog; return 0; }
+const char *btrcShimFileDialogPathAt(const BtrcShimFileDialog *dialog, int index) { (void)dialog; (void)index; return ""; }
+void btrcShimFileDialogRelease(BtrcShimFileDialog *dialog) { (void)dialog; }
+
 bool btrcWaylandQueuePush(const BtrcShimEvent *event, const char *text) {
     BtrcWaylandDisplay *current = display;
     return current && btrcWaylandDisplayPushDirect(current, event, text);

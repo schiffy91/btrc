@@ -3,6 +3,7 @@ import Library.GUI.IApplication;
 import Library.GUI.ApplicationSlot;
 import Library.GUI.IWindow;
 import Library.GUI.IDirectoryPicker;
+import Library.GUI.IFilePicker;
 import Library.GUI.IButton;
 import Library.GUI.ITextField;
 import Library.GUI.IContainer;
@@ -76,6 +77,12 @@ class GUI {
 	/* Legacy nested loop: excluded from executor fairness and forbidden inside
 	 * close-decision handlers. */
 	class DirectoryPickerOutcome chooseDirectory(DirectoryPickerRequest request) { GUIProvider.requireUIThread(); return GUIProvider.chooseDirectory(GUIApplicationSlot.require(), request); }
+
+	/* Legacy nested loop: opens the target's native file or folder picker
+	 * modally (single/multiple files, single/multiple directories, mixed on
+	 * macOS, or save file). Excluded from executor fairness and forbidden
+	 * inside close-decision handlers. */
+	class FilePickerOutcome chooseFile(FilePickerRequest request) { GUIProvider.requireUIThread(); return GUIProvider.chooseFile(GUIApplicationSlot.require(), request); }
 
 	class void rasterizeText(TextRasterization request) { GUIProvider.requireUIThread(); GUIProvider.rasterizeText(GUIApplicationSlot.active, request); }
 

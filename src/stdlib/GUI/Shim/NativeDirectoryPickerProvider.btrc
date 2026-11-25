@@ -1,7 +1,10 @@
 import Library.GUI.IDirectoryPicker;
+import Library.GUI.IFilePicker;
 import Library.GUI.Shim.ShimWindow;
 import Library.GUI.Shim.DialogPump;
 
 class DirectoryPickerProvider {
 	class DirectoryPickerOutcome choose(ShimWindow? parent, IShimDialogPump pump, DirectoryPickerRequest request, IDirectoryPicker nativePicker) { return nativePicker.chooseDirectory(request); }
+
+	class FilePickerOutcome chooseFile(ShimWindow? parent, IShimDialogPump pump, FilePickerRequest request, IFilePicker nativePicker) { return nativePicker.chooseFile(request); }
 }

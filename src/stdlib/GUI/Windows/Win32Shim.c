@@ -17,6 +17,12 @@ struct BtrcShimFolderDialog {
 	char* path;
 };
 
+struct BtrcShimFileDialog {
+	int state;
+	char** paths;
+	int pathCount;
+};
+
 static struct {
 	BtrcShimEvent events[BTRC_WIN_QUEUE];
 	char* texts[BTRC_WIN_QUEUE];
@@ -864,6 +870,224 @@ const char* btrcShimFolderDialogPath(const BtrcShimFolderDialog* dialog) { retur
 void btrcShimFolderDialogRelease(BtrcShimFolderDialog* dialog) {
 	if (dialog == NULL) { return; }
 	free(dialog->path);
+	free(dialog);
+}
+
+static bool btrcWinFileDialogAppend(BtrcShimFileDialog* dialog, IShellItem* item) {
+	if (dialog == NULL || item == NULL) { return false; }
+	wchar_t* widePath = NULL;
+	if (FAILED(item->lpVtbl->GetDisplayName(item, SIGDN_FILESYSPATH, &widePath)) || widePath == NULL) { return false; }
+	char* narrow = btrcWinNarrow(widePath);
+	CoTaskMemFree(widePath);
+	if (narrow == NULL || narrow[0] == '\0') { free(narrow); return false; }
+	char** grown = realloc(dialog->paths, (size_t)(dialog->pathCount + 1) * sizeof(char*));
+	if (grown == NULL) { free(narrow); return false; }
+	dialog->paths = grown;
+	dialog->paths[dialog->pathCount++] = narrow;
+	return true;
+}
+
+static void btrcWinApplyFilters(IFileDialog* dialog, const char* filters, bool setDefaultExtension) {
+	if (dialog == NULL || filters == NULL || filters[0] == '\0') { return; }
+	UINT count = 0u;
+	COMDLG_FILTERSPEC* specs = NULL;
+	wchar_t** owned = NULL;
+	UINT ownedCount = 0u;
+	wchar_t* firstExt = NULL;
+	const char* cursor = filters;
+	while (*cursor != '\0') {
+		const char* lineEnd = strchr(cursor, '\n');
+		size_t lineLen = lineEnd == NULL ? strlen(cursor) : (size_t)(lineEnd - cursor);
+		const char* tab = memchr(cursor, '\t', lineLen);
+		if (tab != NULL && tab > cursor && tab + 1 < cursor + lineLen) {
+			size_t labelLen = (size_t)(tab - cursor);
+			char* labelUtf8 = calloc(labelLen + 1, 1);
+			size_t extBytes = (size_t)((cursor + lineLen) - (tab + 1));
+			char* specUtf8 = calloc(extBytes * 3 + 4, 1);
+			if (labelUtf8 != NULL && specUtf8 != NULL) {
+				memcpy(labelUtf8, cursor, labelLen);
+				size_t outAt = 0;
+				const char* extStart = tab + 1;
+				const char* extLimit = cursor + lineLen;
+				while (extStart < extLimit) {
+					const char* comma = memchr(extStart, ',', (size_t)(extLimit - extStart));
+					size_t extLen = comma == NULL ? (size_t)(extLimit - extStart) : (size_t)(comma - extStart);
+					if (extLen > 0) {
+						if (outAt > 0) { specUtf8[outAt++] = ';'; }
+						specUtf8[outAt++] = '*';
+						specUtf8[outAt++] = '.';
+						memcpy(specUtf8 + outAt, extStart, extLen);
+						outAt += extLen;
+						if (firstExt == NULL) {
+							char* extCopy = calloc(extLen + 1, 1);
+							if (extCopy != NULL) {
+								memcpy(extCopy, extStart, extLen);
+								firstExt = btrcWinWide(extCopy);
+								free(extCopy);
+							}
+						}
+					}
+					if (comma == NULL) { break; }
+					extStart = comma + 1;
+				}
+				wchar_t* wLabel = btrcWinWide(labelUtf8);
+				wchar_t* wSpec = btrcWinWide(specUtf8);
+				if (wLabel != NULL && wSpec != NULL && wSpec[0] != L'\0') {
+					COMDLG_FILTERSPEC* nextSpecs = realloc(specs, (size_t)(count + 1) * sizeof *specs);
+					if (nextSpecs != NULL) { specs = nextSpecs; }
+					wchar_t** nextOwned = realloc(owned, (size_t)(ownedCount + 2) * sizeof *owned);
+					if (nextOwned != NULL) { owned = nextOwned; }
+					if (nextSpecs != NULL && nextOwned != NULL) {
+						specs[count].pszName = wLabel;
+						specs[count].pszSpec = wSpec;
+						count++;
+						owned[ownedCount++] = wLabel;
+						owned[ownedCount++] = wSpec;
+					} else {
+						free(wLabel);
+						free(wSpec);
+					}
+				} else {
+					free(wLabel);
+					free(wSpec);
+				}
+			}
+			free(labelUtf8);
+			free(specUtf8);
+		}
+		if (lineEnd == NULL) { break; }
+		cursor = lineEnd + 1;
+	}
+	if (count > 0u) {
+		dialog->lpVtbl->SetFileTypes(dialog, count, specs);
+		dialog->lpVtbl->SetFileTypeIndex(dialog, 1u);
+		if (setDefaultExtension && firstExt != NULL && firstExt[0] != L'\0') {
+			dialog->lpVtbl->SetDefaultExtension(dialog, firstExt);
+		}
+	}
+	free(firstExt);
+	for (UINT i = 0u; i < ownedCount; i++) { free(owned[i]); }
+	free(owned);
+	free(specs);
+}
+
+BtrcShimFileDialog* btrcShimFileDialogOpen(BtrcShimWindow* window, int mode, const char* title, const char* initialDirectory, const char* defaultName, const char* filters, bool canCreateDirectories) {
+	(void)canCreateDirectories;
+	BtrcShimFileDialog* dialog = calloc(1, sizeof *dialog);
+	if (dialog == NULL) { return NULL; }
+	if (mode == 5) {
+		btrcWinFail("Windows file dialogs cannot select files and folders together");
+		dialog->state = 4;
+		return dialog;
+	}
+	if (mode < 1 || mode > 6) {
+		btrcWinFail("invalid file picker mode");
+		dialog->state = 3;
+		return dialog;
+	}
+	dialog->state = 3;
+	HRESULT initialized = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	if (mode == 6) {
+		IFileSaveDialog* saver = NULL;
+		if (SUCCEEDED(CoCreateInstance(&CLSID_FileSaveDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileSaveDialog, (void**)&saver))) {
+			DWORD options = 0u;
+			saver->lpVtbl->GetOptions(saver, &options);
+			saver->lpVtbl->SetOptions(saver, options | FOS_FORCEFILESYSTEM | FOS_OVERWRITEPROMPT);
+			wchar_t* heading = btrcWinWide(title);
+			if (heading != NULL && heading[0] != L'\0') { saver->lpVtbl->SetTitle(saver, heading); }
+			free(heading);
+			wchar_t* start = btrcWinWide(initialDirectory);
+			IShellItem* folder = NULL;
+			if (start != NULL && start[0] != L'\0' && SUCCEEDED(SHCreateItemFromParsingName(start, NULL, &IID_IShellItem, (void**)&folder))) {
+				saver->lpVtbl->SetFolder(saver, folder);
+				folder->lpVtbl->Release(folder);
+			}
+			free(start);
+			wchar_t* fileName = btrcWinWide(defaultName);
+			if (fileName != NULL && fileName[0] != L'\0') { saver->lpVtbl->SetFileName(saver, fileName); }
+			free(fileName);
+			btrcWinApplyFilters((IFileDialog*)saver, filters, true);
+			HRESULT shown = saver->lpVtbl->Show(saver, window == NULL ? NULL : window->handle);
+			if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED)) { dialog->state = 2; }
+			else if (SUCCEEDED(shown)) {
+				IShellItem* chosen = NULL;
+				if (SUCCEEDED(saver->lpVtbl->GetResult(saver, &chosen)) && btrcWinFileDialogAppend(dialog, chosen)) {
+					dialog->state = 1;
+				}
+				if (chosen != NULL) { chosen->lpVtbl->Release(chosen); }
+			}
+			saver->lpVtbl->Release(saver);
+		}
+	} else {
+		IFileOpenDialog* picker = NULL;
+		if (SUCCEEDED(CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileOpenDialog, (void**)&picker))) {
+			DWORD options = 0u;
+			picker->lpVtbl->GetOptions(picker, &options);
+			options |= FOS_FORCEFILESYSTEM;
+			if (mode == 3 || mode == 4) { options |= FOS_PICKFOLDERS; }
+			else { options |= FOS_FILEMUSTEXIST; }
+			bool allowsMultiple = (mode == 2 || mode == 4);
+			if (allowsMultiple) { options |= FOS_ALLOWMULTISELECT; }
+			picker->lpVtbl->SetOptions(picker, options);
+			wchar_t* heading = btrcWinWide(title);
+			if (heading != NULL && heading[0] != L'\0') { picker->lpVtbl->SetTitle(picker, heading); }
+			free(heading);
+			wchar_t* start = btrcWinWide(initialDirectory);
+			IShellItem* folder = NULL;
+			if (start != NULL && start[0] != L'\0' && SUCCEEDED(SHCreateItemFromParsingName(start, NULL, &IID_IShellItem, (void**)&folder))) {
+				picker->lpVtbl->SetFolder(picker, folder);
+				folder->lpVtbl->Release(folder);
+			}
+			free(start);
+			if (mode == 1 || mode == 2) { btrcWinApplyFilters((IFileDialog*)picker, filters, false); }
+			HRESULT shown = picker->lpVtbl->Show(picker, window == NULL ? NULL : window->handle);
+			if (shown == HRESULT_FROM_WIN32(ERROR_CANCELLED)) { dialog->state = 2; }
+			else if (SUCCEEDED(shown)) {
+				if (allowsMultiple) {
+					IShellItemArray* items = NULL;
+					DWORD count = 0u;
+					if (SUCCEEDED(picker->lpVtbl->GetResults(picker, &items)) && items != NULL && SUCCEEDED(items->lpVtbl->GetCount(items, &count)) && count > 0u) {
+						bool ok = true;
+						for (DWORD i = 0u; i < count && ok; i++) {
+							IShellItem* item = NULL;
+							if (SUCCEEDED(items->lpVtbl->GetItemAt(items, i, &item)) && item != NULL) {
+								ok = btrcWinFileDialogAppend(dialog, item);
+								item->lpVtbl->Release(item);
+							} else {
+								ok = false;
+							}
+						}
+						if (ok && dialog->pathCount > 0) { dialog->state = 1; }
+					}
+					if (items != NULL) { items->lpVtbl->Release(items); }
+				} else {
+					IShellItem* chosen = NULL;
+					if (SUCCEEDED(picker->lpVtbl->GetResult(picker, &chosen)) && btrcWinFileDialogAppend(dialog, chosen)) {
+						dialog->state = 1;
+					}
+					if (chosen != NULL) { chosen->lpVtbl->Release(chosen); }
+				}
+			}
+			picker->lpVtbl->Release(picker);
+		}
+	}
+	if (SUCCEEDED(initialized)) { CoUninitialize(); }
+	return dialog;
+}
+
+int btrcShimFileDialogState(BtrcShimFileDialog* dialog) { return dialog == NULL ? 3 : dialog->state; }
+
+int btrcShimFileDialogPathCount(const BtrcShimFileDialog* dialog) { return dialog == NULL ? 0 : dialog->pathCount; }
+
+const char* btrcShimFileDialogPathAt(const BtrcShimFileDialog* dialog, int index) {
+	if (dialog == NULL || index < 0 || index >= dialog->pathCount || dialog->paths[index] == NULL) { return ""; }
+	return dialog->paths[index];
+}
+
+void btrcShimFileDialogRelease(BtrcShimFileDialog* dialog) {
+	if (dialog == NULL) { return; }
+	for (int i = 0; i < dialog->pathCount; i++) { free(dialog->paths[i]); }
+	free(dialog->paths);
 	free(dialog);
 }
 

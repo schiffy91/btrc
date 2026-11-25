@@ -1,7 +1,9 @@
 import Library.GUI.IDirectoryPicker;
+import Library.GUI.IFilePicker;
 import Library.GUI.Shim.DialogPump;
 import Library.GUI.Shim.ShimWindow;
 import Library.GUI.Linux.PortalDirectoryPicker;
+import Library.GUI.Linux.PortalFilePicker;
 import Library.Strings;
 import Library.Timer;
 
@@ -25,5 +27,26 @@ class DirectoryPickerProvider {
 	class DirectoryPickerOutcome withoutParent(IShimDialogPump pump, DirectoryPickerRequest request, IDirectoryPicker? nativePicker) {
 		if (nativePicker != null) { return nativePicker.chooseDirectory(request); }
 		return PortalDirectoryPicker("", pump).chooseDirectory(request);
+	}
+
+	class FilePickerOutcome chooseFile(ShimWindow? parent, IShimDialogPump pump, FilePickerRequest request, IFilePicker? nativePicker = null) {
+		if (parent == null) { return PortalFilePicker("", pump, nativePicker).chooseFile(request); }
+		var exported = btrcDialogParentOpen(parent.nativeWindow());
+		if (exported == null) { return DirectoryPickerProvider.fileWithoutParent(pump, request, nativePicker); }
+		try {
+			long long deadline = MonotonicClock.deadlineAfter(1000LL);
+			while (btrcDialogParentIdentifier(exported) == null) {
+				if (pump.quitRequested() || !parent.isOpen()) { return FilePickerOutcome.cancelled(); }
+				if (!MonotonicClock.before(deadline)) { return DirectoryPickerProvider.fileWithoutParent(pump, request, nativePicker); }
+				pump.pumpOnce(10);
+			}
+			string identifier = Strings.copy((char*)btrcDialogParentIdentifier(exported));
+			return PortalFilePicker(identifier, pump, nativePicker).chooseFile(request);
+		} finally { btrcDialogParentRelease(exported); }
+	}
+
+	class FilePickerOutcome fileWithoutParent(IShimDialogPump pump, FilePickerRequest request, IFilePicker? nativePicker) {
+		if (nativePicker != null) { return nativePicker.chooseFile(request); }
+		return PortalFilePicker("", pump).chooseFile(request);
 	}
 }

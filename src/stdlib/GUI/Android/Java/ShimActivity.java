@@ -101,6 +101,15 @@ public final class ShimActivity extends Activity {
 
     @Override
     @SuppressWarnings("deprecation")
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        if (Shim.handleActivityResult(requestCode, resultCode, data)) {
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
     public void onBackPressed() {
         if (!Shim.closeRequested()) {
             super.onBackPressed();

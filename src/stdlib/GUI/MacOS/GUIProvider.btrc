@@ -8,10 +8,12 @@ import Library.GUI.MacOS.MacOSImageHandle;
 import Library.GUI.IApplication;
 import Library.GUI.IView;
 import Library.GUI.IDirectoryPicker;
+import Library.GUI.IFilePicker;
 import Library.GUI.TextRun;
 import Library.GUI.IImageHandle;
 import Library.GUI.GUICaptureLayer;
 import Library.GUI.MacOS.MacOSDirectoryPicker;
+import Library.GUI.MacOS.MacOSFilePicker;
 import Library.Image.Apple.AppleEncodedImageDecoder;
 
 /* Private package implementation: the native services behind the GUI facade.
@@ -22,6 +24,8 @@ class GUIProvider {
 	class IApplication createApplication(int workCapacity) { return MacOSApplication(workCapacity); }
 
 	class DirectoryPickerOutcome chooseDirectory(IApplication application, DirectoryPickerRequest request) { return MacOSDirectoryPicker().chooseDirectory(request); }
+
+	class FilePickerOutcome chooseFile(IApplication application, FilePickerRequest request) { return MacOSFilePicker().chooseFile(request); }
 
 	/* Conversion may run on a worker; it needs no initialized application. */
 	class IImageHandle createImageHandle(Image pixels, int maximumPixels) { return MacOSImageHandle.create(pixels, maximumPixels); }

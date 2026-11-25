@@ -1,0 +1,160 @@
+/* Portable file- and folder-picker contract. Applications call
+ * GUI.chooseFile(request) on the UI thread of an initialized GUI; the
+ * target's GUI provider builds its native picker (NSOpenPanel/NSSavePanel on
+ * macOS, org.freedesktop.portal.FileChooser on Linux, IFileOpenDialog/
+ * IFileSaveDialog on Windows, UIDocumentPickerViewController on iOS,
+ * ACTION_OPEN_DOCUMENT on Android) and runs it modally.
+ *
+ * A picker owns its modal resources and reports an invalid request, an
+ * unavailable or unsupported dialog mode, or a native failure as a failed
+ * outcome; a user dismissal, or an application Quit that aborts the modal,
+ * is a cancelled outcome. On platforms that pump application events until
+ * the dialog answers, chooseFile throws when opened from inside native
+ * event dispatch. */
+
+import Library.App;
+import Library.Strings;
+import Library.Vector;
+
+enum FilePickerMode {
+	FILE_PICKER_OPEN_FILE = 1,
+	FILE_PICKER_OPEN_FILES = 2,
+	FILE_PICKER_OPEN_DIRECTORY = 3,
+	FILE_PICKER_OPEN_DIRECTORIES = 4,
+	FILE_PICKER_OPEN_FILES_AND_DIRECTORIES = 5,
+	FILE_PICKER_SAVE_FILE = 6
+};
+
+class FilePickerFilter {
+	public string label;
+	public Vector<string> extensions;
+
+	public FilePickerFilter(string label, Vector<string> extensions) {
+		self.label = label;
+		self.extensions = extensions;
+	}
+
+	/* Each extension is a bare filename suffix without dots, wildcards, or
+	 * separators (for example "raw", "qcow2", "png"). */
+	class bool isValidExtension(string extension) {
+		if (extension == null || extension.isEmpty()) { return false; }
+		for (int index = 0; index < extension.len(); index++) {
+			char ch = extension[index];
+			bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '+';
+			if (!ok) { return false; }
+		}
+		return true;
+	}
+
+	public bool isValid() {
+		if (self.label == null || self.label.isEmpty() || self.label.contains("\t") || self.label.contains("\n") || self.label.contains("\r")) { return false; }
+		if (self.extensions == null || self.extensions.isEmpty()) { return false; }
+		for ext in self.extensions {
+			if (!FilePickerFilter.isValidExtension(ext)) { return false; }
+		}
+		return true;
+	}
+}
+
+class FilePickerRequest {
+	public string title;
+	public FilePickerMode mode;
+	public string initialDirectory;
+	public string defaultName;
+	public Vector<FilePickerFilter> filters;
+	public bool canCreateDirectories;
+
+	public FilePickerRequest(string title, FilePickerMode mode = FILE_PICKER_OPEN_FILE, string initialDirectory = "", string defaultName = "", Vector<FilePickerFilter>? filters = null, bool canCreateDirectories = true) {
+		self.title = title;
+		self.mode = mode;
+		self.initialDirectory = initialDirectory;
+		self.defaultName = defaultName;
+		if (filters != null) {
+			self.filters = filters;
+		} else {
+			Vector<FilePickerFilter> empty = [];
+			self.filters = empty;
+		}
+		self.canCreateDirectories = canCreateDirectories;
+	}
+
+	class FilePickerRequest openFile(string title, string initialDirectory = "", Vector<FilePickerFilter>? filters = null) { return FilePickerRequest(title, FILE_PICKER_OPEN_FILE, initialDirectory, "", filters, false); }
+
+	class FilePickerRequest openFiles(string title, string initialDirectory = "", Vector<FilePickerFilter>? filters = null) { return FilePickerRequest(title, FILE_PICKER_OPEN_FILES, initialDirectory, "", filters, false); }
+
+	class FilePickerRequest openDirectory(string title, string initialDirectory = "", bool canCreateDirectories = true) { return FilePickerRequest(title, FILE_PICKER_OPEN_DIRECTORY, initialDirectory, "", null, canCreateDirectories); }
+
+	class FilePickerRequest openDirectories(string title, string initialDirectory = "", bool canCreateDirectories = true) { return FilePickerRequest(title, FILE_PICKER_OPEN_DIRECTORIES, initialDirectory, "", null, canCreateDirectories); }
+
+	class FilePickerRequest openFilesAndDirectories(string title, string initialDirectory = "", Vector<FilePickerFilter>? filters = null, bool canCreateDirectories = true) { return FilePickerRequest(title, FILE_PICKER_OPEN_FILES_AND_DIRECTORIES, initialDirectory, "", filters, canCreateDirectories); }
+
+	class FilePickerRequest saveFile(string title, string defaultName = "", string initialDirectory = "", Vector<FilePickerFilter>? filters = null, bool canCreateDirectories = true) { return FilePickerRequest(title, FILE_PICKER_SAVE_FILE, initialDirectory, defaultName, filters, canCreateDirectories); }
+
+	public bool allowsMultiple() { return self.mode == FILE_PICKER_OPEN_FILES || self.mode == FILE_PICKER_OPEN_DIRECTORIES || self.mode == FILE_PICKER_OPEN_FILES_AND_DIRECTORIES; }
+
+	public bool choosesDirectories() { return self.mode == FILE_PICKER_OPEN_DIRECTORY || self.mode == FILE_PICKER_OPEN_DIRECTORIES || self.mode == FILE_PICKER_OPEN_FILES_AND_DIRECTORIES; }
+
+	public bool choosesFiles() { return self.mode == FILE_PICKER_OPEN_FILE || self.mode == FILE_PICKER_OPEN_FILES || self.mode == FILE_PICKER_OPEN_FILES_AND_DIRECTORIES || self.mode == FILE_PICKER_SAVE_FILE; }
+
+	public bool isSave() { return self.mode == FILE_PICKER_SAVE_FILE; }
+
+	/* Wire encoding shared across native C/ObjC/JNI bridges: one "label\text1,ext2"
+	 * record per line. Safe because isValid() forbids tabs, newlines, and commas
+	 * in labels/extensions. */
+	public string encodedFilters() {
+		if (self.filters == null || self.filters.isEmpty()) { return ""; }
+		Vector<string> rows = [];
+		for filter in self.filters {
+			rows.push(filter.label + "\t" + filter.extensions.join(","));
+		}
+		return rows.join("\n");
+	}
+
+	public bool isValid() {
+		if (self.title == null || self.title.isEmpty()) { return false; }
+		int rawMode = (int)self.mode;
+		if (rawMode < (int)FILE_PICKER_OPEN_FILE || rawMode > (int)FILE_PICKER_SAVE_FILE) { return false; }
+		if (self.defaultName != null && !self.defaultName.isEmpty()) {
+			if (!self.isSave() || self.defaultName.contains("/") || self.defaultName.contains("\\")) { return false; }
+		}
+		if ((self.mode == FILE_PICKER_OPEN_DIRECTORY || self.mode == FILE_PICKER_OPEN_DIRECTORIES) && self.filters != null && !self.filters.isEmpty()) { return false; }
+		if (self.filters != null) {
+			for filter in self.filters {
+				if (filter == null || !filter.isValid()) { return false; }
+			}
+		}
+		return true;
+	}
+}
+
+enum FilePickerKind {
+	FILE_PICKER_SELECTED = 1,
+	FILE_PICKER_CANCELLED = 2,
+	FILE_PICKER_FAILED = 3
+};
+
+class FilePickerOutcome {
+	public FilePickerKind kind;
+	public Vector<string> paths;
+	public AppError? error;
+
+	private FilePickerOutcome(FilePickerKind kind, Vector<string> paths, AppError? error) {
+		self.kind = kind;
+		self.paths = paths;
+		self.error = error;
+	}
+
+	class FilePickerOutcome selected(Vector<string> paths) { return new FilePickerOutcome(FILE_PICKER_SELECTED, paths, null); }
+
+	class FilePickerOutcome selectedOne(string path) { return new FilePickerOutcome(FILE_PICKER_SELECTED, [path], null); }
+
+	class FilePickerOutcome cancelled() { return new FilePickerOutcome(FILE_PICKER_CANCELLED, [], null); }
+
+	class FilePickerOutcome failed(AppError error) { return new FilePickerOutcome(FILE_PICKER_FAILED, [], error); }
+
+	public string path() { return self.paths.isEmpty() ? "" : self.paths.get(0); }
+}
+
+interface IFilePicker {
+	FilePickerOutcome chooseFile(FilePickerRequest request);
+}
