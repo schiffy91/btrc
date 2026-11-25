@@ -263,34 +263,53 @@ int main() {
 \tExpect.isTrue(committed, "settle animation committed index change");
 \tExpect.isTrue(animatedFrames >= 15, "smooth multi-frame slide animation before commit");
 
-\t/* 1b. Direct-to-tile interactive swipe-down shrink oracle:
-\t * Pulling down shrinks and moves directly toward a top-left tile without dropping to the bottom. */
+\t/* 1b. Cursor-anchored interactive swipe-down shrink + release-to-grid-tile animation oracle:
+\t * Pulling down shrinks pinned to the mouse cursor (bottom-right), then release flies smoothly into the top-left grid tile. */
 \tpager.open(4, 20, 1.5);
 \tpager.setDismissTargetRect(80.0, 60.0, 200.0, 133.0);
 \tAppKeyModifiers noModPull = AppKeyModifiers(false, false, false, false);
-\tpager.scroll(AppScrollEvent(0.0, 40.0, 600.0, 400.0, true, APP_SCROLL_BEGAN, APP_SCROLL_NONE, noModPull), 1.0, stageW, stageH, 100.0);
-\tpager.scroll(AppScrollEvent(0.0, 140.0, 600.0, 400.0, true, APP_SCROLL_CHANGED, APP_SCROLL_NONE, noModPull), 1.0, stageW, stageH, 120.0);
-\tExpect.isTrue(pager.zoom < 0.85, "pulling down shrinks photo toward tile scale");
-\tExpect.isTrue(pager.x < -100.0 && pager.y < -80.0, "pulling down moves directly toward top-left tile instead of screen bottom");
+\tpager.scroll(AppScrollEvent(0.0, 40.0, 960.0, 640.0, true, APP_SCROLL_BEGAN, APP_SCROLL_NONE, noModPull), 1.0, stageW, stageH, 100.0);
+\tpager.scroll(AppScrollEvent(0.0, 140.0, 960.0, 640.0, true, APP_SCROLL_CHANGED, APP_SCROLL_NONE, noModPull), 1.0, stageW, stageH, 120.0);
+\tExpect.isTrue(pager.zoom < 0.85, "pulling down shrinks photo");
+\tExpect.isTrue(pager.x > 50.0 && pager.y > 30.0, "pulling down shrinks toward bottom-right mouse cursor");
+\tExpect.isTrue(Math.fabs((pager.x + 360.0 * pager.zoom) - 360.0) < 0.05 && Math.fabs((pager.y + 240.0 * pager.zoom) - 240.0) < 0.05, "pixel under cursor stays pinned during interactive shrink");
 \tExpect.isTrue(Math.fabs(pager.pull) < 0.01, "interactive pull drives transform directly without bottom-drop offset");
 \tExpect.isTrue(pager.shade < 0.75, "backdrop fades smoothly to reveal grid while pulling");
-\tpager.scroll(AppScrollEvent(0.0, 0.0, 600.0, 400.0, true, APP_SCROLL_ENDED, APP_SCROLL_NONE, noModPull), 1.0, stageW, stageH, 130.0);
+\tpager.scroll(AppScrollEvent(0.0, 0.0, 960.0, 640.0, true, APP_SCROLL_ENDED, APP_SCROLL_NONE, noModPull), 1.0, stageW, stageH, 130.0);
 \tExpect.isTrue(pager.isDismissPending(), "release past threshold requests dismiss");
 \tpager.beginDismiss(stageW, stageH, 130.0);
-\tdouble prevZoomD = pager.zoom;
 \tdouble prevXD = pager.x;
 \tdouble prevYD = pager.y;
 \tbool dismissed = false;
-\tfor (int ds = 1; ds <= 40; ds++) {
+\tfor (int ds = 1; ds <= 50; ds++) {
 \t\tvar dout = pager.tick(130.0 + (double)ds * 8.0, stageW, stageH);
-\t\tExpect.isTrue(pager.zoom <= prevZoomD + 0.001, "dismiss zoom shrinks monotonically into tile");
-\t\tExpect.isTrue(pager.x <= prevXD + 0.01 && pager.y <= prevYD + 0.01, "dismiss glides monotonically along same vector into tile");
-\t\tprevZoomD = pager.zoom;
+\t\tExpect.isTrue(pager.x <= prevXD + 0.01 && pager.y <= prevYD + 0.01, "on release, photo animates monotonically from cursor toward top-left grid tile");
 \t\tprevXD = pager.x;
 \t\tprevYD = pager.y;
 \t\tif (dout.kind == PAGER_EVENT_DISMISSED) { dismissed = true; break; }
 \t}
-\tExpect.isTrue(dismissed, "direct-to-tile dismiss completes cleanly");
+\tExpect.isTrue(dismissed, "cursor-to-tile dismiss completes cleanly");
+\tExpect.isTrue(Math.fabs(pager.x - (-420.0)) < 1.0 && Math.fabs(pager.y - (-273.5)) < 1.0, "dismiss lands on exact grid tile center");
+
+\t/* 1c. Click-and-drag down from the top half keeps the grabbed pixel glued to the cursor (never wobbles upward),
+\t * then flies cleanly into the target grid tile on release. */
+\tpager.open(5, 20, 1.5);
+\tpager.setDismissTargetRect(920.0, 560.0, 200.0, 133.0);
+\tpager.pointerDown(600.0, 160.0, stageW, stageH, 400.0);
+\tdouble prevDragY = pager.y;
+\tfor (int step = 1; step <= 3; step++) {
+\t\tdouble curY = 160.0 + (double)step * 100.0;
+\t\tpager.pointerMove(600.0, curY, stageW, stageH, 400.0 + (double)step * 20.0);
+\t\tExpect.isTrue(pager.y > prevDragY, "click-drag down from top half moves monotonically downward");
+\t\tExpect.isTrue(Math.fabs((pager.y + (-240.0) * pager.zoom) - (curY - 400.0)) < 0.05, "grabbed pixel stays glued to live mouse cursor while shrinking");
+\t\tprevDragY = pager.y;
+\t}
+\tpager.pointerUp(stageW, stageH, 470.0, false);
+\tExpect.isTrue(pager.isDismissPending(), "click-drag down past threshold requests dismiss");
+\tpager.beginDismiss(stageW, stageH, 470.0);
+\tvar dragDismissEnd = pager.tick(800.0, stageW, stageH);
+\tExpect.isTrue(dragDismissEnd.kind == PAGER_EVENT_DISMISSED, "click-drag dismiss completes");
+\tExpect.isTrue(Math.fabs(pager.x - 420.0) < 1.0 && Math.fabs(pager.y - 226.5) < 1.0, "click-drag dismiss lands on exact bottom-right grid tile center");
 
 \t/* 2. Dock-style FilmstripScrubber interaction oracle:
 \t * Auto-hidden pill -> tap expands & pins -> two-finger scroll -> click-drag scrub -> tap selects -> tap outside collapses. */
