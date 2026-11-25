@@ -129,9 +129,13 @@ release, focus loss, detach, cancellation or close. Coordinates are view-local,
 top-left logical points. `IWindow.onKey` routes keys before the focused control.
 
 `GUI.chooseDirectory(request)` runs the provider's modal directory picker
-(see `IDirectoryPicker.btrc`). On Linux the application asks the desktop's
-`org.freedesktop.portal.FileChooser` service over the session bus and returns
-a backend-unavailable outcome if the desktop has no directory portal.
+(see `IDirectoryPicker.btrc`). `GUI.chooseFile(request)` runs the provider's
+modal file and folder picker (see `IFilePicker.btrc`), supporting single/multiple
+files, single/multiple directories, mixed files and directories (macOS), save
+file, initial directory, and extension filters. On Linux both pickers ask the
+desktop's `org.freedesktop.portal.FileChooser` service over the session bus and
+return a backend-unavailable outcome if the desktop has no portal or cannot
+satisfy the requested mode.
 `GUI.createImageHandle(pixels)` converts decoded
 pixels to a native image on any thread, before or after `GUI.initialize`.
 
@@ -485,6 +489,7 @@ destruction; there is no opaque `Surface.handle` or native surface destructor.
 | `IProgressIndicator.btrc`, `ILevelIndicator.btrc` | Indicator contracts. |
 | `IGPUView.btrc` | WebGPU child view contract. |
 | `IDirectoryPicker.btrc` | Directory-picker request/outcome values and contract. |
+| `IFilePicker.btrc` | File- and folder-picker modes, filters, request/outcome values and contract. |
 | `GUICaptureLayer.btrc` | `GUICaptureLayer`: completed GPU readback pixels for `GUI.capture`. |
 | `TextRun.btrc` | `TextRun` and `TextRasterization`: one shaped line rasterized by the provider's system text. |
 | `ActionMailbox.btrc` | Bounded, ordered click storage both providers deliver button actions from. |

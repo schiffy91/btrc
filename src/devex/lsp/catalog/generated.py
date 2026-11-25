@@ -719,6 +719,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("createScrollView", "IScrollView", "method", (), "createScrollView"),
         BuiltinMemberSpec("createGrid", "IGrid", "method", (("int", "columns"), ("int", "rows"), ("double", "columnSpacing"), ("double", "rowSpacing"),), "createGrid"),
         BuiltinMemberSpec("chooseDirectory", "DirectoryPickerOutcome", "method", (("DirectoryPickerRequest", "request"),), "chooseDirectory"),
+        BuiltinMemberSpec("chooseFile", "FilePickerOutcome", "method", (("FilePickerRequest", "request"),), "chooseFile"),
         BuiltinMemberSpec("rasterizeText", "void", "method", (("TextRasterization", "request"),), "rasterizeText"),
         BuiltinMemberSpec("capture", "Image", "method", (("IView", "root"), ("Vector<GUICaptureLayer>", "layers"),), "capture"),
         BuiltinMemberSpec("post", "void", "method", (("IApplicationWork", "work"),), "post"),

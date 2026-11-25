@@ -74,8 +74,8 @@ DoS bounds are hardened per independent security review (docs/design/linux-tls-s
 
 ## What each operating system supplies, as the stdlib uses it
 
-- **android**: classes: `android.app.*`, `android.content.*`, `android.graphics.*`, `android.hardware.*`, `android.net.*`, `android.os.*`, `android.text.*`, `android.util.*`, `android.view.*`, `android.webkit.*`, `android.widget.*`, `java.io.*`, `java.nio.*`, `java.util.*`; libraries: `android`, `log`
-- **ios**: frameworks: `CoreFoundation`, `CoreGraphics`, `CoreImage`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `Metal`, `QuartzCore`, `Security`, `UIKit`, `Vision`, `WebKit`
+- **android**: classes: `android.app.*`, `android.content.*`, `android.database.*`, `android.graphics.*`, `android.hardware.*`, `android.net.*`, `android.os.*`, `android.provider.*`, `android.text.*`, `android.util.*`, `android.view.*`, `android.webkit.*`, `android.widget.*`, `java.io.*`, `java.nio.*`, `java.util.*`; libraries: `android`, `log`
+- **ios**: frameworks: `CoreFoundation`, `CoreGraphics`, `CoreImage`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `Metal`, `QuartzCore`, `Security`, `UIKit`, `UniformTypeIdentifiers`, `Vision`, `WebKit`
 - **linux**: libraries: `util`; programs: `/bin/sh`
-- **macos**: frameworks: `AVFoundation`, `AppKit`, `AudioToolbox`, `CFNetwork`, `CoreAudio`, `CoreFoundation`, `CoreGraphics`, `CoreMedia`, `CoreServices`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `Network`, `QuartzCore`, `Security`, `Vision`, `WebKit`; libraries: `bsm`; programs: `/bin/sh`
+- **macos**: frameworks: `AVFoundation`, `AppKit`, `AudioToolbox`, `CFNetwork`, `CoreAudio`, `CoreFoundation`, `CoreGraphics`, `CoreMedia`, `CoreServices`, `CoreText`, `CoreVideo`, `Foundation`, `IOSurface`, `ImageIO`, `Network`, `QuartzCore`, `Security`, `UniformTypeIdentifiers`, `Vision`, `WebKit`; libraries: `bsm`; programs: `/bin/sh`
 - **windows**: libraries: `advapi32`, `bcrypt`, `comctl32`, `d3d11`, `dwmapi`, `dxgi`, `dxguid`, `gdi32`, `ole32`, `oleaut32`, `shell32`, `shlwapi`, `user32`, `uuid`, `winhttp`, `ws2_32`

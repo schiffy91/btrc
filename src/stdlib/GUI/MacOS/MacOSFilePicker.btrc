@@ -1,0 +1,60 @@
+import Library.App;
+import Library.GUI.IFilePicker;
+import Library.Strings;
+import Library.Vector;
+
+class MacOSFilePicker implements IFilePicker {
+	private string _prompt;
+	private int _maximumPathBytes;
+
+	public MacOSFilePicker(string prompt = "Choose", int maximumPathBytes = 32768) {
+		self._prompt = prompt;
+		self._maximumPathBytes = maximumPathBytes;
+	}
+
+	public FilePickerOutcome chooseFile(FilePickerRequest request) {
+		if (request == null || !request.isValid() || self._prompt == null || self._prompt.isEmpty() || self._maximumPathBytes <= 0) {
+			return FilePickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid file picker request or configuration"));
+		}
+		if (!NSThread.isMainThread()) {
+			return FilePickerOutcome.failed(AppError(APP_ERROR_NOT_MAIN_THREAD, "file picker must run on the main thread"));
+		}
+		string prompt = request.isSave() && self._prompt.equals("Choose") ? "Save" : self._prompt;
+		string filters = request.encodedFilters();
+		var result = btrcMacFilePickerRun((int)request.mode, request.title, prompt, request.initialDirectory == null ? "" : request.initialDirectory, request.defaultName == null ? "" : request.defaultName, filters, request.canCreateDirectories, self._maximumPathBytes);
+		if (result == null) {
+			return FilePickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "file picker could not allocate result"));
+		}
+		FilePickerOutcome outcome = FilePickerOutcome.cancelled();
+		try {
+			int state = btrcMacFilePickerState(result);
+			if (state == 1) {
+				int count = btrcMacFilePickerPathCount(result);
+				Vector<string> paths = [];
+				for (int index = 0; index < count; index++) {
+					string path = Strings.copy((char*)btrcMacFilePickerPathAt(result, index));
+					if (path.isEmpty()) {
+						return FilePickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "file picker selected an empty path"));
+					}
+					paths.push(path);
+				}
+				if (paths.isEmpty()) {
+					outcome = FilePickerOutcome.failed(AppError(APP_ERROR_INTERNAL, "file picker selected no path"));
+				} else {
+					outcome = FilePickerOutcome.selected(paths);
+				}
+			} else if (state == 2) {
+				outcome = FilePickerOutcome.cancelled();
+			} else if (state == 4) {
+				string detail = Strings.copy((char*)btrcMacFilePickerError(result));
+				outcome = FilePickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, detail.isEmpty() ? "file picker is unavailable" : detail));
+			} else {
+				string detail = Strings.copy((char*)btrcMacFilePickerError(result));
+				outcome = FilePickerOutcome.failed(AppError(APP_ERROR_INTERNAL, detail.isEmpty() ? "file picker failed" : detail));
+			}
+		} finally {
+			btrcMacFilePickerRelease(result);
+		}
+		return outcome;
+	}
+}

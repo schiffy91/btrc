@@ -1,0 +1,231 @@
+/* Linux file and folder chooser over org.freedesktop.portal.FileChooser.
+ * Supports OpenFile (single/multiple files, single/multiple directories) and
+ * SaveFile with glob extension filters (a(sa(us))) and initial directory.
+ * Mixed file+directory selection is not supported by the desktop portal and
+ * reports APP_ERROR_BACKEND_UNAVAILABLE. */
+import Library.App;
+import Library.DBus.DBusConnection;
+import Library.DBus.DBusMessage;
+import Library.GUI.IFilePicker;
+import Library.GUI.Linux.PortalDirectoryPicker;
+import Library.GUI.Shim.DialogPump;
+import Library.Platform;
+import Library.Timer;
+import Library.Vector;
+
+class PortalFilePicker implements IFilePicker {
+	private string _parent;
+	private IShimDialogPump _host;
+	private IFilePicker? _fallback;
+
+	public PortalFilePicker(string parent, IShimDialogPump host, IFilePicker? fallback = null) {
+		self._parent = parent;
+		self._host = host;
+		self._fallback = fallback;
+	}
+
+	private FilePickerOutcome unavailable(FilePickerRequest request, string message = "the desktop has no file chooser") {
+		var fallback = self._fallback;
+		if (fallback != null) { return fallback.chooseFile(request); }
+		return FilePickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, message));
+	}
+
+	class FilePickerOutcome failed(string message) { return FilePickerOutcome.failed(AppError(APP_ERROR_INTERNAL, message)); }
+
+	class FilePickerOutcome response(DBusMessage signal, bool allowsMultiple) {
+		if (!signal.signature().equals("ua{sv}")) { return PortalFilePicker.failed("malformed desktop chooser response"); }
+		DBusReader result = signal.reader();
+		unsigned int status = result.readUInt32();
+		if (status == 1u) { return FilePickerOutcome.cancelled(); }
+		if (status != 0u) { return PortalFilePicker.failed("the desktop chooser failed"); }
+		result.next();
+		DBusReader entries = result.recurse();
+		while (entries.type() == DBUS_TYPE_DICT_ENTRY) {
+			DBusReader item = entries.recurse();
+			if (item.readString().equals("uris")) {
+				item.next();
+				DBusReader variant = item.recurse();
+				if (variant.signature().equals("as")) {
+					DBusReader uris = variant.recurse();
+					Vector<string> paths = [];
+					while (uris.type() == DBUS_TYPE_STRING) {
+						string? path = PortalDirectoryPicker.filePath(uris.readString());
+						if (path == null) { return PortalFilePicker.failed("the desktop chooser returned an invalid local path"); }
+						paths.push(path);
+						uris.next();
+					}
+					if (!paths.isEmpty() && (allowsMultiple || paths.len == 1)) { return FilePickerOutcome.selected(paths); }
+				}
+				break;
+			}
+			entries.next();
+		}
+		return PortalFilePicker.failed("the desktop chooser returned no local path");
+	}
+
+	private void appendCurrentFolder(DBusWriter options, string initialDirectory) {
+		if (initialDirectory == null || initialDirectory.isEmpty()) { return; }
+		string initial = initialDirectory;
+		if (!initial.startsWith("/")) { initial = Platform.currentDirectory() + "/" + initial; }
+		DBusWriter entry = options.openEntry("current_folder");
+		DBusWriter variant = entry.openVariant("ay");
+		DBusWriter bytes = variant.openArray("y");
+		for (int i = 0; i < initial.len(); i++) { bytes.appendByte((int)(unsigned char)initial[i]); }
+		bytes.appendByte(0);
+		bytes.close();
+		variant.close();
+		entry.close();
+	}
+
+	private void appendFilters(DBusWriter options, Vector<FilePickerFilter> filters) {
+		if (filters == null || filters.isEmpty()) { return; }
+		DBusWriter entry = options.openEntry("filters");
+		DBusWriter variant = entry.openVariant("a(sa(us))");
+		DBusWriter list = variant.openArray("(sa(us))");
+		for filter in filters {
+			DBusWriter spec = list.openStruct();
+			spec.appendString(filter.label);
+			DBusWriter patterns = spec.openArray("(us)");
+			for ext in filter.extensions {
+				DBusWriter pattern = patterns.openStruct();
+				pattern.appendUInt32(0u);
+				pattern.appendString("*." + ext);
+				pattern.close();
+			}
+			patterns.close();
+			spec.close();
+		}
+		list.close();
+		variant.close();
+		entry.close();
+	}
+
+	private DBusMessage portalRequest(string owner, FilePickerRequest request) {
+		string member = request.isSave() ? "SaveFile" : "OpenFile";
+		DBusMessage message = DBusMessage.methodCall(owner, PortalDirectoryPicker.path(), PortalDirectoryPicker.chooser(), member);
+		DBusWriter arguments = message.writer();
+		arguments.appendString(self._parent);
+		arguments.appendString(request.title);
+		DBusWriter options = arguments.openArray("{sv}");
+		options.dictString("handle_token", "btrc");
+		options.dictBool("modal", true);
+		if (request.isSave()) {
+			if (request.defaultName != null && !request.defaultName.isEmpty()) {
+				options.dictString("current_name", request.defaultName);
+			}
+		} else {
+			options.dictBool("directory", request.choosesDirectories());
+			options.dictBool("multiple", request.allowsMultiple());
+		}
+		self.appendCurrentFolder(options, request.initialDirectory);
+		self.appendFilters(options, request.filters);
+		options.close();
+		return message;
+	}
+
+	private bool lostOwner(DBusMessage message, string owner) {
+		if (!message.sender().equals("org.freedesktop.DBus") || !message.isSignal("org.freedesktop.DBus", "NameOwnerChanged")) { return false; }
+		DBusReader name = message.reader();
+		if (!name.readString().equals(PortalDirectoryPicker.desktop())) { return false; }
+		name.next();
+		return name.readString().equals(owner);
+	}
+
+	private string chooserOwner(DBusConnection bus, unsigned int minimumVersion) {
+		DBusMessage version = DBusMessage.methodCall(PortalDirectoryPicker.desktop(), PortalDirectoryPicker.path(), "org.freedesktop.DBus.Properties", "Get");
+		DBusWriter property = version.writer();
+		property.appendString(PortalDirectoryPicker.chooser());
+		property.appendString("version");
+		if (!bus.send(version)) { return ""; }
+		long long deadline = MonotonicClock.deadlineAfter((long long)DBusConnection.defaultTimeout());
+		string owner = "";
+		while (owner.isEmpty()) {
+			if (self._host.quitRequested()) { return ""; }
+			if (!bus.readWrite(0) || !MonotonicClock.before(deadline)) { return ""; }
+			DBusMessage? arrived = bus.popMessage();
+			if (arrived == null) { self._host.pumpOnce(25); continue; }
+			DBusMessage message = arrived;
+			if (message.replySerial() != version.serial()) { continue; }
+			if (message.type() != DBUS_MESSAGE_TYPE_METHOD_RETURN || !message.signature().equals("v")) { return ""; }
+			DBusReader value = message.reader().recurse();
+			if (!value.signature().equals("u") || value.readUInt32() < minimumVersion || !message.sender().startsWith(":")) { return ""; }
+			owner = message.sender();
+		}
+		DBusMessage lookup = DBusMessage.methodCall(DBusConnection.busName(), DBusConnection.busPath(), DBusConnection.busName(), "GetNameOwner");
+		lookup.writer().appendString(PortalDirectoryPicker.desktop());
+		DBusMessage? reply = bus.call(lookup, 1000);
+		if (reply == null || !reply.sender().equals(DBusConnection.busName()) || !reply.reader().readString().equals(owner)) { return ""; }
+		return owner;
+	}
+
+	private FilePickerOutcome choose(DBusConnection bus, FilePickerRequest request) {
+		if (!bus.addMatch("type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.freedesktop.portal.Desktop'")) { return self.unavailable(request); }
+		unsigned int minimumVersion = request.choosesDirectories() ? 3u : 1u;
+		string owner = self.chooserOwner(bus, minimumVersion);
+		if (self._host.quitRequested()) { return FilePickerOutcome.cancelled(); }
+		if (owner.isEmpty()) { return self.unavailable(request); }
+		if (!bus.addMatch("type='signal',sender='" + owner + "',interface='org.freedesktop.portal.Request',member='Response'")) { return self.unavailable(request); }
+		DBusMessage open = self.portalRequest(owner, request);
+		if (!bus.send(open)) { return self.unavailable(request); }
+		string unique = bus.uniqueName();
+		string prefix = PortalDirectoryPicker.path() + "/request/" + unique.substring(1, unique.len() - 1).replace(".", "_") + "/";
+		string path = prefix + "btrc";
+		bool acknowledged = false;
+		bool finished = false;
+		DBusMessage? early = null;
+		long long deadline = MonotonicClock.deadlineAfter((long long)DBusConnection.defaultTimeout());
+		try {
+			while (true) {
+				if (self._host.quitRequested()) { return FilePickerOutcome.cancelled(); }
+				if (!bus.readWrite(0)) { return PortalFilePicker.failed("lost the desktop chooser connection"); }
+				if (!acknowledged && !MonotonicClock.before(deadline)) { return PortalFilePicker.failed("the desktop chooser did not acknowledge the request"); }
+				DBusMessage? arrived = bus.popMessage();
+				if (arrived == null) { self._host.pumpOnce(25); continue; }
+				DBusMessage message = arrived;
+				if (self.lostOwner(message, owner)) { return PortalFilePicker.failed("the desktop chooser exited"); }
+				if (!message.sender().equals(owner)) { continue; }
+				if (!acknowledged && message.replySerial() == open.serial()) {
+					if (message.isError("org.freedesktop.DBus.Error.UnknownMethod") || message.isError("org.freedesktop.DBus.Error.UnknownInterface")) {
+						finished = true;
+						return self.unavailable(request);
+					}
+					if (message.type() != DBUS_MESSAGE_TYPE_METHOD_RETURN || !message.signature().equals("o")) {
+						return PortalFilePicker.failed("the desktop chooser rejected the request");
+					}
+					string actual = message.reader().readObjectPath();
+					if (!actual.startsWith(PortalDirectoryPicker.path() + "/request/")) { return PortalFilePicker.failed("invalid desktop chooser request path"); }
+					path = actual;
+					acknowledged = true;
+					if (early == null || !early.path().equals(path)) { continue; }
+					message = early;
+				}
+				if (message.isSignal(PortalDirectoryPicker.requestInterface(), "Response")) {
+					if (!acknowledged) {
+						if (message.path().equals(path) || (early == null && message.path().startsWith(prefix))) { early = message; }
+						continue;
+					}
+					if (message.path().equals(path)) { finished = true; return PortalFilePicker.response(message, request.allowsMultiple()); }
+				}
+			}
+		} finally {
+			if (!finished && bus.isConnected()) {
+				DBusMessage close = DBusMessage.methodCall(owner, path, PortalDirectoryPicker.requestInterface(), "Close");
+				close.setNoReply(true);
+				bus.send(close);
+			}
+		}
+		return PortalFilePicker.failed("the desktop chooser ended unexpectedly");
+	}
+
+	public FilePickerOutcome chooseFile(FilePickerRequest request) {
+		if (request == null || !request.isValid()) { return FilePickerOutcome.failed(AppError(APP_ERROR_INVALID_ARGUMENT, "invalid file picker request")); }
+		if (self._host.isDispatching()) { throw "Native event dispatch is already active"; }
+		if (self._host.quitRequested()) { return FilePickerOutcome.cancelled(); }
+		if (request.mode == FILE_PICKER_OPEN_FILES_AND_DIRECTORIES) {
+			return FilePickerOutcome.failed(AppError(APP_ERROR_BACKEND_UNAVAILABLE, "the Linux desktop file portal cannot select files and directories together"));
+		}
+		DBusConnection? bus = DBusConnection.session();
+		if (bus == null) { return self.unavailable(request); }
+		try { return self.choose(bus, request); } finally { bus.close(); }
+	}
+}

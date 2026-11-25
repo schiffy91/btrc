@@ -16,6 +16,7 @@
 
 #import <CoreText/CoreText.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +29,14 @@ static const CFTimeInterval BTRC_UIKIT_SCENE_ARRIVAL_SECONDS = 1.0;
 
 struct BtrcShimFolderDialog {
 	int state;
+};
+
+struct BtrcShimFileDialog {
+	pthread_mutex_t lock;
+	int state;
+	char** paths;
+	int pathCount;
+	id delegate;
 };
 
 static struct {
@@ -1154,6 +1163,162 @@ int btrcShimFolderDialogState(BtrcShimFolderDialog* dialog) { return dialog->sta
 const char* btrcShimFolderDialogPath(const BtrcShimFolderDialog* dialog) { (void)dialog; return ""; }
 
 void btrcShimFolderDialogRelease(BtrcShimFolderDialog* dialog) { free(dialog); }
+
+@interface BtrcUIKitFilePickerDelegate : NSObject <UIDocumentPickerDelegate> {
+@public
+	BtrcShimFileDialog* dialog;
+}
+@end
+
+@implementation BtrcUIKitFilePickerDelegate
+- (void)documentPicker:(UIDocumentPickerViewController*)controller didPickDocumentsAtURLs:(NSArray<NSURL*>*)urls {
+	(void)controller;
+	BtrcShimFileDialog* target = self->dialog;
+	if (target == NULL) { return; }
+	pthread_mutex_lock(&target->lock);
+	NSUInteger count = [urls count];
+	if (count == 0) {
+		target->state = 3;
+		btrcUIKitFail("iOS document picker returned no files");
+	} else {
+		target->paths = calloc(count, sizeof(char*));
+		if (target->paths == NULL) {
+			target->state = 3;
+			btrcUIKitFail("out of memory copying picked files");
+		} else {
+			BOOL ok = YES;
+			for (NSUInteger i = 0; i < count; i++) {
+				NSURL* url = [urls objectAtIndex:i];
+				const char* utf8 = [[url path] UTF8String];
+				if (utf8 == NULL || utf8[0] == '\0') { ok = NO; break; }
+				target->paths[target->pathCount++] = strdup(utf8);
+			}
+			target->state = (ok && target->pathCount > 0) ? 1 : 3;
+			if (target->state != 1) { btrcUIKitFail("iOS document picker returned an invalid path"); }
+		}
+	}
+	pthread_mutex_unlock(&target->lock);
+}
+
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController*)controller {
+	(void)controller;
+	BtrcShimFileDialog* target = self->dialog;
+	if (target == NULL) { return; }
+	pthread_mutex_lock(&target->lock);
+	target->state = 2;
+	pthread_mutex_unlock(&target->lock);
+}
+@end
+
+static NSArray<UTType*>* btrcUIKitFileTypes(const char* filters) {
+	NSMutableArray<UTType*>* types = [[NSMutableArray alloc] init];
+	if (filters != NULL && filters[0] != '\0') {
+		NSMutableSet<NSString*>* seen = [[NSMutableSet alloc] init];
+		const char* cursor = filters;
+		while (*cursor != '\0') {
+			const char* lineEnd = strchr(cursor, '\n');
+			size_t lineLen = lineEnd == NULL ? strlen(cursor) : (size_t)(lineEnd - cursor);
+			const char* tab = memchr(cursor, '\t', lineLen);
+			if (tab != NULL) {
+				const char* extStart = tab + 1;
+				const char* extLimit = cursor + lineLen;
+				while (extStart < extLimit) {
+					const char* comma = memchr(extStart, ',', (size_t)(extLimit - extStart));
+					size_t extLen = comma == NULL ? (size_t)(extLimit - extStart) : (size_t)(comma - extStart);
+					if (extLen > 0) {
+						NSString* ext = [[NSString alloc] initWithBytes:extStart length:extLen encoding:NSUTF8StringEncoding];
+						if (ext != nil) {
+							NSString* lower = [ext lowercaseString];
+							if (![seen containsObject:lower]) {
+								[seen addObject:lower];
+								UTType* type = [UTType typeWithFilenameExtension:lower];
+								if (type != nil) { [types addObject:type]; }
+							}
+							[ext release];
+						}
+					}
+					if (comma == NULL) { break; }
+					extStart = comma + 1;
+				}
+			}
+			if (lineEnd == NULL) { break; }
+			cursor = lineEnd + 1;
+		}
+		[seen release];
+	}
+	if ([types count] == 0) { [types addObject:UTTypeItem]; }
+	return types;
+}
+
+BtrcShimFileDialog* btrcShimFileDialogOpen(BtrcShimWindow* handle, int mode, const char* title, const char* initialDirectory, const char* defaultName, const char* filters, bool canCreateDirectories) {
+	(void)title;
+	(void)initialDirectory;
+	(void)defaultName;
+	(void)canCreateDirectories;
+	BtrcShimFileDialog* dialog = calloc(1, sizeof *dialog);
+	if (dialog == NULL) { return NULL; }
+	pthread_mutex_init(&dialog->lock, NULL);
+	if (mode != 1 && mode != 2) {
+		btrcUIKitFail("iOS document picker only supports opening files as sandboxed local copies");
+		dialog->state = 4;
+		return dialog;
+	}
+	BtrcUIKitWindow* window = btrcUIKitWindow(handle);
+	NSArray<UTType*>* types = btrcUIKitFileTypes(filters);
+	BtrcUIKitFilePickerDelegate* delegate = [[BtrcUIKitFilePickerDelegate alloc] init];
+	delegate->dialog = dialog;
+	dialog->delegate = delegate;
+	btrcUIKitOnMain(^{
+		BtrcUIKitWindow* host = [btrcUIKitShown containsObject:window] ? window : btrcUIKitTop();
+		if (host == nil) {
+			pthread_mutex_lock(&dialog->lock);
+			dialog->state = 4;
+			btrcUIKitFail("no active iOS window to present the file picker");
+			pthread_mutex_unlock(&dialog->lock);
+			return;
+		}
+		UIViewController* presenter = btrcUIKitPresenter(host);
+		while (presenter.presentedViewController != nil) { presenter = presenter.presentedViewController; }
+		UIDocumentPickerViewController* picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:YES];
+		picker.allowsMultipleSelection = (mode == 2) ? YES : NO;
+		picker.delegate = delegate;
+		[presenter presentViewController:picker animated:YES completion:nil];
+		[picker release];
+	});
+	[types release];
+	return dialog;
+}
+
+int btrcShimFileDialogState(BtrcShimFileDialog* dialog) {
+	if (dialog == NULL) { return 3; }
+	pthread_mutex_lock(&dialog->lock);
+	int state = dialog->state;
+	pthread_mutex_unlock(&dialog->lock);
+	return state;
+}
+
+int btrcShimFileDialogPathCount(const BtrcShimFileDialog* dialog) {
+	if (dialog == NULL) { return 0; }
+	return dialog->pathCount;
+}
+
+const char* btrcShimFileDialogPathAt(const BtrcShimFileDialog* dialog, int index) {
+	if (dialog == NULL || index < 0 || index >= dialog->pathCount || dialog->paths[index] == NULL) { return ""; }
+	return dialog->paths[index];
+}
+
+void btrcShimFileDialogRelease(BtrcShimFileDialog* dialog) {
+	if (dialog == NULL) { return; }
+	BtrcUIKitFilePickerDelegate* delegate = (BtrcUIKitFilePickerDelegate*)dialog->delegate;
+	if (delegate != nil) {
+		btrcUIKitOnMain(^{ delegate->dialog = NULL; });
+		[delegate release];
+	}
+	for (int i = 0; i < dialog->pathCount; i++) { free(dialog->paths[i]); }
+	free(dialog->paths);
+	pthread_mutex_destroy(&dialog->lock);
+	free(dialog);
+}
 
 /* Automation. */
 

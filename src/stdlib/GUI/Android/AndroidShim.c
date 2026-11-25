@@ -30,6 +30,13 @@ struct BtrcShimFolderDialog {
 	int state;
 };
 
+struct BtrcShimFileDialog {
+	int id;
+	char** paths;
+	int pathCount;
+	bool pathsLoaded;
+};
+
 static struct {
 	BtrcShimEvent events[BTRC_ANDROID_QUEUE];
 	char* texts[BTRC_ANDROID_QUEUE];
@@ -577,6 +584,100 @@ int btrcShimFolderDialogState(BtrcShimFolderDialog* dialog) { return dialog->sta
 const char* btrcShimFolderDialogPath(const BtrcShimFolderDialog* dialog) { (void)dialog; return ""; }
 
 void btrcShimFolderDialogRelease(BtrcShimFolderDialog* dialog) { free(dialog); }
+
+BtrcShimFileDialog* btrcShimFileDialogOpen(BtrcShimWindow* window, int mode, const char* title, const char* initialDirectory, const char* defaultName, const char* filters, bool canCreateDirectories) {
+	(void)window;
+	(void)initialDirectory;
+	(void)defaultName;
+	(void)canCreateDirectories;
+	JNIEnv* env = btrcAndroidEnv();
+	if (env == NULL || btrcAndroidShim == NULL) {
+		btrcAndroidFail("Android UI is not attached");
+		return NULL;
+	}
+	jmethodID method = btrcAndroidMethod(env, btrcAndroidShim, "openFileDialog", "(ILjava/lang/String;Ljava/lang/String;)I");
+	jstring jTitle = btrcAndroidString(env, title);
+	jstring jFilters = btrcAndroidString(env, filters);
+	jint id = (*env)->CallStaticIntMethod(env, btrcAndroidShim, method, (jint)mode, jTitle, jFilters);
+	(*env)->DeleteLocalRef(env, jTitle);
+	(*env)->DeleteLocalRef(env, jFilters);
+	if (btrcAndroidFailed(env) || id <= 0) {
+		btrcAndroidFail("Android file picker failed to open");
+		return NULL;
+	}
+	BtrcShimFileDialog* dialog = calloc(1, sizeof *dialog);
+	if (dialog == NULL) { return NULL; }
+	dialog->id = (int)id;
+	return dialog;
+}
+
+static void btrcAndroidCopyFileDialogError(JNIEnv* env, int id) {
+	jmethodID method = btrcAndroidMethod(env, btrcAndroidShim, "fileDialogError", "(I)Ljava/lang/String;");
+	jstring err = (jstring)(*env)->CallStaticObjectMethod(env, btrcAndroidShim, method, (jint)id);
+	if (!btrcAndroidFailed(env) && err != NULL) {
+		const char* utf = (*env)->GetStringUTFChars(env, err, NULL);
+		if (utf != NULL) {
+			if (utf[0] != '\0') { btrcAndroidFail(utf); }
+			(*env)->ReleaseStringUTFChars(env, err, utf);
+		}
+		(*env)->DeleteLocalRef(env, err);
+	}
+}
+
+static void btrcAndroidLoadFileDialogPaths(BtrcShimFileDialog* dialog) {
+	if (dialog == NULL || dialog->pathsLoaded) { return; }
+	dialog->pathsLoaded = true;
+	JNIEnv* env = btrcAndroidEnv();
+	if (env == NULL || btrcAndroidShim == NULL) { return; }
+	jmethodID countMethod = btrcAndroidMethod(env, btrcAndroidShim, "fileDialogPathCount", "(I)I");
+	jint count = (*env)->CallStaticIntMethod(env, btrcAndroidShim, countMethod, (jint)dialog->id);
+	if (btrcAndroidFailed(env) || count <= 0) { return; }
+	dialog->paths = calloc((size_t)count, sizeof(char*));
+	if (dialog->paths == NULL) { return; }
+	jmethodID atMethod = btrcAndroidMethod(env, btrcAndroidShim, "fileDialogPathAt", "(II)Ljava/lang/String;");
+	for (jint i = 0; i < count; i++) {
+		jstring value = (jstring)(*env)->CallStaticObjectMethod(env, btrcAndroidShim, atMethod, (jint)dialog->id, i);
+		if (btrcAndroidFailed(env) || value == NULL) { continue; }
+		const char* utf = (*env)->GetStringUTFChars(env, value, NULL);
+		if (utf != NULL) {
+			dialog->paths[dialog->pathCount++] = strdup(utf);
+			(*env)->ReleaseStringUTFChars(env, value, utf);
+		}
+		(*env)->DeleteLocalRef(env, value);
+	}
+}
+
+int btrcShimFileDialogState(BtrcShimFileDialog* dialog) {
+	if (dialog == NULL) { return 3; }
+	JNIEnv* env = btrcAndroidEnv();
+	if (env == NULL || btrcAndroidShim == NULL) { return 3; }
+	jmethodID method = btrcAndroidMethod(env, btrcAndroidShim, "fileDialogState", "(I)I");
+	jint state = (*env)->CallStaticIntMethod(env, btrcAndroidShim, method, (jint)dialog->id);
+	if (btrcAndroidFailed(env)) { return 3; }
+	if (state == 1) { btrcAndroidLoadFileDialogPaths(dialog); }
+	else if (state == 3 || state == 4) { btrcAndroidCopyFileDialogError(env, dialog->id); }
+	return (int)state;
+}
+
+int btrcShimFileDialogPathCount(const BtrcShimFileDialog* dialog) { return dialog == NULL ? 0 : dialog->pathCount; }
+
+const char* btrcShimFileDialogPathAt(const BtrcShimFileDialog* dialog, int index) {
+	if (dialog == NULL || index < 0 || index >= dialog->pathCount || dialog->paths[index] == NULL) { return ""; }
+	return dialog->paths[index];
+}
+
+void btrcShimFileDialogRelease(BtrcShimFileDialog* dialog) {
+	if (dialog == NULL) { return; }
+	JNIEnv* env = btrcAndroidEnv();
+	if (env != NULL && btrcAndroidShim != NULL && dialog->id > 0) {
+		jmethodID method = btrcAndroidMethod(env, btrcAndroidShim, "fileDialogRelease", "(I)V");
+		(*env)->CallStaticVoidMethod(env, btrcAndroidShim, method, (jint)dialog->id);
+		btrcAndroidFailed(env);
+	}
+	for (int i = 0; i < dialog->pathCount; i++) { free(dialog->paths[i]); }
+	free(dialog->paths);
+	free(dialog);
+}
 
 int btrcShimAutomationDisplay(void) { return BTRC_SHIM_DISPLAY_ANDROID; }
 

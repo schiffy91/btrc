@@ -7,6 +7,7 @@ import Library.GUI.Shim.Shim;
 import Library.GUI.Shim.DialogPump;
 import Library.GUI.Shim.ShimWindow;
 import Library.GUI.IDirectoryPicker;
+import Library.GUI.IFilePicker;
 import Library.GUI.Linux.PortalDirectoryPickerProvider;
 import Library.App;
 import Library.GUI.Linux.Fonts.SystemTextABI;
@@ -31,4 +32,6 @@ class ShimFeatures {
 	}
 
 	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) { return DirectoryPickerProvider.choose(window, pump, request); }
+
+	class FilePickerOutcome chooseFile(ShimWindow? window, IShimDialogPump pump, FilePickerRequest request) { return DirectoryPickerProvider.chooseFile(window, pump, request); }
 }

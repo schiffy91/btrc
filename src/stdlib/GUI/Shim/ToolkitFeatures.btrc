@@ -5,7 +5,9 @@ import Library.GUI.Shim.Shim;
 import Library.GUI.Shim.DialogPump;
 import Library.GUI.Shim.ShimWindow;
 import Library.GUI.Shim.ShimDirectoryPicker;
+import Library.GUI.Shim.ShimFilePicker;
 import Library.GUI.IDirectoryPicker;
+import Library.GUI.IFilePicker;
 import Library.GUI.Shim.ShimTextField;
 import Library.GUI.Shim.ShimSelect;
 
@@ -21,4 +23,6 @@ class ShimFeatures {
 	class void showAlert(BtrcShimWindow* window, string title, string message) { btrcShimWindowShowMessage(window, title, message); }
 
 	class DirectoryPickerOutcome chooseDirectory(ShimWindow? window, IShimDialogPump pump, DirectoryPickerRequest request) { return ShimDirectoryPicker.modal(window, pump, request); }
+
+	class FilePickerOutcome chooseFile(ShimWindow? window, IShimDialogPump pump, FilePickerRequest request) { return ShimFilePicker(window, pump).chooseFile(request); }
 }

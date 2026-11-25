@@ -111,6 +111,92 @@ def test_btrc_directory_picker_appkit(tmp_path, request, gui_provider_root, fron
 @pytest.mark.skipif(sys.platform != "darwin", reason="requires real AppKit")
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
 @pytest.mark.parametrize("sanitized", [False, True])
+@pytest.mark.macos_gui
+def test_btrc_file_picker_appkit(tmp_path, request, gui_provider_root, frontend, sanitized):
+    if not os.environ.get("BTRC_NATIVE_HEADER_READER"):
+        pytest.skip("requires the explicitly built native header reader")
+    environment = {key: value for key, value in os.environ.items() if key not in {"DEVELOPER_DIR", "SDKROOT"}}
+    sdk = subprocess.run(
+        ["/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    ).stdout.strip()
+    architecture = "arm64" if platform.machine() == "arm64" else "x86_64"
+    environment.update(
+        BTRC_NATIVE_SYSROOT=sdk,
+        BTRC_NATIVE_TARGET=f"{architecture}-apple-macosx14.0.0",
+        BTRC_HOME=str(gui_provider_root),
+    )
+    for name in ["MacOSFilePickerConformance.btrc", "FilePickerControl.h", "FilePickerControl.m"]:
+        shutil.copyfile(FIXTURE / name, tmp_path / name)
+    (tmp_path / "btrc.toml").write_text(
+        'manifest-version = 1\n[package]\nname = "filePickerTest"\n'
+        '[[native.sources]]\npath = "FilePickerControl.m"\nlanguage = "objective-c"\nstandard = "c11"\n'
+        '[[native.include-directories]]\npath = "."\n'
+        '[[native.bindings]]\nmodule = "MacOSFilePickerConformance"\nheader = "FilePickerControl.h"\n'
+        'language = "c"\nstandard = "c11"\nsymbols = ["filePickerPrepare", "filePickerCalls"]\n'
+    )
+    source = tmp_path / "MacOSFilePickerConformance.btrc"
+    generated = tmp_path / "FilePicker.c"
+    plan = tmp_path / "FilePicker.link.json"
+    flags = ["--no-stdlib", "--target", f"macos-{architecture}", "--emit-link-plan", str(plan), str(source)]
+    command = (
+        [
+            sys.executable,
+            "-B",
+            "-m",
+            "src.tests.gui_provider_root",
+            str(gui_provider_root),
+            "--no-cache",
+            *flags,
+            "-o",
+            str(generated),
+        ]
+        if frontend == "python"
+        else [str(request.getfixturevalue("immutable_btrcc")), *flags]
+    )
+    compiled = subprocess.run(
+        command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=BTRC_TRANSPILE_TIMEOUT
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    if frontend == "selfhost":
+        generated.write_text(compiled.stdout)
+    payload = json.loads(plan.read_text())
+    assert payload["generated-units"]
+
+    def run(command, **kwargs):
+        options = ["-O2"] if Path(command[0]).name in {"clang", "clang++"} else []
+        if options and sanitized:
+            options += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
+        return subprocess.run(
+            [command[0], *options, *command[1:]], env=apple_environment(kwargs.pop("env", environment)), **kwargs
+        )
+
+    executable = tmp_path / "FilePicker"
+    NativePlanBuilder(runner=run).build(
+        plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
+    )
+    for mode in range(13):
+        try:
+            completed = subprocess.run(
+                [str(executable), str(mode)],
+                env={**environment, "ASAN_OPTIONS": "halt_on_error=1", "UBSAN_OPTIONS": "halt_on_error=1"},
+                capture_output=True,
+                text=True,
+                timeout=RUN_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired as error:
+            pytest.fail(f"file picker mode {mode} timed out: {error.stderr}")
+        assert completed.returncode == 0, f"mode {mode}: {completed.stderr}"
+        assert completed.stdout == f"PASS: BTRC file picker mode {mode}\n"
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires real AppKit")
+@pytest.mark.parametrize("frontend", ["python", "selfhost"])
+@pytest.mark.parametrize("sanitized", [False, True])
 @pytest.mark.parametrize("consumer_first", [False, True])
 @pytest.mark.parametrize("scrolling", [False, True], ids=["field", "scroll"])
 @pytest.mark.macos_gui

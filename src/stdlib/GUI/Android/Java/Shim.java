@@ -1,10 +1,19 @@
 package dev.btrc.shim;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.Intent;
+import android.database.Cursor;
+import android.net.Uri;
+import android.provider.OpenableColumns;
+import android.webkit.MimeTypeMap;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -642,6 +651,264 @@ public final class Shim {
             dismissed.await();
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private static final int REQUEST_FILE_PICKER = 4097;
+    private static final Object fileDialogLock = new Object();
+    private static final SparseArray<FileDialogState> fileDialogs = new SparseArray<>();
+    private static int nextFileDialogId = 1;
+    private static int activeFileDialogId = 0;
+
+    private static final class FileDialogState {
+        int state;
+        final ArrayList<String> paths = new ArrayList<>();
+        String error = "";
+    }
+
+    private static String[] mimeTypesFromFilters(String filters) {
+        if (filters == null || filters.isEmpty()) {
+            return new String[0];
+        }
+        ArrayList<String> mimes = new ArrayList<>();
+        MimeTypeMap map = MimeTypeMap.getSingleton();
+        for (String line : filters.split("\n")) {
+            int tab = line.indexOf('\t');
+            if (tab < 0 || tab + 1 >= line.length()) {
+                continue;
+            }
+            for (String ext : line.substring(tab + 1).split(",")) {
+                if (ext.isEmpty()) {
+                    continue;
+                }
+                String mime = map.getMimeTypeFromExtension(ext.toLowerCase(java.util.Locale.ROOT));
+                if (mime == null || mime.isEmpty()) {
+                    return new String[0];
+                }
+                if (!mimes.contains(mime)) {
+                    mimes.add(mime);
+                }
+            }
+        }
+        return mimes.toArray(new String[0]);
+    }
+
+    private static String queryDisplayName(Uri uri, int index) {
+        String name = "picked-" + index;
+        Cursor cursor = null;
+        try {
+            cursor = activity.getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int col = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (col >= 0) {
+                    String value = cursor.getString(col);
+                    if (value != null && !value.isEmpty()) {
+                        name = value;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        StringBuilder safe = new StringBuilder();
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c == '/' || c == '\\' || c == '\0') {
+                safe.append('_');
+            } else {
+                safe.append(c);
+            }
+        }
+        String result = safe.toString();
+        if (result.isEmpty() || result.equals(".") || result.equals("..")) {
+            return "picked-" + index;
+        }
+        return result;
+    }
+
+    static int openFileDialog(final int mode, final String title, final String filters) {
+        final FileDialogState entry = new FileDialogState();
+        final int id;
+        synchronized (fileDialogLock) {
+            id = nextFileDialogId++;
+            fileDialogs.put(id, entry);
+        }
+        if (mode != 1 && mode != 2) {
+            synchronized (fileDialogLock) {
+                entry.state = 4;
+                entry.error = "Android document picker only supports opening files as local copies";
+            }
+            return id;
+        }
+        onUi(new Runnable() {
+            @Override
+            @SuppressWarnings("deprecation")
+            public void run() {
+                synchronized (fileDialogLock) {
+                    if (activeFileDialogId != 0) {
+                        entry.state = 3;
+                        entry.error = "another Android file picker is already active";
+                        return;
+                    }
+                    activeFileDialogId = id;
+                }
+                try {
+                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    if (mode == 2) {
+                        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    }
+                    String[] mimes = mimeTypesFromFilters(filters);
+                    if (mimes.length == 1) {
+                        intent.setType(mimes[0]);
+                    } else {
+                        intent.setType("*/*");
+                        if (mimes.length > 1) {
+                            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes);
+                        }
+                    }
+                    activity.startActivityForResult(intent, REQUEST_FILE_PICKER);
+                } catch (Exception failure) {
+                    synchronized (fileDialogLock) {
+                        activeFileDialogId = 0;
+                        entry.state = 4;
+                        entry.error = failure.getMessage() == null ? "Android file picker is unavailable" : failure.getMessage();
+                    }
+                }
+            }
+        });
+        return id;
+    }
+
+    static boolean handleActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode != REQUEST_FILE_PICKER) {
+            return false;
+        }
+        final FileDialogState entry;
+        final int id;
+        synchronized (fileDialogLock) {
+            id = activeFileDialogId;
+            activeFileDialogId = 0;
+            entry = fileDialogs.get(id);
+        }
+        if (entry == null) {
+            return true;
+        }
+        if (resultCode != Activity.RESULT_OK || data == null) {
+            synchronized (fileDialogLock) {
+                entry.state = 2;
+            }
+            return true;
+        }
+        final ArrayList<Uri> uris = new ArrayList<>();
+        ClipData clip = data.getClipData();
+        if (clip != null && clip.getItemCount() > 0) {
+            for (int i = 0; i < clip.getItemCount(); i++) {
+                Uri uri = clip.getItemAt(i).getUri();
+                if (uri != null) {
+                    uris.add(uri);
+                }
+            }
+        } else if (data.getData() != null) {
+            uris.add(data.getData());
+        }
+        if (uris.isEmpty()) {
+            synchronized (fileDialogLock) {
+                entry.state = 2;
+            }
+            return true;
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                File dir = new File(new File(activity.getCacheDir(), "btrc-file-picker"), String.valueOf(id));
+                if (!dir.exists() && !dir.mkdirs()) {
+                    synchronized (fileDialogLock) {
+                        entry.state = 3;
+                        entry.error = "cannot create local staging directory for picked files";
+                    }
+                    return;
+                }
+                ArrayList<String> copied = new ArrayList<>();
+                byte[] buffer = new byte[16384];
+                try {
+                    for (int i = 0; i < uris.size(); i++) {
+                        Uri uri = uris.get(i);
+                        File dest = new File(dir, i + "-" + queryDisplayName(uri, i));
+                        InputStream in = activity.getContentResolver().openInputStream(uri);
+                        if (in == null) {
+                            throw new java.io.IOException("cannot open picked document stream");
+                        }
+                        try {
+                            FileOutputStream out = new FileOutputStream(dest);
+                            try {
+                                int n;
+                                while ((n = in.read(buffer)) > 0) {
+                                    out.write(buffer, 0, n);
+                                }
+                            } finally {
+                                out.close();
+                            }
+                        } finally {
+                            in.close();
+                        }
+                        copied.add(dest.getAbsolutePath());
+                    }
+                    synchronized (fileDialogLock) {
+                        entry.paths.addAll(copied);
+                        entry.state = 1;
+                    }
+                } catch (Exception failure) {
+                    synchronized (fileDialogLock) {
+                        entry.state = 3;
+                        entry.error = failure.getMessage() == null ? "cannot copy picked file" : failure.getMessage();
+                    }
+                }
+            }
+        }, "btrc-file-picker-copy").start();
+        return true;
+    }
+
+    static int fileDialogState(int id) {
+        synchronized (fileDialogLock) {
+            FileDialogState entry = fileDialogs.get(id);
+            return entry == null ? 3 : entry.state;
+        }
+    }
+
+    static int fileDialogPathCount(int id) {
+        synchronized (fileDialogLock) {
+            FileDialogState entry = fileDialogs.get(id);
+            return entry == null ? 0 : entry.paths.size();
+        }
+    }
+
+    static String fileDialogPathAt(int id, int index) {
+        synchronized (fileDialogLock) {
+            FileDialogState entry = fileDialogs.get(id);
+            if (entry == null || index < 0 || index >= entry.paths.size()) {
+                return "";
+            }
+            return entry.paths.get(index);
+        }
+    }
+
+    static String fileDialogError(int id) {
+        synchronized (fileDialogLock) {
+            FileDialogState entry = fileDialogs.get(id);
+            return entry == null || entry.error == null ? "" : entry.error;
+        }
+    }
+
+    static void fileDialogRelease(int id) {
+        synchronized (fileDialogLock) {
+            if (activeFileDialogId == id) {
+                activeFileDialogId = 0;
+            }
+            fileDialogs.remove(id);
         }
     }
 
