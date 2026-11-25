@@ -36,10 +36,7 @@ def _write_sample_workspace(root: Path) -> tuple[Path, Path, Path]:
     lib_dir = root / "metric_lib"
     (lib_dir / "src" / "Core").mkdir(parents=True)
     (lib_dir / "btrc.toml").write_text(
-        'manifest-version = 1\n\n'
-        '[package]\n'
-        'name = "metric_lib"\n'
-        'exports = ["Core.Point", "Core.Stats"]\n',
+        'manifest-version = 1\n\n[package]\nname = "metric_lib"\nexports = ["Core.Point", "Core.Stats"]\n',
         encoding="utf-8",
     )
     (lib_dir / "src" / "Core" / "Point.btrc").write_text(
@@ -113,10 +110,10 @@ def _write_sample_workspace(root: Path) -> tuple[Path, Path, Path]:
     app_dir = root / "metric_app"
     (app_dir / "src").mkdir(parents=True)
     (app_dir / "btrc.toml").write_text(
-        'manifest-version = 1\n\n'
-        '[package]\n'
+        "manifest-version = 1\n\n"
+        "[package]\n"
         'name = "metric_app"\n\n'
-        '[dependencies]\n'
+        "[dependencies]\n"
         'metric_lib = { path = "../metric_lib" }\n',
         encoding="utf-8",
     )
@@ -232,12 +229,7 @@ def test_package_archive_links_static_and_shared_matching_inline(tmp_path):
     inline_c = tmp_path / "inline.c"
     inline_plan = tmp_path / "inline.link.json"
     inline_bin = tmp_path / "app-inline"
-    assert (
-        command.run(
-            [str(app_main), "-o", str(inline_c), "--emit-link-plan", str(inline_plan)]
-        )
-        == 0
-    )
+    assert command.run([str(app_main), "-o", str(inline_c), "--emit-link-plan", str(inline_plan)]) == 0
     builder.build(plan_path=inline_plan, generated_c=inline_c, output=inline_bin, optimization=0)
     inline_run = subprocess.run([str(inline_bin)], capture_output=True, text=True, check=True)
 
@@ -326,17 +318,17 @@ def test_package_archive_deduplicates_native_units_across_shared_lib_and_consume
         encoding="utf-8",
     )
     (lib_dir / "btrc.toml").write_text(
-        'manifest-version = 1\n'
-        '[package]\n'
+        "manifest-version = 1\n"
+        "[package]\n"
         'name = "img_lib"\n'
         'exports = ["Canvas"]\n\n'
-        '[[native.bindings]]\n'
+        "[[native.bindings]]\n"
         'module = "Canvas"\n'
         'header = "native/gain.h"\n'
         'language = "c"\n'
         'standard = "c11"\n'
         'symbols = ["imglib_apply_gain"]\n\n'
-        '[[native.sources]]\n'
+        "[[native.sources]]\n"
         'path = "native/gain.c"\n'
         'language = "c"\n'
         'standard = "c11"\n'
@@ -363,8 +355,7 @@ def test_package_archive_deduplicates_native_units_across_shared_lib_and_consume
     app_dir = tmp_path / "img_app"
     (app_dir / "src").mkdir(parents=True)
     (app_dir / "btrc.toml").write_text(
-        'manifest-version = 1\n[package]\nname = "img_app"\n'
-        '[dependencies]\nimg_lib = { path = "../img_lib" }\n',
+        'manifest-version = 1\n[package]\nname = "img_app"\n[dependencies]\nimg_lib = { path = "../img_lib" }\n',
         encoding="utf-8",
     )
     app_main = app_dir / "src" / "Main.btrc"

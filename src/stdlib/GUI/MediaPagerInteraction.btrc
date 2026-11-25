@@ -86,7 +86,6 @@ class MediaPagerInteraction {
 	public double pull = 0.0;
 	public double fade = 0.0;
 	public double shade = 1.0;
-
 	public int index = 0;
 	public int itemCount = 0;
 	public double ratio = 1.5;
@@ -424,8 +423,7 @@ class MediaPagerInteraction {
 		if (!cancelled) {
 			double projPull = self.projectValue(self._pullDist, beforePull, dt);
 			double travel = self.dismissTravelFor(stageH);
-			bool pullDismiss = self._pullActive && self._pullDist > 8.0 &&
-				(projPull > travel * 0.42 || (self._pullDist >= travel * 0.48 && projPull >= self._pullDist * 0.8));
+			bool pullDismiss = self._pullActive && self._pullDist > 8.0 && (projPull > travel * 0.42 || (self._pullDist >= travel * 0.48 && projPull >= self._pullDist * 0.8));
 			if ((!self._pullActive && self.zoom < self.dismissZoomThreshold) || pullDismiss) {
 				self._dismissRequested = true;
 				return;

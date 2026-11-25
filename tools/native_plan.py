@@ -1996,9 +1996,7 @@ class NativePlanBuilder:
                 excluded_runtime_sources,
                 archive_runtime_objects,
             ) = self._resolve_package_archives(package_archives, plan.label)
-            active_native_units = tuple(
-                unit for unit in plan.units if unit.path.resolve() not in excluded_native_units
-            )
+            active_native_units = tuple(unit for unit in plan.units if unit.path.resolve() not in excluded_native_units)
             active_generated_units = tuple(
                 unit for unit in plan.generated_units if unit.name not in excluded_generated_units
             )
@@ -2050,9 +2048,7 @@ class NativePlanBuilder:
                 report.warnings.append(warning)
             tools = toolchain.drivers
             apple = plan.operating_system in APPLE_OPERATING_SYSTEMS
-            pic_flags = (
-                ("-fPIC",) if output_kind == "shared" and plan.operating_system != "windows" else ()
-            )
+            pic_flags = ("-fPIC",) if output_kind == "shared" and plan.operating_system != "windows" else ()
             # The link receipt's toolchain queries do not depend on the objects:
             # answer them beside preprocessing. Injected runners keep their
             # exact call sequences. The thread stays off the builder, which

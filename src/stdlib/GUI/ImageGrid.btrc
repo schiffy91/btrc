@@ -100,7 +100,6 @@ class ImageGrid {
 	private GPUUniformBuffer _scrubberGridUniforms;
 	private GPUStorageBuffer _scrubberInstanceBuffer;
 	private GPUTexture _backdropDummyTex;
-
 	private int _maxVisibleInstances;
 	private int _maxScrubberInstances = 256;
 	private Array<float> _stagingFloats;
@@ -146,13 +145,9 @@ class ImageGrid {
 	public float lastViewerPhotoW = 0.0f;
 	public float lastViewerPhotoH = 0.0f;
 
-	class ImageGrid createForFormat(GPUDevice device, GPUTextureFormat targetFormat, int maxVisibleInstances = 2048) {
-		return ImageGrid(device, GPUTexture.toNativeFormat(targetFormat), maxVisibleInstances);
-	}
+	class ImageGrid createForFormat(GPUDevice device, GPUTextureFormat targetFormat, int maxVisibleInstances = 2048) { return ImageGrid(device, GPUTexture.toNativeFormat(targetFormat), maxVisibleInstances); }
 
-	class ImageGrid createForSurface(GPUSurfaceRenderer surface, int maxVisibleInstances = 2048) {
-		return ImageGrid(surface.device(), surface.nativeFormat(), maxVisibleInstances);
-	}
+	class ImageGrid createForSurface(GPUSurfaceRenderer surface, int maxVisibleInstances = 2048) { return ImageGrid(surface.device(), surface.nativeFormat(), maxVisibleInstances); }
 
 	public ImageGrid(GPUDevice device, WGPUTextureFormat nativeFormat, int maxVisibleInstances = 2048) {
 		self._device = device;
@@ -181,12 +176,7 @@ class ImageGrid {
 		self._scrubberInstanceBuffer = GPUStorageBuffer.create(device, self._maxScrubberInstances * 48, false, false);
 		self._backdropDummyTex = GPUTexture.create2D(device, 1, 1, GPU_FORMAT_RGBA8_UNORM, false, false, true, true);
 
-		GPUBindLayout gridLayout = GPUBindLayout()
-			.addUniform(0, GPU_STAGE_VERTEX_FRAGMENT)
-			.addStorageRead(1, GPU_STAGE_VERTEX_FRAGMENT)
-			.addTexture2DArray(2, GPU_STAGE_FRAGMENT)
-			.addTexture2DArray(3, GPU_STAGE_FRAGMENT)
-			.addSampler(4, GPU_STAGE_FRAGMENT);
+		GPUBindLayout gridLayout = GPUBindLayout().addUniform(0, GPU_STAGE_VERTEX_FRAGMENT).addStorageRead(1, GPU_STAGE_VERTEX_FRAGMENT).addTexture2DArray(2, GPU_STAGE_FRAGMENT).addTexture2DArray(3, GPU_STAGE_FRAGMENT).addSampler(4, GPU_STAGE_FRAGMENT);
 
 		string gridWGSLPart1 = """
 struct GridParams {
@@ -346,10 +336,7 @@ fn sampleAtlasCell(
 		self._gridProgram = GPUProgram.createWithLayoutSync(device, nativeFormat, gridWGSL, gridLayout, true);
 
 		/* Alpha-blended full-screen preview shader (for high-res ImagePreviewCache panels & backdrop). */
-		GPUBindLayout previewLayout = GPUBindLayout()
-			.addUniform(0, GPU_STAGE_VERTEX_FRAGMENT)
-			.addTexture2D(1, GPU_STAGE_FRAGMENT)
-			.addSampler(2, GPU_STAGE_FRAGMENT);
+		GPUBindLayout previewLayout = GPUBindLayout().addUniform(0, GPU_STAGE_VERTEX_FRAGMENT).addTexture2D(1, GPU_STAGE_FRAGMENT).addSampler(2, GPU_STAGE_FRAGMENT);
 
 		string previewWGSL = """
 struct PreviewParams {
@@ -457,13 +444,7 @@ struct VSOut {
 	/* Rebuild cached document-space layout only when viewport width, tile size, gap, mode, aspect, or item list changes. */
 	private void ensureLayout(IImageGridSource source, Vector<int> visibleOrder, float viewportW) {
 		int total = visibleOrder.length;
-		if (!self._layoutDirty &&
-		    self._cacheOrderLen == total &&
-		    self._cacheLayout == self.layout &&
-		    self._cacheViewportW == viewportW &&
-		    self._cacheTargetTileSize == self.targetTileSize &&
-		    self._cacheGap == self.gap &&
-		    self._cacheCellAspect == self.cellAspect) {
+		if (!self._layoutDirty && self._cacheOrderLen == total && self._cacheLayout == self.layout && self._cacheViewportW == viewportW && self._cacheTargetTileSize == self.targetTileSize && self._cacheGap == self.gap && self._cacheCellAspect == self.cellAspect) {
 			return;
 		}
 		self._layoutDirty = false;
@@ -787,16 +768,7 @@ struct VSOut {
 		return best;
 	}
 
-	private void updateGridUniforms(
-		GPUUniformBuffer buf,
-		float viewportW,
-		float viewportH,
-		ImageMicroAtlas microAtlas,
-		ImageThumbnailAtlas thumbnailAtlas,
-		float fitCode,
-		float shapeCode,
-		float radiusPx
-	) {
+	private void updateGridUniforms(GPUUniformBuffer buf, float viewportW, float viewportH, ImageMicroAtlas microAtlas, ImageThumbnailAtlas thumbnailAtlas, float fitCode, float shapeCode, float radiusPx) {
 		buf.set(0, viewportW);
 		buf.set(1, viewportH);
 		buf.set(2, (float)microAtlas.pageSize);
@@ -822,12 +794,7 @@ struct VSOut {
 		int count = self.prepareVisibleGrid(source, visibleOrder, thumbnailAtlas, w, h);
 		self.updateGridUniforms(self._gridUniforms, w, h, microAtlas, thumbnailAtlas, (float)(int)self.fit, (float)(int)self.shape, self.cornerRadiusPx);
 
-		GPUBindResources res = GPUBindResources()
-			.bindUniform(0, self._gridUniforms)
-			.bindStorage(1, self._instanceBuffer)
-			.bindTexture(2, microAtlas.texture)
-			.bindTexture(3, thumbnailAtlas.texture)
-			.bindSampler(4, thumbnailAtlas.texture);
+		GPUBindResources res = GPUBindResources().bindUniform(0, self._gridUniforms).bindStorage(1, self._instanceBuffer).bindTexture(2, microAtlas.texture).bindTexture(3, thumbnailAtlas.texture).bindSampler(4, thumbnailAtlas.texture);
 
 		GPUCommandBatch batch = GPUCommandBatch.begin(self._device);
 		batch.beginRenderPass(target, (double)self.bgRed, (double)self.bgGreen, (double)self.bgBlue, 1.0, 0);
@@ -842,12 +809,7 @@ struct VSOut {
 		int count = self.prepareVisibleGrid(source, visibleOrder, thumbnailAtlas, viewportW, viewportH);
 		if (count <= 0) { return 0; }
 		self.updateGridUniforms(self._gridUniforms, viewportW, viewportH, microAtlas, thumbnailAtlas, (float)(int)self.fit, (float)(int)self.shape, self.cornerRadiusPx);
-		GPUBindResources res = GPUBindResources()
-			.bindUniform(0, self._gridUniforms)
-			.bindStorage(1, self._instanceBuffer)
-			.bindTexture(2, microAtlas.texture)
-			.bindTexture(3, thumbnailAtlas.texture)
-			.bindSampler(4, thumbnailAtlas.texture);
+		GPUBindResources res = GPUBindResources().bindUniform(0, self._gridUniforms).bindStorage(1, self._instanceBuffer).bindTexture(2, microAtlas.texture).bindTexture(3, thumbnailAtlas.texture).bindSampler(4, thumbnailAtlas.texture);
 		self._gridProgram.drawInstanced(surface, res, 6, count);
 		return count;
 	}
@@ -864,23 +826,7 @@ struct VSOut {
 		return ar > 0.05f ? ar : 1.5f;
 	}
 
-	private int drawViewerPanel(
-		GPUSurfaceRenderer surface,
-		GPUUniformBuffer panelUniforms,
-		IImageGridSource source,
-		int itemIdx,
-		ImagePreviewCache previewCache,
-		float x0,
-		float y0,
-		float drawW,
-		float drawH,
-		float viewportW,
-		float viewportH,
-		Array<float> fallbackFloats,
-		int fallbackSlot,
-		int overrideItemIdx = -1,
-		GPUTexture? overrideTex = null
-	) {
+	private int drawViewerPanel(GPUSurfaceRenderer surface, GPUUniformBuffer panelUniforms, IImageGridSource source, int itemIdx, ImagePreviewCache previewCache, float x0, float y0, float drawW, float drawH, float viewportW, float viewportH, Array<float> fallbackFloats, int fallbackSlot, int overrideItemIdx = -1, GPUTexture? overrideTex = null) {
 		GPUTexture? previewTex = (overrideTex != null && itemIdx == overrideItemIdx) ? overrideTex : previewCache.getTexture(itemIdx);
 		if (previewTex != null) {
 			float ndcX0 = (x0 / viewportW) * 2.0f - 1.0f;
@@ -900,10 +846,7 @@ struct VSOut {
 			panelUniforms.set(10, 1.0f);
 			panelUniforms.set(11, 0.0f);
 			panelUniforms.uploadNow();
-			GPUBindResources res = GPUBindResources()
-				.bindUniform(0, panelUniforms)
-				.bindTexture(1, previewTex)
-				.bindSampler(2, previewTex);
+			GPUBindResources res = GPUBindResources().bindUniform(0, panelUniforms).bindTexture(1, previewTex).bindSampler(2, previewTex);
 			self._previewProgram.drawInstanced(surface, res, 6, 1);
 			return 0;
 		}
@@ -924,19 +867,7 @@ struct VSOut {
 	}
 
 	/* Render the direct-manipulation multi-panel pager (live grid behind translucent backdrop + prev/current/next). */
-	public ImageTileTier renderViewerPagerToSurface(
-		GPUSurfaceRenderer surface,
-		IImageGridSource source,
-		Vector<int> visibleOrder,
-		MediaPagerInteraction pager,
-		ImageMicroAtlas microAtlas,
-		ImageThumbnailAtlas thumbnailAtlas,
-		ImagePreviewCache previewCache,
-		float viewportW,
-		float viewportH,
-		int overrideItemIdx = -1,
-		GPUTexture? overrideTex = null
-	) {
+	public ImageTileTier renderViewerPagerToSurface(GPUSurfaceRenderer surface, IImageGridSource source, Vector<int> visibleOrder, MediaPagerInteraction pager, ImageMicroAtlas microAtlas, ImageThumbnailAtlas thumbnailAtlas, ImagePreviewCache previewCache, float viewportW, float viewportH, int overrideItemIdx = -1, GPUTexture? overrideTex = null) {
 		int total = visibleOrder.length;
 		if (total <= 0) { return IMAGE_TILE_MICRO; }
 		int curPos = ((pager.index % total) + total) % total;
@@ -960,10 +891,7 @@ struct VSOut {
 			self._backdropUniforms.set(10, shade);
 			self._backdropUniforms.set(11, 1.0f);
 			self._backdropUniforms.uploadNow();
-			GPUBindResources bgRes = GPUBindResources()
-				.bindUniform(0, self._backdropUniforms)
-				.bindTexture(1, self._backdropDummyTex)
-				.bindSampler(2, self._backdropDummyTex);
+			GPUBindResources bgRes = GPUBindResources().bindUniform(0, self._backdropUniforms).bindTexture(1, self._backdropDummyTex).bindSampler(2, self._backdropDummyTex);
 			self._previewProgram.drawInstanced(surface, bgRes, 6, 1);
 		}
 
@@ -1030,29 +958,14 @@ struct VSOut {
 			self._viewerFallbackBuffer.writeFloats(slice, 0);
 			/* Sharp corners (radius=0) and exact aspect fill for full-screen viewer fallbacks. */
 			self.updateGridUniforms(self._viewerGridUniforms, viewportW, viewportH, microAtlas, thumbnailAtlas, 0.0f, 0.0f, 0.0f);
-			GPUBindResources fbRes = GPUBindResources()
-				.bindUniform(0, self._viewerGridUniforms)
-				.bindStorage(1, self._viewerFallbackBuffer)
-				.bindTexture(2, microAtlas.texture)
-				.bindTexture(3, thumbnailAtlas.texture)
-				.bindSampler(4, thumbnailAtlas.texture);
+			GPUBindResources fbRes = GPUBindResources().bindUniform(0, self._viewerGridUniforms).bindStorage(1, self._viewerFallbackBuffer).bindTexture(2, microAtlas.texture).bindTexture(3, thumbnailAtlas.texture).bindSampler(4, thumbnailAtlas.texture);
 			self._gridProgram.drawInstanced(surface, fbRes, 6, fbCount);
 		}
 		return curFb == 0 ? IMAGE_TILE_PREVIEW : (thumbnailAtlas.lookupSlot(curItem) >= 0 ? IMAGE_TILE_THUMBNAIL : IMAGE_TILE_MICRO);
 	}
 
 	/* Render the auto-hiding Dock-style bottom filmstrip scrubber (frosted pill/bar + 1-draw-call thumbnails). */
-	public void renderScrubberToSurface(
-		GPUSurfaceRenderer surface,
-		IImageGridSource source,
-		Vector<int> visibleOrder,
-		FilmstripScrubber scrubber,
-		ImageMicroAtlas microAtlas,
-		ImageThumbnailAtlas thumbnailAtlas,
-		float viewportW,
-		float viewportH,
-		double scale
-	) {
+	public void renderScrubberToSurface(GPUSurfaceRenderer surface, IImageGridSource source, Vector<int> visibleOrder, FilmstripScrubber scrubber, ImageMicroAtlas microAtlas, ImageThumbnailAtlas thumbnailAtlas, float viewportW, float viewportH, double scale) {
 		if (!scrubber.enabled || visibleOrder.length <= 1 || viewportW <= 1.0f || viewportH <= 1.0f) { return; }
 		double s = scale > 0.5 ? scale : 1.0;
 		var bar = scrubber.currentBarRect((double)viewportW, (double)viewportH, s);
@@ -1083,10 +996,7 @@ struct VSOut {
 		self._scrubberBgUniforms.set(11, 2.0f);
 		self._scrubberBgUniforms.uploadNow();
 
-		GPUBindResources bgRes = GPUBindResources()
-			.bindUniform(0, self._scrubberBgUniforms)
-			.bindTexture(1, self._backdropDummyTex)
-			.bindSampler(2, self._backdropDummyTex);
+		GPUBindResources bgRes = GPUBindResources().bindUniform(0, self._scrubberBgUniforms).bindTexture(1, self._backdropDummyTex).bindSampler(2, self._backdropDummyTex);
 		self._previewProgram.drawInstanced(surface, bgRes, 6, 1);
 
 		var slots = scrubber.layoutVisibleTiles((double)viewportW, (double)viewportH, s);
@@ -1116,25 +1026,11 @@ struct VSOut {
 		}
 		self._scrubberInstanceBuffer.writeFloats(tileFloats, 0);
 		self.updateGridUniforms(self._scrubberGridUniforms, viewportW, viewportH, microAtlas, thumbnailAtlas, 0.0f, 0.0f, (float)(5.0 * s));
-		GPUBindResources tileRes = GPUBindResources()
-			.bindUniform(0, self._scrubberGridUniforms)
-			.bindStorage(1, self._scrubberInstanceBuffer)
-			.bindTexture(2, microAtlas.texture)
-			.bindTexture(3, thumbnailAtlas.texture)
-			.bindSampler(4, thumbnailAtlas.texture);
+		GPUBindResources tileRes = GPUBindResources().bindUniform(0, self._scrubberGridUniforms).bindStorage(1, self._scrubberInstanceBuffer).bindTexture(2, microAtlas.texture).bindTexture(3, thumbnailAtlas.texture).bindSampler(4, thumbnailAtlas.texture);
 		self._gridProgram.drawInstanced(surface, tileRes, 6, count);
 	}
 
-	public ImageTileTier renderSinglePreviewToSurface(
-		GPUSurfaceRenderer surface,
-		IImageGridSource source,
-		int itemIdx,
-		ImageMicroAtlas microAtlas,
-		ImageThumbnailAtlas thumbnailAtlas,
-		ImagePreviewCache previewCache,
-		float viewportW,
-		float viewportH
-	) {
+	public ImageTileTier renderSinglePreviewToSurface(GPUSurfaceRenderer surface, IImageGridSource source, int itemIdx, ImageMicroAtlas microAtlas, ImageThumbnailAtlas thumbnailAtlas, ImagePreviewCache previewCache, float viewportW, float viewportH) {
 		float ar = self.aspectForItem(source, itemIdx, previewCache);
 		float drawW = viewportW * 0.92f;
 		float drawH = drawW / ar;
@@ -1148,33 +1044,19 @@ struct VSOut {
 		fbFloats.set(5, (float)thumbnailAtlas.lookupSlot(itemIdx));
 		self._viewerFallbackBuffer.writeFloats(fbFloats, 0);
 		self.updateGridUniforms(self._viewerGridUniforms, viewportW, viewportH, microAtlas, thumbnailAtlas, 0.0f, 0.0f, 0.0f);
-		GPUBindResources res = GPUBindResources()
-			.bindUniform(0, self._viewerGridUniforms)
-			.bindStorage(1, self._viewerFallbackBuffer)
-			.bindTexture(2, microAtlas.texture)
-			.bindTexture(3, thumbnailAtlas.texture)
-			.bindSampler(4, thumbnailAtlas.texture);
+		GPUBindResources res = GPUBindResources().bindUniform(0, self._viewerGridUniforms).bindStorage(1, self._viewerFallbackBuffer).bindTexture(2, microAtlas.texture).bindTexture(3, thumbnailAtlas.texture).bindSampler(4, thumbnailAtlas.texture);
 		self._gridProgram.drawInstanced(surface, res, 6, 1);
 		return thumbnailAtlas.lookupSlot(itemIdx) >= 0 ? IMAGE_TILE_THUMBNAIL : IMAGE_TILE_MICRO;
 	}
 
-	public ImageTileTier renderPreviewOffscreen(
-		GPUTexture target,
-		IImageGridSource source,
-		int itemIdx,
-		ImageMicroAtlas microAtlas,
-		ImageThumbnailAtlas thumbnailAtlas,
-		ImagePreviewCache previewCache
-	) {
+	public ImageTileTier renderPreviewOffscreen(GPUTexture target, IImageGridSource source, int itemIdx, ImageMicroAtlas microAtlas, ImageThumbnailAtlas thumbnailAtlas, ImagePreviewCache previewCache) {
 		float viewportW = (float)target.width();
 		float viewportH = (float)target.height();
 		GPUTexture? previewTex = previewCache.getTexture(itemIdx);
 		GPUCommandBatch batch = GPUCommandBatch.begin(self._device);
 		batch.beginRenderPass(target, 0.06, 0.06, 0.07, 1.0, 0);
 		if (previewTex != null) {
-			float aspect = (previewTex.width() > 0 && previewTex.height() > 0)
-				? ((float)previewTex.width() / (float)previewTex.height())
-				: source.itemAspectRatio(itemIdx);
+			float aspect = (previewTex.width() > 0 && previewTex.height() > 0) ? ((float)previewTex.width() / (float)previewTex.height()) : source.itemAspectRatio(itemIdx);
 			if (aspect <= 0.05f) { aspect = 1.5f; }
 			float drawW = viewportW * 0.92f;
 			float drawH = drawW / aspect;
@@ -1194,10 +1076,7 @@ struct VSOut {
 			self._previewUniforms.set(10, 1.0f);
 			self._previewUniforms.set(11, 0.0f);
 			self._previewUniforms.uploadNow();
-			GPUBindResources res = GPUBindResources()
-				.bindUniform(0, self._previewUniforms)
-				.bindTexture(1, previewTex)
-				.bindSampler(2, previewTex);
+			GPUBindResources res = GPUBindResources().bindUniform(0, self._previewUniforms).bindTexture(1, previewTex).bindSampler(2, previewTex);
 			batch.drawProgram(self._previewProgram, res, 6, 1);
 			batch.submitAndWait();
 			return IMAGE_TILE_PREVIEW;
@@ -1224,12 +1103,7 @@ struct VSOut {
 		one.set(11, aspect);
 		self._viewerFallbackBuffer.writeFloats(one, 0);
 		self.updateGridUniforms(self._viewerGridUniforms, viewportW, viewportH, microAtlas, thumbnailAtlas, 0.0f, 0.0f, 0.0f);
-		GPUBindResources res = GPUBindResources()
-			.bindUniform(0, self._viewerGridUniforms)
-			.bindStorage(1, self._viewerFallbackBuffer)
-			.bindTexture(2, microAtlas.texture)
-			.bindTexture(3, thumbnailAtlas.texture)
-			.bindSampler(4, thumbnailAtlas.texture);
+		GPUBindResources res = GPUBindResources().bindUniform(0, self._viewerGridUniforms).bindStorage(1, self._viewerFallbackBuffer).bindTexture(2, microAtlas.texture).bindTexture(3, thumbnailAtlas.texture).bindSampler(4, thumbnailAtlas.texture);
 		batch.drawProgram(self._gridProgram, res, 6, 1);
 		batch.submitAndWait();
 		return thumbnailAtlas.lookupSlot(itemIdx) >= 0 ? IMAGE_TILE_THUMBNAIL : IMAGE_TILE_MICRO;

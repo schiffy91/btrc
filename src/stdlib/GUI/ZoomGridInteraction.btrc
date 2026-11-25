@@ -27,7 +27,6 @@ class ZoomGridInteraction {
 	public double overscrollProgress = 0.0;
 	public bool active = false;
 	public int focalItemIndex = -1;
-
 	private double _rawWidth;
 
 	public ZoomGridInteraction(double initialCellWidth = 220.0, double minCellWidth = 80.0, double maxCellFraction = 0.62, double openOvershootFactor = 1.18) {

@@ -87,7 +87,6 @@ class FilmstripScrubber {
 	public double scrollX = 0.0;
 	public int itemCount = 0;
 	public int activePos = 0;
-
 	private bool _hoverInside = false;
 	private bool _pinnedOpen = false;
 	private bool _hoverActive = false;
@@ -166,9 +165,7 @@ class FilmstripScrubber {
 		}
 	}
 
-	public double stridePx(double scale) {
-		return (self.tileWidthPt + self.tileGapPt) * scale;
-	}
+	public double stridePx(double scale) { return (self.tileWidthPt + self.tileGapPt) * scale; }
 
 	public double contentWidthPx(double scale) {
 		if (self.itemCount <= 0) { return 0.0; }
@@ -250,10 +247,7 @@ class FilmstripScrubber {
 	private bool pointInExpandedDock(double px, double py, double stageW, double stageH, double scale, double topGracePt = 12.0) {
 		double s = scale > 0.5 ? scale : 1.0;
 		var dock = self.expandedDockRect(stageW, stageH, s);
-		return px >= (double)dock.x - 8.0 * s &&
-			px <= (double)(dock.x + dock.width) + 8.0 * s &&
-			py >= (double)dock.y - topGracePt * s &&
-			py <= stageH;
+		return px >= (double)dock.x - 8.0 * s && px <= (double)(dock.x + dock.width) + 8.0 * s && py >= (double)dock.y - topGracePt * s && py <= stageH;
 	}
 
 	private bool pointInCollapsedPillTapZone(double px, double py, double stageW, double stageH, double scale) {
@@ -266,9 +260,7 @@ class FilmstripScrubber {
 	private bool pointInBottomHoverTrigger(double px, double py, double stageW, double stageH, double scale) {
 		double s = scale > 0.5 ? scale : 1.0;
 		var dock = self.expandedDockRect(stageW, stageH, s);
-		return py >= stageH - self.hoverTriggerHeightPt * s &&
-			px >= (double)dock.x - 24.0 * s &&
-			px <= (double)(dock.x + dock.width) + 24.0 * s;
+		return py >= stageH - self.hoverTriggerHeightPt * s && px >= (double)dock.x - 24.0 * s && px <= (double)(dock.x + dock.width) + 24.0 * s;
 	}
 
 	private bool wantOpen(double nowMs) {
@@ -421,8 +413,7 @@ class FilmstripScrubber {
 	public int hitTestPosition(double px, double py) {
 		for (int i = 0; i < self.visibleTiles.length; i++) {
 			var t = self.visibleTiles.get(i);
-			if ((float)px >= t.x - 3.0f && (float)px <= t.x + t.width + 3.0f &&
-			    (float)py >= t.y - 6.0f && (float)py <= t.y + t.height + 6.0f) {
+			if ((float)px >= t.x - 3.0f && (float)px <= t.x + t.width + 3.0f && (float)py >= t.y - 6.0f && (float)py <= t.y + t.height + 6.0f) {
 				return t.visiblePos;
 			}
 		}

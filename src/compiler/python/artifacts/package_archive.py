@@ -159,7 +159,9 @@ class PackageArchiveManifest:
         if not directory.is_dir():
             raise PackageArchiveError(f"package archive directory '{archive_dir}' does not exist")
         manifests = sorted(
-            p for p in directory.iterdir() if p.is_file() and p.name.endswith(".manifest") and not p.name.startswith(".")
+            p
+            for p in directory.iterdir()
+            if p.is_file() and p.name.endswith(".manifest") and not p.name.startswith(".")
         )
         if not manifests:
             raise PackageArchiveError(
@@ -318,7 +320,11 @@ class PackageArchiveManifest:
             return None
         with artifact_file:
             metadata = os.fstat(artifact_file.fileno())
-            if (not allow_empty and metadata.st_size <= 0) or metadata.st_size < 0 or metadata.st_size > self.MAX_ARTIFACT_BYTES:
+            if (
+                (not allow_empty and metadata.st_size <= 0)
+                or metadata.st_size < 0
+                or metadata.st_size > self.MAX_ARTIFACT_BYTES
+            ):
                 return None
             remaining = metadata.st_size
             while remaining:

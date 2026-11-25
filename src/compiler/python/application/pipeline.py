@@ -987,9 +987,7 @@ class CompilationPipeline:
                 native_plan, retained_runtime_helpers=tuple(helper.name for helper in module.helper_decls)
             )
         if c_units:
-            native_plan = native_plan.with_emitted_units(
-                options.units_prefix, c_unit_names or len(c_units), c_units
-            )
+            native_plan = native_plan.with_emitted_units(options.units_prefix, c_unit_names or len(c_units), c_units)
         if module is not None and module.native_units:
             native_plan = replace(
                 native_plan,
@@ -1341,8 +1339,7 @@ class CompilationPipeline:
             dirs[:] = sorted(
                 name
                 for name in dirs
-                if not name.startswith(".")
-                and not os.path.isfile(os.path.join(current, name, "btrc.toml"))
+                if not name.startswith(".") and not os.path.isfile(os.path.join(current, name, "btrc.toml"))
             )
             for filename in sorted(files):
                 if not filename.endswith(".btrc") or filename.startswith("."):
@@ -1386,9 +1383,7 @@ class CompilationPipeline:
             validator = PackageManifestValidator()
             package_name = validator.validate_identity(manifest, manifest_path)
             export_paths = validator.exported_modules(manifest, manifest_path)
-            auxiliary = {
-                os.path.realpath(item.value) for item in validator.auxiliary_entries(manifest, manifest_path)
-            }
+            auxiliary = {os.path.realpath(item.value) for item in validator.auxiliary_entries(manifest, manifest_path)}
         except (OSError, ValueError) as error:
             return CompilerActionResult(failure=CompilerFailure(CompilerFailureKind.PACKAGE, str(error)))
 
@@ -1404,8 +1399,7 @@ class CompilationPipeline:
 
         exports = [self._module_name_for_path(package_root, path) for path in export_paths]
         entry_lines = [
-            f'import "./{os.path.relpath(path, package_root).replace(os.sep, "/")}";'
-            for path in export_paths
+            f'import "./{os.path.relpath(path, package_root).replace(os.sep, "/")}";' for path in export_paths
         ]
         entry_source = "\n".join(entry_lines) + "\n"
         entry_path = os.path.join(package_root, ".btrc_package_entry.btrc")
@@ -1463,10 +1457,7 @@ class CompilationPipeline:
                     if path and os.path.isfile(path)
                 }
             )
-            source_entries = {
-                path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
-                for path in source_paths
-            }
+            source_entries = {path: hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in source_paths}
             self.package_archive.publish(
                 out_dir,
                 package_name,

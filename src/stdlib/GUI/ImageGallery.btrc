@@ -113,24 +113,20 @@ class ImageGallery implements IApplicationWork {
 	private GPUTexture? _viewerOverrideTex = null;
 	private bool _enableStreaming = true;
 	private bool _verifyCapture = false;
-
 	private ImageMicroAtlas? _microAtlas = null;
 	private ImageThumbnailAtlas? _thumbnailAtlas = null;
 	private ImagePreviewCache? _previewCache = null;
 	private ImageGrid? _grid = null;
 	private ImageTileStreamer? _streamer = null;
 	private GPUReadback? _readback = null;
-
 	private MediaPagerInteraction _pager;
 	private ZoomGridInteraction _zoomGrid;
 	private FilmstripScrubber _scrubber;
-
 	public ImageGalleryMode mode = GALLERY_MODE_GRID;
 	public int activeItemIndex = 0;
 	public bool verifiedGridCapture = false;
 	public bool verifiedViewerCapture = false;
 	public double frame0OpenMs = 0.0;
-
 	private int _verifyStage = 0;
 	private Timer _clock;
 	private float _lastVw = 1280.0f;
@@ -153,14 +149,7 @@ class ImageGallery implements IApplicationWork {
 	private bool _userPinchedGrid = false;
 	private bool _closed = false;
 
-	public ImageGallery(
-		IWindow window,
-		IGPUView view,
-		IImageGridSource source,
-		ImageGridOptions? options = null,
-		bool enableStreaming = true,
-		bool verifyCapture = false
-	) {
+	public ImageGallery(IWindow window, IGPUView view, IImageGridSource source, ImageGridOptions? options = null, bool enableStreaming = true, bool verifyCapture = false) {
 		self._window = window;
 		self._view = view;
 		self._scope = CallbackScope();

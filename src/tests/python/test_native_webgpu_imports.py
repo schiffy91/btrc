@@ -236,8 +236,12 @@ def test_metal_shared_frame_crosses_processes_and_reaches_a_drawable(native_proj
         plan_path=plan, generated_c=generated, output=executable, cc="/usr/bin/clang", cxx="/usr/bin/clang++"
     )
     result = subprocess.run(
-        [str(executable)], cwd=root, env={**apple_environment(), "BTRC_GUI_BACKGROUND": "1"},
-        capture_output=True, text=True, timeout=45,
+        [str(executable)],
+        cwd=root,
+        env={**apple_environment(), "BTRC_GUI_BACKGROUND": "1"},
+        capture_output=True,
+        text=True,
+        timeout=45,
     )
     assert result.returncode == 0, result.stderr
     assert "Presented 64 cross-process Metal frames" in result.stdout
