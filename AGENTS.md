@@ -420,7 +420,7 @@ prove the strict-import path.
 
 ### File Structure
 
-The exact 88-file production inventory, with each file's owner, is normative
+The exact 89-file production inventory, with each file's owner, is normative
 in [`docs/design/compiler-structure.md`](docs/design/compiler-structure.md);
 `src/tests/python/test_python_compiler_structure.py` checks it against the tree.
 

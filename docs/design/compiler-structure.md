@@ -4,7 +4,7 @@ Status: **active architecture contract**.
 
 This document records the ownership-driven destination shared by the Python
 reference compiler, the self-hosted compiler, and developer tooling. The
-normative inventory is exactly 88 production Python compiler files and 97
+normative inventory is exactly 89 production Python compiler files and 97
 self-hosted `.btrc` files. File size is a review signal, not a boundary:
 independent state, invariants, and change reasons justify a separate owner.
 
@@ -105,7 +105,7 @@ namespaces.
 
 ## Exact Python destination
 
-The Python compiler contains exactly 88 production `.py` files:
+The Python compiler contains exactly 89 production `.py` files:
 
 ```text
 src/compiler/python/
@@ -221,6 +221,7 @@ src/compiler/python/
     __init__.py
     archive.py                   # ArchiveCodec/validation
     cache.py                     # CompilerCache
+    package_archive.py           # PackageArchiveError, PackageArchivePublisher, PackageArchiveManifest, PackageArtifactRepository
     publication.py               # ArtifactPublisher
     stdlib.py                    # StdlibArtifactRepository
     selfhost.py                  # SelfhostBundleBuilder

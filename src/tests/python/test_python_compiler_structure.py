@@ -14,9 +14,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 PYTHON_COMPILER = REPO / "src/compiler/python"
-EXPECTED_FILE_COUNT = 88
+EXPECTED_FILE_COUNT = 89
 INVENTORY_DOCUMENTS = {
-    "docs/design/compiler-structure.md": "The Python compiler contains exactly 88 production `.py` files:",
+    "docs/design/compiler-structure.md": "The Python compiler contains exactly 89 production `.py` files:",
 }
 # Thin process and package entry points are the only module-level functions.
 MODULE_LEVEL_FUNCTIONS = {
