@@ -53,6 +53,11 @@ interface IImageGalleryOverlayRenderer {
 	void renderViewerOverlay(ImageGallery gallery, GPUSurfaceRenderer surface, float photoX, float photoY, float photoW, float photoH, float viewportW, float viewportH, double scale);
 }
 
+/* Optional grid overlay renderer (e.g. top-left format badges, star ratings, flags). */
+interface IImageGalleryGridOverlayRenderer {
+	void renderGridOverlay(ImageGallery gallery, GPUSurfaceRenderer surface, Vector<ImageGridTileRect> visibleRects, float viewportW, float viewportH, double scale);
+}
+
 /* Optional viewer pointer interceptor evaluated before pager drag (e.g. crop handles, mask painting). */
 interface IImageGalleryPointerInterceptor {
 	bool handleViewerPointer(ImageGallery gallery, AppPointerEvent event, float photoX, float photoY, float photoW, float photoH, float viewportW, float viewportH, double scale);
@@ -102,6 +107,7 @@ class ImageGallery implements IApplicationWork {
 	private IImageGallerySetupHook? _setupHook = null;
 	private IImageGallerySelectionHandler? _selectionHandler = null;
 	private IImageGalleryOverlayRenderer? _overlayRenderer = null;
+	private IImageGalleryGridOverlayRenderer? _gridOverlayRenderer = null;
 	private IImageGalleryPointerInterceptor? _pointerInterceptor = null;
 	private int _viewerOverrideItem = -1;
 	private GPUTexture? _viewerOverrideTex = null;
@@ -134,6 +140,8 @@ class ImageGallery implements IApplicationWork {
 	private double _activeUntilMs = 0.0;
 	private int _pendingHoverItem = -1;
 	private double _pendingHoverSinceMs = 0.0;
+	private int _lastGridClickItem = -1;
+	private double _lastGridClickMs = -10000.0;
 	private bool _userPinchedGrid = false;
 	private bool _closed = false;
 
@@ -195,6 +203,8 @@ class ImageGallery implements IApplicationWork {
 	public void setSelectionHandler(IImageGallerySelectionHandler? handler) { self._selectionHandler = handler; }
 
 	public void setOverlayRenderer(IImageGalleryOverlayRenderer? renderer) { self._overlayRenderer = renderer; }
+
+	public void setGridOverlayRenderer(IImageGalleryGridOverlayRenderer? renderer) { self._gridOverlayRenderer = renderer; }
 
 	public void setPointerInterceptor(IImageGalleryPointerInterceptor? interceptor) { self._pointerInterceptor = interceptor; }
 
@@ -479,6 +489,7 @@ class ImageGallery implements IApplicationWork {
 	public void openViewer(int itemIndex) {
 		Timer t = Timer();
 		t.start();
+		self._lastGridClickItem = -1;
 		self.mode = GALLERY_MODE_VIEWER;
 		int pos = self.visiblePositionOf(itemIndex);
 		self._pager.open(pos, self._visibleOrder.length, self.aspectForItem(itemIndex));
@@ -492,6 +503,7 @@ class ImageGallery implements IApplicationWork {
 	}
 
 	public void dismissViewer() {
+		self._lastGridClickItem = -1;
 		self._scrubber.collapseNow();
 		var g = self._grid;
 		if (g != null) {
@@ -506,12 +518,17 @@ class ImageGallery implements IApplicationWork {
 	}
 
 	public void closeViewer() {
+		self._lastGridClickItem = -1;
 		self.mode = GALLERY_MODE_GRID;
 		self._pager.resetToFitted();
 		self._scrubber.collapseNow();
 		if (self._previewCache != null) { self._previewCache.setActiveItem(-1); }
-		if (self._grid != null) {
-			self._grid.scrollItemIntoView(self.activeItemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+		var g = self._grid;
+		if (g != null) {
+			g.scrollItemIntoView(self.activeItemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+			if (self._thumbnailAtlas != null) {
+				g.prepareVisibleGrid(self._source, self._visibleOrder, self._thumbnailAtlas, self._lastVw, self._lastVh);
+			}
 		}
 		if (self._selectionHandler != null) {
 			self._selectionHandler.onModeChanged(self, GALLERY_MODE_GRID);
@@ -526,6 +543,12 @@ class ImageGallery implements IApplicationWork {
 		float px = (float)(ev.logicalX * scale);
 		float py = (float)(ev.logicalY * scale);
 		double now = self.nowMs();
+
+		/* Clicking a tile while the dismiss fly-back animation is finishing snaps immediately to Grid
+		 * so opening another photo right after closing never drops the first click. */
+		if (self.mode == GALLERY_MODE_VIEWER && self._pager.closing && ev.action == APP_POINTER_PRESSED) {
+			self.closeViewer();
+		}
 
 		if (self.mode == GALLERY_MODE_GRID) {
 			int hit = g.hitTest(px, py);
@@ -542,12 +565,16 @@ class ImageGallery implements IApplicationWork {
 			}
 			if (ev.action == APP_POINTER_PRESSED && ev.button == APP_POINTER_BUTTON_PRIMARY) {
 				if (hit >= 0) {
+					bool isDouble = (ev.clickCount >= 2) || (hit == self._lastGridClickItem && (now - self._lastGridClickMs) <= 480.0);
 					g.selectedItemIndex = hit;
 					self.activeItemIndex = hit;
 					if (self._previewCache != null) { self._previewCache.noteMouseDown(hit); }
-					if (ev.clickCount >= 2) {
+					if (isDouble) {
+						self._lastGridClickItem = -1;
 						self.openViewer(hit);
 					} else {
+						self._lastGridClickItem = hit;
+						self._lastGridClickMs = now;
 						if (self._streamer != null) {
 							self._streamer.requestPreview(hit, self._options.previewMaxEdge);
 						}
@@ -556,6 +583,8 @@ class ImageGallery implements IApplicationWork {
 						}
 					}
 					self.markInteractive(200.0);
+				} else {
+					self._lastGridClickItem = -1;
 				}
 				return true;
 			}
@@ -708,9 +737,12 @@ class ImageGallery implements IApplicationWork {
 	}
 
 	public bool onKey(AppKeyboardEvent ev) {
-		/* Let host-system shortcuts (Cmd+Q/W/M/H on macOS, Ctrl+W/Q on Shim) pass through natively. */
-		if (ev.modifiers.command || ev.modifiers.control || ev.modifiers.alt) { return false; }
+		/* Always preserve host-system window/app shortcuts (Cmd+Q/W on macOS, Ctrl+Q/W on desktop). */
+		if ((ev.modifiers.command || ev.modifiers.control) && (ev.key == APP_KEY_Q || ev.key == APP_KEY_W)) {
+			return false;
+		}
 		if (self._customKeyHandler != null && self._customKeyHandler.handleKey(self, ev)) { return true; }
+		if (ev.modifiers.command || ev.modifiers.control || ev.modifiers.alt) { return false; }
 		bool isDown = (ev.action == APP_KEY_PRESSED || ev.action == APP_KEY_REPEATED);
 		if (!isDown) { return false; }
 
@@ -850,6 +882,9 @@ class ImageGallery implements IApplicationWork {
 
 						if (self.mode == GALLERY_MODE_GRID) {
 							g.renderGridToSurface(surface, self._source, self._visibleOrder, micro, thumbs, vw, vh);
+							if (!self._verifyCapture && self._gridOverlayRenderer != null && g.lastVisibleRects.length > 0) {
+								self._gridOverlayRenderer.renderGridOverlay(self, surface, g.lastVisibleRects, vw, vh, self._lastScale);
+							}
 							if (activeStreamer != null && g.lastVisibleRects.length > 0) {
 								int minVisPos = self._visibleOrder.length;
 								int maxVisPos = -1;
@@ -936,6 +971,7 @@ class ImageGallery implements IApplicationWork {
 		self._setupHook = null;
 		self._selectionHandler = null;
 		self._overlayRenderer = null;
+		self._gridOverlayRenderer = null;
 		self._pointerInterceptor = null;
 		self._viewerOverrideTex = null;
 		self._viewerOverrideItem = -1;
