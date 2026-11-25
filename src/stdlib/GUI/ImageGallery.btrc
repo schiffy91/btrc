@@ -135,6 +135,7 @@ class ImageGallery implements IApplicationWork {
 	private int _pendingHoverItem = -1;
 	private double _pendingHoverSinceMs = 0.0;
 	private bool _userPinchedGrid = false;
+	private bool _closed = false;
 
 	public ImageGallery(
 		IWindow window,
@@ -928,7 +929,16 @@ class ImageGallery implements IApplicationWork {
 	}
 
 	public void close() {
+		if (self._closed) { return; }
+		self._closed = true;
 		self._scope.cancel();
+		self._customKeyHandler = null;
+		self._setupHook = null;
+		self._selectionHandler = null;
+		self._overlayRenderer = null;
+		self._pointerInterceptor = null;
+		self._viewerOverrideTex = null;
+		self._viewerOverrideItem = -1;
 		if (self._streamer != null) { self._streamer.close(); self._streamer = null; }
 		if (self._grid != null) { self._grid.close(); self._grid = null; }
 		if (self._previewCache != null) { self._previewCache.close(); self._previewCache = null; }

@@ -122,6 +122,29 @@ static CGImageRef btrcCreateOrientedOrScaledImage(CGImageSourceRef source, int m
 	if (!img) {
 		img = CGImageSourceCreateImageAtIndex(source, 0, opts);
 	}
+	if (!img && allowFloatRaw) {
+		/* Some camera RAW decoders (e.g. Sony ARW / exotic DNG) reject ShouldAllowFloat on CreateImageAtIndex;
+		 * retry standard 16-bit CreateImageAtIndex before falling back to oriented thumbnail decode. */
+		CFDictionaryRemoveValue(opts, kCGImageSourceShouldAllowFloat);
+		img = CGImageSourceCreateImageAtIndex(source, 0, opts);
+	}
+	if (!img) {
+		int fallbackEdge = maxEdge > 0 ? maxEdge : 4096;
+		CFNumberRef maxNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &fallbackEdge);
+		if (maxNum) {
+			CFDictionarySetValue(opts, kCGImageSourceCreateThumbnailFromImageAlways, kCFBooleanTrue);
+			CFDictionarySetValue(opts, kCGImageSourceThumbnailMaxPixelSize, maxNum);
+			CFDictionarySetValue(opts, kCGImageSourceCreateThumbnailWithTransform, kCFBooleanTrue);
+			img = CGImageSourceCreateThumbnailAtIndex(source, 0, opts);
+			if (!img) {
+				CFDictionaryRemoveValue(opts, kCGImageSourceCreateThumbnailFromImageAlways);
+				CFDictionarySetValue(opts, kCGImageSourceCreateThumbnailFromImageIfAbsent, kCFBooleanTrue);
+				img = CGImageSourceCreateThumbnailAtIndex(source, 0, opts);
+			}
+			CFRelease(maxNum);
+			if (img) { *outAppliedTransform = 1; }
+		}
+	}
 	CFRelease(opts);
 	return img;
 }
@@ -162,11 +185,55 @@ static void btrcApplyOrientationTransform(CGContextRef ctx, int orientation, int
 	}
 }
 
+static int btrcContainsAscii(const unsigned char *buf, size_t len, const char *needle) {
+	size_t nlen = strlen(needle);
+	if (nlen == 0 || len < nlen) { return 0; }
+	for (size_t i = 0; i + nlen <= len; i++) {
+		if (memcmp(buf + i, needle, nlen) == 0) { return 1; }
+	}
+	return 0;
+}
+
+static CGImageSourceRef btrcCreateImageSourceFromBytes(CFDataRef cfData, const unsigned char *data, size_t length) {
+	/* TIFF-based camera RAWs (notably Sony uncompressed/compressed ARW) share the II*0 / MM0*
+	 * magic with plain TIFF; without kCGImageSourceTypeIdentifierHint, ImageIO treats them as
+	 * plain TIFF and reports count == 0. Sniff the TIFF header window to supply the exact UTI. */
+	CFStringRef hintUti = NULL;
+	if (length >= 16 &&
+		((data[0] == 'I' && data[1] == 'I' && data[2] == 42 && data[3] == 0) ||
+		 (data[0] == 'M' && data[1] == 'M' && data[2] == 0 && data[3] == 42))) {
+		size_t scanLen = length < 4096 ? length : 4096;
+		if (data[8] == 'C' && data[9] == 'R' && data[10] == 2 && data[11] == 0) {
+			hintUti = CFSTR("com.canon.cr2-raw-image");
+		} else if (btrcContainsAscii(data, scanLen, "SONY") || btrcContainsAscii(data, scanLen, "ILCE-")) {
+			hintUti = CFSTR("com.sony.arw-raw-image");
+		} else if (btrcContainsAscii(data, scanLen, "NIKON")) {
+			hintUti = CFSTR("com.nikon.raw-image");
+		}
+	}
+	if (hintUti) {
+		const void *keys[1] = { kCGImageSourceTypeIdentifierHint };
+		const void *vals[1] = { hintUti };
+		CFDictionaryRef opts = CFDictionaryCreate(
+			kCFAllocatorDefault, keys, vals, 1,
+			&kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		if (opts) {
+			CGImageSourceRef hinted = CGImageSourceCreateWithData(cfData, opts);
+			CFRelease(opts);
+			if (hinted && CGImageSourceGetCount(hinted) > 0) {
+				return hinted;
+			}
+			if (hinted) { CFRelease(hinted); }
+		}
+	}
+	return CGImageSourceCreateWithData(cfData, NULL);
+}
+
 BtrcApplePhoto *btrcApplePhotoDecodeLinear(const unsigned char *data, size_t length, int maxEdge, int linearRec2020) {
 	if (!data || length == 0) { return NULL; }
 	CFDataRef cfData = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, data, (CFIndex)length, kCFAllocatorNull);
 	if (!cfData) { return NULL; }
-	CGImageSourceRef source = CGImageSourceCreateWithData(cfData, NULL);
+	CGImageSourceRef source = btrcCreateImageSourceFromBytes(cfData, data, length);
 	if (!source) {
 		CFRelease(cfData);
 		return NULL;
@@ -305,7 +372,7 @@ BtrcApplePhoto *btrcApplePhotoDecodeRGBA8(const unsigned char *data, size_t leng
 	if (!data || length == 0) { return NULL; }
 	CFDataRef cfData = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, data, (CFIndex)length, kCFAllocatorNull);
 	if (!cfData) { return NULL; }
-	CGImageSourceRef source = CGImageSourceCreateWithData(cfData, NULL);
+	CGImageSourceRef source = btrcCreateImageSourceFromBytes(cfData, data, length);
 	if (!source) {
 		CFRelease(cfData);
 		return NULL;

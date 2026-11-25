@@ -136,6 +136,7 @@ class ApplicationScheduler {
 	public int pendingCount() { self.prune(); return self._entries.len + (self._active == null ? 0 : 1); }
 
 	public CallbackCancellation close() {
+		if (self._closed) { return self.pollClose(); }
 		self._closed = true;
 		for entry in self._entries { entry.cancel(); } self._entries.clear(); self._cursor = 0;
 		if (self._active != null) { self._active.cancel(); }
