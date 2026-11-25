@@ -142,6 +142,9 @@ class ImageGallery implements IApplicationWork {
 	private double _pendingHoverSinceMs = 0.0;
 	private int _lastGridClickItem = -1;
 	private double _lastGridClickMs = -10000.0;
+	private double _lastViewerTapMs = -10000.0;
+	private float _lastViewerTapX = 0.0f;
+	private float _lastViewerTapY = 0.0f;
 	private bool _viewerSawScroll = false;
 	private bool _viewerSawMagnify = false;
 	private bool _suppressGridScrollUntilNewGesture = false;
@@ -450,12 +453,22 @@ class ImageGallery implements IApplicationWork {
 		}
 	}
 
+	private void updatePagerDismissTarget() {
+		var g = self._grid;
+		if (g == null) { return; }
+		ImageGridTileRect? tileRect = g.screenRectForItem(self.activeItemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+		if (tileRect != null) {
+			self._pager.setDismissTargetRect((double)tileRect.x, (double)tileRect.y, (double)tileRect.width, (double)tileRect.height);
+		}
+	}
+
 	private void syncActiveViewerItem(int itemIndex, bool syncScrubberImmediate = false) {
 		self.activeItemIndex = itemIndex;
 		var g = self._grid;
 		if (g != null) {
 			g.selectedItemIndex = itemIndex;
 			g.scrollItemIntoView(itemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
+			self.updatePagerDismissTarget();
 		}
 		if (self._previewCache != null) { self._previewCache.setActiveItem(itemIndex); }
 		if (self._streamer != null) {
@@ -495,6 +508,7 @@ class ImageGallery implements IApplicationWork {
 		Timer t = Timer();
 		t.start();
 		self._lastGridClickItem = -1;
+		self._lastViewerTapMs = -10000.0;
 		self._viewerSawScroll = false;
 		self._viewerSawMagnify = false;
 		self._suppressGridScrollUntilNewGesture = false;
@@ -514,6 +528,7 @@ class ImageGallery implements IApplicationWork {
 
 	public void dismissViewer() {
 		self._lastGridClickItem = -1;
+		self._lastViewerTapMs = -10000.0;
 		self._suppressGridScrollUntilNewGesture = true;
 		if (self._viewerSawScroll) { self._suppressGridScrollUntilMs = self.nowMs() + 350.0; }
 		if (self._viewerSawMagnify) { self._suppressGridMagnifyUntilNewGesture = true; }
@@ -521,10 +536,7 @@ class ImageGallery implements IApplicationWork {
 		var g = self._grid;
 		if (g != null) {
 			g.scrollItemIntoView(self.activeItemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
-			ImageGridTileRect? tileRect = g.screenRectForItem(self.activeItemIndex, self._source, self._visibleOrder, self._lastVw, self._lastVh);
-			if (tileRect != null) {
-				self._pager.setDismissTargetRect((double)tileRect.x, (double)tileRect.y, (double)tileRect.width, (double)tileRect.height);
-			}
+			self.updatePagerDismissTarget();
 		}
 		self._pager.beginDismiss((double)self._lastVw, (double)self._lastVh, self.nowMs());
 		self.markInteractive(350.0);
@@ -532,6 +544,7 @@ class ImageGallery implements IApplicationWork {
 
 	public void closeViewer() {
 		self._lastGridClickItem = -1;
+		self._lastViewerTapMs = -10000.0;
 		self._suppressGridScrollUntilNewGesture = true;
 		if (self._viewerSawScroll) { self._suppressGridScrollUntilMs = self.nowMs() + 350.0; }
 		if (self._viewerSawMagnify) { self._suppressGridMagnifyUntilNewGesture = true; }
@@ -583,7 +596,9 @@ class ImageGallery implements IApplicationWork {
 			}
 			if (ev.action == APP_POINTER_PRESSED && ev.button == APP_POINTER_BUTTON_PRIMARY) {
 				if (hit >= 0) {
-					bool isDouble = (ev.clickCount >= 2) || (hit == self._lastGridClickItem && (now - self._lastGridClickMs) <= 480.0);
+					/* Require two clicks on the same tile while in Grid mode so an OS clickCount=3 streak
+					 * carried over from closing the viewer never reopens a tile on a single click. */
+					bool isDouble = (hit == self._lastGridClickItem) && (ev.clickCount >= 2 || (now - self._lastGridClickMs) <= 480.0);
 					g.selectedItemIndex = hit;
 					self.activeItemIndex = hit;
 					if (self._previewCache != null) { self._previewCache.noteMouseDown(hit); }
@@ -645,14 +660,31 @@ class ImageGallery implements IApplicationWork {
 			if (ev.action == APP_POINTER_RELEASED || ev.action == APP_POINTER_CANCELLED) {
 				bool cancelled = (ev.action == APP_POINTER_CANCELLED);
 				bool wasTap = self._pager.pointerUp((double)self._lastVw, (double)self._lastVh, now, cancelled);
-				if (wasTap && ev.clickCount >= 2) {
-					if (self._pager.zoom > 1.01) {
-						self._pager.animateToFitted(now);
+				if (wasTap) {
+					/* Require two distinct taps inside Viewer mode so a single quick click right after
+					 * double-clicking to open (which macOS tags clickCount=3) never dismisses the photo. */
+					float tapDx = px - self._lastViewerTapX;
+					float tapDy = py - self._lastViewerTapY;
+					float maxDist = (float)(28.0 * scale);
+					bool nearPrev = (tapDx * tapDx + tapDy * tapDy) <= (maxDist * maxDist);
+					bool isViewerDoubleTap = nearPrev && (now - self._lastViewerTapMs) <= 420.0;
+					if (isViewerDoubleTap) {
+						self._lastViewerTapMs = -10000.0;
+						if (self._pager.zoom > 1.01) {
+							self._pager.animateToFitted(now);
+						} else {
+							self.dismissViewer();
+						}
 					} else {
+						self._lastViewerTapMs = now;
+						self._lastViewerTapX = px;
+						self._lastViewerTapY = py;
+					}
+				} else {
+					self._lastViewerTapMs = -10000.0;
+					if (self._pager.isDismissPending()) {
 						self.dismissViewer();
 					}
-				} else if (self._pager.isDismissPending()) {
-					self.dismissViewer();
 				}
 				return true;
 			}
@@ -851,8 +883,9 @@ class ImageGallery implements IApplicationWork {
 
 			var activeStreamer = self._streamer;
 			if (activeStreamer != null) {
-				float uploadBudget = self.mode == GALLERY_MODE_VIEWER ? 4.0f : (scrollingNow ? 0.7f : 1.5f);
-				activeStreamer.drainUploads(uploadBudget, !scrollingNow || self.mode == GALLERY_MODE_VIEWER);
+				bool pagerMoving = self.mode == GALLERY_MODE_VIEWER && (self._pager.isGestureActive() || self._pager.animating || self._pager.closing);
+				float uploadBudget = pagerMoving ? 0.4f : (self.mode == GALLERY_MODE_VIEWER ? 4.0f : (scrollingNow ? 0.7f : 1.5f));
+				activeStreamer.drainUploads(uploadBudget, !pagerMoving && (!scrollingNow || self.mode == GALLERY_MODE_VIEWER));
 				if (activeStreamer.aspectRatiosUpdated && self._grid != null) {
 					self._grid.invalidateLayout();
 				}
@@ -919,6 +952,10 @@ class ImageGallery implements IApplicationWork {
 							}
 							self._pager.onResize((double)vw, (double)vh);
 							g.invalidateLayout();
+							if (self.mode == GALLERY_MODE_VIEWER) {
+								g.scrollItemIntoView(self.activeItemIndex, self._source, self._visibleOrder, vw, vh);
+								self.updatePagerDismissTarget();
+							}
 						}
 
 						if (self.mode == GALLERY_MODE_VIEWER) {
@@ -966,7 +1003,7 @@ class ImageGallery implements IApplicationWork {
 								}
 							}
 						} else {
-							if (activeStreamer != null && !previews.has(self.activeItemIndex)) {
+							if (!self._pager.closing && activeStreamer != null && !previews.has(self.activeItemIndex)) {
 								activeStreamer.requestActivePreview(self.activeItemIndex, self._options.previewMaxEdge);
 							}
 							self._pager.setAspectRatio(self.aspectForItem(self.activeItemIndex), (double)vw, (double)vh);

@@ -105,21 +105,26 @@ class MediaPagerInteraction {
 	private double _lastY = 0.0;
 	private double _swipeAccumX = 0.0;
 	private double _swipeAccumY = 0.0;
+	private double _pullDist = 0.0;
+	private bool _pullActive = false;
 	private Vector<PagerSample> _history = [];
 
 	/* Cubic ease-out settle animation state. */
 	private double _animStartMs = 0.0;
+	private double _animDurationMs = 210.0;
 	private double _fromZoom = 1.0;
 	private double _fromX = 0.0;
 	private double _fromY = 0.0;
 	private double _fromPage = 0.0;
 	private double _fromPull = 0.0;
+	private double _fromPullDist = 0.0;
 	private double _fromFade = 0.0;
 	private double _toZoom = 1.0;
 	private double _toX = 0.0;
 	private double _toY = 0.0;
 	private double _toPage = 0.0;
 	private double _toPull = 0.0;
+	private double _toPullDist = 0.0;
 	private double _toFade = 0.0;
 	private int _pendingIndexDelta = 0;
 	private bool _dismissRequested = false;
@@ -165,6 +170,8 @@ class MediaPagerInteraction {
 		self._pointerActive = false;
 		self._swipeActive = false;
 		self._pinchActive = false;
+		self._pullDist = 0.0;
+		self._pullActive = false;
 		self._axis = PAGER_AXIS_NONE;
 		self._pendingIndexDelta = 0;
 		self._dismissRequested = false;
@@ -246,22 +253,56 @@ class MediaPagerInteraction {
 		self._pendingIndexDelta = 0;
 	}
 
-	private void startSettle(double targetZoom, double targetX, double targetY, double targetPage, double targetPull, double targetFade, double nowMs, int pendingDelta = 0) {
+	private void startSettle(double targetZoom, double targetX, double targetY, double targetPage, double targetPull, double targetFade, double nowMs, int pendingDelta = 0, double durationMs = -1.0, double targetPullDist = 0.0) {
 		self._fromZoom = self.zoom;
 		self._fromX = self.x;
 		self._fromY = self.y;
 		self._fromPage = self.page;
 		self._fromPull = self.pull;
+		self._fromPullDist = self._pullDist;
 		self._fromFade = self.fade;
 		self._toZoom = targetZoom;
 		self._toX = targetX;
 		self._toY = targetY;
 		self._toPage = targetPage;
 		self._toPull = targetPull;
+		self._toPullDist = targetPullDist;
 		self._toFade = targetFade;
 		self._animStartMs = nowMs;
+		self._animDurationMs = durationMs > 0.0 ? durationMs : self.settleDurationMs;
 		self._pendingIndexDelta = pendingDelta;
 		self.animating = true;
+	}
+
+	private double dismissTravelFor(double stageH) {
+		double h = stageH > 1.0 ? stageH : 1.0;
+		double travel = h * 0.45;
+		if (travel < 220.0) { travel = 220.0; }
+		return travel;
+	}
+
+	private void applyInteractivePull(double stageW, double stageH) {
+		double travel = self.dismissTravelFor(stageH);
+		double p = MediaPagerInteraction.clampDouble(self._pullDist / travel, 0.0, 1.0);
+		self.pull = 0.0;
+		if (self._hasDismissRect) {
+			PagerGeometry fittedGeom = self.geometry(stageW, stageH, 1.0);
+			double zx = fittedGeom.width > 1.0 ? (self._dismissW / fittedGeom.width) : 0.25;
+			double zy = fittedGeom.height > 1.0 ? (self._dismissH / fittedGeom.height) : 0.25;
+			double targetZ = zx < zy ? zx : zy;
+			if (targetZ < 0.05) { targetZ = 0.05; }
+			double targetX = (self._dismissX + self._dismissW * 0.5) - stageW * 0.5;
+			double targetY = (self._dismissY + self._dismissH * 0.5) - stageH * 0.5;
+			self.zoom = 1.0 + (targetZ - 1.0) * p;
+			self.x = targetX * p;
+			self.y = targetY * p;
+		} else {
+			self.zoom = 1.0 - 0.35 * p;
+			self.x = 0.0;
+			self.y = stageH * 0.18 * p;
+		}
+		self.fade = MediaPagerInteraction.clampDouble(p * 1.25, 0.0, 1.0);
+		self.updateShade(stageH);
 	}
 
 	private void recordSample(double nowMs) {
@@ -272,7 +313,7 @@ class MediaPagerInteraction {
 				kept.push(s);
 			}
 		}
-		kept.push(PagerSample(nowMs, self.page, self.pull));
+		kept.push(PagerSample(nowMs, self.page, self._pullDist));
 		self._history = kept;
 	}
 
@@ -286,8 +327,16 @@ class MediaPagerInteraction {
 	private void dragBy(double dx, double dy, double stageW, double stageH) {
 		PagerGeometry g = self.geometry(stageW, stageH);
 		bool horizontal = (self._axis == PAGER_AXIS_HORIZONTAL);
+		/* Vertical downward swipe from fitted view shrinks and glides directly into the home grid tile. */
+		if (!horizontal && (self._pullActive || (self.zoom <= 1.001 && (self._pullDist > 0.0 || dy > 0.0)))) {
+			double travel = self.dismissTravelFor(stageH);
+			self._pullActive = true;
+			self._pullDist = MediaPagerInteraction.clampDouble(self._pullDist + dy, 0.0, travel);
+			self.applyInteractivePull(stageW, stageH);
+			return;
+		}
 		double nx = self.x + dx + (horizontal ? self.page : 0.0);
-		double ny = self.y + dy + (horizontal ? 0.0 : self.pull);
+		double ny = self.y + dy;
 		/* Never jump if a pinch previously left pan slightly outside limits. */
 		double loX = self.x < -g.limitX ? self.x : -g.limitX;
 		double hiX = self.x > g.limitX ? self.x : g.limitX;
@@ -297,9 +346,6 @@ class MediaPagerInteraction {
 		self.y = MediaPagerInteraction.clampDouble(ny, loY, hiY);
 		if (horizontal && self.itemCount > 1) {
 			self.page = MediaPagerInteraction.clampDouble(nx - self.x, -g.stageW, g.stageW);
-		}
-		if (!horizontal) {
-			self.pull = MediaPagerInteraction.clampDouble(ny - self.y, 0.0, g.stageH);
 		}
 		self.updateShade(stageH);
 	}
@@ -314,7 +360,7 @@ class MediaPagerInteraction {
 		self.updateShade(stageH);
 	}
 
-	/* Animate dismiss back into the optional grid tile rect (or fade down cleanly). */
+	/* Animate dismiss straight into the home grid tile along the same vector as interactive pull. */
 	public void beginDismiss(double stageW, double stageH, double nowMs) {
 		if (self.closing) { return; }
 		self.closing = true;
@@ -322,6 +368,12 @@ class MediaPagerInteraction {
 		self._pointerActive = false;
 		self._swipeActive = false;
 		self._pinchActive = false;
+		double travel = self.dismissTravelFor(stageH);
+		double progress = self._pullActive ? MediaPagerInteraction.clampDouble(self._pullDist / travel, 0.0, 1.0) : 0.0;
+		double remainFrac = 1.0 - progress;
+		double duration = 110.0 + 130.0 * remainFrac;
+		double currentFade = self.fade > (1.0 - self.shade) ? self.fade : (1.0 - self.shade);
+		self.fade = MediaPagerInteraction.clampDouble(currentFade, 0.0, 1.0);
 		if (self._hasDismissRect) {
 			PagerGeometry fittedGeom = self.geometry(stageW, stageH, 1.0);
 			double zx = fittedGeom.width > 1.0 ? (self._dismissW / fittedGeom.width) : 0.25;
@@ -330,17 +382,16 @@ class MediaPagerInteraction {
 			if (targetZ < 0.05) { targetZ = 0.05; }
 			double targetX = (self._dismissX + self._dismissW * 0.5) - stageW * 0.5;
 			double targetY = (self._dismissY + self._dismissH * 0.5) - stageH * 0.5;
-			self.startSettle(targetZ, targetX, targetY, 0.0, 0.0, 1.0, nowMs, 0);
+			self.startSettle(targetZ, targetX, targetY, 0.0, 0.0, 1.0, nowMs, 0, duration, travel);
 		} else {
-			double dropY = stageH * 0.35;
-			self.startSettle(0.65, 0.0, dropY, 0.0, 0.0, 1.0, nowMs, 0);
+			self.startSettle(0.65, 0.0, stageH * 0.18, 0.0, 0.0, 1.0, nowMs, 0, duration, travel);
 		}
 	}
 
 	private void settleAfterRelease(double stageW, double stageH, double nowMs, bool cancelled) {
 		double beforeTime = nowMs;
 		double beforePage = self.page;
-		double beforePull = self.pull;
+		double beforePull = self._pullDist;
 		if (self._history.length > 0) {
 			var oldest = self._history.get(0);
 			beforeTime = oldest.timeMs;
@@ -349,8 +400,11 @@ class MediaPagerInteraction {
 		}
 		double dt = nowMs - beforeTime;
 		if (!cancelled) {
-			double projPull = self.projectValue(self.pull, beforePull, dt);
-			if (self.zoom < self.dismissZoomThreshold || (self.pull > 8.0 && projPull > stageH * self.dismissPullFraction)) {
+			double projPull = self.projectValue(self._pullDist, beforePull, dt);
+			double travel = self.dismissTravelFor(stageH);
+			bool pullDismiss = self._pullActive && self._pullDist > 8.0 &&
+				(projPull > travel * 0.42 || (self._pullDist >= travel * 0.48 && projPull >= self._pullDist * 0.8));
+			if ((!self._pullActive && self.zoom < self.dismissZoomThreshold) || pullDismiss) {
 				self._dismissRequested = true;
 				return;
 			}
@@ -364,8 +418,8 @@ class MediaPagerInteraction {
 				}
 			}
 		}
-		if (self.zoom < 1.0) {
-			self.startSettle(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, nowMs, 0);
+		if (self.zoom < 1.0 || self._pullActive) {
+			self.startSettle(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, nowMs, 0, -1.0, 0.0);
 		} else {
 			PagerGeometry g = self.geometry(stageW, stageH);
 			double cx = MediaPagerInteraction.clampDouble(self.x, -g.limitX, g.limitX);
@@ -383,7 +437,7 @@ class MediaPagerInteraction {
 		self._isTap = true;
 		if (Math.fabs(self.page) > 1.0) {
 			self._axis = PAGER_AXIS_HORIZONTAL;
-		} else if (Math.fabs(self.pull) > 1.0) {
+		} else if (self._pullActive || self._pullDist > 1.0 || Math.fabs(self.pull) > 1.0) {
 			self._axis = PAGER_AXIS_VERTICAL;
 		} else {
 			self._axis = PAGER_AXIS_NONE;
@@ -392,7 +446,7 @@ class MediaPagerInteraction {
 		self._startY = stageY;
 		self._lastX = stageX;
 		self._lastY = stageY;
-		self._history = [PagerSample(nowMs, self.page, self.pull)];
+		self._history = [PagerSample(nowMs, self.page, self._pullDist)];
 		self.updateShade(stageH);
 	}
 
@@ -419,7 +473,7 @@ class MediaPagerInteraction {
 		if (!self._pointerActive) { return false; }
 		self._pointerActive = false;
 		bool wasTap = self._isTap && !cancelled;
-		bool midFlight = Math.fabs(self.page) > 0.5 || Math.fabs(self.pull) > 0.5;
+		bool midFlight = Math.fabs(self.page) > 0.5 || Math.fabs(self.pull) > 0.5 || (self._pullActive && self._pullDist > 0.5);
 		if (!wasTap || midFlight) {
 			self.settleAfterRelease(stageW, stageH, nowMs, cancelled);
 		}
@@ -437,6 +491,8 @@ class MediaPagerInteraction {
 			double ay = ev.logicalY * scale - stageH * 0.5;
 			double targetZ = self.zoom * Math.exp(ev.deltaY * 0.12);
 			self.cancelAnimation();
+			self._pullActive = false;
+			self._pullDist = 0.0;
 			self.scaleAt(MediaPagerInteraction.clampDouble(targetZ, 1.0, self.maxZoom), ax, ay, stageH);
 			self.clampWithinPhoto(stageW, stageH);
 			return true;
@@ -445,10 +501,10 @@ class MediaPagerInteraction {
 		if (ev.phase == APP_SCROLL_BEGAN || (!self._swipeActive && ev.phase == APP_SCROLL_CHANGED)) {
 			self.cancelAnimation();
 			self._swipeActive = true;
-			self._axis = PAGER_AXIS_NONE;
+			self._axis = (self._pullActive && self._pullDist > 1.0) ? PAGER_AXIS_VERTICAL : PAGER_AXIS_NONE;
 			self._swipeAccumX = 0.0;
 			self._swipeAccumY = 0.0;
-			self._history = [PagerSample(nowMs, self.page, self.pull)];
+			self._history = [PagerSample(nowMs, self.page, self._pullDist)];
 		}
 		if (ev.phase == APP_SCROLL_ENDED || ev.phase == APP_SCROLL_CANCELLED) {
 			if (self._swipeActive) {
@@ -481,7 +537,9 @@ class MediaPagerInteraction {
 		if (ev.phase == APP_GESTURE_BEGAN || !self._pinchActive) {
 			self.cancelAnimation();
 			self._pinchActive = true;
-			self._history = [PagerSample(nowMs, self.page, self.pull)];
+			self._pullActive = false;
+			self._pullDist = 0.0;
+			self._history = [PagerSample(nowMs, self.page, self._pullDist)];
 		}
 		double ax = ev.logicalX * scale - stageW * 0.5;
 		double ay = ev.logicalY * scale - stageH * 0.5;
@@ -514,6 +572,8 @@ class MediaPagerInteraction {
 		self.cancelAnimation();
 		self.closing = false;
 		self._dismissRequested = false;
+		self._pullActive = false;
+		self._pullDist = 0.0;
 		self.index = ((self.index + delta) % self.itemCount + self.itemCount) % self.itemCount;
 		self.zoom = 1.0;
 		self.x = 0.0;
@@ -532,7 +592,8 @@ class MediaPagerInteraction {
 			return PagerOutcome(PAGER_EVENT_NONE, self.index);
 		}
 		double elapsed = nowMs - self._animStartMs;
-		double t = self.settleDurationMs > 0.0 ? MediaPagerInteraction.clampDouble(elapsed / self.settleDurationMs, 0.0, 1.0) : 1.0;
+		double dur = self._animDurationMs > 0.0 ? self._animDurationMs : self.settleDurationMs;
+		double t = dur > 0.0 ? MediaPagerInteraction.clampDouble(elapsed / dur, 0.0, 1.0) : 1.0;
 		double inv = 1.0 - t;
 		double rem = inv * inv * inv;
 		self.zoom = self._toZoom + (self._fromZoom - self._toZoom) * rem;
@@ -540,6 +601,7 @@ class MediaPagerInteraction {
 		self.y = self._toY + (self._fromY - self._toY) * rem;
 		self.page = self._toPage + (self._fromPage - self._toPage) * rem;
 		self.pull = self._toPull + (self._fromPull - self._toPull) * rem;
+		self._pullDist = self._toPullDist + (self._fromPullDist - self._toPullDist) * rem;
 		self.fade = self._toFade + (self._fromFade - self._toFade) * rem;
 		self.updateShade(stageH);
 
@@ -550,11 +612,15 @@ class MediaPagerInteraction {
 		self.animating = false;
 		if (self.closing) {
 			self.closing = false;
+			self._pullActive = false;
+			self._pullDist = 0.0;
 			return PagerOutcome(PAGER_EVENT_DISMISSED, self.index);
 		}
 		if (self._pendingIndexDelta != 0 && self.itemCount > 0) {
 			int nextIdx = ((self.index + self._pendingIndexDelta) % self.itemCount + self.itemCount) % self.itemCount;
 			self._pendingIndexDelta = 0;
+			self._pullActive = false;
+			self._pullDist = 0.0;
 			self.index = nextIdx;
 			self.zoom = 1.0;
 			self.x = 0.0;
@@ -564,6 +630,10 @@ class MediaPagerInteraction {
 			self.fade = 0.0;
 			self.shade = 1.0;
 			return PagerOutcome(PAGER_EVENT_INDEX_CHANGED, self.index);
+		}
+		if (self._pullActive && self._pullDist <= 0.5) {
+			self._pullActive = false;
+			self._pullDist = 0.0;
 		}
 		return PagerOutcome(PAGER_EVENT_NONE, self.index);
 	}

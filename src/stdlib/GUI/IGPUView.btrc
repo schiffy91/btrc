@@ -29,4 +29,9 @@ interface IGPUView extends IView {
 	GPUReadback readback(int maximumPixels = 16777216);
 	/* Make the next frame capturable by readback(); see capture above. */
 	void requestCapture();
+	/* Opt into Extended Dynamic Range / high-bit-depth HDR presentation (e.g. RGBA16Float + Extended sRGB on macOS XDR).
+	 * Must be called before poll() initializes the surface renderer for swapchain format selection. */
+	void setExtendedDynamicRange(bool enabled);
+	/* True once the active surface renderer is configured with an HDR format (RGBA16Float or RGB10A2Unorm). */
+	bool isHDR();
 }

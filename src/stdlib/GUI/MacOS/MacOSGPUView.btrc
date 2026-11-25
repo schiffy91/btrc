@@ -17,6 +17,7 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 	private GPUSurfaceRenderer? _renderer;
 	private CallbackScope _work = CallbackScope();
 	private bool _capture;
+	private bool _preferHDR = false;
 	private bool _captureRequestPending = false;
 	private bool _closing = false;
 	private bool _deviceClosing = false;
@@ -84,8 +85,12 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 			if (state == GPU_DEVICE_FAILED) { self._error = device.error(); return false; }
 			if (state != GPU_DEVICE_READY) { return false; }
 			if (self._renderer == null) {
-				var renderer = GPUSurfaceRenderer(device, self._target.nativeSurface(), self._capture);
+				bool wantHDR = self._preferHDR && !self._capture;
+				var renderer = GPUSurfaceRenderer(device, self._target.nativeSurface(), self._capture, null, wantHDR);
 				self._renderer = renderer;
+				if (wantHDR && renderer.isHDR()) {
+					self._target.setExtendedDynamicRange(true);
+				}
 				if (self._captureRequestPending) { self._captureRequestPending = false; renderer.requestCapture(); }
 			}
 		} catch (string error) { self._error = error; return false; }
@@ -116,6 +121,22 @@ class MacOSGPUView implements IMacOSGPUView, IMacOSView {
 		var renderer = self._renderer;
 		if (renderer == null) { self._captureRequestPending = true; return; }
 		renderer.requestCapture();
+	}
+
+	public void setExtendedDynamicRange(bool enabled) {
+		self.requireOpen();
+		self._preferHDR = enabled;
+		if (self._renderer != null && self._renderer.isHDR()) {
+			self._target.setExtendedDynamicRange(enabled);
+		} else if (!enabled) {
+			self._target.setExtendedDynamicRange(false);
+		}
+	}
+
+	public bool isHDR() {
+		self.requireOpen();
+		var renderer = self._renderer;
+		return renderer != null && renderer.isHDR();
 	}
 
 	public GPUReadback readback(int maximumPixels = 16777216) { return GPUReadback.create(self.frameRenderer(), maximumPixels, self._work); }

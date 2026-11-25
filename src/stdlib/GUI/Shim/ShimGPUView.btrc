@@ -158,6 +158,16 @@ class ShimGPUView extends ShimNodeView implements IGPUView {
 		renderer.requestCapture();
 	}
 
+	public void setExtendedDynamicRange(bool enabled) {
+		self.requireOpen();
+	}
+
+	public bool isHDR() {
+		self.requireOpen();
+		var renderer = self._renderer;
+		return renderer != null && renderer.isHDR();
+	}
+
 	public GPUReadback readback(int maximumPixels = 16777216) { return GPUReadback.create(self.frameRenderer(), maximumPixels, self._work); }
 
 	public CallbackCancellation close() {

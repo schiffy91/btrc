@@ -77,12 +77,12 @@ class MacOSGPUSurface {
 
 	public double backingScale() { self.nativeView(); return self._backingScale; }
 
-	/* Enable macOS Extended Dynamic Range (EDR) output on XDR/HDR displays. */
+	/* Enable macOS Extended Dynamic Range (EDR) output with Extended sRGB colorspace on XDR/HDR displays. */
 	public void setExtendedDynamicRange(bool enabled) {
 		self.nativeView();
 		var layer = self._layer;
 		if (layer == null) { throw "GPU surface is closed"; }
-		layer.setWantsExtendedDynamicRangeContent(enabled);
+		layer.btrcSetExtendedSRGB(enabled);
 	}
 
 	public bool extendedDynamicRangeEnabled() {

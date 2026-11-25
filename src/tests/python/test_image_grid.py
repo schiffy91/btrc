@@ -263,6 +263,35 @@ int main() {
 \tExpect.isTrue(committed, "settle animation committed index change");
 \tExpect.isTrue(animatedFrames >= 15, "smooth multi-frame slide animation before commit");
 
+\t/* 1b. Direct-to-tile interactive swipe-down shrink oracle:
+\t * Pulling down shrinks and moves directly toward a top-left tile without dropping to the bottom. */
+\tpager.open(4, 20, 1.5);
+\tpager.setDismissTargetRect(80.0, 60.0, 200.0, 133.0);
+\tAppKeyModifiers noModPull = AppKeyModifiers(false, false, false, false);
+\tpager.scroll(AppScrollEvent(0.0, 40.0, 600.0, 400.0, true, APP_SCROLL_BEGAN, APP_SCROLL_NONE, noModPull), 1.0, stageW, stageH, 100.0);
+\tpager.scroll(AppScrollEvent(0.0, 140.0, 600.0, 400.0, true, APP_SCROLL_CHANGED, APP_SCROLL_NONE, noModPull), 1.0, stageW, stageH, 120.0);
+\tExpect.isTrue(pager.zoom < 0.85, "pulling down shrinks photo toward tile scale");
+\tExpect.isTrue(pager.x < -100.0 && pager.y < -80.0, "pulling down moves directly toward top-left tile instead of screen bottom");
+\tExpect.isTrue(Math.fabs(pager.pull) < 0.01, "interactive pull drives transform directly without bottom-drop offset");
+\tExpect.isTrue(pager.shade < 0.75, "backdrop fades smoothly to reveal grid while pulling");
+\tpager.scroll(AppScrollEvent(0.0, 0.0, 600.0, 400.0, true, APP_SCROLL_ENDED, APP_SCROLL_NONE, noModPull), 1.0, stageW, stageH, 130.0);
+\tExpect.isTrue(pager.isDismissPending(), "release past threshold requests dismiss");
+\tpager.beginDismiss(stageW, stageH, 130.0);
+\tdouble prevZoomD = pager.zoom;
+\tdouble prevXD = pager.x;
+\tdouble prevYD = pager.y;
+\tbool dismissed = false;
+\tfor (int ds = 1; ds <= 40; ds++) {
+\t\tvar dout = pager.tick(130.0 + (double)ds * 8.0, stageW, stageH);
+\t\tExpect.isTrue(pager.zoom <= prevZoomD + 0.001, "dismiss zoom shrinks monotonically into tile");
+\t\tExpect.isTrue(pager.x <= prevXD + 0.01 && pager.y <= prevYD + 0.01, "dismiss glides monotonically along same vector into tile");
+\t\tprevZoomD = pager.zoom;
+\t\tprevXD = pager.x;
+\t\tprevYD = pager.y;
+\t\tif (dout.kind == PAGER_EVENT_DISMISSED) { dismissed = true; break; }
+\t}
+\tExpect.isTrue(dismissed, "direct-to-tile dismiss completes cleanly");
+
 \t/* 2. Dock-style FilmstripScrubber interaction oracle:
 \t * Auto-hidden pill -> tap expands & pins -> two-finger scroll -> click-drag scrub -> tap selects -> tap outside collapses. */
 \tFilmstripScrubber scrubber = FilmstripScrubber();
