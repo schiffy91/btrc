@@ -55,9 +55,12 @@ static const RealInput *realInput(void) {
                     input = openInput();
                 }
             }
-#else
+#elif defined(BTRC_PROBE_X11)
             int display = btrcShimAutomationDisplay();
             input = display == DISPLAY_X11 ? realInputX11() : display == DISPLAY_WAYLAND ? realInputWayland() : NULL;
+#else
+            int display = btrcShimAutomationDisplay();
+            input = display == DISPLAY_WAYLAND ? realInputWayland() : NULL;
 #endif
         }
     }

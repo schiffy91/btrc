@@ -56,18 +56,18 @@
             # proof (sqlite3). Both suites skip off macOS before probing them.
             pugixml sqlite.dev
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
-            bubblewrap libx11.dev
+            bubblewrap
             wayland.dev pkg-config            # Wayland test probes (WaylandInput.c etc.) and GPUWire.c runtime dlopen
             openssh   # ssh-keygen: writes the key files the Library.Crypto driver reads back
             xvfb-run   # tools/virtual-display.sh: CI's X display for legacy virtual-display callers
             # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
             # (labwc's headless backend) display inside its own session bus,
-            # with the AT-SPI accessibility bus. The GUI conformance probe
-            # sends real input in it: XTEST on X11, and on Wayland a wlroots
-            # compositor's virtual pointer and keyboard. fontconfig.bin,
-            # glib.bin and grim are CLI-only test observers (fc-match, gdbus,
-            # compositor screenshots), with no headers or pkg-config files.
-            xvfb dbus (atSpiCore pkgs) libxtst labwc wlr-randr fontconfig.bin glib.bin grim
+            # with the AT-SPI accessibility bus. On Wayland, a wlroots
+            # compositor's virtual pointer and keyboard send real input.
+            # fontconfig.bin, glib.bin and grim are CLI-only test observers
+            # (fc-match, gdbus, compositor screenshots), with no headers or
+            # pkg-config files.
+            xvfb dbus (atSpiCore pkgs) labwc wlr-randr fontconfig.bin glib.bin grim
           ];
       };
       files = import ./nix { inherit cfg lib; };

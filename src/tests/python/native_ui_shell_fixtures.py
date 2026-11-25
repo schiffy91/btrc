@@ -155,6 +155,7 @@ def build_shell(tmp_path, frontend, sanitized, request, *, native_wayland=False)
             sdk_flags.append("-DBTRC_PROBE_NATIVE_WAYLAND")
             sdk_libraries = ["-ldl"]
         else:
+            sdk_flags.append("-DBTRC_PROBE_X11")
             units += [real_input / "X11Input.c", *input_units]
     objects = []
     for unit in units:
