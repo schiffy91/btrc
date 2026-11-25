@@ -166,13 +166,10 @@ fallback, so the same program still runs and still produces the same numbers.
 Here is that kernel fitting `y = 2x + 3` by gradient descent -- gradients on the
 CPU, the weight update on the GPU, 300 epochs:
 
-![Stochastic gradient descent, rendered from btrc](examples/sgd-render/sgd.gif)
+![Stochastic gradient descent, rendered from btrc](docs/images/sgd.gif)
 
-Every frame of that animation was drawn by
-[`examples/sgd-render`](examples/sgd-render/), which runs the training loop and
-rasterizes each epoch to an offscreen surface -- no window, no display server.
-[`examples/sgd`](examples/sgd/Sgd.btrc) is a heavier variant without the
-drawing: momentum SGD with a decaying learning rate, logged to the terminal.
+Every frame of that animation was drawn from btrc, running the training loop and
+rasterizing each epoch to an offscreen surface -- no window, no display server.
 
 ### Hardware-accelerated 3D
 
@@ -228,9 +225,7 @@ fn noteMaterial(point: vec2f, noteColor: vec3f, outside: f32) -> vec3f {
 The GPU view renders into an offscreen target that the window composites with
 the native controls around it, so the tablature, transport and fretboard above
 are ordinary widgets and the highway is just another child. Closing the window
-drains the GPU work and its callbacks in order. For a self-contained example,
-[`examples/game`](examples/game/) is an SDF-raymarched ball game in about 750
-lines of btrc.
+drains the GPU work and its callbacks in order.
 
 ### Native UI
 
@@ -310,8 +305,7 @@ public void bind(AlbumCellView cell, bool opensSection, AlbumLibraryNativeLayout
 The cell's controls are created once (`GUI.createPanel`, `GUI.createImageView`,
 `GUI.createLabel`) and live in the card for the life of the grid; the same
 source produces the AppKit screen on macOS and the drawn screen above on Linux.
-[`examples/gui`](examples/gui/) holds the portable native example, and
-[`examples/tray`](examples/tray/) puts an app in the system tray.
+[`Native.btrc`](src/tests/fixtures/gui/Native.btrc) holds the portable native fixture.
 
 ### Wrapping a C library
 
@@ -706,11 +700,11 @@ explicitly for every version-1 manifest and fails closed when it is omitted;
 The default Nix package installs both `btrcpy` and `btrc-native-plan`; the
 adapter is also exposed as `.#btrc-native-plan`, packaged with exactly the
 modules it imports. The standalone proof uses the same installed surface, and
-its flake check builds the example twice more with `--object-cache`, requiring
+its flake check builds the native-package fixture twice more with `--object-cache`, requiring
 the second build to reuse every translation unit:
 
 ```bash
-make examples-native-package TARGET=linux-x64
+make -C src/tests/fixtures/native-package run TARGET=linux-x64
 nix flake check
 ```
 
@@ -727,9 +721,7 @@ and `--btrcc PATH` to select the self-host compiler. `--samples 5
 --warm-native-runs 4` collects five fresh-object builds and twenty native-only
 warm samples per frontend/mode. Warm-native samples reuse the emitted plan;
 qualified macOS builds can also retain the executable. These are not
-whole-product no-op measurements. Raw evidence is retained
-under `build/perf/`; see [the measurement plan](docs/design/plan-reference.md#measuring) for acceptance
-conditions and remaining measurement gaps.
+whole-product no-op measurements. Raw evidence is retained under `build/perf/`.
 
 With `--object-cache` or `--debug-info`, generated native adapters retain verified source files
 in a private `.btrc-adapters-v1-<digest>` directory beside the output. This gives
@@ -1424,9 +1416,7 @@ native compute context is acquired through an atomic process singleton.
 For rendering rather than compute, `Library.GPU` exposes a typed WebGPU surface:
 `GPUDevice`, `GPUProgram`, `GPUUniformBuffer`, `GPUImageTexture`,
 `GPUSurfaceRenderer`, `GPUOffscreenTarget`, and `GPUReadback`, each its own
-module (`import Library.GPU.GPUSurfaceRenderer;`). For a full example that combines `@gpu` kernels with btrc classes,
-see [`examples/sgd/Sgd.btrc`](examples/sgd/Sgd.btrc) -- GPU-accelerated
-stochastic gradient descent that learns `y = 2x + 3` from training data.
+module (`import Library.GPU.GPUSurfaceRenderer;`).
 
 ### Realtime Functions
 
@@ -1456,7 +1446,7 @@ small, and are specified in
 - **`Atomic<T>`** exposes typed C11 atomics.
 - **`SPSCQueue<T>`** is the one canonical preallocated single-producer/single-consumer queue.
 
-See [`examples/realtime-primitives/RealtimeGain.btrc`](examples/realtime-primitives/RealtimeGain.btrc)
+See [`RealtimeGain.btrc`](src/tests/fixtures/realtime/RealtimeGain.btrc)
 for a complete strict-C11 standalone program, and `Library.Realtime` plus
 `Library.Audio.RealtimeAudio` for the clock, transport, and audio-callback
 compositions built on top.
@@ -1512,27 +1502,6 @@ declares its native units, headers, frameworks, and pkg-config requirements in
 its `btrc.toml`, and `btrc-native-plan` (or `--emit-link-plan`) turns that into
 a canonical build plan. See
 [docs/design/native-interop.md](docs/design/native-interop.md).
-
-### 3D Game Engine
-
-btrc includes a Unity-inspired 3D game engine built on WebGPU rendering. A ball
-on a ground plane with WASD movement, space to jump, real-time shadows, and SDF
-raymarching -- about 640 lines of btrc across 11 engine modules, driven by a
-106-line `Game.btrc`.
-
-The engine is modular: `GameObject` with physics, `Camera` with follow
-behavior, `Light` and `Material` for shading, `Ground` checkerboard and `Sky`
-gradient, `Scene` compositing with a WGSL raymarching shader, `Input` for
-keyboard, `Time` for frame timing, and `Engine` tying it all together. The
-game implements `IApplicationWork` and schedules its own frames through the
-native application loop (`GUI.postAfter`) rather than spinning a `while` loop,
-so window shutdown can drain the GPU child and its callbacks deterministically.
-See [`examples/game/`](examples/game/).
-
-```bash
-make examples-game
-./examples/game/game
-```
 
 ### C Interop
 
@@ -1782,7 +1751,7 @@ their documented backend runtimes through the emitted link plan.
 
 Runtime helper source has one shared home. `src/runtime/c/manifest.toml`
 describes names, dependencies, headers, features, source markers, and stable
-catalog order for the pre-authored `core.c`, `collections.c`, `cycles.c`,
+catalog order for the pre-authored `core.c`, `cycles.c`,
 `mutex.c`, `process.c`, `strings.c`, `threads.c`, `trycatch.c`, and `gpu.c`
 assets plus `btrc_rt.h` (about 5k lines in total). The unified generator emits
 immutable metadata to `src/compiler/python/runtime/generated.py` and
@@ -1842,7 +1811,7 @@ src/
     c/                         # Shared pre-authored runtime assets (~5k lines)
       manifest.toml            # Helper metadata and deterministic catalog order
       btrc_rt.h                # Retargetable runtime seam
-      core.c collections.c cycles.c mutex.c process.c
+      core.c cycles.c mutex.c process.c
       strings.c threads.c trycatch.c gpu.c
     windows/                   # MinGW-w64 POSIX compatibility layer
 
@@ -1925,26 +1894,9 @@ tools/
   native_plan.py               # btrc-native-plan adapter
   perf.py                      # One program's cold build through both frontends (make perf-self)
   budget_bench.py              # BTRSmith compile budgets (make perf-budget / perf-btrsmith)
-  qualification/               # Qualification ledger: denominators, skips, reports
-  linux-ci.sh                  # Runs CI targets in the devcontainer
 
-examples/
-  callback/                    # Owned callback closures over raw C contexts
-  realtime-primitives/         # Standalone @realtime raw-buffer kernel
-  todo/                        # Todo board -- classes, generics, collections
-  gui/                         # Portable native GUI (Native.btrc)
-  tray/                        # System tray application
-  game/                        # 3D game engine -- Unity-inspired, WGSL raymarching
-    engine/                    # Camera, Light, Material, Ground, Sky, Scene,
-                               #   Input, Time, GameObject, Vector3, Engine
-    Game.btrc                  # The ball game (WASD + space to jump)
-  sgd/                         # GPU-accelerated momentum SGD -- @gpu, classes, Vector
-  sgd-render/                  # Plain SGD on y = 2x + 3, drawn frame by frame
-  triangle/                    # WebGPU triangle -- raw WGSL render pipeline
-  native-package/              # Recursive native package built from its canonical plan
-  make_gif.py                  # Turns rendered PPM frames into the README animations
-
-docs/                          # language/, design/, devex/, Handoff.md, known-language-gaps.md
+docs/                          # language/, design/, devex/, known-language-gaps.md
+.github/ci/                    # CI tier plans, local jobs, skip manifests, runner scripts
 nix/, flake.nix                # Packages, dev shell, and the Linux CI container
 ```
 
@@ -1994,11 +1946,6 @@ make test-generate-goldens  # Regenerate golden .stdout files
 make compiler-codegen-generate # Regenerate compiler/devex data from shared specs
 make extension              # Package VS Code extension (.vsix)
 make extension-install      # Install VS Code extension (dev)
-make examples               # Build and run the example set (callback, realtime-primitives,
-                            #   todo, gui, game, triangle, sgd, sgd-render)
-make examples-todo          # Also examples-game, examples-triangle, examples-sgd
-make examples-gui           # Build the portable native GUI example
-make examples-native-package TARGET=linux-x64   # Build the recursive native package
 make gpu                    # Build the headless @gpu compute runtime (skips if WebGPU is missing)
 make gpu-required           # Require WebGPU compute dependencies and build runtime
 make bench                  # Measure compile time, startup, C size, cc time, generated-code speed
@@ -2008,7 +1955,6 @@ make bench-peak             # Gate the cold --jobs 1 BTRSmith compile's peak mem
 make perf-self              # Profile btrcc's own cold build through both compilers
 make perf-budget            # Measure BTRSmith's compile budgets (also perf-btrsmith)
 make skip-gate              # Fail on a skip the expected-skip manifest does not explain
-make qualification-report   # Render the support/coverage report from gate outputs
 make devcontainer           # Generate .devcontainer/ and build image
 make linux-ci               # Run LINUX_CI_TARGETS in that container, as Linux CI does
 make clean                  # Remove build artifacts
@@ -2165,10 +2111,6 @@ Two further workflows cover the platforms the Linux job cannot:
 [`Windows`](.github/workflows/windows.yml) each build a native release archive,
 relocate it, and run the compiled output on that operating system.
 
-[CI health](docs/design/ci-health.md) records each job's failure and flake
-rate since February 2026, every failure signature with its classification,
-and the owner of each one still open.
-
 The conventions CI enforces:
 
 - A language or ABI change is made in the shared specification and then
@@ -2235,13 +2177,13 @@ This repository is the compiler, so nothing downstream builds until `btrcpy`,
 `btrcc` and `btrc-native-plan` exist. Publishing them once spares every consumer
 -- and every CI job of every consumer -- from building them again.
 
-[ci/targets.nix](ci/targets.nix) is the one list of what gets cached, for which
+[.github/ci/targets.nix](.github/ci/targets.nix) is the one list of what gets cached, for which
 systems, on which runners. Adding a system or an attribute there is the whole
 change: `make cache` and `.github/workflows/cache.yml` both read it.
 
 ```sh
 make cache        # build this host's attrs, sign them, add them to the shared cache
-make cache-all    # the same for every attribute in ci/targets.nix `local`
+make cache-all    # the same for every attribute in .github/ci/targets.nix `local`
 make cache-serve  # serve it over HTTP for the other machines (PORT=8080)
 ```
 
@@ -2263,7 +2205,7 @@ shared with the other repositories on a host, so one `make cache-serve`
 publishes all of them at once.
 
 In CI, every job builds one attribute so a runner's disk holds one closure. It
-pushes to Cachix when `ci/targets.nix` names a cache and `CACHIX_AUTH_TOKEN`
+pushes to Cachix when `.github/ci/targets.nix` names a cache and `CACHIX_AUTH_TOKEN`
 exists; otherwise it signs with `NIX_CACHE_SECRET_KEY` and leaves the slice as a
 workflow artifact, which `nix copy --from file://...` consumes as it is. With
 neither secret the job still builds, so the workflow is useful before any

@@ -3,80 +3,19 @@
 These rules are non-negotiable. Every contributor (human or AI) must follow them.
 Read this ENTIRE file before writing any code.
 
-## Second agent: Codex
-
-**2026-10-07 owner update:** PLAN.md D29 consolidates the queues and explicitly
-authorizes the current harmonization session to implement and integrate into
-main after review and gates. It overrides conflicting role/path restrictions
-below for this session only. Architecture and evidence requirements remain.
-Mac host capacity rules apply when working on the Mac; the container exemption
-below applies only in a cloud container.
-
-**2026-11-01 owner update:** integrate the accumulated branch work into `main`
-now, preserve recovery history, and retire all other local and remote branches.
-Track remaining defects and specific qualification tasks independently. Pending
-checks remain explicit and do not block unrelated integration. PLAN.md records
-this instruction and supersedes conflicting qualification-before-landing rules
-for this consolidation.
-
-
-OpenAI Codex builds in this repository beside Claude under D27 as amended by
-D28 and D29 (PLAN.md). Both active queues are in [PLAN.md](PLAN.md).
-[`WORKSTREAMS.md`](WORKSTREAMS.md) §3 holds claims and protocol.
-
-- **Applies to Codex:** everything here about architecture, the pipeline,
-  parity, strict imports, naming, generated files, and the Hard Rules.
-- **Does not apply:** "Host capacity and agent rules" (the Mac's locks, hubs,
-  disk and load rules), MEMORY.md, and the Mac measurement rules. In a cloud
-  container, export `BTRC_TEST_RUNNER=linux-devcontainer` and run every
-  command through `nix develop --command` (WORKSTREAMS.md §3.11).
-- **Branches:** one packet per `codex/…` branch, with a draft PR to `main`
-  titled `[CX-…]` whose body starts with the packet's owned paths and follows
-  `.github/PULL_REQUEST_TEMPLATE/codex-packet.md`. The draft PR is for CI only.
-- **Never:** push `main` or `main-kn9jxh`, merge or close a PR, edit
-  `docs/design/plan-reference.md`, claim Mac, device or account evidence, or
-  treat a local `make test` as the gate (draft-PR CI is).
-- **Paths Codex never edits** (put a `REQUEST(<target>)` block in the PR body
-  instead, WORKSTREAMS.md §3.6):
-  - `src/compiler/**`, `src/language/**`, `tools/compiler_codegen/**`;
-  - generated files: the Python compiler's `generated.py` modules,
-    `src/compiler/btrc/generated/**`, `src/stdlib/btrc.lock`,
-    `src/stdlib/btrc.symbols`, `src/devex/lsp/catalog/generated.py`;
-  - `src/runtime/**`, `tools/NativeHeaderReader.cpp`,
-    `tools/JavaClassReader.c`, the boundary manifest;
-  - `src/devex/**` and the compiler-import stdlib modules (WORKSTREAMS.md
-    §3.4), unless the packet names the file;
-  - `Makefile`, `flake.nix`, `flake.lock`, `nix/*`, `src/tests/conftest.py`,
-    `src/tests/runner_capabilities.py`, `tools/native_plan.py`,
-    `tools/budget_bench.py`, `.github/workflows/**` (and `ci/proposed/`),
-    PLAN.md, its CLAUDE.md/CODEX.md entry points, and this file.
-- **Integrator-owned data** (`btrc.toml` exports and native rows,
-  expected-skip manifests, denominators, Makefile lines, `ci/tiers.toml`)
-  changes only in a final `fragment: <what>` commit, and regenerated outputs
-  only in a `derived: regenerate` commit, which Claude drops and regenerates
-  (WORKSTREAMS.md §3.5).
-
----
-
 ## Multi-Session Warning
 
 This project is too large for a single context window. You WILL run out of memory.
 
 ### Current roadmap and historical baseline
 
-The integrator lands reviewed work on `main`. [`PLAN.md`](PLAN.md) is the
-single roadmap and provider queue, consolidated on 2026-10-07. Current work is tracked in
-[independently scoped GitHub issues](https://github.com/schiffy91/btrc/issues?q=is%3Aissue+is%3Aopen), and dated execution logs
-live in [`docs/design/claude-integration-record.md`](docs/design/claude-integration-record.md).
-Its current status distinguishes integrated work, open reviews and missing
-qualification; the previous plan is frozen verbatim in
-`docs/design/plan-reference.md` and cited as `ref:N`. Never edit the frozen
-reference.
+Current work, milestone waves, and open defects are tracked in
+[GitHub Issues](https://github.com/schiffy91/btrc/issues?q=is%3Aissue+is%3Aopen)
+and [GitHub Milestones](https://github.com/schiffy91/btrc/milestones).
 
 For a cross-repository handoff, read BTRSmith's MVP epic (schiffy91/btrsmith
-issue #15, which replaced `GOAL.md`), `docs/HWW.md`, `docs/DD.md` and
-`docs/NativePlatformPlan.md` after this file. The structure-first review was
-done on 2026-09-14 and has drifted since; PLAN.md Stage 4 repeats it. Consumers
+issue #15), `docs/HWW.md`, `docs/DD.md` and
+`docs/NativePlatformPlan.md` after this file. Consumers
 may continue against approved interfaces while compiler repairs land; do not
 invent a second wrapper or ownership model.
 
@@ -89,11 +28,11 @@ run:
   (`src/tests/fixtures/compiler_boundaries/manifest.toml`, checked by
   `test_boundary_manifest.py`).
   Some observed-behavior capabilities are skipped inside the nix shell as
-  incompatible; PLAN.md Stage 2 records how many are checked there.
+  incompatible.
 - The skips are missing tools and environment-gated providers — `naga`,
   `lldb`, `pkg-config`, `BTRC_NATIVE_PROVIDER_CC`/`CXX`, and platform-specific
   paths — not product defects. They are still coverage the run did not get, and
-  a green result looks identical either way; PLAN.md Stage 2's skip ledger
+  a green result looks identical either way; the skip gate (`.github/ci/expected-skips/`)
   classifies every one.
 - `stdlib/Daemon.btrc` used to fail under load with a daemon-stop deadline
   error. That was a stop race, not a deadline too tight for a saturated
@@ -126,8 +65,7 @@ The podman row describes the dedicated guest configuration in `flake.nix`,
 not the current shared guest. On 2026-10-07, the existing machine was verified
 as shared with SEMU: **8 CPUs, 28 GiB RAM, 180 GiB virtual disk**. Reuse it
 without recreating, resetting or resizing it to match the dedicated configuration.
-Apply the load rules to its actual resource allocation; see PLAN.md's host
-capacity record for the authorized cleanup and preserved recovery evidence.
+Apply the load rules to its actual resource allocation.
 
 - **Gates** run from a clone outside Google Drive, one at a time, holding
   `~/.cache/btrc/locks/gate`. `make bootstrap` never runs beside the parallel
@@ -136,8 +74,7 @@ capacity record for the authorized cleanup and preserved recovery evidence.
   one agent build runs beside `make test`, and none beside `make test-c11` or
   `make bootstrap`; other agents stay read-only while a gate runs. At most one guest beside
   a gate, none during bootstrap or a measurement.
-- **Measurements** need the automated quiet check (PLAN.md standing
-  approvals), every guest stopped, and a workspace under
+- **Measurements** need the automated quiet check, every guest stopped, and a workspace under
   `~/.cache/btrc/bench.noindex/`. Agents never change system settings.
 - **Locks** live in `~/.cache/btrc/locks/` (`gate`, `bench`, `linux-ci`,
   `guest`, `gui-capture`, `signing`, and the two-slot `btrcc-build`
@@ -148,7 +85,7 @@ capacity record for the authorized cleanup and preserved recovery evidence.
   gitdir lives in Drive. At most 6 writer clones at a time, and at most 2
   BTRSmith clones; clean BTRSmith test outputs after each run.
 - **Disk.** Check free space at the start of every stage: at least 80 GB to
-  continue, 100 GB before PLAN.md Stage 23. Before every agent wave, prune
+  continue. Before every agent wave, prune
   `build/test-btrcc` to the newest 20 fingerprints plus any pinned by
   `BTRC_TEST_BTRCC`.
 
@@ -306,7 +243,7 @@ PIPELINE:
 ### Shared runtime and hosted ABI
 
 - `src/runtime/c/manifest.toml` is the single runtime-helper manifest.
-- The pre-authored runtime assets are `btrc_rt.h`, `core.c`, `collections.c`,
+- The pre-authored runtime assets are `btrc_rt.h`, `core.c`,
   `cycles.c`, `mutex.c`, `process.c`, `strings.c`, `threads.c`, `trycatch.c`,
   and `gpu.c` in `src/runtime/c/`.
 - Runtime metadata is generated into
@@ -317,7 +254,7 @@ PIPELINE:
 - `src/language/hosted_abi.toml` generates
   `src/compiler/python/abi/generated.py` and
   `src/compiler/btrc/generated/hosted_abi/Tables.btrc`.
-- `src/language/targets.toml` is the compilation-target spec (PLAN.md D21):
+- `src/language/targets.toml` is the compilation-target spec:
   the target rows, the predefined-macro table that `#if` evaluates, and the
   reserved and foreign macro name lists. `TargetManifest` in
   `tools/compiler_codegen/hosted_abi.py` validates it and renders it into the
@@ -585,16 +522,8 @@ make compiler-codegen-generate
                           Regenerate compiler and devex data from shared specs
 make extension            Package VSCode extension (.vsix)
 make extension-install    Install VSCode extension (dev)
-make examples             Build and run examples
 make gpu                  Build the headless @gpu compute runtime (skips if WebGPU is missing)
 make gpu-required         Fail unless that runtime built
-make examples-game        Build the 3D engine game
-make examples-triangle    Build the GPU triangle example
-make examples-sgd         Build the GPU SGD example
-make examples-todo        Build the todo example
-make examples-gui         Build the portable native GUI example
-make examples-native-package TARGET=linux-x64
-                          Build the recursive native package from its plan
 make devcontainer         Generate .devcontainer/ and build image
 make linux-ci             Run LINUX_CI_TARGETS in that container, as Linux CI does
 make clean                Remove build artifacts
@@ -602,7 +531,7 @@ make clean                Remove build artifacts
 
 Run `make help` for the canonical, complete target list.
 
-On a Linux desktop run a gate through `tools/headless-gate.sh` (`tools/headless-gate.sh nix develop
+On a Linux desktop run a gate through `.github/ci/headless-gate.sh` (`.github/ci/headless-gate.sh nix develop
 --command make NIX= test`): it takes the session's display, runtime directory and compiler variables
 away, so no test reaches the desktop, and it is the environment the `linux` expected-skip manifest
 qualifies. With the session's display in the environment `make test` drives real windows there.

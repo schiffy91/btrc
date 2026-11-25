@@ -4,7 +4,7 @@ The suite is one portable BTRC program over the public GUI facade, with a
 per-platform probe for the input a person gives a window. This driver builds
 it through each compiler, plain and sanitized, and runs every case of
 cases.toml in its own process on the session's display. Run it inside
-tools/ui/headless-session.sh --x11 or --wayland: the probe sends real input
+.github/ci/headless-session.sh --x11 or --wayland: the probe sends real input
 through the display server, and those sessions are private ones that take it.
 """
 
@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.dependencies import BinaryImports, DependencyAudit
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.linux_provider_fixtures import (
     TARGET,
@@ -26,7 +27,6 @@ from src.tests.python.linux_provider_fixtures import (
     require_linux_reader,
 )
 from src.tests.runner_capabilities import linux_display_error
-from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
 REPO = Path(__file__).resolve().parents[3]
 SUITE = REPO / "src/tests/native/gui/conformance"
@@ -182,14 +182,3 @@ def test_the_program_lists_exactly_the_recorded_cases(programs, request):
     assert listed.returncode == 0, listed.stderr
     assert sorted(listed.stdout.split()) == sorted(NAMES)
     assert len(set(NAMES)) == len(NAMES)
-
-
-def test_the_cases_cover_the_catalog_but_for_the_listed_operations():
-    """Every catalog operation is exercised by a case or named in UNCOVERED with its reason."""
-    catalog = set()
-    for shard in sorted((REPO / "docs/design/native-ui-catalog/operations").glob("*.toml")):
-        catalog.update(operation["id"] for operation in tomllib.loads(shard.read_text()).get("operations", []))
-    covered = [operation for case in CASES for operation in case["operations"]]
-    assert len(covered) == len(set(covered)), "an operation is recorded under two cases"
-    assert set(covered) | set(UNCOVERED) == catalog
-    assert not set(covered) & set(UNCOVERED)

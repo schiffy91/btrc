@@ -22,12 +22,12 @@ _REPO_ROOT = str(Path(__file__).resolve().parents[3])
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+from src.tests.dependencies import DependencyAudit
 from src.tests.gui_provider_root import GUIProviderRoot
 from src.tests.native_bindings import NativeBindingPackage
 from src.tests.python.linux_provider_fixtures import require_linux_reader, transpile_provider_program
 from src.tests.python.test_headless_session import ROOT, SESSION, _require_session_tools
 from tools.native_plan import NativePlanBuilder
-from tools.qualification.dependencies import DependencyAudit
 
 NATIVE = ROOT / "src/tests/native/gui/linux"
 PROVIDER = ROOT / "src/stdlib/GUI/Linux/Wayland"
@@ -133,7 +133,7 @@ def test_software_window_lifecycle(client):
         [
             sys.executable,
             "-m",
-            "tools.qualification.dependencies",
+            "src.tests.dependencies",
             "binary",
             "--target",
             f"linux-{platform.machine()}",

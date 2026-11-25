@@ -99,11 +99,7 @@ can route a persisted ID to a null PCM, or to a regular raw float file backed
 by a null PCM. These routes support PCM aliases and pass-through `plug`
 wrappers. Like the ALSA null plugin, these PCMs can process offline audio
 faster than real time. `Library.Audio` itself uses only first-party kernel PCM,
-PulseAudio/PipeWire, and self-contained null/raw-file routes. Callers that need
-includes, configuration functions, command sinks, custom ALSA plugins, or
-JACK-only routes use the optional `packages/alsa-plugins` package, either by
-linking `alsa.AlsaPlugins` or by preloading `libbtrc-alsa-plugins.so.1` through
-the versioned weak-symbol ABI in `PcmPlugin/BtrcLinuxPcmPlugin.h`.
+PulseAudio/PipeWire, and self-contained null/raw-file routes.
 
 Each session runs one worker, with a bounded wait for each device. Kernel
 xruns prepare the device again. A suspended kernel PCM resumes when the

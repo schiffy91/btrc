@@ -1,6 +1,6 @@
 """Host a stand-in StatusNotifierWatcher on the session bus while a command runs.
 
-    tools/ui/headless-session.sh --x11 -- \\
+    .github/ci/headless-session.sh --x11 -- \\
         python3 tools/ui/status_notifier_watcher.py -- python3 -m pytest src/tests/python/test_native_tray_runtime.py
 
 A headless session's private bus has no desktop shell on it, so nothing owns

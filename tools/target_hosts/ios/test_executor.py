@@ -23,6 +23,8 @@ import pytest
 
 from tools.target_hosts.ios import executor as executor_module
 from tools.target_hosts.ios.executor import (
+    BUNDLE_MANIFEST,
+    BUNDLE_SCHEMA,
     TARGET_EXECUTORS,
     ExecutionRequest,
     IOSSimulatorExecutor,
@@ -32,9 +34,25 @@ from tools.target_hosts.ios.executor import (
     digest,
 )
 from tools.target_hosts.ios.simhost import AppleEnvironment, IOSSimulatorHost, SimulatorError
-from tools.target_hosts.ios.spike import SimulatorSpike
 
-LABEL = SimulatorSpike.target
+LABEL = "ios-aarch64-simulator"
+TRIPLE = "arm64-apple-ios17.0.0-simulator"
+FIXTURE_CASES = (
+    "stdout",
+    "stderr",
+    "exit3",
+    "abort",
+    "timeout",
+    "large",
+    "argv",
+    "env",
+    "cwd",
+    "stdin",
+    "exit124",
+    "exit137",
+)
+FIXTURE_EXTRA = {"cwd-bundle": "cwd"}
+FIXTURE_SOURCE = Path(__file__).resolve().parent / "fixtures" / "fixture.c"
 CC = shutil.which("cc")
 needs_cc = pytest.mark.skipif(CC is None or os.name != "posix", reason="requires a POSIX host C compiler")
 
@@ -42,7 +60,7 @@ needs_cc = pytest.mark.skipif(CC is None or os.name != "posix", reason="requires
 def local_builder(source: Path, output: Path, triple: str) -> None:
     """Build the supervisor for this host instead of the simulator triple."""
 
-    assert triple == SimulatorSpike.triple
+    assert triple == TRIPLE
     subprocess.run([CC, *XcodeSupervisorBuilder.FLAGS, str(source), "-o", str(output)], check=True, timeout=120)
 
 
@@ -54,8 +72,87 @@ def compile_program(directory: Path, name: str, source: str) -> Path:
     return directory / name
 
 
+def build_fixture_bundle(output: Path) -> None:
+    """Compile every C11 fixture in `fixtures/fixture.c` into a local test bundle."""
+
+    output.mkdir(parents=True, exist_ok=True)
+    programs = {}
+    for mode, name in enumerate(FIXTURE_CASES, 1):
+        executable = output / name
+        subprocess.run(
+            [
+                CC,
+                *XcodeSupervisorBuilder.FLAGS,
+                f"-DFIXTURE_MODE={mode}",
+                str(FIXTURE_SOURCE),
+                "-o",
+                str(executable),
+            ],
+            check=True,
+            timeout=120,
+            env=AppleEnvironment.variables(),
+        )
+        programs[name] = {
+            "source": f"tools/target_hosts/ios/fixtures/fixture.c#{mode}",
+            "frontend": "c",
+            "status": "built",
+            "artifact": name,
+            "sha256": digest(executable.read_bytes()),
+        }
+    manifest = {
+        "schema": BUNDLE_SCHEMA,
+        "protocol": 1,
+        "target": {"label": LABEL, "triple": TRIPLE, "operating_system": "ios", "architecture": "aarch64"},
+        "toolchain": {"cc": [CC], "cflags": list(XcodeSupervisorBuilder.FLAGS)},
+        "programs": programs,
+    }
+    (output / BUNDLE_MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def fixture_request(invocation: str) -> ExecutionRequest:
+    name = FIXTURE_EXTRA.get(invocation, invocation)
+    return ExecutionRequest(
+        name,
+        argv=("one argument", "é𝄞", "--literal") if name == "argv" else (),
+        stdin=b"binary\x00input\n\xff" if name == "stdin" else b"",
+        env={"BTRC_FIXTURE_VALUE": "value with spaces é𝄞"} if name == "env" else {},
+        timeout_s=0.5 if name == "timeout" else 15,
+        cwd_policy="bundle" if invocation == "cwd-bundle" else "isolated",
+    )
+
+
+def check_fixture_result(invocation: str, result) -> None:
+    name = FIXTURE_EXTRA.get(invocation, invocation)
+    expected_stdout = {
+        "stdout": b"stdout\n",
+        "large": b"x" * 1048576,
+        "argv": "one argument\né𝄞\n--literal\n".encode(),
+        "env": "value with spaces é𝄞\n".encode(),
+        "stdin": b"binary\x00input\n\xff",
+    }.get(name, b"")
+    if name == "cwd":
+        directory = b"/programs" if invocation == "cwd-bundle" else b"/work"
+        assert result.stdout.rstrip(b"\n").endswith(directory), f"{invocation}: cwd mismatch: {result.stdout!r}"
+    else:
+        assert result.stdout == expected_stdout, f"{invocation}: stdout mismatch: {result.stdout[:200]!r}"
+    assert result.stderr == (b"stderr\n" if name == "stderr" else b""), (
+        f"{invocation}: stderr mismatch: {result.stderr[:200]!r}"
+    )
+    if name == "timeout":
+        assert result.timed_out and result.exit_status is None, f"timeout: expected deadline, got {result!r}"
+    elif name == "abort":
+        assert not result.timed_out and result.exit_status is None and result.signal == 6, (
+            f"abort: expected SIGABRT, got {result!r}"
+        )
+    else:
+        expected_exit = {"exit3": 3, "exit124": 124, "exit137": 137}.get(name, 0)
+        assert not result.timed_out and result.signal is None and result.exit_status == expected_exit, (
+            f"{invocation}: exit status mismatch: {result!r}"
+        )
+
+
 def add_program(bundle: Path, executable: Path) -> None:
-    """Add a locally built program to a spike bundle, as the runner's bundle.json records one."""
+    """Add a locally built program to a fixture bundle, as the runner's bundle.json records one."""
 
     manifest = json.loads((bundle / "bundle.json").read_text())
     if executable.parent != bundle:
@@ -111,7 +208,7 @@ def bundle(tmp_path_factory):
     if CC is None or os.name != "posix":
         pytest.skip("requires a POSIX host C compiler")
     directory = tmp_path_factory.mktemp("ios-bundle")
-    SimulatorSpike.build(directory, local_cc=CC)
+    build_fixture_bundle(directory)
     return directory
 
 
@@ -166,12 +263,12 @@ def test_options_configure_the_device_and_deadlines_without_touching_a_simulator
 
 @needs_cc
 def test_every_fixture_runs_under_the_supervisor_with_its_exact_outcome(prepared):
-    for invocation in (*SimulatorSpike.cases, *SimulatorSpike.extra):
-        result = prepared.run(SimulatorSpike.request(invocation))
-        SimulatorSpike.check(invocation, result)
+    for invocation in (*FIXTURE_CASES, *FIXTURE_EXTRA):
+        result = prepared.run(fixture_request(invocation))
+        check_fixture_result(invocation, result)
         assert result.provenance["executor"] == "ios-simulator"
         assert 0 <= result.provenance["spawn_s"] <= result.provenance["launch_s"] and result.duration_s >= 0
-    timed_out = prepared.run(SimulatorSpike.request("timeout"))
+    timed_out = prepared.run(fixture_request("timeout"))
     assert (timed_out.exit_status, timed_out.signal) == (None, signal.SIGKILL)
     assert 0.5 <= timed_out.duration_s < 10
 
@@ -261,7 +358,7 @@ def test_an_inherited_ignored_sigchld_still_yields_the_wait_status(bundle):
     executor.prepare(bundle, LABEL)
     try:
         for invocation in ("exit3", "abort", "stdout"):
-            SimulatorSpike.check(invocation, executor.run(SimulatorSpike.request(invocation)))
+            check_fixture_result(invocation, executor.run(fixture_request(invocation)))
     finally:
         executor.close()
 
@@ -301,7 +398,7 @@ def test_a_refused_admission_keeps_the_admitted_bundle(prepared, bundle, tmp_pat
     with pytest.raises(ValueError, match="SHA-256"):
         prepared.prepare(copy, LABEL)
     assert prepared.staging == staging and staging.is_dir()
-    SimulatorSpike.check("stdout", prepared.run(SimulatorSpike.request("stdout")))
+    check_fixture_result("stdout", prepared.run(fixture_request("stdout")))
 
 
 @needs_cc
@@ -434,7 +531,7 @@ def test_a_broken_transport_or_supervisor_raises_with_its_diagnostics(bundle, sc
         with pytest.raises(SimulatorError, match=message):
             executor.run(ExecutionRequest("stdout"))
         # The next run uses the real supervisor again.
-        SimulatorSpike.check("stdout", executor.run(SimulatorSpike.request("stdout")))
+        check_fixture_result("stdout", executor.run(fixture_request("stdout")))
     finally:
         executor.close()
 
@@ -483,10 +580,10 @@ def test_a_launch_withdrawn_before_the_program_started_is_retried_and_runs_once(
     )
     executor.launch_timeout_s = 0.3
     try:
-        result = executor.run(SimulatorSpike.request("stdout"))
+        result = executor.run(fixture_request("stdout"))
     finally:
         executor.close()
-    SimulatorSpike.check("stdout", result)
+    check_fixture_result("stdout", result)
     assert result.provenance["launch_retries"] == 1
     assert "launch attempt 1 withdrawn" in result.provenance["warnings"][0]
 
@@ -514,7 +611,7 @@ def test_a_late_launch_whose_supervisor_was_running_is_not_retried(bundle, tmp_p
 def test_an_output_beyond_the_limit_raises(prepared, monkeypatch):
     monkeypatch.setattr(executor_module, "OUTPUT_LIMIT_BYTES", 1024)
     with pytest.raises(SimulatorError, match="exceeded 1024 bytes"):
-        prepared.run(SimulatorSpike.request("large"))
+        prepared.run(fixture_request("large"))
 
 
 @needs_cc
@@ -772,47 +869,3 @@ def test_diagnostics_keep_partial_output_and_change_no_simulator_state(tmp_path)
     assert (tmp_path / "devices.stdout").read_bytes() == b"partial inventory"
     assert "TimeoutExpired" in rows["devices"]["error"] and "probe unavailable" in rows["memory"]["error"]
     assert not any(word in command for command in calls for word in ("boot", "shutdown", "erase"))
-
-
-# The spike ------------------------------------------------------------------
-
-
-def test_fixture_checks_stay_active_under_python_optimization():
-    code = (
-        "from types import SimpleNamespace; "
-        "from tools.target_hosts.ios.spike import SimulatorSpike; "
-        "SimulatorSpike.check('stdout', SimpleNamespace(stdout=b'wrong', stderr=b''))"
-    )
-    result = subprocess.run([sys.executable, "-O", "-c", code], capture_output=True, timeout=60, check=False)
-    assert result.returncode != 0 and b"stdout mismatch" in result.stderr
-
-
-@needs_cc
-def test_the_spike_runs_every_invocation_and_writes_a_complete_summary(bundle, tmp_path):
-    SimulatorSpike.run(bundle, tmp_path, device_class="iphone", executor=executor_for())
-    summary = json.loads((tmp_path / "iphone.json").read_text())
-    assert summary["complete"] and summary["error"] is None
-    assert [row["fixture"] for row in summary["results"]] == [*SimulatorSpike.cases, *SimulatorSpike.extra]
-    assert (tmp_path / "iphone" / "large" / "stdout").stat().st_size == 1048576
-
-
-def test_a_failed_spike_keeps_its_stage_notes_and_cleanup_error(tmp_path):
-    class Failing:
-        def prepare(self, bundle, label):
-            pass
-
-        def run(self, request):
-            error = SimulatorError("launch deadline")
-            error.add_note("simctl diagnostic")
-            raise error
-
-        def close(self):
-            raise SimulatorError("shutdown failed")
-
-    with pytest.raises(SimulatorError, match="launch deadline") as caught:
-        SimulatorSpike.run(tmp_path, tmp_path, device_class="ipad", executor=Failing())
-    assert any("shutdown failed" in note for note in caught.value.__notes__)
-    summary = json.loads((tmp_path / "ipad.json").read_text())
-    assert not summary["complete"] and summary["failed_stage"] == "execute"
-    assert summary["failed_invocation"] == "stdout" and "simctl diagnostic" in summary["error_notes"]
-    assert "shutdown failed" in summary["cleanup_error"]

@@ -1,7 +1,7 @@
-# The suite's cases, in the order the program runs them, and the catalog
-# operations each one exercises (docs/design/native-ui-catalog/operations).
+# The suite's cases, in the order the program runs them, and the GUI
+# operations each one exercises.
 # The driver runs one process per case and holds this list to the program's
-# own `--list`, and the operations to the catalog.
+# own `--list`.
 
 # The operations no case exercises, each with what stands in the way: none.
 [uncovered]

@@ -18,7 +18,7 @@ import pytest
 
 from src.tests import runner_capabilities as capabilities
 from src.tests.process_limits import TRANSPILE_TIMEOUT
-from tools.qualification.skips import (
+from src.tests.skips import (
     HARDWARE_CAPABILITIES,
     HOSTED_CATEGORIES,
     HOSTED_RUNNERS,
@@ -31,7 +31,6 @@ from tools.qualification.skips import (
     SkipGate,
     SkipLedgerError,
 )
-from tools.qualification.tiers import TierManifest
 from tools.ui.e40 import MacOSE40Cases
 
 REPO = Path(__file__).resolve().parents[3]
@@ -534,10 +533,7 @@ def test_the_native_linux_manifest_qualifies_the_headless_gate_and_leaves_the_de
             rule.reason.pattern,
             rule.category,
         ), name
-    assert set(rules) - set(shared) == {
-        "native-gui-no-display",
-        "linux-real-desktop-session-headless",
-    }
+    assert set(rules) - set(shared) == {"native-gui-no-display"}
 
     # Without a display the Linux GUI suites skip here; the container runs every one of them under Xvfb.
     no_display = "native GUI backend is unavailable: no WAYLAND_DISPLAY or DISPLAY"
@@ -548,39 +544,18 @@ def test_the_native_linux_manifest_qualifies_the_headless_gate_and_leaves_the_de
         container.classify("src/tests/python/test_native_ui_linux_spike.py::test_case[plain-python]", no_display)
         is None
     )
-
-    # The real-session check is this runner's own test. The headless gate cannot run it, and nothing
-    # else does: the manifest says so (no covering runner) instead of claiming it, as the container's
-    # rule claims it of this runner.
-    node = "src/tests/python/test_native_ui_shell_linux.py::test_linux_real_desktop_session"
-    reason = (
-        "requires a physical Linux desktop session (awaiting hardware); run: nix develop --command "
-        "tools/ui/linux-desktop-check.sh --artifacts <dir> > linux-desktop-check.json"
-    )
-    desktop = native.classify(node, reason)
-    assert desktop is rules["linux-real-desktop-session-headless"]
-    assert desktop.category == "capability" and desktop.covered_by == ()
-    assert container.classify(node, reason).covered_by == ("linux",)
     assert not any("linux" in rule.covered_by for rule in native.rules)
 
 
 def test_ci_manifests_name_coverage_that_ci_reports_can_confirm():
-    """Linux and Windows claim macOS coverage from the hosted runner, whose reports every push uploads.
+    """Linux and Windows claim macOS coverage from the hosted runner, whose reports every push uploads."""
 
-    A rule may also name one of ci/tiers.toml's hardware runners, which CI
-    never reports from: the ledger bundle records it as awaiting until its
-    evidence arrives. The only such claim is the physical Linux desktop's."""
-
-    awaiting = {runner.runner for runner in TierManifest.load().hardware}
     confirmable = {"macos-hosted", "linux-devcontainer", "windows"}
     for runner in ("linux-devcontainer", "windows"):
         manifest = ExpectedSkipManifest.load(MANIFEST_ROOT / f"{runner}.json")
         claimed = {other for rule in manifest.rules for other in rule.covered_by}
         assert "macos-hosted" in claimed, runner
-        assert claimed <= confirmable | awaiting, runner
-        for rule in manifest.rules:
-            if set(rule.covered_by) - confirmable:
-                assert rule.id == "linux-real-desktop-session", (runner, rule.id)
+        assert claimed <= confirmable, runner
 
 
 def test_macos_ci_classifies_every_session_as_the_hosted_runner():
@@ -618,7 +593,6 @@ def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
         "ios-simulator-bound",
         "linux-snd-aloop",
         "linux-pulse-monitor",
-        "linux-optional-pcm-plugin",
         "windows-daemon-native",
         "apple-target-macro-oracle",
         "linux-tray-session-bus",
@@ -630,7 +604,7 @@ def test_the_linux_manifest_names_coverage_for_every_tool_the_mac_alone_has():
         assert rules[rule_id].covered_by == ("macos-hosted",), rule_id
     # No rule waits on a lane that has landed.
     assert not [rule_id for rule_id, rule in rules.items() if "Delete this rule once" in rule.note]
-    # CI runs every shard under tools/virtual-display.sh (Xvfb and Mesa lavapipe),
+    # CI runs every shard under .github/ci/virtual-display.sh (Xvfb and Mesa lavapipe),
     # so a missing display or compute adapter is a broken runner, not an expected skip.
     assert (
         manifest.classify(
@@ -662,7 +636,7 @@ def test_each_tracked_manifest_fails_the_gate_on_an_injected_skip(tmp_path, runn
     expected = list(EXPECTED_BY_RUNNER[runner].values())
     injected = ("src/tests/python/test_injected.py::test_injected", "an injected unexpected skip")
     report = tmp_path / f"skip-report-{runner}.json"
-    gate = [sys.executable, "-m", "tools.qualification", "skip-gate", str(report)]
+    gate = [sys.executable, "-m", "src.tests.skips", "skip-gate", str(report)]
 
     report.write_text(json.dumps(_report(expected, runner=runner)))
     assert SkipGate().check([report]).passed
@@ -1320,7 +1294,7 @@ def test_an_injected_unexpected_skip_fails_the_gate(tmp_path, monkeypatch):
     manifests = tmp_path / "manifests"
     manifests.mkdir()
     _manifest(manifests, "macos", [_rule()])
-    gate = [sys.executable, "-m", "tools.qualification", "skip-gate", "--manifests", str(manifests)]
+    gate = [sys.executable, "-m", "src.tests.skips", "skip-gate", "--manifests", str(manifests)]
     report = tmp_path / "out" / "skip-report.json"
 
     _run_inner(tmp_path, "-p", "no:xdist")
@@ -1476,9 +1450,7 @@ def test_every_windows_pytest_step_writes_its_own_skip_report_and_gates_it():
     # A matrix job's report names its row: ${{ matrix.target }} holds spaces.
     reports = [re.search(r"--skip-report=(\S+?(?:\$\{\{ [a-z.]+ \}\})?\S*?\.json)", line).group(1) for line in sessions]
     gated = [
-        line.split("skip-gate ", 1)[1]
-        for line in commands
-        if line.startswith("python -m tools.qualification skip-gate")
+        line.split("skip-gate ", 1)[1] for line in commands if line.startswith("python -m src.tests.skips skip-gate")
     ]
 
     assert len(sessions) == 6 and len(set(reports)) == len(reports)
@@ -1487,7 +1459,7 @@ def test_every_windows_pytest_step_writes_its_own_skip_report_and_gates_it():
     assert gated == reports
     for report in reports:
         following = commands[commands.index(next(line for line in sessions if report in line)) + 1]
-        assert following == f"python -m tools.qualification skip-gate {report}"
+        assert following == f"python -m src.tests.skips skip-gate {report}"
     assert "src/tests/python/test_artifact_reparse.py" in workflow
     upload = workflow.split("name: Retain the skip report", 1)[1]
     assert "if: always()" in upload and "path: build/skip-report*.json" in upload

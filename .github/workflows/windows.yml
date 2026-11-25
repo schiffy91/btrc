@@ -20,20 +20,20 @@ on:
       focus:
         description: Which jobs to run
         type: choice
-        options: [full, native-gui, extended, user-census-diagnostic]
+        options: [full, native-gui, extended]
         default: full
   # release.yml calls this workflow with the tier it runs.
   workflow_call:
     inputs:
       tier:
-        description: The ci/tiers.toml tier to run
+        description: The .github/ci/tiers.toml tier to run
         type: string
         required: true
 
 permissions:
   contents: read
 
-# The scope job plans this file's jobs from ci/tiers.toml under this name.
+# The scope job plans this file's jobs from .github/ci/tiers.toml under this name.
 env:
   CI_WORKFLOW: windows.yml
 
@@ -48,9 +48,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Classifies the event into one tier, then reads ci/tiers.toml for the jobs
+  # Classifies the event into one tier, then reads .github/ci/tiers.toml for the jobs
   # and matrix rows that tier runs in this workflow (CI_WORKFLOW). ci.yml,
-  # macos.yml and windows.yml carry identical copies; ci/tiers.toml describes
+  # macos.yml and windows.yml carry identical copies; .github/ci/tiers.toml describes
   # each tier and lists every job.
   #   release, extended  release.yml's call (its tier input), or a dispatch
   #         with focus=extended.
@@ -67,7 +67,6 @@ jobs:
   # jobs" keeps this job's earlier result).
   scope:
     needs: local
-    if: github.event_name != 'workflow_dispatch' || inputs.focus != 'user-census-diagnostic'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -90,8 +89,8 @@ jobs:
           FOCUS: ${{ inputs.focus }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
-          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
-          TEST_READ_MARKDOWN: '^(PLAN|AGENTS|CLAUDE)\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|btrsmith-rename-table-w2|plan-reference|platform-toolchain-matrix|platform-adaptations|stdlib-dependencies)\.md$'
+          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|\.github/ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
+          TEST_READ_MARKDOWN: '^AGENTS\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|platform-toolchain-matrix|platform-adaptations|stdlib-dependencies)\.md$'
         run: |
           set -euo pipefail
           shopt -s inherit_errexit
@@ -143,7 +142,7 @@ jobs:
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
           echo "Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
       # What the owner's machines already passed for this exact commit
-      # (`ci-local`, ci/local.json): a status `local/<platform>/<job>` that the
+      # (`ci-local`, .github/ci/local.json): a status `local/<platform>/<job>` that the
       # repository's owner posted, and has not since replaced with a failure,
       # stands in for the same job here, and the plan below leaves it out.
       # The `local` job reads them, for this run's commit alone, so a pull
@@ -169,7 +168,7 @@ jobs:
           TIER: ${{ steps.classify.outputs.tier }}
         run: |
           set -euo pipefail
-          plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
+          plan=$(python3 .github/ci/tiers.py --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
           echo "plan=$plan" >> "$GITHUB_OUTPUT"
           jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)"), ((.local // [])[] | "Passed locally, not run here: `\(.)`")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
 
@@ -231,7 +230,7 @@ jobs:
           PY
 
       # Each pytest step writes its own skip report and gates it against
-      # src/tests/fixtures/expected-skips/windows.json, so an unexpected skip
+      # .github/ci/expected-skips/windows.json, so an unexpected skip
       # fails the step; "Retain the skip report" still uploads every report.
       - name: Prove native artifact storage portability
         run: |
@@ -241,7 +240,7 @@ jobs:
             src/tests/python/test_btrcc_bundle_publication.py::test_generation_validator_uses_host_staging_mode_contract \
             src/tests/python/test_btrcc_bundle_publication.py::test_generation_validator_matches_native_windows_staging_modes \
             --skip-report=build/skip-report-windows-artifacts.json
-          python -m tools.qualification skip-gate build/skip-report-windows-artifacts.json
+          python -m src.tests.skips skip-gate build/skip-report-windows-artifacts.json
 
       # Install zig directly from ziglang.org (no setup action — its mirror 404s
       # for some releases). 0.16.0 matches the project's flake and bundles the
@@ -265,7 +264,7 @@ jobs:
       - name: Verify native Windows compatibility seams
         run: |
           python -m pytest -q src/tests/python/test_native_win_compat.py --skip-report=build/skip-report-windows-compat.json
-          python -m tools.qualification skip-gate build/skip-report-windows-compat.json
+          python -m src.tests.skips skip-gate build/skip-report-windows-compat.json
 
       - name: Transpile + build relocatable btrcc bundle (native Windows)
         run: |
@@ -449,7 +448,7 @@ jobs:
           retention-days: 14
 
   # The native three-stage fixed point, in its own job: it takes most of two
-  # hours, so ci/tiers.toml runs it in the main tier and above, while the
+  # hours, so .github/ci/tiers.toml runs it in the main tier and above, while the
   # windows job runs on a pull request whose Windows paths change.
   # A stored C window subclass from the real MinGW commctrl.h, and real COM
   # (interop step 5's exit: a registry-free server DLL with a BTRC sink, and
@@ -487,7 +486,7 @@ jobs:
       - name: Build the Win32, COM, matching, console, Process, FileSystem, HTTP and GUI shell programs with both compilers for x64 and ARM64
         run: nix develop --command env BTRC_WIN32_EVIDENCE_DIR=build/win32 "BTRC_TEST_BTRCC=$PWD/bin/btrcc" python3 -m pytest -q -rs src/tests/python/test_native_win32_subclass.py src/tests/python/test_native_com_windows.py src/tests/python/test_regex_parity.py src/tests/python/test_windows_posix_overlay.py src/tests/python/test_windows_terminal.py src/tests/python/test_windows_launch_seam.py src/tests/python/test_windows_process.py src/tests/python/test_windows_filesystem_handles.py src/tests/python/test_windows_http.py src/tests/python/test_native_ui_shell_windows.py src/tests/python/test_native_ui_conformance_windows.py --skip-report=build/skip-report-windows-win32-native-build.json
       - name: Enforce the Windows cross-build skip report
-        run: nix develop --command python3 -m tools.qualification skip-gate build/skip-report-windows-win32-native-build.json
+        run: nix develop --command python3 -m src.tests.skips skip-gate build/skip-report-windows-win32-native-build.json
       - name: Bundle the FileSystem corpus programs with both compilers for x64 and ARM64
         run: |
           set -euo pipefail
@@ -719,9 +718,9 @@ jobs:
           BTRC_WIN32_EVIDENCE_DIR: win32
         run: |
           python -m pytest -q -rs src/tests/python/test_native_ui_shell_windows.py -k "runs and ${{ matrix.target }}" --skip-report=build/skip-report-windows-win32-native-${{ matrix.target }}.json
-          python -m tools.qualification skip-gate build/skip-report-windows-win32-native-${{ matrix.target }}.json
+          python -m src.tests.skips skip-gate build/skip-report-windows-win32-native-${{ matrix.target }}.json
           python -m pytest -q -rs --durations=12 src/tests/python/test_native_ui_conformance_windows.py -k "case and ${{ matrix.target }}" --skip-report=build/skip-report-windows-gui-conformance-${{ matrix.target }}.json
-          python -m tools.qualification skip-gate build/skip-report-windows-gui-conformance-${{ matrix.target }}.json
+          python -m src.tests.skips skip-gate build/skip-report-windows-gui-conformance-${{ matrix.target }}.json
       - name: Retain the GUI shell evidence and UI Automation trees
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -739,7 +738,7 @@ jobs:
           BTRC_WIN32_EVIDENCE_DIR: win32
         run: |
           python -m pytest -q src/tests/python/test_windows_http.py -k "preserved and ${{ matrix.target }}" --skip-report=build/skip-report-windows-http-${{ matrix.target }}.json
-          python -m tools.qualification skip-gate build/skip-report-windows-http-${{ matrix.target }}.json
+          python -m src.tests.skips skip-gate build/skip-report-windows-http-${{ matrix.target }}.json
       - name: Retain the HTTP native output and statuses
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -848,7 +847,7 @@ jobs:
     name: target-corpus (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
-    # A report-only row (ci/tiers.toml) shows its failures without failing the run.
+    # A report-only row (.github/ci/tiers.toml) shows its failures without failing the run.
     continue-on-error: ${{ matrix.report_only == 'true' }}
     env:
       BTRC_TEST_RUN_TIMEOUT: "60"
@@ -951,7 +950,7 @@ jobs:
           BTRC_BOOTSTRAP_TIMEOUT_SECONDS: "3600"
         run: |
           python -m pytest -q src/tests/btrc/test_bootstrap_harness.py --skip-report=build/skip-report-windows-bootstrap-harness.json
-          python -m tools.qualification skip-gate build/skip-report-windows-bootstrap-harness.json
+          python -m src.tests.skips skip-gate build/skip-report-windows-bootstrap-harness.json
           # Run from the repository root so the test's src.tests imports resolve;
           # the installed package carries src.compiler but not src.tests.
           python -m unittest -v src.tests.btrc.test_bootstrap
@@ -966,60 +965,4 @@ jobs:
           name: skip-report-windows-bootstrap
           path: build/skip-report*.json
           if-no-files-found: warn
-          retention-days: 14
-
-  # Manual-only observer-effect comparison. Normal tier jobs are not selected.
-  user-census-build:
-    if: github.event_name == 'workflow_dispatch' && inputs.focus == 'user-census-diagnostic'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      BTRC_TEST_RUNNER: linux-hosted
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
-        timeout-minutes: 2
-        continue-on-error: true
-        with:
-          use-flakehub: false
-      - name: Build only the reference x64 shell pair and its UIA client
-        run: nix develop --command python3 -m tools.ui.windows_user_diagnostic build --output build/user-census-build
-      - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: user-census-build
-          path: |
-            build/user-census-build/
-            build/user-census-executables/
-          if-no-files-found: error
-          retention-days: 14
-
-  user-census-diagnostic:
-    needs: user-census-build
-    if: github.event_name == 'workflow_dispatch' && inputs.focus == 'user-census-diagnostic'
-    runs-on: windows-latest
-    timeout-minutes: 60
-    env:
-      BTRC_TEST_RUNNER: windows
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.13'
-      - run: python -m pip install '.[dev]'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: user-census-build
-          path: build
-      - name: Compare count-only and message dispatch with unchanged shell assertions
-        run: python -m tools.ui.windows_user_diagnostic run --output build/user-census-run
-      - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: user-census-evidence
-          path: |
-            build/user-census-run/
-            build/ui-shell/
-          if-no-files-found: error
           retention-days: 14

@@ -15,7 +15,7 @@ Where a JDK 17 or later is configured (``nix develop .#platforms`` sets
 JAVA_HOME), the same assertions also run against javac's own output, which
 keeps the assembled model honest. That variant is added where a JDK exists
 rather than skipped where none does: a hosted runner's expected-skip manifest
-admits no missing-tool skip (tools/qualification/skips.py), and the default
+admits no missing-tool skip (src/tests/skips.py), and the default
 shell deliberately has no JDK. The writer also builds what javac never emits:
 hostile class files, jars and names.
 """

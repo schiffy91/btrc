@@ -9,9 +9,6 @@
 !flake.lock
 !flake.nix
 !LICENSE
-!examples/
-!examples/native-package/
-!examples/native-package/**
 !src/
 !src/compiler/
 !src/compiler/python/
@@ -31,6 +28,10 @@
 !src/runtime/gpu/**
 !src/stdlib/
 !src/stdlib/**
+!src/tests/
+!src/tests/fixtures/
+!src/tests/fixtures/native-package/
+!src/tests/fixtures/native-package/**
 !tools/
 !tools/native_plan.py
 !tools/NativeHeaderReader.cpp

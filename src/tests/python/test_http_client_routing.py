@@ -11,11 +11,11 @@ import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.c_toolchains import configured_c_compiler
+from src.tests.dependencies import STDLIB, DependencyAudit
 from src.tests.native.http.socks_peer import SocksPeer
 from src.tests.native_build import NativeCorpusBuild
 from src.tests.native_targets import stub_sysroot
 from tools.native_plan import NativePlanError, TargetToolchain
-from tools.qualification.dependencies import STDLIB, DependencyAudit
 
 PROBE = """import Library.HTTP.HTTPClient;
 import Library.Platform;

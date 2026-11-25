@@ -24,7 +24,6 @@ from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.linux_provider_fixtures import provider_environment
 from src.tests.python.native_import_fixtures import apple_environment
 from tools.native_plan import NativePlanBuilder
-from tools.qualification.schema import LedgerDocument
 
 ROOT = Path(__file__).resolve().parents[3]
 SHELL = ROOT / "src/tests/native/gui/shell"
@@ -197,7 +196,7 @@ def build_shell(tmp_path, frontend, sanitized, request, *, native_wayland=False)
         cxx="/usr/bin/clang++" if system == "macos" else "c++",
     )
     if native_wayland:
-        from tools.qualification.dependencies import BinaryImports, DependencyAudit
+        from src.tests.dependencies import BinaryImports, DependencyAudit
 
         assert any(
             name.startswith("libwayland-client.so.") for name in BinaryImports.read(tmp_path / "wayland-input.so")
@@ -240,7 +239,6 @@ def write_evidence(
     if reason:
         record["evidence"]["reason"] = reason
     path.write_text(json.dumps(record) + "\n")
-    assert len(LedgerDocument.load(path)) == 1
     return path
 
 

@@ -552,7 +552,7 @@ def test_macos_panel_and_progress_controls(
 def test_portable_native_example_edit_apply_and_quit(native_project, native_compile, sanitize):
     source, _sdk, _triple = native_project
     root = source.parent.parent
-    example = (REPO / "examples/gui/Native.btrc").read_text()
+    example = (REPO / "src/tests/fixtures/gui/Native.btrc").read_text()
     assert example.count("int main()") == 1
     source.write_text(
         example.replace("int main()", "int exampleMain()")

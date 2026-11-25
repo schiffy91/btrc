@@ -30,6 +30,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.c_toolchains import host_c_compiler
+from src.tests.dependencies import DependencyAudit
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 from src.tests.python.windows_evidence_fixtures import (
     OVERLAY,
@@ -38,7 +39,6 @@ from src.tests.python.windows_evidence_fixtures import (
     build_corpus_program,
     publish,
 )
-from tools.qualification.dependencies import DependencyAudit
 
 REPO = Path(__file__).resolve().parents[3]
 DRIVER = REPO / "src" / "tests" / "native" / "posix_matching" / "PosixMatching.c"

@@ -23,8 +23,8 @@ from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from src.tests.python.native_import_fixtures import native_project as native_project
 from src.tests.python.native_ui2_e40_evidence import E40Evidence
+from src.tests.skips import RunnerIdentity
 from tools.native_plan import NativePlanBuilder
-from tools.qualification.skips import RunnerIdentity
 from tools.ui.e40 import MacOSE40Cases, MenuDismissal, MetalPresentation
 
 ROOT = Path(__file__).resolve().parents[3]

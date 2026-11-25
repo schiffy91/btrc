@@ -19,7 +19,7 @@ on:
   workflow_call:
     inputs:
       tier:
-        description: The ci/tiers.toml tier to run
+        description: The .github/ci/tiers.toml tier to run
         type: string
         required: true
 
@@ -30,7 +30,7 @@ on:
 permissions:
   contents: read
 
-# The scope job plans this file's jobs from ci/tiers.toml under this name.
+# The scope job plans this file's jobs from .github/ci/tiers.toml under this name.
 env:
   CI_WORKFLOW: ci.yml
 
@@ -45,9 +45,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Classifies the event into one tier, then reads ci/tiers.toml for the jobs
+  # Classifies the event into one tier, then reads .github/ci/tiers.toml for the jobs
   # and matrix rows that tier runs in this workflow (CI_WORKFLOW). ci.yml,
-  # macos.yml and windows.yml carry identical copies; ci/tiers.toml describes
+  # macos.yml and windows.yml carry identical copies; .github/ci/tiers.toml describes
   # each tier and lists every job.
   #   release, extended  release.yml's call (its tier input), or a dispatch
   #         with focus=extended.
@@ -87,8 +87,8 @@ jobs:
           FOCUS: ${{ inputs.focus }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
-          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
-          TEST_READ_MARKDOWN: '^(PLAN|AGENTS|CLAUDE)\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|btrsmith-rename-table-w2|plan-reference|platform-toolchain-matrix|platform-adaptations|stdlib-dependencies)\.md$'
+          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|\.github/ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
+          TEST_READ_MARKDOWN: '^AGENTS\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|platform-toolchain-matrix|platform-adaptations|stdlib-dependencies)\.md$'
         run: |
           set -euo pipefail
           shopt -s inherit_errexit
@@ -140,7 +140,7 @@ jobs:
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
           echo "Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
       # What the owner's machines already passed for this exact commit
-      # (`ci-local`, ci/local.json): a status `local/<platform>/<job>` that the
+      # (`ci-local`, .github/ci/local.json): a status `local/<platform>/<job>` that the
       # repository's owner posted, and has not since replaced with a failure,
       # stands in for the same job here, and the plan below leaves it out.
       # The `local` job reads them, for this run's commit alone, so a pull
@@ -166,7 +166,7 @@ jobs:
           TIER: ${{ steps.classify.outputs.tier }}
         run: |
           set -euo pipefail
-          plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
+          plan=$(python3 .github/ci/tiers.py --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
           echo "plan=$plan" >> "$GITHUB_OUTPUT"
           jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)"), ((.local // [])[] | "Passed locally, not run here: `\(.)`")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
 
@@ -271,7 +271,7 @@ jobs:
   # boots, runs a command, reboots and still has the file it wrote. Nix gives
   # the build its `kvm` feature only where /dev/kvm can be opened, which a
   # hosted runner's user may do once the first step has run. A machine of the
-  # owner's has KVM as it is, so this is a local job (ci/local.json).
+  # owner's has KVM as it is, so this is a local job (.github/ci/local.json).
   vm-test:
     needs: scope
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'vm-test')
@@ -295,7 +295,7 @@ jobs:
   # One build for the whole run. Every Linux test job used to build the
   # devcontainer image and the suite's self-hosted compiler for itself, about
   # a third of this workflow's minutes. This job builds both once and
-  # tools/ci-prepared.sh saves them in one artifact; the jobs that need them
+  # .github/ci/ci-prepared.sh saves them in one artifact; the jobs that need them
   # restore it where they used to run `make devcontainer`, and `make
   # btrcc-test` there finds the compiler in its cache by fingerprint
   # (src/tests/selfhost_cache.py), so an artifact from another tree could
@@ -318,7 +318,7 @@ jobs:
       - run: mkdir -p build/ci-prepared
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-test
-      - run: tools/ci-prepared.sh save build/ci-prepared
+      - run: .github/ci/ci-prepared.sh save build/ci-prepared
       # The archives are compressed already; three days cover a rerun of a failed job.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -330,7 +330,7 @@ jobs:
 
   # The suite is split into independent shards that run as parallel jobs on
   # four-core runners; each restores the run's devcontainer image and
-  # self-host compiler from the prepare job. ci/tiers.toml lists the
+  # self-host compiler from the prepare job. .github/ci/tiers.toml lists the
   # shards: in the main tier they cover exactly what `make test` and `make
   # test-c11` cover. A pr-tier corpus row carries pytest_addopts, which
   # selects the corpus directories its change touched.
@@ -349,20 +349,20 @@ jobs:
         with:
           name: ci-prepared
           path: build/ci-prepared
-      - run: tools/ci-prepared.sh restore build/ci-prepared
+      - run: .github/ci/ci-prepared.sh restore build/ci-prepared
       - run: chmod -R a+w .
       # Each pytest worker also runs native compilers. Keep the four-core
       # runner within its real CPU/memory envelope and allow one slow
       # self-host transpile to make progress under shared load. The init owner
       # reaps daemon-test grandchildren after process-group termination.
-      # The runner has no display or GPU: tools/virtual-display.sh starts labwc
+      # The runner has no display or GPU: .github/ci/virtual-display.sh starts labwc
       # (headless Wayland) and selects Mesa's software Vulkan (lavapipe), so the
       # Linux GUI and WebGPU adapter tests run here instead of skipping.
       # ThreadSanitizer cannot map its shadow at a kernel's highest address
       # randomisation and then switches it off for itself with personality().
       # The container's default seccomp profile refuses that call, and the
       # sanitizer's tests would skip or fail on such a runner.
-      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
+      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}
         env:
           UNIT_GUI_DELEGATED: ${{ matrix.unit_gui_delegated }}
           PYTEST_ADDOPTS: ${{ matrix.shard == 'unit' && format('--dist=loadgroup --failure-report=build/failure-report-unit.jsonl {0}', matrix.pytest_addopts) || matrix.pytest_addopts }}
@@ -489,7 +489,7 @@ jobs:
           mkdir -p build/unit-diagnostic/pytest
           chmod -R a+w .
           git rev-parse HEAD > build/unit-diagnostic/revision.txt
-          podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS -e PYTEST_DEBUG_TEMPROOT --security-opt seccomp=unconfined btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit 2>&1 | tee build/unit-diagnostic/console.log
+          podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS -e PYTEST_DEBUG_TEMPROOT --security-opt seccomp=unconfined btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit 2>&1 | tee build/unit-diagnostic/console.log
       - name: Open diagnostic artifacts to the runner
         if: always()
         run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest chmod -R a+rX build/unit-diagnostic
@@ -530,7 +530,7 @@ jobs:
         with:
           name: ci-prepared
           path: build/ci-prepared
-      - run: tools/ci-prepared.sh restore build/ci-prepared
+      - run: .github/ci/ci-prepared.sh restore build/ci-prepared
       - run: chmod -R a+w .
       # The suite measures compile time, startup, emitted-C size, cc time,
       # generated-code speed and compile peaks against the tracked
@@ -616,9 +616,9 @@ jobs:
         with:
           name: ci-prepared
           path: build/ci-prepared
-      - run: tools/ci-prepared.sh restore build/ci-prepared
+      - run: .github/ci/ci-prepared.sh restore build/ci-prepared
       - run: chmod -R a+w .
-      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS=--junitxml=build/junit/native-gui.xml btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui
+      - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS=--junitxml=build/junit/native-gui.xml btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui
       - name: Retain the JUnit results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -638,7 +638,7 @@ jobs:
 
   # The Linux GUI and audio shard (PLAN Stage 31, qualification-ci-linux-gui-audio):
   # `make test-shard-gui` in four disjoint partitions on Wayland, each in its own
-  # tools/ui/headless-session.sh session (labwc's headless backend)
+  # .github/ci/headless-session.sh session (labwc's headless backend)
   # with lavapipe as the GPU adapter and the null ALSA PCM as the sound card.
   # Unlike the native-gui job its Wayland rows run on every push.
   # Each row keeps its session's AT-SPI dump, the native-shell ledgers, the
@@ -652,7 +652,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['linux-gui'] }}
     name: linux-gui (${{ matrix.cell }})
-    # ci/tiers.toml marks a row report-only while its session is not yet stable.
+    # .github/ci/tiers.toml marks a row report-only while its session is not yet stable.
     continue-on-error: ${{ matrix.report_only == 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -660,7 +660,7 @@ jobs:
         with:
           name: ci-prepared
           path: build/ci-prepared
-      - run: tools/ci-prepared.sh restore build/ci-prepared
+      - run: .github/ci/ci-prepared.sh restore build/ci-prepared
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS btrc-devcontainer:latest make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_SESSION=${{ matrix.session }} GUI_PARTITION=${{ matrix.index }} GUI_PARTITIONS=${{ matrix.count }} test-shard-gui
         env:
@@ -770,7 +770,7 @@ jobs:
         with:
           name: ci-prepared
           path: build/ci-prepared
-      - run: tools/ci-prepared.sh restore build/ci-prepared
+      - run: .github/ci/ci-prepared.sh restore build/ci-prepared
       - run: chmod -R a+w .
       - run: podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=${{ matrix.session }} E40_FRONTEND=${{ matrix.frontend }} E40_VARIANT=${{ matrix.variant }} test-e40-linux
       - name: Open qualification evidence to the runner

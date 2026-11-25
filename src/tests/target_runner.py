@@ -20,15 +20,12 @@ mode would be sound.
 Applicability. A program a target cannot build or run is *restricted*
 (deliberately excluded there) or *missing* (not yet implemented there), with
 the reason and a citation, never silently dropped. The verdict comes from
-``BTRC_TEST_REQUIRES`` directives, ``src/tests/fixtures/target-applicability.toml``
-and the ``corpus.*`` topic cells of ``docs/design/platform-inventory.toml``.
+``BTRC_TEST_REQUIRES`` directives and ``.github/ci/target-applicability.toml``.
 
 Outputs, under ``build/target-runs/<label>/`` unless ``--output`` says otherwise:
-``<frontend>/<program>.{stdout,stderr,json}`` per program, ``junit.xml``,
+``<frontend>/<program>.{stdout,stderr,json}`` per program, ``junit.xml``, and
 ``target-run.json`` (schema ``btrc.target-run/1``: per-frontend
-passed/failed/restricted/missing counts and every program's result) and
-``ledger.jsonl``, the ``tools.qualification`` records ``TargetRunAdapter``
-derives from it (validated before the run reports success).
+passed/failed/restricted/missing counts and every program's result).
 
 Executor protocol, version 1 (frozen 2026-10-17)
 ------------------------------------------------
@@ -193,22 +190,20 @@ from src.tests.runner_capabilities import (
     loopback_listener_error,
 )
 from tools.host_c_compiler import HostCCompiler
+from tools.host_provenance import HostProvenance
 from tools.native_plan import NativePlanError, RuntimeObjects, TargetToolchain
-from tools.qualification.adapters import HostProvenance, TargetRunAdapter
-from tools.qualification.schema import LedgerDocument, Provenance
 
 REPO = Path(__file__).resolve().parents[2]
 CORPUS = REPO / "src" / "tests"
-APPLICABILITY = CORPUS / "fixtures" / "target-applicability.toml"
-INVENTORY = REPO / "docs" / "design" / "platform-inventory.toml"
+APPLICABILITY = REPO / ".github" / "ci" / "target-applicability.toml"
 OUTPUT_ROOT = REPO / "build" / "target-runs"
 
 PROTOCOL_VERSION = 1
 BUNDLE_SCHEMA = "btrc.target-bundle/1"
-REPORT_SCHEMA = TargetRunAdapter.SCHEMA
+REPORT_SCHEMA = "btrc.target-run/1"
 APPLICABILITY_SCHEMA = "btrc.target-applicability/1"
 FRONTENDS = ("reference", "selfhost")
-STATUSES = TargetRunAdapter.STATUSES
+STATUSES = ("passed", "failed", "restricted", "missing")
 # The flags the strict-C11 matrix and the Windows lane hold every generated unit to.
 # zig cc treats -O2 as a release mode and defines NDEBUG, which compiles out every
 # assert a corpus program checks with; -UNDEBUG keeps them live on every toolchain.
@@ -841,39 +836,6 @@ class Facility:
     cites: str
 
 
-class InventoryCells:
-    """The ``corpus.*`` rows of the P0 inventory: one cell per corpus topic and target slice."""
-
-    def __init__(self, path: Path = INVENTORY) -> None:
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
-        self.cells: dict[tuple[str, str], Mapping[str, Any]] = {}
-        self.rows: set[str] = set()
-        for row in document.get("rows", ()):
-            identifier = row.get("id", "")
-            self.rows.add(identifier)
-            for name, cell in row.items():
-                if isinstance(cell, Mapping):
-                    self.cells[(identifier, name)] = cell
-
-    def cell(self, row: str, slice_name: str) -> Mapping[str, Any] | None:
-        return self.cells.get((row, slice_name))
-
-    def topic_verdict(self, topic: str, label: str) -> Verdict | None:
-        """A whole corpus topic the inventory classifies as restricted or missing on the row's slice."""
-
-        slice_name = TargetRunAdapter.ROW_SLICES.get(label)
-        cell = self.cell(f"corpus.{topic}", slice_name) if slice_name else None
-        if cell is None:
-            return None
-        cites = f"corpus.{topic}@{slice_name}"
-        reason = cell.get("reason") or f"the inventory classifies corpus.{topic} on {slice_name}"
-        if cell.get("parity") == "os-restricted":
-            return Verdict("restricted", "build", reason, cites)
-        if cell.get("parity") == "missing" or cell.get("implementation") in {"missing", "source-only"}:
-            return Verdict("missing", "build", reason, cites)
-        return None
-
-
 class ApplicabilityManifest:
     """``target-applicability.toml``: which corpus programs each target builds and runs, and why not."""
 
@@ -881,10 +843,13 @@ class ApplicabilityManifest:
     STATUSES = ("restricted", "missing")
     SCOPES = ("build", "run")
     CONTRACT_CITE = re.compile(r"(?P<path>[A-Za-z0-9_./-]+)#(?P<anchor>[A-Za-z0-9_.-]+)")
-    INVENTORY_CITE = re.compile(r"(?P<row>[A-Za-z0-9_.]+)@(?P<slice>[A-Za-z0-9_-]+)")
+    INVENTORY_CITE = re.compile(r"corpus\.(?P<topic>[a-z_]+)@(?P<slice>[A-Za-z0-9_-]+)")
+    SLICES = frozenset(
+        {"windows-x64", "windows-arm64", "ios-device", "ios-simulator", "android-arm64", "android-x86_64"}
+    )
 
-    def __init__(self, document: Mapping[str, Any], inventory: InventoryCells, corpus: Sequence[str]) -> None:
-        self.inventory = inventory
+    def __init__(self, document: Mapping[str, Any], corpus: Sequence[str]) -> None:
+        self._topics = frozenset(source.split("/", 1)[0] for source in corpus)
         if document.get("schema") != self.SCHEMA:
             raise ValueError(f"the applicability manifest's schema is not {self.SCHEMA}")
         unknown = set(document) - {"schema", "programs", "capabilities", "facilities"}
@@ -921,9 +886,9 @@ class ApplicabilityManifest:
             )
 
     @classmethod
-    def load(cls, path: Path = APPLICABILITY, inventory: Path = INVENTORY) -> ApplicabilityManifest:
+    def load(cls, path: Path = APPLICABILITY) -> ApplicabilityManifest:
         document = tomllib.loads(path.read_text(encoding="utf-8"))
-        return cls(document, InventoryCells(inventory), [program.source for program in CorpusProgram.select()])
+        return cls(document, [program.source for program in CorpusProgram.select()])
 
     @staticmethod
     def fields(entry: object, where: str, allowed: set[str], optional: frozenset[str] = frozenset()) -> None:
@@ -945,19 +910,19 @@ class ApplicabilityManifest:
             raise ValueError(f"{where}: targets must be targets.toml labels")
 
     def cite(self, cites: object, where: str) -> None:
-        """A citation names an inventory cell (``corpus.strings@windows-x64``) or a contract (``path#anchor``)."""
+        """A citation names a corpus topic/slice (``corpus.strings@windows-x64``) or a contract (``path#anchor``)."""
 
         if not isinstance(cites, str):
             raise ValueError(f"{where}: cites must be text")
         if match := self.INVENTORY_CITE.fullmatch(cites):
-            if self.inventory.cell(match["row"], match["slice"]) is None:
-                raise ValueError(f"{where}: {cites} names no platform-inventory cell")
+            if match["topic"] not in self._topics or match["slice"] not in self.SLICES:
+                raise ValueError(f"{where}: {cites} names no corpus topic or target slice")
             return
         if match := self.CONTRACT_CITE.fullmatch(cites):
             if not (REPO / match["path"]).is_file():
                 raise ValueError(f"{where}: {match['path']} does not exist")
             return
-        raise ValueError(f"{where}: cite an inventory cell (row@slice) or a contract (path#anchor), not {cites!r}")
+        raise ValueError(f"{where}: cite a topic/slice (corpus.topic@slice) or a contract (path#anchor), not {cites!r}")
 
     def program_entry(self, entry: object, index: int, corpus: Sequence[str]) -> dict[str, Any]:
         where = f"programs[{index}]"
@@ -999,12 +964,12 @@ class ApplicabilityManifest:
                     claimed[slot] = index
 
     def program_verdict(self, program: CorpusProgram, label: str, frontend: str) -> Verdict | None:
-        """The manifest's, then the inventory's, verdict on one program, target and frontend."""
+        """The manifest's verdict on one program, target and frontend."""
 
         for entry in self.programs:
             if label in entry["targets"] and frontend in entry["frontends"] and self.matches(entry, program.source):
                 return Verdict(entry["status"], entry["scope"], entry["reason"], entry["cites"])
-        return self.inventory.topic_verdict(program.topic, label)
+        return None
 
     def capability_verdict(self, capability: str, executor: str, granted: frozenset[str] | None) -> Verdict | None:
         """Why `executor` cannot run a program that declares `capability`, or None."""
@@ -1925,11 +1890,10 @@ class TargetCorpusRunner:
 
 
 class TargetRunReport:
-    """Everything a run wrote: per-program logs, the summary, the JUnit file and the ledger."""
+    """Everything a run wrote: per-program logs, the summary and the JUnit file."""
 
     SUMMARY = "target-run.json"
     JUNIT = "junit.xml"
-    LEDGER = "ledger.jsonl"
 
     def __init__(
         self, runner: TargetCorpusRunner, bundle: TargetBundle, outcomes: list[ProgramOutcome], mode: str
@@ -1991,15 +1955,6 @@ class TargetRunReport:
         summary = self.summary()
         (output / self.SUMMARY).write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         self.write_junit(output / self.JUNIT)
-        # This machine's hardware describes the evidence only when the programs ran on it.
-        local = self.mode == "execute" and self.runner.executor_name == LocalExecutor.NAME
-        base = HostProvenance().detect() if local else Provenance()
-        summary_path = (output / self.SUMMARY).resolve()
-        artifact = summary_path.relative_to(REPO) if summary_path.is_relative_to(REPO) else summary_path
-        records = TargetRunAdapter(base).records(summary, artifact=artifact.as_posix())
-        ledger = output / self.LEDGER
-        ledger.write_text(LedgerDocument.dumps_jsonl(records), encoding="utf-8")
-        LedgerDocument.load(ledger)
 
     def write_junit(self, path: Path) -> None:
         label = self.runner.row.label

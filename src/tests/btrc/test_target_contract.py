@@ -31,7 +31,6 @@ from src.compiler.python.artifacts.archive import TargetCatalog
 from src.compiler.python.cli.compiler import CompilerCommand, CompilerDiagnostics
 from src.compiler.python.frontend.packages import PackageTarget
 from src.tests.native_targets import plan_target
-from tools.qualification.schema import TARGET_SLICES
 
 REPO = Path(__file__).resolve().parents[3]
 DRIVER = REPO / "src/tests/btrc/fixtures/TargetContractDriver.btrc"
@@ -364,12 +363,19 @@ def test_selfhost_refuses_an_unknown_host_before_reading_the_input(selfhost_driv
 
 
 def test_slices_map_to_rows() -> None:
-    assert set(SLICE_ROWS) == set(TARGET_SLICES)
+    slice_platforms = {
+        "windows-x64": "windows",
+        "windows-arm64": "windows",
+        "ios-device": "ios",
+        "ios-simulator": "ios",
+        "android-arm64": "android",
+        "android-x86_64": "android",
+    }
+    assert set(SLICE_ROWS) == set(slice_platforms)
     named = set()
     for slice_name, labels in SLICE_ROWS.items():
-        platform, _variant = TARGET_SLICES[slice_name]
         for label in labels:
-            assert _row(label).operating_system == platform.value, slice_name
+            assert _row(label).operating_system == slice_platforms[slice_name], slice_name
             named.add(label)
     desktop = {row.label for row in TARGET_ROWS if row.compiler_host}
     assert {row.label for row in TARGET_ROWS} - desktop <= named

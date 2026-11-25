@@ -20,11 +20,11 @@ import pytest
 from src.compiler.python.abi.generated import TARGET_ROWS
 from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.results import CompilerOptions
+from src.tests.dependencies import BinaryImports, DependencyAudit
 from src.tests.native_build import NativeCorpusBuild
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from src.tests.target_runner import FRONTENDS, TargetBundle, TargetCorpusRunner
 from tools.native_plan import TargetToolchain
-from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
 REPO = Path(__file__).resolve().parents[3]
 CASES = REPO / "src/tests/native/http_windows/WindowsHttpCases.btrc"

@@ -3,9 +3,6 @@ __btrc_safe_realloc
 __btrc_safe_calloc
 __btrc_div
 __btrc_mod
-__btrc_div_int
-__btrc_div_double
-__btrc_mod_int
 __btrc_gpu_index_check
 __btrc_string_registry
 __btrc_string_registry_lock_state
@@ -75,8 +72,6 @@ __btrc_floatToString
 __btrc_doubleToString
 __btrc_longDoubleToString
 __btrc_charToString
-__btrc_fromInt
-__btrc_fromFloat
 __btrc_tls_state
 __btrc_try_level
 __btrc_trycatch_globals
@@ -103,7 +98,6 @@ __btrc_arc_reverse_state
 __btrc_arc_reverse_proves_live
 __btrc_forget_suspect
 __btrc_arc_deferred_state
-__btrc_arc_release_impl
 __btrc_arc_lock_state
 __btrc_arc_snapshot_state
 __btrc_arc_shutdown_state
@@ -117,6 +111,7 @@ __btrc_collect_cycles_once
 __btrc_arc_topology_depth_state
 __btrc_arc_active_drains_state
 __btrc_arc_drain
+__btrc_arc_release_impl
 __btrc_arc_release
 __btrc_run_cleanup_guarded
 __btrc_arc_guard_hook
@@ -135,20 +130,6 @@ __btrc_throw
 __btrc_try_state_cleanup
 __btrc_hash_real
 __btrc_hash_str
-List_forEach
-List_filter
-List_any
-List_all
-List_findIndex
-List_map
-List_reduce
-Map_forEach
-Map_containsValue
-Set_forEach
-Set_filter
-Set_any
-Set_all
-Set_findIndex
 __btrc_destroyed_capacity
 __btrc_mark_destroyed
 __btrc_suspect

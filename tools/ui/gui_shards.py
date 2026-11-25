@@ -16,7 +16,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from tools.qualification.skips import SkipGate, SkipReport
+from src.tests.skips import SkipGate, SkipReport
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = "btrc.gui-partition/2"

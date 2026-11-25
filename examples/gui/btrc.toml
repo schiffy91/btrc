@@ -1,7 +1,0 @@
-manifest-version = 1
-
-[package]
-name = "guiExample"
-
-[dependencies]
-embedded = { path = "../../packages/embedded-web" }

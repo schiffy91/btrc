@@ -1,4 +1,4 @@
-"""tools/ci-prepared.sh: one CI run's image and compilers, saved once and restored by every Linux job."""
+"""`.github/ci/ci-prepared.sh`: one CI run's image and compilers, saved once and restored by every Linux job."""
 
 from __future__ import annotations
 
@@ -35,9 +35,9 @@ def runner(tmp_path):
     _tool(tools, "make", f'echo "make $*" >> "{log}"\n')
 
     def run(checkout: Path, *arguments: str) -> subprocess.CompletedProcess:
-        script = checkout / "tools" / "ci-prepared.sh"
+        script = checkout / ".github" / "ci" / "ci-prepared.sh"
         script.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(REPO / "tools" / "ci-prepared.sh", script)
+        shutil.copy(REPO / ".github" / "ci" / "ci-prepared.sh", script)
         environment = {**os.environ, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}"}
         environment.pop("BTRC_LINUX_IMAGE", None)
         # The devcontainer has every bash source its dev shell first, which puts the real make before the stand-in.
@@ -92,7 +92,7 @@ def test_a_job_with_nothing_prepared_builds_the_image_itself(tmp_path, runner):
 def test_the_script_names_its_two_actions(tmp_path, runner, arguments):
     run, log, _ = runner
     result = run(tmp_path / "checkout", *arguments)
-    assert result.returncode == 64 and "usage: tools/ci-prepared.sh save|restore <directory>" in result.stderr
+    assert result.returncode == 64 and "usage: .github/ci/ci-prepared.sh save|restore <directory>" in result.stderr
     assert not log.exists()
 
 

@@ -8,7 +8,7 @@ white-box unit tests) and src/tests/btrc/ (self-hosted compiler tests).
 Every session writes a skip report (src/tests/skip_ledger.py): each test's
 outcome, each skip's reason and gating environment, and each capability gate,
 classified against the runner's expected-skip manifest under
-src/tests/fixtures/expected-skips/. `--skip-report` names the file.
+.github/ci/expected-skips/. `--skip-report` names the file.
 """
 
 import contextlib

@@ -3303,5 +3303,5 @@ CMake is a projection of the plan and is never an independent metadata source.
 The shipped `btrc-native-plan` adapter is the canonical Make/Nix consumer. It
 accepts only a plan, generated C input, output path, and exact tool executable
 names; it has no free-form flags or shell surface and never scans source
-directories. `nix flake check` builds and runs `examples/native-package`
+directories. `nix flake check` builds and runs `src/tests/fixtures/native-package`
 through the packaged compiler and adapter on every qualified flake system.

@@ -490,15 +490,6 @@ def test_all_known_linux_display_tests_claim_the_gui_session(tmp_path):
             assert cases, f"review removed/renamed Linux display execution: {filename}::{name}"
             assert all(cases), f"uncoordinated Linux display execution: {filename}::{name}"
 
-    # The physical-desktop collector launches these marked tests in nested
-    # pytest; holding the same lease in its parent would deadlock.
-    delegated = [
-        marked
-        for file, function, marked in observed
-        if file == "test_native_ui_shell_linux.py" and function == "test_linux_real_desktop_session"
-    ]
-    assert delegated == [False], "desktop collector must delegate the GUI lease to child pytest"
-
 
 def test_macos_gui_loadgroup_keeps_one_worker_and_cross_session_exclusion(tmp_path):
     processes = GuiProcesses(tmp_path)
@@ -585,7 +576,7 @@ def test_macos_gui_loadgroup_rejects_a_combined_resource_group(tmp_path):
 def test_macos_gui_grouped_reports_keep_source_identity_and_capability_coverage(tmp_path, monkeypatch):
     import xml.etree.ElementTree as ET
 
-    from tools.qualification.skips import SkipCoverage
+    from src.tests.skips import SkipCoverage
 
     monkeypatch.setenv("BTRC_TEST_RUNNER", "macos-hosted")
     # A nested controller inherits the outer worker environment in hosted -n runs.

@@ -220,14 +220,6 @@ def test_gpu_archive_rule_asserts_runtime_membership() -> None:
     assert "btrc_gpu_ui" not in makefile
 
 
-@pytest.mark.parametrize("example", ["sgd"])
-def test_gpu_example_link_commands_include_platform_thread_flags(example: str) -> None:
-    makefile = (ROOT / "examples" / example / "Makefile").read_text()
-    assert "GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)" in makefile
-    link_flags = next(line for line in makefile.splitlines() if line.startswith("LDFLAGS"))
-    assert "$(GPU_THREAD_FLAGS)" in link_flags
-
-
 def test_compute_runtime_has_no_window_or_rendering_dependency() -> None:
     runtime = (GPU / "btrc_gpu.c").read_text()
     for obsolete in ("GLFW/", "btrc_app", "std_gpu_", "WGPUSurface", "WGPURenderPipeline"):

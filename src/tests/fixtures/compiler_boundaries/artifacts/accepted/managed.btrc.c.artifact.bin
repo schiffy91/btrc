@@ -26,6 +26,9 @@ static inline void* __btrc_safe_calloc(size_t count, size_t size) {
     return result;
 }
 
+#define __BTRC_STRING_SHARD_COUNT 256
+#define __BTRC_STRING_INLINE_BUCKETS 8
+
 typedef struct __btrc_string_entry {
     char* value;
     size_t references;
@@ -37,26 +40,47 @@ typedef struct __btrc_string_entry {
     struct __btrc_string_entry* next;
 } __btrc_string_entry;
 
-static __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};
-static __btrc_string_entry** __btrc_string_buckets =
-    __btrc_string_inline_buckets;
-static size_t __btrc_string_bucket_count = 64;
+typedef struct __btrc_string_shard {
+    __btrc_string_entry** buckets;
+    size_t bucket_count;
+    __btrc_string_entry* inline_buckets[__BTRC_STRING_INLINE_BUCKETS];
+} __btrc_string_shard;
 
-static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;
+static __btrc_string_shard __btrc_string_shards[__BTRC_STRING_SHARD_COUNT];
 
-static inline void __btrc_string_registry_lock(void) {
-    unsigned int delay = 1;
-    while (atomic_flag_test_and_set_explicit(
-            &__btrc_string_lock, memory_order_acquire)) {
-        for (unsigned int spin = 0; spin < delay; spin++) {
-            atomic_signal_fence(memory_order_seq_cst);
-        }
-        if (delay < 1024) delay *= 2;
+#ifndef __BTRC_STRING_SHARD_COUNT
+#define __BTRC_STRING_SHARD_COUNT 256
+#endif
+typedef struct __btrc_string_shard_lock {
+    _Alignas(128) _Atomic int word;
+    _Atomic size_t count;
+} __btrc_string_shard_lock;
+
+static __btrc_string_shard_lock __btrc_string_shard_locks[__BTRC_STRING_SHARD_COUNT];
+
+static inline void __btrc_string_lock_relax(void) {
+#if defined(__aarch64__) || defined(__arm__)
+    __asm__ __volatile__("yield" ::: "memory");
+#elif (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
+    __asm__ __volatile__("pause" ::: "memory");
+#else
+    atomic_signal_fence(memory_order_seq_cst);
+#endif
+}
+
+static inline void __btrc_string_shard_acquire(size_t shard) {
+    _Atomic int* word = &__btrc_string_shard_locks[shard].word;
+    for (;;) {
+        if (!atomic_exchange_explicit(word, 1, memory_order_acquire))
+            return;
+        while (atomic_load_explicit(word, memory_order_relaxed))
+            __btrc_string_lock_relax();
     }
 }
 
-static inline void __btrc_string_registry_unlock(void) {
-    atomic_flag_clear_explicit(&__btrc_string_lock, memory_order_release);
+static inline void __btrc_string_shard_release(size_t shard) {
+    atomic_store_explicit(
+        &__btrc_string_shard_locks[shard].word, 0, memory_order_release);
 }
 
 static inline size_t __btrc_string_hash(const char* value, size_t buckets) {
@@ -67,18 +91,31 @@ static inline size_t __btrc_string_hash(const char* value, size_t buckets) {
     return (size_t)(bits % (uintptr_t)buckets);
 }
 
+static inline size_t __btrc_string_shard_index(const char* value) {
+    uintptr_t bits = (uintptr_t)(const void*)value;
+    bits ^= bits >> 17;
+    bits *= (uintptr_t)0xed5ad4bbU;
+    bits ^= bits >> 11;
+    return (size_t)((bits >> 6) & (__BTRC_STRING_SHARD_COUNT - 1));
+}
+
 static inline __btrc_string_entry** __btrc_string_slot(const char* value) {
-    size_t index = __btrc_string_hash(value, __btrc_string_bucket_count);
-    __btrc_string_entry** slot = &__btrc_string_buckets[index];
+    size_t shard_index = __btrc_string_shard_index(value);
+    __btrc_string_shard* shard = &__btrc_string_shards[shard_index];
+    size_t bucket_count = shard->buckets ? shard->bucket_count : __BTRC_STRING_INLINE_BUCKETS;
+    __btrc_string_entry** buckets = shard->buckets ? shard->buckets : shard->inline_buckets;
+    size_t index = __btrc_string_hash(value, bucket_count);
+    __btrc_string_entry** slot = &buckets[index];
     while (*slot && (*slot)->value != value) slot = &(*slot)->next;
     return slot;
 }
 
-static size_t __btrc_string_entry_count = 0;
+/* Per-shard live string counts live in __btrc_string_shard_locks[shard].count. */
 
-static inline void __btrc_string_registry_resize(size_t capacity) {
-    __btrc_string_entry** old_buckets = __btrc_string_buckets;
-    size_t old_capacity = __btrc_string_bucket_count;
+static inline void __btrc_string_shard_resize(size_t shard_index, size_t capacity) {
+    __btrc_string_shard* shard = &__btrc_string_shards[shard_index];
+    size_t old_capacity = shard->buckets ? shard->bucket_count : __BTRC_STRING_INLINE_BUCKETS;
+    __btrc_string_entry** old_buckets = shard->buckets ? shard->buckets : shard->inline_buckets;
     __btrc_string_entry** buckets = (__btrc_string_entry**)
         __btrc_safe_calloc(capacity, sizeof(__btrc_string_entry*));
     for (size_t index = 0; index < old_capacity; index++) {
@@ -91,14 +128,13 @@ static inline void __btrc_string_registry_resize(size_t capacity) {
             entry = next;
         }
     }
-    if (old_buckets == __btrc_string_inline_buckets) {
-        memset(__btrc_string_inline_buckets, 0,
-            sizeof(__btrc_string_inline_buckets));
+    if (old_buckets == shard->inline_buckets) {
+        memset(shard->inline_buckets, 0, sizeof(shard->inline_buckets));
     } else {
         free(old_buckets);
     }
-    __btrc_string_buckets = buckets;
-    __btrc_string_bucket_count = capacity;
+    shard->buckets = buckets;
+    shard->bucket_count = capacity;
 }
 
 static inline char* __btrc_string_adopt(char* value) {
@@ -110,53 +146,65 @@ static inline char* __btrc_string_adopt(char* value) {
     candidate->length = 0;
     candidate->next = NULL;
 
-    __btrc_string_registry_lock();
+    size_t shard_index = __btrc_string_shard_index(value);
+    __btrc_string_shard* shard = &__btrc_string_shards[shard_index];
+    __btrc_string_shard_acquire(shard_index);
     __btrc_string_entry** slot = __btrc_string_slot(value);
     if (*slot) {
-        __btrc_string_registry_unlock();
+        __btrc_string_shard_release(shard_index);
         free(candidate);
         return value;
     }
-    if (__btrc_string_entry_count >= __btrc_string_bucket_count
-            - __btrc_string_bucket_count / 4) {
-        if (__btrc_string_bucket_count > SIZE_MAX / 2) {
-            __btrc_string_registry_unlock();
+    size_t bucket_count = shard->buckets ? shard->bucket_count : __BTRC_STRING_INLINE_BUCKETS;
+    size_t count = atomic_load_explicit(
+        &__btrc_string_shard_locks[shard_index].count, memory_order_relaxed);
+    if (count >= bucket_count - bucket_count / 4) {
+        if (bucket_count > SIZE_MAX / 2) {
+            __btrc_string_shard_release(shard_index);
             fprintf(stderr, "btrc: string registry overflow\n");
             exit(1);
         }
-        __btrc_string_registry_resize(__btrc_string_bucket_count * 2);
+        __btrc_string_shard_resize(shard_index, bucket_count * 2);
         slot = __btrc_string_slot(value);
     }
     candidate->next = *slot;
     *slot = candidate;
-    __btrc_string_entry_count++;
-    __btrc_string_registry_unlock();
+    atomic_store_explicit(
+        &__btrc_string_shard_locks[shard_index].count, count + 1, memory_order_release);
+    __btrc_string_shard_release(shard_index);
     return value;
 }
 
 static inline char* __btrc_string_retain(const char* value) {
     if (!value) return NULL;
-    __btrc_string_registry_lock();
-    if (__btrc_string_bucket_count != 0) {
-        __btrc_string_entry* entry = *__btrc_string_slot(value);
-        if (entry) {
-            if (entry->references == SIZE_MAX) {
-                __btrc_string_registry_unlock();
-                fprintf(stderr, "btrc: string reference overflow\n");
-                exit(1);
-            }
-            entry->references++;
+    size_t shard_index = __btrc_string_shard_index(value);
+    if (atomic_load_explicit(
+            &__btrc_string_shard_locks[shard_index].count, memory_order_acquire) == 0)
+        return (char*)value;
+    __btrc_string_shard_acquire(shard_index);
+    __btrc_string_entry* entry = *__btrc_string_slot(value);
+    if (entry) {
+        if (entry->references == SIZE_MAX) {
+            __btrc_string_shard_release(shard_index);
+            fprintf(stderr, "btrc: string reference overflow\n");
+            exit(1);
         }
+        entry->references++;
     }
-    __btrc_string_registry_unlock();
+    __btrc_string_shard_release(shard_index);
     return (char*)value;
 }
 
 static inline void __btrc_string_release(const char* value) {
     if (!value) return;
+    size_t shard_index = __btrc_string_shard_index(value);
+    if (atomic_load_explicit(
+            &__btrc_string_shard_locks[shard_index].count, memory_order_acquire) == 0)
+        return;
     __btrc_string_entry* removed = NULL;
     __btrc_string_entry** retired_buckets = NULL;
-    __btrc_string_registry_lock();
+    __btrc_string_shard* shard = &__btrc_string_shards[shard_index];
+    __btrc_string_shard_acquire(shard_index);
     __btrc_string_entry** slot = __btrc_string_slot(value);
     __btrc_string_entry* entry = *slot;
     if (entry && entry->references > 1) {
@@ -164,17 +212,18 @@ static inline void __btrc_string_release(const char* value) {
     } else if (entry) {
         *slot = entry->next;
         removed = entry;
-        __btrc_string_entry_count--;
-        if (__btrc_string_entry_count == 0
-                && __btrc_string_buckets != __btrc_string_inline_buckets) {
-            retired_buckets = __btrc_string_buckets;
-            __btrc_string_buckets = __btrc_string_inline_buckets;
-            __btrc_string_bucket_count = 64;
-            memset(__btrc_string_inline_buckets, 0,
-                sizeof(__btrc_string_inline_buckets));
+        size_t next_count = atomic_load_explicit(
+            &__btrc_string_shard_locks[shard_index].count, memory_order_relaxed) - 1;
+        atomic_store_explicit(
+            &__btrc_string_shard_locks[shard_index].count, next_count, memory_order_release);
+        if (next_count == 0 && shard->buckets != NULL) {
+            retired_buckets = shard->buckets;
+            shard->buckets = NULL;
+            shard->bucket_count = 0;
+            memset(shard->inline_buckets, 0, sizeof(shard->inline_buckets));
         }
     }
-    __btrc_string_registry_unlock();
+    __btrc_string_shard_release(shard_index);
     if (removed) {
         free(removed->value);
         free(removed);
@@ -195,15 +244,17 @@ static inline int __btrc_string_length(const char* s) {
     while (length < 64 && s[length] != '\0') length++;
     if (length >= 64) {
         length = 0;
-        __btrc_string_registry_lock();
-        if (__btrc_string_bucket_count != 0) {
+        size_t shard_index = __btrc_string_shard_index(s);
+        if (atomic_load_explicit(
+                &__btrc_string_shard_locks[shard_index].count, memory_order_acquire) != 0) {
+            __btrc_string_shard_acquire(shard_index);
             __btrc_string_entry* entry = *__btrc_string_slot(s);
             if (entry) {
                 if (entry->length == 0) entry->length = strlen(s);
                 length = entry->length;
             }
+            __btrc_string_shard_release(shard_index);
         }
-        __btrc_string_registry_unlock();
         if (length == 0) length = strlen(s);
     }
     if (length > (size_t)INT_MAX) {

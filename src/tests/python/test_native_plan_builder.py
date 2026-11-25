@@ -37,7 +37,7 @@ from tools.native_plan import (
 )
 
 REPO = Path(__file__).resolve().parents[3]
-EXAMPLE = REPO / "examples" / "native-package"
+EXAMPLE = REPO / "src/tests/fixtures/native-package"
 # Builds that run their output emit the host row: any other row is a cross
 # build through that row's own toolchain.
 HOST_LABEL = PackageTarget.parse(None).label

@@ -222,67 +222,6 @@ $report | ConvertTo-Json -Depth 6
                 self.run([self.zig, "cc", *arguments], f"diagnostic-{name}", timeout=60)
             except RuntimeError as error:
                 failures[name] = str(error)
-        if sys.platform == "win32" and any(step.get("exit_code") == 0xC0000005 for step in self.report["steps"]):
-            report = self.output / "crash-location.json"
-            self.report["c_frontend_diagnostics"]["crash_location"] = str(report)
-            try:
-                self.run(
-                    [
-                        sys.executable,
-                        "-m",
-                        "tools.windows_toolchain.crash_probe",
-                        "--output",
-                        report,
-                        "--timeout",
-                        "20",
-                        "--",
-                        self.zig,
-                        "cc",
-                        "-target",
-                        TARGET,
-                        minimal,
-                        "-o",
-                        self.output / "minimal-debug.exe",
-                    ],
-                    "diagnostic-crash-location",
-                    timeout=30,
-                )
-            except RuntimeError as error:
-                failures["crash-location"] = str(error)
-            if "target-object" in failures or not object_file.is_file():
-                self.report["c_frontend_diagnostics"]["direct_linker_skipped"] = "no successful current target object"
-                return
-            # Zig 0.16's driver spawns `zig lld-link`. Bypass its CRT/setup path
-            # with the current object; exporting main keeps that section live.
-            report = self.output / "direct-linker-crash-location.json"
-            report.unlink(missing_ok=True)
-            self.report["c_frontend_diagnostics"]["direct_linker_crash_location"] = str(report)
-            try:
-                self.run(
-                    [
-                        sys.executable,
-                        "-m",
-                        "tools.windows_toolchain.crash_probe",
-                        "--output",
-                        report,
-                        "--timeout",
-                        "20",
-                        "--",
-                        self.zig,
-                        "lld-link",
-                        "/dll",
-                        "/noentry",
-                        "/nodefaultlib",
-                        "/machine:arm64",
-                        "/export:main",
-                        f"/out:{self.output / 'minimal-direct.dll'}",
-                        object_file,
-                    ],
-                    "diagnostic-direct-linker",
-                    timeout=30,
-                )
-            except RuntimeError as error:
-                failures["direct-linker"] = str(error)
 
     def verify_cross(self, path: Path) -> None:
         data = path.read_bytes()

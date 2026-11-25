@@ -34,12 +34,8 @@ compile on the other targets.
 `DBusConnection.session()` first honors `DBUS_SESSION_BUS_ADDRESS`, then
 tries the user's socket at `$XDG_RUNTIME_DIR/bus`. A legacy X11 session can
 also advertise an address in `~/.dbus/session-bus/<machine-id>-<display>`,
-which `autolaunch:` reads directly when `DISPLAY` is set. Standalone
-`Library.DBus` never spawns `dbus-launch`. Applications that still need
-legacy X11 `dbus-launch` activation when no address, runtime socket or saved
-session file exists can opt in through the optional
-[dbus-x11-launch package](../../../packages/dbus-x11-launch/README.md), either
-linked in or loaded through `LD_PRELOAD`. `DBusConnection.system()` honors
+which `autolaunch:` reads directly when `DISPLAY` is set. `Library.DBus`
+never spawns `dbus-launch`. `DBusConnection.system()` honors
 `DBUS_SYSTEM_BUS_ADDRESS` and defaults to `/var/run/dbus/system_bus_socket`.
 
 An address list is tried in order. The client supports Unix filesystem and

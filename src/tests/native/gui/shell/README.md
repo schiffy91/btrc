@@ -11,8 +11,8 @@ Run both frontends, plain and ASan/UBSan, on a private display:
 
 ```sh
 export BTRC_TEST_RUNNER=linux-devcontainer
-nix develop --command tools/ui/headless-session.sh --x11 -- python3 -m pytest src/tests/python/test_native_ui_shell.py src/tests/python/test_native_ui_shell_linux.py -q -rs
-nix develop --command tools/ui/headless-session.sh --wayland -- python3 -m pytest src/tests/python/test_native_ui_shell.py src/tests/python/test_native_ui_shell_linux.py -q -rs
+nix develop --command .github/ci/headless-session.sh --x11 -- python3 -m pytest src/tests/python/test_native_ui_shell.py src/tests/python/test_native_ui_shell_linux.py -q -rs
+nix develop --command .github/ci/headless-session.sh --wayland -- python3 -m pytest src/tests/python/test_native_ui_shell.py src/tests/python/test_native_ui_shell_linux.py -q -rs
 ```
 
 The macOS rows live in `test_native_ui_shell_macos.py`; they require the native

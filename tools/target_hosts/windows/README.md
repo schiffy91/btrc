@@ -118,7 +118,7 @@ accidental interference, not a hostile same-user sandbox.
 
 ## The corpus lane
 
-`windows.yml` (planned by `ci/tiers.toml`) runs it in the main, extended and
+`windows.yml` (planned by `.github/ci/tiers.toml`) runs it in the main, extended and
 release tiers, and on a pull request that touches a Windows provider, this
 directory, the runner or its applicability data:
 

@@ -87,11 +87,10 @@ class CorpusImportAudit:
             path for path in TEST_ROOT.rglob("*.btrc") if path.relative_to(TEST_ROOT).parts[0] not in {"python", "btrc"}
         )
         fixtures = (path for suite in ("btrc", "python") for path in (TEST_ROOT / suite / "fixtures").rglob("*.btrc"))
-        examples = (self.repository / "examples").rglob("*.btrc")
         # The testkit package the flake's lib places in a consumer's tree.
         library = (self.repository / "nix/lib").rglob("*.btrc")
         supporting = (self.repository / relative for relative in SUPPORTING_CONSUMERS)
-        return tuple(sorted({*shared, *fixtures, *examples, *library, *supporting}))
+        return tuple(sorted({*shared, *fixtures, *library, *supporting}))
 
     def expected_consumers(self) -> frozenset[str]:
         """Every consumer source, listed by git rather than by the consumer walk.
@@ -153,13 +152,12 @@ class CorpusImportAudit:
 
     def glob_consumers(self) -> frozenset[str]:
         consumers = set()
-        for root in (self.repository / "src", self.repository / "examples"):
-            for path in root.rglob("*.btrc"):
-                if any(
-                    directive.kind == "import" and isinstance(directive.payload, ast.LibraryGlob)
-                    for directive in self.directives.scan(self.conditioned(path))
-                ):
-                    consumers.add(path.relative_to(self.repository).as_posix())
+        for path in (self.repository / "src").rglob("*.btrc"):
+            if any(
+                directive.kind == "import" and isinstance(directive.payload, ast.LibraryGlob)
+                for directive in self.directives.scan(self.conditioned(path))
+            ):
+                consumers.add(path.relative_to(self.repository).as_posix())
         return frozenset(consumers)
 
     @staticmethod
@@ -229,7 +227,6 @@ def test_corpus_declares_every_direct_stdlib_owner(
         "src/tests/native",
         "src/tests/btrc/fixtures",
         "src/tests/python/fixtures",
-        "examples",
         "nix/lib",
     ),
 )

@@ -61,7 +61,7 @@ AST catalog `generated/ast/Node.btrc` comes from the one generator,
 
 Runtime C is shared with the Python compiler. `src/runtime/c/manifest.toml`
 describes helper metadata and stable order for the pre-authored `core.c`,
-`collections.c`, `cycles.c`, `mutex.c`, `process.c`, `strings.c`, `threads.c`,
+`cycles.c`, `mutex.c`, `process.c`, `strings.c`, `threads.c`,
 `trycatch.c`, and `gpu.c` assets plus `btrc_rt.h`. Generated immutable rows live
 in `generated/runtime/Catalog.btrc`; handwritten lookup, selection, dependency,
 and reference behavior lives in `ir/runtime/Catalog.btrc` and

@@ -1293,7 +1293,9 @@ class _BoundaryCaptureSession:
             if capability.boundary == "runtime-helper-source" and channel in assets:
                 asset = self.execution_repository / "src/runtime/c" / assets[channel]
                 channels[channel] = (
-                    b"" if channel == "asset.windows_daemon_image_h" and not asset.exists() else asset.read_bytes()
+                    b""
+                    if channel in {"asset.collections_c", "asset.windows_daemon_image_h"} and not asset.exists()
+                    else asset.read_bytes()
                 )
                 continue
             if capability.boundary == "runtime-helper-metadata" and channel == "manifest":
@@ -1367,7 +1369,6 @@ class _BoundaryCaptureSession:
             manifest_metadata["external_objects"] = document["external_objects"]
         asset_names = (
             "core.c",
-            "collections.c",
             "cycles.c",
             "mutex.c",
             "process.c",
@@ -1377,7 +1378,9 @@ class _BoundaryCaptureSession:
             "gpu.c",
             "windows_os.h",
         )
-        # Older frozen revisions predate this consumer-only declaration asset.
+        # Older frozen revisions predate this consumer-only declaration asset or still include collections.c.
+        if (root / "collections.c").is_file():
+            asset_names += ("collections.c",)
         if (root / "windows_daemon_image.h").is_file():
             asset_names += ("windows_daemon_image.h",)
         source_by_name = {}

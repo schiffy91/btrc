@@ -34,7 +34,7 @@
             ps.build ps.setuptools
             ps.pytest ps.pytest-xdist ps.pytest-cov ps.pygls ps.lsprotocol
           ] ++ lib.optionals stdenv.hostPlatform.isLinux [
-            # AT-SPI tree dumps of a headless GUI session (tools/ui/headless-session.sh).
+            # AT-SPI tree dumps of a headless GUI session (.github/ci/headless-session.sh).
             ps.pyatspi ps.pygobject3
           ]))
             ruff gcc clang zig gnumake git jq gh nodejs_22 nixd
@@ -59,8 +59,8 @@
             bubblewrap
             wayland.dev pkg-config            # Wayland test probes (WaylandInput.c etc.) and GPUWire.c runtime dlopen
             openssh   # ssh-keygen: writes the key files the Library.Crypto driver reads back
-            xvfb-run   # tools/virtual-display.sh: CI's X display for legacy virtual-display callers
-            # tools/ui/headless-session.sh: a private X (Xvfb) or Wayland
+            xvfb-run   # .github/ci/virtual-display.sh: CI's X display for legacy virtual-display callers
+            # .github/ci/headless-session.sh: a private X (Xvfb) or Wayland
             # (labwc's headless backend) display inside its own session bus,
             # with the AT-SPI accessibility bus. On Wayland, a wlroots
             # compositor's virtual pointer and keyboard send real input.
@@ -197,7 +197,7 @@
               " -framework Metal -framework QuartzCore -framework Foundation";
         } // lib.optionalAttrs (!isDarwin) {
           # Mesa's software Vulkan driver (lavapipe) and the loader wgpu-native
-          # dlopens. Only tools/virtual-display.sh selects them, so a developer's
+          # dlopens. Only .github/ci/virtual-display.sh selects them, so a developer's
           # shell keeps its real GPU and CI's headless runner still gets an adapter.
           BTRC_LAVAPIPE_ICD = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.uname.processor}.json";
           BTRC_VULKAN_LOADER = "${pkgs.vulkan-loader}/lib";
@@ -208,11 +208,11 @@
           # wgpu-native also probes OpenGL through EGL. On a virtual display the
           # host's own GPU vendor library has no screen to answer for.
           BTRC_MESA_EGL = "${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json";
-          # The fonts a private session has (tools/ui/headless-session.sh): one
+          # The fonts a private session has (.github/ci/headless-session.sh): one
           # family, the same on a desktop and in a container that has none, so
           # text has a size wherever the GUI tests run.
           BTRC_FONTS_CONFIG = "${pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; }}";
-          # tools/ui/headless-session.sh starts the AT-SPI bus from here; the
+          # .github/ci/headless-session.sh starts the AT-SPI bus from here; the
           # launcher is a libexec program, not on PATH.
           BTRC_ATSPI_LIBEXEC = "${atSpiCore pkgs}/libexec";
           # The AT-SPI and GLib typelibs pyatspi loads to dump a session's
@@ -757,7 +757,7 @@
           export BTRC_STATE_DIR="$TMPDIR/btrc-state"
           export BTRC_CACHE_DIR="$TMPDIR/btrc-cache"
           mkdir source
-          cp -R ${./examples/native-package}/. source/
+          cp -R ${./src/tests/fixtures/native-package}/. source/
           chmod -R u+w source
           make -C source run \
             TARGET=${nativeTarget} \

@@ -11,8 +11,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import unquote
 
+from src.tests.dependencies import BinaryImports, DependencyAudit
 from src.tests.python.test_wayland_public_preview import empty_root_command, load_shared_library
-from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
 
 def function(library, name, result, *arguments):

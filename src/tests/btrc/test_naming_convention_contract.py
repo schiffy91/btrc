@@ -350,8 +350,7 @@ def test_a_package_facade_is_imported_by_its_package_name() -> None:
     """
 
     doubled = re.compile(r"\bLibrary\.([A-Z][A-Za-z0-9]*)\.\1\b")
-    # Records of old spellings: the frozen plan and the cross-repo rename table.
-    records = {"docs/design/plan-reference.md", "docs/design/btrsmith-rename-table-w2.md"}
+    records: set[str] = set()
     offenders = sorted(
         f"{relative}: {match.group(0)}"
         for pattern in ("*.btrc", "*.md", "*.toml")

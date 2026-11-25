@@ -1,4 +1,4 @@
-"""tools/headless-gate.sh: a gate's environment on a desktop, as the native Linux manifest is qualified."""
+"""`.github/ci/headless-gate.sh`: a gate's environment on a desktop, as the native Linux manifest is qualified."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
-SCRIPT = REPO / "tools" / "headless-gate.sh"
+SCRIPT = REPO / ".github" / "ci" / "headless-gate.sh"
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="the script is POSIX shell")
 
 
@@ -56,5 +56,5 @@ def test_the_gate_cannot_see_the_session_it_is_started_from(tmp_path: Path) -> N
 def test_the_commands_status_is_the_scripts_and_a_command_is_required() -> None:
     assert _run("sh", "-c", "exit 7").returncode == 7
     missing = _run()
-    assert missing.returncode == 64 and "usage: tools/headless-gate.sh" in missing.stderr
+    assert missing.returncode == 64 and "usage: .github/ci/headless-gate.sh" in missing.stderr
     assert stat.S_IMODE(SCRIPT.stat().st_mode) & stat.S_IXUSR

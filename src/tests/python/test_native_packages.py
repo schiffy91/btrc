@@ -30,7 +30,7 @@ from src.tests.native_targets import cross_target_environment, plan_target
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
-EXAMPLE = REPO / "examples" / "native-package"
+EXAMPLE = REPO / "src/tests/fixtures/native-package"
 
 
 def test_stdlib_manifest_selects_only_loaded_provider_units():
@@ -1264,7 +1264,7 @@ def test_every_checked_in_lock_matches_its_manifests():
     leaves a test run with a modified source tree.
     """
 
-    locks = sorted(path for top in ("examples", "src") for path in (REPO / top).rglob("btrc.lock"))
+    locks = sorted((REPO / "src").rglob("btrc.lock"))
     assert REPO / "src/stdlib/btrc.lock" in locks
     stale = []
     for lock in locks:

@@ -16,6 +16,9 @@ NON_CORPUS_DIRECTORIES = frozenset(
         # Benchmarks are programs, but tools/bench compiles, runs and times
         # them; the corpus runner would only duplicate that far more slowly.
         "benchmarks",
+        # Relocated example and boundary fixtures live under fixtures/; they are
+        # driven by dedicated unit/native tests, not the language corpus runner.
+        "fixtures",
     }
 )
 

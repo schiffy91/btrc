@@ -1,0 +1,96 @@
+{
+  "jobs": {
+    "CI / vm-test": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh -- 'nix build .#checks.x86_64-linux.vm-test --no-link --print-build-logs'"
+    },
+    "CI / tests (unit)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh UNIT_GUI_DELEGATED=1 'PYTEST_ADDOPTS=--dist=loadgroup --failure-report=build/failure-report-unit.jsonl ' -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit'"
+    },
+    "CI / tests (btrc)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-btrc'"
+    },
+    "CI / tests (corpus-python)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-corpus-python'"
+    },
+    "CI / tests (corpus-btrc)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-corpus-btrc'"
+    },
+    "CI / tests (bootstrap)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-bootstrap'"
+    },
+    "CI / tests (c11-gcc)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-compiler C11_CC=gcc'"
+    },
+    "CI / tests (c11-clang)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" -e PYTEST_ADDOPTS -e UNIT_GUI_DELEGATED --security-opt seccomp=unconfined btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-compiler C11_CC=clang'"
+    },
+    "CI / linux-e40 (wayland-python-plain)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=python E40_VARIANT=plain test-e40-linux'"
+    },
+    "CI / linux-e40 (wayland-python-sanitized)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=python E40_VARIANT=sanitized test-e40-linux'"
+    },
+    "CI / linux-e40 (wayland-selfhost-plain)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=selfhost E40_VARIANT=plain test-e40-linux'"
+    },
+    "CI / linux-e40 (wayland-selfhost-sanitized)": {
+      "platform": "linux-x86_64",
+      "run": ".github/ci/ci-local-job.sh -- '.github/ci/ci-prepared.sh restore build/ci-prepared' 'chmod -R a+w .' 'podman run --rm --init -v \"$PWD:/workspace\" btrc-devcontainer:latest make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUNNER=linux-devcontainer E40_SESSION=wayland E40_FRONTEND=selfhost E40_VARIANT=sanitized test-e40-linux'"
+    },
+    "macOS / tests (unit)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED=1 'PYTEST_ADDOPTS=--dist=loadgroup --failure-report=build/failure-report-unit.jsonl ' -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'shell=.\nif [ \"unit\" = unit ]; then shell=.#jni; fi\nnix develop \"$shell\" --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit'"
+    },
+    "macOS / tests (btrc)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'shell=.\nif [ \"btrc\" = unit ]; then shell=.#jni; fi\nnix develop \"$shell\" --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-btrc'"
+    },
+    "macOS / tests (corpus-python)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'shell=.\nif [ \"corpus-python\" = unit ]; then shell=.#jni; fi\nnix develop \"$shell\" --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-corpus-python'"
+    },
+    "macOS / tests (corpus-btrc)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'shell=.\nif [ \"corpus-btrc\" = unit ]; then shell=.#jni; fi\nnix develop \"$shell\" --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-corpus-btrc'"
+    },
+    "macOS / tests (bootstrap)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'shell=.\nif [ \"bootstrap\" = unit ]; then shell=.#jni; fi\nnix develop \"$shell\" --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-bootstrap BTRC_CC=clang'"
+    },
+    "macOS / tests (c11-clang-O0)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'shell=.\nif [ \"c11-clang-O0\" = unit ]; then shell=.#jni; fi\nnix develop \"$shell\" --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O0'"
+    },
+    "macOS / tests (c11-clang-O2)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos UNIT_GUI_DELEGATED= PYTEST_ADDOPTS= -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command clang --version\nselected=$(nix develop --command python3 -c '\"'\"'from src.tests.runner import default_c_compiler; print(default_c_compiler())'\"'\"')\ntest \"$selected\" = clang' 'shell=.\nif [ \"c11-clang-O2\" = unit ]; then shell=.#jni; fi\nnix develop \"$shell\" --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-c11-one C11_CC=clang C11_OPT=O2'"
+    },
+    "macOS / macos-e40 (macos-reference-plain)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos CI=true BTRC_UI2_HOSTED_E40=1 -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 E40_FRONTEND=reference E40_VARIANT=plain test-e40-macos'"
+    },
+    "macOS / macos-e40 (macos-reference-sanitized)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos CI=true BTRC_UI2_HOSTED_E40=1 -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 E40_FRONTEND=reference E40_VARIANT=sanitized test-e40-macos'"
+    },
+    "macOS / macos-e40 (macos-selfhost-plain)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos CI=true BTRC_UI2_HOSTED_E40=1 -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 E40_FRONTEND=selfhost E40_VARIANT=plain test-e40-macos'"
+    },
+    "macOS / macos-e40 (macos-selfhost-sanitized)": {
+      "platform": "macos-arm64",
+      "run": ".github/ci/ci-local-job.sh BTRC_TEST_RUNNER=macos CI=true BTRC_UI2_HOSTED_E40=1 -- 'test \"$(uname -s)\" = Darwin\ntest \"$(uname -m)\" = arm64\nreader=\"$(nix build .#btrc-native-header --out-link \"$RUNNER_TEMP/btrc-native-header-root\" --print-out-paths --print-build-logs)/bin/btrc-native-header\"\ntest -x \"$reader\"\nexported=$(nix develop --command printenv BTRC_NATIVE_HEADER_READER)\ntest \"$exported\" = \"$reader\"\nnix develop --profile \"$RUNNER_TEMP/btrc-dev-shell-root\" --command true' '/usr/bin/python3 -B .github/ci/toolchain.py --reader-root \"$RUNNER_TEMP/btrc-native-header-root\" --evidence build/native-reader --phase pre' 'nix develop --command make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 E40_FRONTEND=selfhost E40_VARIANT=sanitized test-e40-macos'"
+    }
+  }
+}

@@ -281,7 +281,7 @@ static void* test_take(void* raw) {
 static void* return_arg(void* arg) { return arg; }
 
 int main(void) {
-    if (__btrc_mod_int(INT_MIN, -1) != 0) return 1;
+    if (__btrc_mod(INT_MIN, -1) != 0) return 1;
     if (__btrc_div(9000000000L, 2L) != 4500000000L) return 18;
     if (__btrc_div(4000000000U, 2U) != 2000000000U) return 19;
     if (__btrc_mod(3889019093U, 4U) != 1U) return 20;
@@ -360,7 +360,7 @@ def test_overflow_guards_fail_before_undefined_behavior(tmp_path: Path):
     main = r"""
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
-    if (strcmp(argv[1], "div") == 0) return __btrc_div_int(INT_MIN, -1);
+    if (strcmp(argv[1], "div") == 0) return __btrc_div(INT_MIN, -1);
     if (strcmp(argv[1], "div_long") == 0)
         return (int)__btrc_div(LONG_MIN, -1L);
     if (strcmp(argv[1], "div_zero") == 0)

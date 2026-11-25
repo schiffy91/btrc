@@ -15,11 +15,15 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.abi.generated import TARGET_ROWS
-from tools.qualification.local import LocalJobs, LocalPasses
-from tools.qualification.tiers import MANIFEST as TIER_MANIFEST
-from tools.qualification.tiers import TierManifest
 
 REPO = Path(__file__).resolve().parents[3]
+if str(REPO / ".github" / "ci") not in sys.path:
+    sys.path.insert(0, str(REPO / ".github" / "ci"))
+
+from local import LocalJobs, LocalPasses
+from tiers import MANIFEST as TIER_MANIFEST
+from tiers import TierManifest
+
 WORKFLOWS = REPO / ".github/workflows"
 UPLOAD_ARTIFACT = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 # Every repository that takes local passes reads them through this one workflow, pinned by commit.
@@ -518,7 +522,7 @@ def _plan_matrix(job: str) -> str:
 def _matrix_rows(matrix: object, workflow: str | None = None, job: str | None = None) -> list[dict[str, object]] | None:
     """The combinations a matrix expands to; None when an expression decides them.
 
-    A matrix the scope job's plan supplies expands to every row ci/tiers.toml
+    A matrix the scope job's plan supplies expands to every row .github/ci/tiers.toml
     lists for that job, with the pytest_addopts a pr-tier corpus row adds.
     """
 
@@ -668,10 +672,6 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
                 "(inputs.focus != 'e40-diagnostic' && inputs.focus != 'collection-release-diagnostic' "
                 "&& inputs.focus != 'host-controls')"
             )
-        if workflow == "windows.yml":
-            assert actual_scope.pop("if") == (
-                "github.event_name != 'workflow_dispatch' || inputs.focus != 'user-census-diagnostic'"
-            )
         assert actual_scope == scope, workflow
         assert document["env"]["CI_WORKFLOW"] == workflow, workflow
         assert _job_names(document)[0] == "scope", workflow
@@ -682,8 +682,6 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
             untiered.update({"bench-diagnostic", "unit-diagnostic", "prepare"})
         if workflow == "macos.yml":
             untiered.update({"macos-e40-diagnostic", "collection-release-diagnostic", "macos-host-controls"})
-        if workflow == "windows.yml":
-            untiered.update({"user-census-build", "user-census-diagnostic"})
         assert set(jobs) - untiered == listed, workflow
         for name in listed:
             job = jobs[name]
@@ -741,7 +739,7 @@ def test_scope_runs_first_and_gates_every_other_job_by_the_tier_plan() -> None:
     plan = _scope_step("ci.yml", "Plan the tier's jobs")
     assert plan["env"] == {"TIER": "${{ steps.classify.outputs.tier }}"}
     assert (
-        'python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" '
+        'python3 .github/ci/tiers.py --workflow "$CI_WORKFLOW" --tier "$TIER" '
         "--changed build/changed-files.txt" in plan["run"]
     )
     assert 'echo "plan=$plan" >> "$GITHUB_OUTPUT"' in plan["run"]
@@ -795,7 +793,7 @@ def test_bootstrap_shards_keep_their_boundary_report_for_the_bundle() -> None:
     assert "--report build/boundary-report.json" in _makefile_recipe(makefile, "test-boundaries")
 
 
-def test_release_runs_every_tiered_workflow_at_one_tier_then_bundles_them() -> None:
+def test_release_runs_every_tiered_workflow_at_one_tier() -> None:
     release = _parsed("release.yml")
     assert release["on"]["workflow_dispatch"]["inputs"]["tier"]["options"] == ["release", "extended"]
     tier = "${{ github.event_name == 'schedule' && 'extended' || inputs.tier || 'release' }}"
@@ -811,26 +809,12 @@ def test_release_runs_every_tiered_workflow_at_one_tier_then_bundles_them() -> N
             "statuses": "read",
             "actions": "read",
         }, name
-    bundle = jobs["bundle"]
-    assert bundle["needs"] == sorted(calls) and bundle["if"] == "${{ !cancelled() }}"
-    steps = bundle["steps"]
-    download = next(step for step in steps if str(step.get("uses", "")).startswith("actions/download-artifact@"))
-    # Every artifact: the bundle sorts evidence from archives by name.
-    assert download["with"] == {"path": "build/release-artifacts"}
-    command = next(step for step in steps if "tools.qualification bundle" in step.get("run", ""))
-    assert command["env"] == {"TIER": tier}
-    for option in ("--artifacts build/release-artifacts", '--tier "$TIER"', '--revision "$GITHUB_SHA"'):
-        assert option in command["run"], option
-    upload = steps[-1]
-    assert upload["if"] == "always()" and upload["uses"] == UPLOAD_ARTIFACT
-    assert upload["with"]["name"] == "ledger-bundle-${{ github.sha }}"
-    assert upload["with"]["path"] == "build/ledger-bundle-${{ github.sha }}"
-    assert upload["with"]["if-no-files-found"] == "error"
-    assert '--output "build/ledger-bundle-$GITHUB_SHA"' in command["run"]
     # A called workflow plans its jobs for the tier it is given.
     for name in CORE_WORKFLOWS:
         assert _parsed(name)["on"]["workflow_call"] == {
-            "inputs": {"tier": {"description": "The ci/tiers.toml tier to run", "type": "string", "required": "true"}}
+            "inputs": {
+                "tier": {"description": "The .github/ci/tiers.toml tier to run", "type": "string", "required": "true"}
+            }
         }, name
     assert _scope_step("ci.yml")["env"]["TIER"] == "${{ inputs.tier }}"
 
@@ -870,7 +854,7 @@ def test_scope_full_paths_cover_the_compilers_and_their_stdlib_closure() -> None
         "src/stdlib/BackgroundJobs/Unix/ProcessThreadsProvider.btrc",
         ".github/workflows/macos.yml",
         ".github/workflows/release.yml",
-        "ci/tiers.toml",
+        ".github/ci/tiers.toml",
         "Makefile",
         "flake.lock",
     ):
@@ -880,10 +864,10 @@ def test_scope_full_paths_cover_the_compilers_and_their_stdlib_closure() -> None
         "src/stdlib/UI/Button.btrc",
         "src/stdlib/btrc.toml",
         "src/stdlib/btrc.lock",
-        "src/tests/python/test_ui0_catalog.py",
-        "tools/ui/codex-setup.sh",
+        "src/tests/python/test_ci_workflow_contracts.py",
+        ".github/ci/local.json",
         ".github/workflows/host-linux.yml",
-        "docs/design/native-ui-catalog.toml",
+        "docs/design/platform-parity.md",
     ):
         assert not full.search(path), path
 
@@ -900,16 +884,15 @@ def test_scope_counts_every_markdown_file_a_test_or_tool_reads_as_code() -> None
         for name in literal.findall(path.read_text(encoding="utf-8"))
         if (REPO / name).is_file()
     }
-    assert {"PLAN.md", "AGENTS.md", "docs/design/platform-parity.md"} <= read
+    assert {"AGENTS.md", "docs/design/compiler-structure.md", "docs/design/stdlib-dependencies.md"} <= read
     assert sorted(name for name in read if not test_read.search(name)) == []
-    for name in ("PLAN.md", "src/stdlib/GUI/README.md", "docs/design/compiler-structure.md"):
+    for name in ("AGENTS.md", "src/stdlib/GUI/README.md", "docs/design/compiler-structure.md"):
         assert test_read.search(name), name
     for name in (
-        "docs/design/ui0-catalog.md",
-        "WORKSTREAMS.md",
-        "CODEX.md",
-        "docs/design/claude-integration-record.md",
-        "docs/qualification/ui-agent-runbook.md",
+        "docs/notes.md",
+        "docs/design/notes.md",
+        "docs/design/ui-notes.md",
+        "docs/user/guide.md",
     ):
         assert not test_read.search(name), name
 
@@ -1006,6 +989,9 @@ def _plan(
     output = tmp_path / "plan-output"
     output.unlink(missing_ok=True)
     (tmp_path / "build").mkdir(exist_ok=True)
+    (tmp_path / ".github").mkdir(exist_ok=True)
+    if not (tmp_path / ".github" / "ci").exists():
+        (tmp_path / ".github" / "ci").symlink_to(REPO / ".github" / "ci")
     (tmp_path / "gh.sh").write_text(FAKE_GH, encoding="utf-8")
     (tmp_path / "statuses.json").unlink(missing_ok=True)
     if statuses is not None:
@@ -1050,15 +1036,15 @@ def _plan(
         ("workflow_dispatch", "", (), {"focus": "extended"}, "extended"),
         ("workflow_dispatch", "", (), {"tier": "release", "focus": ""}, "release"),
         ("push", "", (), {"tier": "extended"}, "extended"),
-        ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "docs/qualification/notes.md"), {}, "docs"),
-        ("pull_request", "stage30/notes", ("WORKSTREAMS.md",), {}, "docs"),
-        ("pull_request", "codex/cx-uia-07", ("docs/design/ui0-catalog.md", "PLAN.md"), {}, "lane"),
-        ("pull_request", "codex/cx-stdlib-01", ("CODEX.md",), {}, "docs"),
+        ("pull_request", "codex/cx-uia-07", ("docs/design/notes.md", "docs/notes.md"), {}, "docs"),
+        ("pull_request", "stage30/notes", ("docs/notes.md",), {}, "docs"),
+        ("pull_request", "codex/cx-uia-07", ("docs/design/notes.md", "AGENTS.md"), {}, "lane"),
+        ("pull_request", "codex/cx-stdlib-01", ("docs/user/guide.md",), {}, "docs"),
         ("pull_request", "stage30/notes", ("src/stdlib/GUI/README.md",), {}, "pr"),
         (
             "pull_request",
             "codex/ui0-catalog",
-            ("docs/design/native-ui-catalog.toml", "src/tests/python/test_ui0_catalog.py"),
+            ("docs/design/platform-parity.md", "src/tests/python/test_target_provider_matrix.py"),
             {},
             "lane",
         ),
@@ -1076,7 +1062,7 @@ def _plan(
         ("pull_request", "codex/cx-uia-09", tuple(f"docs/n{i}.md" for i in range(150)), {}, "docs"),
         ("pull_request", "codex/cx-uia-09", ("docs/a.md",), {"changed_files": 3001}, "main"),
         ("pull_request", "stage30/ci-codex-lanes", ("src/tests/python/test_x.py",), {}, "pr"),
-        ("pull_request", "stage38/ci-tiers", ("ci/tiers.toml",), {}, "main"),
+        ("pull_request", "stage38/ci-tiers", (".github/ci/tiers.toml",), {}, "main"),
         ("pull_request", "stage38/ci-tiers", (".github/workflows/release.yml",), {}, "main"),
     ],
 )
@@ -1094,7 +1080,7 @@ def test_scope_classifies_a_pull_requests_diff(
 
 
 def test_a_docs_only_pull_request_runs_only_the_static_job(tmp_path: Path) -> None:
-    files = ("docs/design/ui0-catalog.md",)
+    files = ("docs/design/notes.md",)
     for workflow in CORE_WORKFLOWS:
         tier = _classify(tmp_path, "pull_request", "stage30/notes", files)
         plan = _plan(tmp_path, workflow, tier)
@@ -1111,7 +1097,7 @@ def test_a_compiler_pull_request_runs_the_full_main_matrix(tmp_path: Path) -> No
 
 
 def test_a_plain_pull_request_plans_from_its_changed_paths(tmp_path: Path) -> None:
-    files = ("tools/qualification/report.py", "src/tests/strings/Escapes.btrc")
+    files = ("tools/host_provenance.py", "src/tests/strings/Escapes.btrc")
     tier = _classify(tmp_path, "pull_request", "stage38/ci-tiers", files)
     assert tier == "pr"
     plan = _plan(tmp_path, "ci.yml", tier)
@@ -1131,18 +1117,14 @@ LANE_GUI_LINUX = [*LANE_HEAVY_LINUX, "linux-gui", "linux-gui-coverage", "linux-e
 @pytest.mark.parametrize(
     ("files", "linux", "macos"),
     [
-        # A catalog-data packet: scope, the static gates, release and the unit shard only.
+        # A docs/unit packet: scope, the static gates, release and the unit shard only.
         (
-            (
-                "docs/design/native-ui-catalog/families.toml",
-                "tools/qualification/ui_catalog.py",
-                "src/tests/python/test_ui0_catalog.py",
-            ),
+            ("docs/design/platform-parity.md",),
             LANE_LIGHT_LINUX,
             [],
         ),
         (
-            ("tools/ui/codex-setup.sh",),
+            ("src/tests/python/test_native_gui_appkit.py",),
             LANE_LIGHT_LINUX,
             ["native-bundle", "native-gui", "native-gui-coverage", "macos-e40"],
         ),
@@ -1181,7 +1163,7 @@ def test_a_lane_pull_request_runs_the_jobs_its_paths_select(
 
 
 def test_a_lane_pull_request_too_large_to_list_fails_safe_to_the_main_tier(tmp_path: Path) -> None:
-    files = ("docs/design/native-ui-catalog/families.toml",)
+    files = ("docs/design/platform-parity.md",)
     tier = _classify(tmp_path, "pull_request", "codex/cx-uia-03", files, changed_files=3001)
     assert tier == "main"
     for workflow in CORE_WORKFLOWS:
@@ -1237,13 +1219,13 @@ def test_linux_test_shards_partition_the_suite_across_parallel_jobs() -> None:
     # target with the budgets the container needs: a helper driver is still
     # built against a cold cache, and the corpus's heaviest program does not
     # finish inside the default run budget at -O0.
-    assert "tools/ci-prepared.sh restore build/ci-prepared" in job and "make devcontainer" not in job
+    assert ".github/ci/ci-prepared.sh restore build/ci-prepared" in job and "make devcontainer" not in job
     assert job.count('podman run --rm --init -v "$PWD:/workspace"') == 1
     assert ("PYTEST_WORKERS=4 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 ${{ matrix.target }}") in job
     # The runner is headless: every shard runs under the virtual display and
     # software Vulkan, as `make linux-ci` does, so the GUI and adapter tests run.
-    assert "btrc-devcontainer:latest tools/virtual-display.sh make NIX=" in _code(job)
-    assert "tools/virtual-display.sh make NIX=" in (REPO / "tools/linux-ci.sh").read_text(encoding="utf-8")
+    assert "btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX=" in _code(job)
+    assert ".github/ci/virtual-display.sh make NIX=" in (REPO / ".github/ci/linux-ci.sh").read_text(encoding="utf-8")
     # Every tier's rows are rows of this list; only the nightly C11 rows are added to it.
     for tier in TIERS.scheduled_tiers():
         assert {name for name, _ in _tier_shards("ci.yml", tier)} <= {*(name for name, _ in shards), *nightly}, tier
@@ -1266,7 +1248,7 @@ def test_one_job_builds_the_image_and_the_compiler_for_every_linux_job_of_the_ru
         "mkdir -p build/ci-prepared",
         "chmod -R a+w .",
         'podman run --rm --init -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= btrcc-test',
-        "tools/ci-prepared.sh save build/ci-prepared",
+        ".github/ci/ci-prepared.sh save build/ci-prepared",
     ]
     upload = prepare["steps"][-1]
     assert upload["uses"] == UPLOAD_ARTIFACT
@@ -1286,7 +1268,7 @@ def test_one_job_builds_the_image_and_the_compiler_for_every_linux_job_of_the_ru
             download = job["steps"][1]
             assert download["uses"].startswith("actions/download-artifact@"), name
             assert download["with"] == {"name": "ci-prepared", "path": "build/ci-prepared"}, name
-            assert runs[2:4] == ["tools/ci-prepared.sh restore build/ci-prepared", "chmod -R a+w ."], name
+            assert runs[2:4] == [".github/ci/ci-prepared.sh restore build/ci-prepared", "chmod -R a+w ."], name
             assert "make devcontainer" not in runs and not any(
                 "nix-action@" in step.get("uses", "") for step in job["steps"]
             )
@@ -1295,13 +1277,13 @@ def test_one_job_builds_the_image_and_the_compiler_for_every_linux_job_of_the_ru
             # The release job and the two diagnostics build their own: they run alone or on a dispatch.
             assert name in {"prepare", "release", "bench-diagnostic", "unit-diagnostic"}, name
     assert restored == set(PREPARED_JOBS)
-    script = (REPO / "tools/ci-prepared.sh").read_text(encoding="utf-8")
-    assert os.access(REPO / "tools/ci-prepared.sh", os.X_OK)
+    script = (REPO / ".github/ci/ci-prepared.sh").read_text(encoding="utf-8")
+    assert os.access(REPO / ".github/ci/ci-prepared.sh", os.X_OK)
     assert "make devcontainer" in script and "podman load" in script and "podman save" in script
 
 
 def _tier_shards(workflow: str, tier: str) -> list[tuple[str, str]]:
-    """The (shard, target) rows ci/tiers.toml gives a workflow's tests job in one tier."""
+    """The (shard, target) rows .github/ci/tiers.toml gives a workflow's tests job in one tier."""
 
     matrix = TIERS.plan(workflow, tier)["matrix"].get("tests", {"include": []})
     return [(row["shard"], row["target"]) for row in matrix["include"]]
@@ -1468,7 +1450,7 @@ def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
     # it cannot, so it runs as a module from the checkout.
     assert "python -m unittest -v src.tests.btrc.test_bootstrap" in _code(bootstrap)
     assert "python src/tests/btrc/test_bootstrap.py" not in _code(bootstrap)
-    assert "python -m tools.qualification skip-gate build/skip-report-windows-bootstrap-harness.json" in bootstrap
+    assert "python -m src.tests.skips skip-gate build/skip-report-windows-bootstrap-harness.json" in bootstrap
     # Logical-line equality tolerates Git's platform EOL checkout while still
     # rejecting any extra, missing, or otherwise changed output line.
     assert job.count(".splitlines()") >= 4
@@ -1524,8 +1506,7 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
                         ["e40-diagnostic", "collection-release-diagnostic", "host-controls"]
                         if workflow == "macos.yml"
                         else []
-                    )
-                    + (["user-census-diagnostic"] if workflow == "windows.yml" else []),
+                    ),
                     "default": "full",
                 },
                 **(
@@ -1560,10 +1541,10 @@ def test_a_focused_dispatch_runs_only_the_native_gui_jobs() -> None:
     assert _code(linux).count("make NIX=") == 1
     assert (
         'podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS=--junitxml=build/junit/native-gui.xml '
-        "btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 "
+        "btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 "
         "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-native-gui"
     ) in linux
-    assert "tools/ci-prepared.sh restore build/ci-prepared" in linux
+    assert ".github/ci/ci-prepared.sh restore build/ci-prepared" in linux
 
     macos = _parsed("macos.yml")["jobs"]
     assert macos["native-gui"]["runs-on"] == "macos-15"
@@ -1608,7 +1589,7 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
     # before its host directory, so a guard job skips the device job on a
     # revision without the tooling instead of failing main.
     for workflow, tool, device in (
-        ("host-ios.yml", "ios/spike.py", "simulator"),
+        ("host-ios.yml", "ios/executor.py", "simulator"),
         ("host-android.yml", "android/check.py", "emulator"),
     ):
         jobs = _parsed(workflow)["jobs"]
@@ -1620,15 +1601,6 @@ def test_mobile_host_workflows_wait_for_their_tooling_and_run_every_slice() -> N
         final = jobs[device]["steps"][-1]
         assert final["if"] == "always()" and final["uses"] == UPLOAD_ARTIFACT, workflow
 
-    # CX-P1-04: the fixtures through the protocol-1 executor on both device
-    # classes, and its portable tests on Linux with this host's C compiler.
-    ios = _code(_job(_workflow("host-ios.yml"), "simulator"))
-    assert "python3 -m tools.target_hosts.ios.spike build build/ios-testhost" in ios
-    for device in ("iphone", "ipad"):
-        assert (
-            f"python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class {device}"
-        ) in ios, device
-    assert "--mode" not in ios, "the executor launches processes only (protocol 1 process mode)"
     portable = _parsed("host-ios.yml")["jobs"]["portable"]
     assert portable["needs"] == "tooling" and portable["runs-on"] == "ubuntu-latest"
     assert "tools/target_hosts/ios/test_executor.py" in _code(_job(_workflow("host-ios.yml"), "portable"))
@@ -1670,7 +1642,7 @@ def test_windows_cross_build_reports_use_hosted_linux_and_enforce_runtime_only_s
     collected = next(index for index, step in enumerate(steps) if f"--skip-report={report}" in step.get("run", ""))
     gated = next(index for index, step in enumerate(steps) if f"skip-gate {report}" in step.get("run", ""))
     assert gated == collected + 1
-    assert steps[gated]["run"] == f"nix develop --command python3 -m tools.qualification skip-gate {report}"
+    assert steps[gated]["run"] == f"nix develop --command python3 -m src.tests.skips skip-gate {report}"
     assert "continue-on-error" not in steps[gated]
     native = jobs["win32-native"]
     assert native["needs"] == ["scope", "win32-native-build"]
@@ -1678,7 +1650,7 @@ def test_windows_cross_build_reports_use_hosted_linux_and_enforce_runtime_only_s
     for filename, selector in (("test_native_ui_shell_windows.py", "runs"), ("test_windows_http.py", "preserved")):
         session = next(run for run in sessions if filename in run)
         assert f'-k "{selector} and ${{{{ matrix.target }}}}"' in session
-        assert "python -m tools.qualification skip-gate" in session
+        assert "python -m src.tests.skips skip-gate" in session
 
 
 def test_android_jni_reports_use_hosted_linux_and_gate_each_compiler() -> None:
@@ -1693,7 +1665,7 @@ def test_android_jni_reports_use_hosted_linux_and_gate_each_compiler() -> None:
         session = next(run for run in sessions if f"--compilers {compiler}" in run)
         report = f"build/skip-report-android-jni-{compiler}.json"
         assert f"--skip-report={report}" in session
-        gate = f"python3 -m tools.qualification skip-gate {report}"
+        gate = f"python3 -m src.tests.skips skip-gate {report}"
         assert session.splitlines()[-1] == gate
         assert session.index(f"--skip-report={report}") < session.index(gate)
 
@@ -1706,7 +1678,7 @@ def test_windows_host_bundle_uses_direct_hosted_linux_provenance_and_skip_gate()
     assert "tools/target_hosts/windows/test_executor.py" in session
     report = "build/skip-report-host-windows.json"
     assert f"--skip-report={report}" in session
-    assert session.splitlines()[-1] == f"nix develop --command python3 -m tools.qualification skip-gate {report}"
+    assert session.splitlines()[-1] == f"nix develop --command python3 -m src.tests.skips skip-gate {report}"
 
 
 def test_ios_portable_uses_direct_hosted_linux_provenance_and_skip_gate() -> None:
@@ -1718,7 +1690,7 @@ def test_ios_portable_uses_direct_hosted_linux_provenance_and_skip_gate() -> Non
     assert "tools/target_hosts/ios/test_executor.py" in session
     report = "build/skip-report-host-ios-portable.json"
     assert f"--skip-report={report}" in session
-    assert session.splitlines()[-1] == f"nix develop --command python3 -m tools.qualification skip-gate {report}"
+    assert session.splitlines()[-1] == f"nix develop --command python3 -m src.tests.skips skip-gate {report}"
     assert "continue-on-error" not in step
 
 
@@ -1731,7 +1703,7 @@ def test_the_ios_corpus_runs_in_the_simulator_job_through_both_compilers() -> No
         for path in (
             "tools/target_hosts/ios/**",
             "src/tests/target_runner.py",
-            "src/tests/fixtures/target-applicability.toml",
+            ".github/ci/target-applicability.toml",
         ):
             assert path in paths, (event, path)
     job = workflow["jobs"]["simulator"]
@@ -1742,9 +1714,8 @@ def test_the_ios_corpus_runs_in_the_simulator_job_through_both_compilers() -> No
     assert 'nix develop --profile "$RUNNER_TEMP/btrc-dev-shell-root" --command true' in reader
     steps = {step.get("name"): step for step in job["steps"]}
     names = list(steps)
-    # The toolchain is recorded before any guest boots, and the fixtures run before the corpus.
-    assert names.index("Record the Xcode and simulator inventory") < names.index("iPhone")
-    assert names.index("iPad") < names.index("Build the self-hosted compiler")
+    # The toolchain is recorded before the compiler builds and the corpus runs.
+    assert names.index("Record the Xcode and simulator inventory") < names.index("Build the self-hosted compiler")
     assert steps["Build the self-hosted compiler"]["run"] == "nix develop --command make NIX= btrcc"
     build = " ".join(
         steps["Cross-build every applicable corpus program for the simulator through both compilers"]["run"]
@@ -1763,9 +1734,9 @@ def test_the_ios_corpus_runs_in_the_simulator_job_through_both_compilers() -> No
         "--executor ios-simulator --executor-option device_class=iphone "
         "--executor-option diagnostics=build/target-corpus/diagnostics --output build/target-corpus/run"
     )
-    # The corpus reports only until its failures are triaged; the fixtures still gate the job.
+    # The corpus reports only until its failures are triaged; the job itself does not continue-on-error.
     assert run["continue-on-error"] == "true"
-    assert "continue-on-error" not in steps["iPhone"] and "continue-on-error" not in job
+    assert "continue-on-error" not in job
     summary = steps["Publish the corpus counts"]
     assert summary["if"] == "always()" and '>> "$GITHUB_STEP_SUMMARY"' in summary["run"]
     corpus = steps["Retain the corpus run"]
@@ -1870,7 +1841,7 @@ def test_the_windows_corpus_lane_builds_on_linux_and_runs_each_row_natively() ->
 
 
 def test_the_android_corpus_lane_is_tiered_beside_untiered_fixture_jobs() -> None:
-    """host-android.yml plans only its corpus jobs from ci/tiers.toml, with the core workflows' scope job."""
+    """host-android.yml plans only its corpus jobs from .github/ci/tiers.toml, with the core workflows' scope job."""
 
     workflow = "host-android.yml"
     document = _parsed(workflow)
@@ -2166,7 +2137,7 @@ def test_the_linux_gui_shard_runs_each_session_and_keeps_its_evidence() -> None:
     # Each protocol runs its focused suite and AT-SPI dump in one headless session.
     makefile = (REPO / "Makefile").read_text(encoding="utf-8")
     recipe = _makefile_recipe(makefile, "test-shard-gui")
-    assert "tools/ui/headless-session.sh --$(GUI_SESSION) --" in recipe
+    assert ".github/ci/headless-session.sh --$(GUI_SESSION) --" in recipe
     assert "python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py" in recipe
     assert "tools/ui/session_evidence.py --output $(GUI_SHARD_DIR)" in recipe
     assert "python3 -m tools.ui.gui_shards run" in recipe
@@ -2191,7 +2162,7 @@ def test_macos_reader_is_rooted_and_observed_through_job_failure(job_name: str) 
     pre = _step_containing(job, "--phase pre")
     post = _step_containing(job, "--phase post")
     for step in (pre, post):
-        assert "/usr/bin/python3 -B -m tools.qualification.toolchain" in step
+        assert "/usr/bin/python3 -B .github/ci/toolchain.py" in step
         assert '--reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader' in step
         assert "timeout-minutes: 2" in step and "nix develop" not in step
     assert "if: always()" in post
@@ -2209,7 +2180,7 @@ def test_reader_evidence_distinguishes_missing_launch_dependencies(
 ) -> None:
     from types import SimpleNamespace
 
-    from tools.qualification.toolchain import NativeReaderProbe
+    from toolchain import NativeReaderProbe
 
     store = tmp_path / "store"
     (store / "bin").mkdir(parents=True)
@@ -2263,7 +2234,7 @@ def test_reader_evidence_distinguishes_missing_launch_dependencies(
 def test_reader_post_evidence_preserves_admitted_closure_when_query_fails(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    from tools.qualification.toolchain import NativeReaderProbe
+    from toolchain import NativeReaderProbe
 
     evidence = tmp_path / "evidence"
     evidence.mkdir()
@@ -2502,43 +2473,6 @@ def test_mac_loop_diagnostic_is_opt_in_and_preserves_exact_native_trials() -> No
     assert "build/e40-diagnostic/native/" in upload["with"]["path"]
 
 
-def test_windows_user_census_diagnostic_is_manual_and_separate():
-    jobs = _parsed("windows.yml")["jobs"]
-    guard = "github.event_name == 'workflow_dispatch' && inputs.focus == 'user-census-diagnostic'"
-    assert jobs["user-census-build"]["if"] == guard
-    assert jobs["user-census-diagnostic"]["if"] == guard
-    assert jobs["user-census-diagnostic"]["needs"] == "user-census-build"
-    assert jobs["user-census-diagnostic"]["runs-on"] == "windows-latest"
-    assert "inputs.focus != 'user-census-diagnostic'" in jobs["scope"]["if"]
-    cache_steps = {
-        name: step
-        for name, job in jobs.items()
-        for step in job.get("steps", [])
-        if "DeterminateSystems/magic-nix-cache-action@" in step.get("uses", "")
-    }
-    cache = cache_steps["user-census-build"]
-    assert cache["uses"] == "DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d"
-    assert cache["with"] == {"use-flakehub": "false"}
-    assert cache["timeout-minutes"] == "2" and cache["continue-on-error"] == "true"
-    assert all("use-gha-cache" not in step["with"] for step in cache_steps.values())
-    assert all(
-        "timeout-minutes" not in step and "continue-on-error" not in step
-        for name, step in cache_steps.items()
-        if name != "user-census-build"
-    )
-    for name, stage in (("user-census-build", "build"), ("user-census-diagnostic", "run")):
-        commands = "\n".join(step.get("run", "") for step in jobs[name]["steps"])
-        assert f"tools.ui.windows_user_diagnostic {stage}" in commands
-        assert "--repeat" not in commands
-        assert all(
-            "continue-on-error" not in step
-            for step in jobs[name]["steps"]
-            if "tools.ui.windows_user_diagnostic" in step.get("run", "")
-        )
-        uploads = [step for step in jobs[name]["steps"] if "actions/upload-artifact@" in step.get("uses", "")]
-        assert uploads and all(step.get("if") == "always()" for step in uploads)
-
-
 def test_unit_diagnostic_preserves_the_complete_shard_and_runner_limits() -> None:
     document = _parsed("ci.yml")
     job = document["jobs"]["unit-diagnostic"]
@@ -2555,7 +2489,7 @@ def test_unit_diagnostic_preserves_the_complete_shard_and_runner_limits() -> Non
     assert (
         'podman run --rm --init -v "$PWD:/workspace" -e PYTEST_ADDOPTS -e PYTEST_DEBUG_TEMPROOT '
         "--security-opt seccomp=unconfined "
-        "btrc-devcontainer:latest tools/virtual-display.sh make NIX= PYTEST_WORKERS=4 "
+        "btrc-devcontainer:latest .github/ci/virtual-display.sh make NIX= PYTEST_WORKERS=4 "
         "BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 test-shard-unit "
         "2>&1 | tee build/unit-diagnostic/console.log"
     ) in run["run"]
@@ -2817,7 +2751,7 @@ def test_every_linux_and_macos_job_is_local_or_says_why_not() -> None:
 
 
 def test_each_local_job_is_its_workflow_jobs_unconditional_steps() -> None:
-    assert (REPO / "ci/local.json").read_text(encoding="utf-8") == LOCAL.table()
+    assert (REPO / ".github/ci/local.json").read_text(encoding="utf-8") == LOCAL.table()
     entries = LOCAL.entries()
     assert {entry.name for entry in entries} == set(json.loads(LOCAL.table())["jobs"])
     for entry in entries:
@@ -2853,7 +2787,7 @@ def test_each_local_job_is_its_workflow_jobs_unconditional_steps() -> None:
                     expected[name] = value
         assert dict(entry.environment) == expected, entry.name
         assert shlex.split(entry.run) == [
-            "tools/ci-local-job.sh",
+            ".github/ci/ci-local-job.sh",
             *(f"{name}={value}" for name, value in entry.environment),
             "--",
             *commands,
@@ -2865,7 +2799,7 @@ def test_each_local_job_is_its_workflow_jobs_unconditional_steps() -> None:
     }
     # In a fresh local clone nothing was downloaded, so the restore builds the image itself.
     assert by_name["CI / tests (unit)"].steps[:2] == (
-        "tools/ci-prepared.sh restore build/ci-prepared",
+        ".github/ci/ci-prepared.sh restore build/ci-prepared",
         "chmod -R a+w .",
     )
     e40 = by_name["macOS / macos-e40 (macos-selfhost-sanitized)"]
@@ -2874,8 +2808,8 @@ def test_each_local_job_is_its_workflow_jobs_unconditional_steps() -> None:
         "nix develop --command make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 "
         "E40_FRONTEND=selfhost E40_VARIANT=sanitized test-e40-macos"
     )
-    script = (REPO / "tools/ci-local-job.sh").read_text(encoding="utf-8")
-    assert os.access(REPO / "tools/ci-local-job.sh", os.X_OK)
+    script = (REPO / ".github/ci/ci-local-job.sh").read_text(encoding="utf-8")
+    assert os.access(REPO / ".github/ci/ci-local-job.sh", os.X_OK)
     assert 'export CI=true GITHUB_WORKSPACE="$PWD" GITHUB_SHA="$commit" RUNNER_TEMP="$work/temp"' in script
     assert 'git clone --quiet --no-hardlinks --no-checkout "$root" "$work/workspace"' in script
     assert 'bash -e -c "$step"' in script
@@ -2917,8 +2851,6 @@ def test_only_the_missing_report_job_consumes_a_job_a_local_pass_can_drop() -> N
             if str(step.get("uses", "")).startswith("actions/download-artifact@") and "with" in step
         ]
         assert not any(pattern.startswith(prefix) for pattern in patterns for prefix in uploads), workflow
-    # release.yml bundles every report of its calls; a called scope job counts no local pass.
-    assert "tools.qualification bundle" in _workflow("release.yml")
 
 
 def test_the_shared_workflow_reads_the_owners_statuses_and_scope_takes_its_list() -> None:
@@ -2930,7 +2862,7 @@ def test_the_shared_workflow_reads_the_owners_statuses_and_scope_takes_its_list(
         assert "statuses" not in jobs["scope"]["permissions"], workflow
         # No workflow lists statuses itself any more.
         text = _workflow(workflow)
-        assert "/statuses" not in text and "tools.qualification local-passes" not in text, workflow
+        assert "/statuses" not in text, workflow
         step = _scope_step(workflow, "Take the owner's local passes")
         assert step["env"] == {
             "PASSED": "${{ needs.local.outputs.passed }}",

@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.dependencies import BinaryImports, DependencyAudit
 from src.tests.native_build import NativeCorpusBuild
-from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "src/tests/native/tls"

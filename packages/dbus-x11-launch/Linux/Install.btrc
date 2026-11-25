@@ -1,7 +1,0 @@
-import Library.DBus.DBusConnection;
-
-class DBusX11LaunchProvider {
-	class void install() { btrcDBusX11LaunchInstall(); }
-
-	class bool available() { return btrcDBusX11LaunchAvailable() != 0; }
-}

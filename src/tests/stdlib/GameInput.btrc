@@ -2,8 +2,8 @@ import Library.App;
 import Library.GUI.IWindow;
 import Library.Vector;
 
-import ../../../examples/game/engine/Input.btrc;
-import ../../../examples/game/engine/GameObject.btrc;
+import ../fixtures/game_engine/Input.btrc;
+import ../fixtures/game_engine/GameObject.btrc;
 #include <assert.h>
 
 int main() {

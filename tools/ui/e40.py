@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 
-from tools.qualification.skips import HOSTED_RUNNERS
+from src.tests.skips import HOSTED_RUNNERS
 
 ROOT = Path(__file__).resolve().parents[2]
 

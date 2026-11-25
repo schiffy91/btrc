@@ -53,6 +53,7 @@ import pytest
 
 from src.compiler.python.application.compiler import Compiler
 from src.compiler.python.application.results import CompilerOptions
+from src.tests.dependencies import DependencyAudit
 from src.tests.python.jni_adoption_fixtures import (
     ENTRY_CLASS,
     LIBRARY_NAME,
@@ -65,7 +66,6 @@ from src.tests.python.jni_adoption_fixtures import (
     write_project,
 )
 from tools.native_plan import TargetToolchain
-from tools.qualification.dependencies import DependencyAudit
 from tools.target_hosts.android.avd import AvdManager
 from tools.target_hosts.android.build import AndroidHostBuilder
 from tools.target_hosts.android.sdk import SDKVersions

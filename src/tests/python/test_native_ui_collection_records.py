@@ -17,7 +17,6 @@ from pathlib import Path
 import pytest
 
 from src.tests.process_limits import C_COMPILE_TIMEOUT, RUN_TIMEOUT, TOOL_TIMEOUT, TRANSPILE_TIMEOUT
-from tools.qualification.schema import LedgerRecord
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "src/tests/native/gui/collections/CollectionRecords.btrc"
@@ -126,37 +125,35 @@ def test_collection_records(tmp_path, request, record_property, frontend):
         ("generator-wall-time", "s", samples),
         ("serialized-size", "bytes", [len(data) for data in outputs]),
     ):
-        record = LedgerRecord.from_mapping(
-            {
-                "schema": "btrc.qualification.ledger/1",
-                "subject": {
-                    "kind": "test",
-                    "id": f"{request.node.nodeid}::{metric}",
-                    "platform": {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}[platform.system()],
-                    "frontend": frontend,
-                    "group": "collection-records",
-                },
-                "evidence": {
-                    "status": "passed",
-                    "observed": "measured",
-                    "reason": f"100000 records and 1000 edit pairs; sha256:{digest}; no UI performance claim",
-                    "artifact": str(destination.relative_to(ROOT)),
-                },
-                "measurement": {"metric": metric, "unit": unit, "samples": values, "minimum_samples": 2},
-                "provenance": {
-                    "source": "collection-records",
-                    "recorded_at": datetime.now(UTC).isoformat(),
-                    "runner": os.environ.get("BTRC_TEST_RUNNER", platform.system().lower()),
-                    "btrc_revision": revision,
-                    "frontend": frontend,
-                    "os_build": platform.platform(),
-                    "c_compiler": native_version,
-                    "build_mode": "strict-c11-O2",
-                    "jobs": "1",
-                },
-            }
-        )
-        records.append(json.dumps(record.to_mapping(), sort_keys=True))
+        record = {
+            "schema": "btrc.qualification.ledger/1",
+            "subject": {
+                "kind": "test",
+                "id": f"{request.node.nodeid}::{metric}",
+                "platform": {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}[platform.system()],
+                "frontend": frontend,
+                "group": "collection-records",
+            },
+            "evidence": {
+                "status": "passed",
+                "observed": "measured",
+                "reason": f"100000 records and 1000 edit pairs; sha256:{digest}; no UI performance claim",
+                "artifact": str(destination.relative_to(ROOT)),
+            },
+            "measurement": {"metric": metric, "unit": unit, "samples": values, "minimum_samples": 2},
+            "provenance": {
+                "source": "collection-records",
+                "recorded_at": datetime.now(UTC).isoformat(),
+                "runner": os.environ.get("BTRC_TEST_RUNNER", platform.system().lower()),
+                "btrc_revision": revision,
+                "frontend": frontend,
+                "os_build": platform.platform(),
+                "c_compiler": native_version,
+                "build_mode": "strict-c11-O2",
+                "jobs": "1",
+            },
+        }
+        records.append(json.dumps(record, sort_keys=True))
     destination.write_text("\n".join(records) + "\n", encoding="utf-8")
     record_property("records_sha256", digest)
     record_property("serialized_bytes", len(output))

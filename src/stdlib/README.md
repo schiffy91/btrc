@@ -109,40 +109,25 @@ Current groups: `App`, `Audio` (`Linux/`, `MacOS/`), `BackgroundJobs`
 `USB` (`Apple/`, `Linux/`, `Unix/`).
 Each group with behavior worth explaining has its own `README.md`.
 
-A new group is registered by one command once its directory and manifest
-exist: `python3 -m tools.register_package Name --reason "why it is the same
-on every target" [--summary "its line in the root README"]`. It adds the
-dependency here, has the resolver rewrite `btrc.lock`, gives each export its
-row in `docs/design/platform-inventory.toml`, freezes that ledger's
-denominator again under a release named for the day, and moves the counts
-that `platform-parity.md` publishes and `test_qualification_ledger.py` pins.
-It classifies only a group of plain BTRC, the same on every slice; one with a
-native binding or a C include differs by slice, and it stops and says where
-to classify it by hand. `--check` writes nothing and fails if anything would
-change.
-
 ## Drift findings
 
-PLAN.md Stage 4 repeated the structure-first review of the stdlib, the
-compilers' stdlib-facing code, tests, tools and CI between 2026-10-01 and
-2026-10-03. It ranked 77 btrc findings (`btrc-D001` to `btrc-D077`; the
-BTRSmith findings are tracked in BTRSmith's `docs/NativePlatformPlan.md`). A
-read-only re-audit checked each against the tree before this ledger was
-written: 76 are closed and 1 has a documented exception. Evidence is the
-commit or commits that closed it.
+The structure-first review of the stdlib, the compilers' stdlib-facing code,
+tests, tools and CI between 2026-10-01 and 2026-10-03 ranked 77 btrc findings
+(`btrc-D001` to `btrc-D077`; the BTRSmith findings are tracked in BTRSmith's
+`docs/NativePlatformPlan.md`). 76 are closed and 1 has a documented exception.
+Evidence is the commit or commits that closed it.
 
 - **D024 (exception).** The Linux dev shell has no lldb whose Python matches
   the DAP adapter, and the native header reader has no Linux compiler
   provider, so the Linux runner skips the lldb, pugixml, native-compiler
   provider and native-receipt provider tests with `covered_by = "macos"`
-  (`src/tests/fixtures/expected-skips/linux-devcontainer.json`;
-  `docs/design/ci-health.md`). Closing it means adding both to the Linux
-  shell and deleting those four skip rules.
+  (`.github/ci/expected-skips/linux-devcontainer.json`). Closing it means adding
+  both to the Linux shell and deleting those four skip rules.
 - **D044.** `ImageIoCleanup`'s packaged binding is proved only on macOS,
   where the native header reader runs it.
-- **D067.** `examples/native-package/Makefile` deliberately does not include
-  `Example.mk`: the flake's `native-package-plan` check copies only that
-  directory into its sandbox. Its header comment says so.
+- **D067.** `src/tests/fixtures/native-package/Makefile` is standalone so
+  the flake's `native-package-plan` check copies only that directory into its
+  sandbox. Its header comment says so.
 
 | Finding | Severity | Area | Status | Evidence |
 | --- | --- | --- | --- | --- |

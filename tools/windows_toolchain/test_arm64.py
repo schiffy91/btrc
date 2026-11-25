@@ -272,55 +272,6 @@ class Arm64EvidenceTests(unittest.TestCase):
                     ),
                     ("diagnostic-overlay-preprocess", ["zig", "cc", "-target", TARGET, *FLAGS, "-E", source], 60),
                 ]
-                if host_platform == "win32":
-                    commands.append(
-                        (
-                            "diagnostic-crash-location",
-                            [
-                                sys.executable,
-                                "-m",
-                                "tools.windows_toolchain.crash_probe",
-                                "--output",
-                                evidence.output / "crash-location.json",
-                                "--timeout",
-                                "20",
-                                "--",
-                                "zig",
-                                "cc",
-                                "-target",
-                                TARGET,
-                                minimal,
-                                "-o",
-                                evidence.output / "minimal-debug.exe",
-                            ],
-                            30,
-                        )
-                    )
-                    commands.append(
-                        (
-                            "diagnostic-direct-linker",
-                            [
-                                sys.executable,
-                                "-m",
-                                "tools.windows_toolchain.crash_probe",
-                                "--output",
-                                evidence.output / "direct-linker-crash-location.json",
-                                "--timeout",
-                                "20",
-                                "--",
-                                "zig",
-                                "lld-link",
-                                "/dll",
-                                "/noentry",
-                                "/nodefaultlib",
-                                "/machine:arm64",
-                                "/export:main",
-                                f"/out:{evidence.output / 'minimal-direct.dll'}",
-                                evidence.output / "minimal.o",
-                            ],
-                            30,
-                        )
-                    )
                 results = [
                     Result(0, b"C frontend version\n", b"", False),
                     Result(0xC0000005, b"", b"original crash", False),
@@ -352,8 +303,6 @@ class Arm64EvidenceTests(unittest.TestCase):
                 self.assertEqual((evidence.output / "diagnostic-native-syntax.stderr").read_bytes(), b"syntax crash")
                 diagnostics = evidence.report["c_frontend_diagnostics"]
                 self.assertEqual(list(diagnostics["failures"]), ["native-syntax"])
-                self.assertEqual("crash_location" in diagnostics, host_platform == "win32")
-                self.assertEqual("direct_linker_crash_location" in diagnostics, host_platform == "win32")
                 self.assertNotIn("c_frontend_diagnostics_error", evidence.report)
                 self.assertEqual(evidence.report["status"], "failed")
                 self.assertEqual(evidence.report["native_execution"], "not-run")
@@ -371,70 +320,6 @@ class Arm64EvidenceTests(unittest.TestCase):
             evidence.probe_native_toolchain()
         self.assertEqual(evidence.report["c_frontend_diagnostics_error"], "diagnostic write failed")
         self.assertEqual(evidence.report["status"], "failed")
-
-    def test_direct_linker_requires_a_successful_fresh_object(self):
-        for object_exit in (0, 3):
-            with self.subTest(object_exit=object_exit):
-                evidence = Evidence(self.root, "zig")
-                object_file = evidence.output / "minimal.o"
-                object_file.write_bytes(b"stale object")
-
-                def execute_probe(
-                    command, *, evidence=evidence, object_file=object_file, object_exit=object_exit, **kwargs
-                ):
-                    if command[-1] == "--version":
-                        return Result(0, b"version", b"", False)
-                    if command[-2:] == [str(evidence.output / "toolchain-probe.exe"), "-lm"]:
-                        return Result(0xC0000005, b"", b"original crash", False)
-                    if command[-1] == str(object_file):
-                        self.assertFalse(object_file.exists())
-                        if object_exit:
-                            object_file.write_bytes(b"partial failed object")
-                        return Result(object_exit, b"", b"object diagnostic", False)
-                    return Result(0, b"", b"", False)
-
-                with (
-                    patch("tools.windows_toolchain.arm64.sys.platform", "win32"),
-                    patch("tools.windows_toolchain.arm64.run_process", side_effect=execute_probe) as execute,
-                    self.assertRaisesRegex(RuntimeError, "toolchain-probe-build exited 3221225477"),
-                ):
-                    evidence.probe_native_toolchain()
-                self.assertFalse(any("lld-link" in item.args[0] for item in execute.call_args_list))
-                diagnostics = evidence.report["c_frontend_diagnostics"]
-                self.assertEqual(diagnostics["direct_linker_skipped"], "no successful current target object")
-                self.assertNotIn("direct_linker_crash_location", diagnostics)
-                self.assertEqual(evidence.report["native_execution"], "not-run")
-
-    def test_direct_linker_timeout_retains_diagnostics_and_original_failure(self):
-        evidence = Evidence(self.root, "zig")
-        object_file = evidence.output / "minimal.o"
-        report = evidence.output / "direct-linker-crash-location.json"
-        report.write_text('{"stale": true}')
-
-        def execute_probe(command, **kwargs):
-            if command[-1] == "--version":
-                return Result(0, b"version", b"", False)
-            if command[-2:] == [str(evidence.output / "toolchain-probe.exe"), "-lm"]:
-                return Result(0xC0000005, b"", b"original crash", False)
-            if "lld-link" in command:
-                return Result(None, b"partial linker output", b"linker timeout", True)
-            if command[-1] == str(object_file):
-                object_file.write_bytes(b"current ARM64 object")
-            return Result(0, b"", b"", False)
-
-        with (
-            patch("tools.windows_toolchain.arm64.sys.platform", "win32"),
-            patch("tools.windows_toolchain.arm64.run_process", side_effect=execute_probe),
-            self.assertRaisesRegex(RuntimeError, "toolchain-probe-build exited 3221225477"),
-        ):
-            evidence.probe_native_toolchain()
-        diagnostics = evidence.report["c_frontend_diagnostics"]
-        self.assertIn("timed out after 30s", diagnostics["failures"]["direct-linker"])
-        self.assertEqual((evidence.output / "diagnostic-direct-linker.stdout").read_bytes(), b"partial linker output")
-        self.assertEqual((evidence.output / "diagnostic-direct-linker.stderr").read_bytes(), b"linker timeout")
-        self.assertFalse(report.exists())
-        self.assertEqual(evidence.report["status"], "failed")
-        self.assertEqual(evidence.report["native_execution"], "not-run")
 
     def test_timeout_retains_partial_output_and_step_metadata(self):
         evidence = Evidence(self.root, "zig")

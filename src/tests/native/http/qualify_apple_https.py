@@ -20,8 +20,8 @@ import time
 from pathlib import Path
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.dependencies import DependencyAudit
 from src.tests.native_build import NativeCorpusBuild
-from tools.qualification.dependencies import DependencyAudit
 from tools.target_hosts.ios.simhost import AppleEnvironment, IOSSimulatorHost
 
 

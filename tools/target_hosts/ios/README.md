@@ -27,8 +27,8 @@ installed runtime is not the iOS 17 floor (MAC-P1-02).
   and starts each program under test.
 - `simhost.py`: the CoreSimulator device: runtime and device selection, boot,
   boot status and shutdown, every simctl call bounded.
-- `spike.py` and `fixtures/fixture.c`: twelve hand-written fixtures that
-  qualify the executor on a real simulator (host-ios.yml).
+- `fixtures/fixture.c`: twelve hand-written C11 fixtures compiled and exercised
+  by `test_executor.py` against the supervisor.
 - `test_executor.py`: portable tests. The supervisor and fixtures are built
   with the host's C compiler and run as local processes; only simctl's
   transport is replaced, so spawn, wait, deadline and group kill are real.
@@ -164,7 +164,7 @@ the linker would take that one, which a spawned program cannot find).
 `host-ios.yml` runs on one hosted macOS runner (`simulator`): the fixtures on
 iPhone and iPad, then the whole corpus through both compilers on an iPhone,
 whose step reports only until its failures are triaged. Its `portable` job
-runs the portable tests on Linux. A lane workflow has no `ci/tiers.toml` rows;
+runs the portable tests on Linux. A lane workflow has no `.github/ci/tiers.toml` rows;
 folding it into the tiers is CL-R-39.
 
 The first protocol-1 run, [39260417889](https://github.com/schiffy91/btrc/actions/runs/39260417889)

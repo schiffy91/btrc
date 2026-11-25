@@ -1,7 +1,7 @@
 name: cache
 
-# Keeps a Nix binary cache of ci/targets.nix fresh: one job per system and attribute,
-# so a runner's disk holds one closure. Pushes to Cachix when ci/targets.nix names a
+# Keeps a Nix binary cache of .github/ci/targets.nix fresh: one job per system and attribute,
+# so a runner's disk holds one closure. Pushes to Cachix when .github/ci/targets.nix names a
 # cache and CACHIX_AUTH_TOKEN is set; otherwise every job leaves its slice as a
 # workflow artifact, which `nix copy --from file://...` consumes as it is.
 on:
@@ -26,9 +26,9 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d # v16
       - id: read
         run: |
-          matrix=$(nix eval --json --file ci/targets.nix --apply 'c: builtins.concatMap (s: builtins.map (a: { inherit (s) system runner; attr = a; }) s.attrs) c.systems')
+          matrix=$(nix eval --json --file .github/ci/targets.nix --apply 'c: builtins.concatMap (s: builtins.map (a: { inherit (s) system runner; attr = a; }) s.attrs) c.systems')
           printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
-          printf 'cachix=%s\n' "$(nix eval --raw --file ci/targets.nix --apply 'c: c.cache.cachix')" >> "$GITHUB_OUTPUT"
+          printf 'cachix=%s\n' "$(nix eval --raw --file .github/ci/targets.nix --apply 'c: c.cache.cachix')" >> "$GITHUB_OUTPUT"
 
   build:
     needs: plan

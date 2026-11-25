@@ -695,7 +695,7 @@ int main() {
 
     # A bus of the test's own: the session's watcher must not be the one that answers. Nix's dbus looks for
     # its configuration under /etc, which a container lacks, so the one installed beside the daemon is named,
-    # as tools/ui/headless-session.sh does.
+    # as .github/ci/headless-session.sh does.
     shipped = Path(os.path.realpath(daemon_program)).parent.parent / "share/dbus-1/session.conf"
     configuration = f"--config-file={shipped}" if shipped.is_file() else "--session"
     daemon = subprocess.Popen(

@@ -8,7 +8,6 @@ through the native plan, and runs optimized and under ASan/UBSan. Display and
 hardware loopback cases are opt-in. The standard Linux audio sessions use a clocked
 Pulse native peer and a kernel ioctl fault fixture without host audio packages."""
 
-import ctypes.util
 import os
 import re
 import struct
@@ -20,18 +19,17 @@ from pathlib import Path
 import pytest
 
 from src.tests.c_toolchains import configured_c_compiler
+from src.tests.dependencies import DependencyAudit
 from src.tests.native_bindings import NativeBindingPackage
 from src.tests.python.linux_provider_fixtures import (
     ROOT,
     TARGET,
-    build_alsa_plugin_adapter,
     build_provider_program,
     provider_environment,
     require_linux_reader,
 )
 from src.tests.python.pulse_audio_peer import PulseTestServer
 from src.tests.runner_capabilities import linux_display_error
-from tools.qualification.dependencies import DependencyAudit
 
 # The fault fixture's test controls LinuxAudioFaults.btrc binds from AlsaFaults.h.
 ALSA_FAULT_CONTROLS = (
@@ -130,25 +128,17 @@ def test_linux_pulse_faults(tmp_path, request, frontend, sanitized):
             assert "PASS: Pulse stream fault" in result.stdout
 
 
-@pytest.mark.parametrize("route", ["builtin", "plugin"])
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])
-def test_linux_saved_pcm(tmp_path, request, frontend, route):
+def test_linux_saved_pcm(tmp_path, request, frontend):
     """The saved device must receive the samples even with an independent default."""
     require_linux_reader()
-    if route == "plugin" and not ctypes.util.find_library("asound"):
-        pytest.skip("requires the existing alsa-lib PCM plugin runtime")
     work = tmp_path / "configuration"
     work.mkdir()
     capture = work / "selected.raw"
     capture.write_bytes(b"old file contents")
     config = work / "asound.conf"
-    # The installed provider evaluates the user's environment expression.
     # The first-party built-in accesses an ordinary file in the isolated root.
-    target = (
-        '{ @func getenv vars [ BTRC_AUDIO_TEST_OUTPUT ] default "/discarded" }'
-        if route == "plugin"
-        else '"/work/selected.raw"'
-    )
+    target = '"/work/selected.raw"'
     config.write_text(
         "defaults.namehint.showall on\n"
         'namehint.pcm.saved "plughw:CARD=SavedRoute,DEV=7|My persisted stereo output"\n'
@@ -162,57 +152,53 @@ def test_linux_saved_pcm(tmp_path, request, frontend, route):
         ROOT / "src/tests/native/audio/linux/LinuxSavedPcm.btrc", tmp_path, frontend, False, request
     )
     assert DependencyAudit().binary_problems(client, TARGET) == []
-    command = [str(client)]
     environment = provider_environment(
         False, ALSA_CONFIG_PATH=str(config), PULSE_SERVER="unix:/absent", BTRC_AUDIO_TEST_OUTPUT=str(capture)
     )
-    if route == "plugin":
-        environment["LD_PRELOAD"] = str(build_alsa_plugin_adapter(tmp_path))
-    else:
-        listing = subprocess.check_output(["ldd", client], text=True)
-        dependencies = re.findall(r"(?:=>\s+|^\s*)(/[^ ]+)\s+\(", listing, re.M)
-        assert dependencies and "not found" not in listing
-        assert all(
-            Path(lib).name.startswith(("ld-linux", "libc.so.", "libm.so.", "libpthread.so.")) for lib in dependencies
-        ), listing
-        command = [
-            "bwrap",
-            "--die-with-parent",
-            "--unshare-all",
-            "--clearenv",
-            "--dev",
-            "/dev",
-            "--proc",
-            "/proc",
-            "--bind",
-            str(work),
-            "/work",
-            "--ro-bind",
-            str(client),
-            "/app",
-            "--setenv",
-            "ALSA_CONFIG_PATH",
-            "/work/asound.conf",
-            "--setenv",
-            "PULSE_SERVER",
-            "unix:/absent",
-            "--setenv",
-            "LD_LIBRARY_PATH",
-            "/lib",
-        ]
-        bound = set()
-        for dependency in dependencies:
-            name = Path(dependency).name
-            destination = dependency if name.startswith("ld-linux") else f"/lib/{name}"
-            command.extend(["--ro-bind", dependency, destination])
-            bound.add(destination)
-        headers = subprocess.check_output(["readelf", "-lW", client], text=True)
-        match = re.search(r"\[Requesting program interpreter:\s*([^]]+)\]", headers)
-        if match:
-            interpreter = match.group(1).strip()
-            if interpreter not in bound:
-                command.extend(["--ro-bind", interpreter, interpreter])
-        command.extend(["--", "/app"])
+    listing = subprocess.check_output(["ldd", client], text=True)
+    dependencies = re.findall(r"(?:=>\s+|^\s*)(/[^ ]+)\s+\(", listing, re.M)
+    assert dependencies and "not found" not in listing
+    assert all(
+        Path(lib).name.startswith(("ld-linux", "libc.so.", "libm.so.", "libpthread.so.")) for lib in dependencies
+    ), listing
+    command = [
+        "bwrap",
+        "--die-with-parent",
+        "--unshare-all",
+        "--clearenv",
+        "--dev",
+        "/dev",
+        "--proc",
+        "/proc",
+        "--bind",
+        str(work),
+        "/work",
+        "--ro-bind",
+        str(client),
+        "/app",
+        "--setenv",
+        "ALSA_CONFIG_PATH",
+        "/work/asound.conf",
+        "--setenv",
+        "PULSE_SERVER",
+        "unix:/absent",
+        "--setenv",
+        "LD_LIBRARY_PATH",
+        "/lib",
+    ]
+    bound = set()
+    for dependency in dependencies:
+        name = Path(dependency).name
+        destination = dependency if name.startswith("ld-linux") else f"/lib/{name}"
+        command.extend(["--ro-bind", dependency, destination])
+        bound.add(destination)
+    headers = subprocess.check_output(["readelf", "-lW", client], text=True)
+    match = re.search(r"\[Requesting program interpreter:\s*([^]]+)\]", headers)
+    if match:
+        interpreter = match.group(1).strip()
+        if interpreter not in bound:
+            command.extend(["--ro-bind", interpreter, interpreter])
+    command.extend(["--", "/app"])
     result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS: persisted Linux PCM" in result.stdout
@@ -222,19 +208,18 @@ def test_linux_saved_pcm(tmp_path, request, frontend, route):
         stream.seek(0)
         assert any(block == wanted for block in iter(lambda: stream.read(len(wanted)), b""))
 
-    if route == "builtin":
-        document = config.read_text()
-        for unsupported in (
-            document.replace("type null", "type null unknown 1", 1),
-            document.replace('format "raw"', 'format "wav"'),
-            document.replace("slave.pcm savedfile", "slave.pcm plughw"),
-            document.replace('"/work/selected.raw"', '"/dev/null"'),
-            document.replace('"/work/selected.raw"', "{ @func getenv vars [ BTRC_AUDIO_TEST_OUTPUT ] }"),
-        ):
-            config.write_text(unsupported)
-            rejected = subprocess.run([*command, "unavailable"], capture_output=True, text=True, timeout=10)
-            assert rejected.returncode == 0, rejected.stderr
-            assert "PASS: rejected unsupported PCM" in rejected.stdout
+    document = config.read_text()
+    for unsupported in (
+        document.replace("type null", "type null unknown 1", 1),
+        document.replace('format "raw"', 'format "wav"'),
+        document.replace("slave.pcm savedfile", "slave.pcm plughw"),
+        document.replace('"/work/selected.raw"', '"/dev/null"'),
+        document.replace('"/work/selected.raw"', "{ @func getenv vars [ BTRC_AUDIO_TEST_OUTPUT ] }"),
+    ):
+        config.write_text(unsupported)
+        rejected = subprocess.run([*command, "unavailable"], capture_output=True, text=True, timeout=10)
+        assert rejected.returncode == 0, rejected.stderr
+        assert "PASS: rejected unsupported PCM" in rejected.stdout
 
 
 @pytest.mark.parametrize("backend", ["alsa-loopback", "pulse-monitor"])

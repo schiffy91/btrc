@@ -1,6 +1,6 @@
 """The 11-row provider matrix through the reference resolver (platform-target-contract.md section 5.3).
 
-Every stdlib group manifest, every examples/ package and the native test
+Every stdlib group manifest, the native-package fixture and the native test
 packages resolve on every row of targets.toml with every export imported. No
 row may select a foreign record: a provider, native declaration or binding
 under another operating system's platform directory, a framework or
@@ -26,10 +26,8 @@ from src.tests.python.provider_matrix_fixtures import (
     ROWS,
     SLICE_ROWS,
     STDLIB,
-    UI0_GROUPS,
-    UNAVAILABLE_IMPLEMENTATIONS,
-    InventoryCells,
     MatrixClassifier,
+    PathSpelling,
     ProviderMatrix,
     ReferenceResolver,
     foreign_probe,
@@ -83,36 +81,22 @@ def test_no_row_selects_a_foreign_record(reference: ReferenceRows, label: str) -
     assert classified.portable
 
 
-def test_the_missing_set_is_the_inventory(reference: ReferenceRows) -> None:
-    """Section 5.3: the matrix's missing and os-restricted exports are the
-    inventory's unavailable cells for every configured module, and a row the
-    inventory does not slice (linux, macos) misses nothing."""
+# Exports without desktop providers on every desktop row (Android-only) or on macOS (Linux-only).
+ANDROID_ONLY_EXPORTS = frozenset({"Library.Java.JavaVirtualMachine"})
+LINUX_ONLY_EXPORTS = frozenset({"Library.DBus", "Library.DBus.DBusConnection"})
+
+
+def test_desktop_rows_miss_only_platform_restricted_exports(reference: ReferenceRows) -> None:
+    """Non-sliced desktop rows (linux, macos) miss no export except explicit platform-restricted exports."""
 
     status = {label: reference.matrix.export_status(label, reference.row(label)) for label in LABELS}
     sliced = {label for labels in SLICE_ROWS.values() for label in labels}
     for label in sorted(set(LABELS) - sliced):
-        assert [identifier for identifier, value in sorted(status[label].items()) if value == "missing"] == [], label
-    exports = ProviderMatrix.stdlib_exports()
-    configured = {
-        identifier
-        for identifier, (group, _spelled) in exports.items()
-        if group not in UI0_GROUPS
-        and (
-            identifier in ProviderMatrix.provider_exports()
-            or MatrixClassifier.platforms(tuple(identifier.split(".")[1:-1]))
-            or any(status[label][identifier] == "missing" for label in LABELS)
+        allowed = ANDROID_ONLY_EXPORTS | (
+            LINUX_ONLY_EXPORTS if ROWS[label].operating_system != "linux" else frozenset()
         )
-    }
-    assert configured, "the stdlib configures at least one provider module"
-    cells = InventoryCells.implementations()
-    matrix, inventory = {}, {}
-    for identifier in sorted(configured):
-        for name, labels in SLICE_ROWS.items():
-            unavailable = {status[label][identifier] != "resolved" for label in labels}
-            assert len(unavailable) == 1, f"{identifier}: the rows of {name} disagree"
-            matrix[identifier, name] = unavailable.pop()
-            inventory[identifier, name] = cells[identifier, name] in UNAVAILABLE_IMPLEMENTATIONS
-    assert {cell for cell, value in matrix.items() if value} == {cell for cell, value in inventory.items() if value}
+        missing = {identifier for identifier, value in status[label].items() if value == "missing"}
+        assert missing <= allowed, (label, sorted(missing - allowed))
 
 
 def test_every_stdlib_record_that_selects_every_system_names_why() -> None:
@@ -190,3 +174,11 @@ def test_the_matrix_covers_every_manifest() -> None:
     groups = {program.key.removeprefix("group:") for program in programs if program.key.startswith("group:")}
     assert groups == {path.parent.name for path in STDLIB.glob("*/btrc.toml")} | {"Root"}
     assert set(EXPECTED_REFUSALS) <= {program.key for program in programs}
+
+
+def test_path_spelling_strips_package_failure_prefixes(tmp_path: Path) -> None:
+    spelling = PathSpelling(tmp_path)
+    diagnostic = f"path dependency 'dep' does not name a directory: '{tmp_path / 'missing'}'"
+    expected = "path dependency 'dep' does not name a directory: 'work:missing'"
+    assert spelling.message(f"error: package resolution failed: {diagnostic}\n") == expected
+    assert spelling.message(f"package resolution failed: {diagnostic}") == expected

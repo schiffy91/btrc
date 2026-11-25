@@ -4,7 +4,7 @@
 real input: XTEST on X11, and on Wayland a wlroots compositor's virtual
 pointer and keyboard (the conformance suite's `ShimProbe`, `X11Input` and
 `WaylandInput`). It runs only in a private session from
-`tools/ui/headless-session.sh`, never on a desktop someone is using. Its
+`.github/ci/headless-session.sh`, never on a desktop someone is using. Its
 accessibility report says `not observed`: the controls are GTK widgets with
 GTK's own accessible objects, and the journey does not read them.
 

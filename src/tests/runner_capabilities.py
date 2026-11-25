@@ -270,7 +270,7 @@ def linux_display_error() -> str | None:
 @CapabilityGateLog.gate("native-display-wayland")
 def linux_wayland_display_error() -> str | None:
     """Return why a Wayland window cannot be opened from this session, such as
-    `tools/ui/headless-session.sh --wayland` provides."""
+    `.github/ci/headless-session.sh --wayland` provides."""
     display = os.environ.get("WAYLAND_DISPLAY")
     if not display:
         return "native Wayland backend is unavailable: no WAYLAND_DISPLAY"

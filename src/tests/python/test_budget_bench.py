@@ -163,7 +163,7 @@ def test_host_summary_records_this_host_not_the_acceptance_mac():
 
 def test_host_summary_on_the_acceptance_mac_is_its_exact_provenance_string(monkeypatch):
     """The sysctl and sw_vers facts of the M1 Max yield AGENTS.md's string verbatim."""
-    from tools.qualification import adapters
+    from tools import host_provenance
 
     facts = {
         ("sw_vers", "-productVersion"): "27.0",
@@ -173,15 +173,15 @@ def test_host_summary_on_the_acceptance_mac_is_its_exact_provenance_string(monke
         ("sysctl", "-n", "hw.physicalcpu"): "10",
         ("sysctl", "-n", "hw.memsize"): str(64 * 2**30),
     }
-    monkeypatch.setattr(adapters.host_platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(host_provenance.host_platform, "system", lambda: "Darwin")
     monkeypatch.setattr(
-        adapters.HostProvenance, "_run", staticmethod(lambda command, cwd=None: facts.get(tuple(command)))
+        host_provenance.HostProvenance, "_run", staticmethod(lambda command, cwd=None: facts.get(tuple(command)))
     )
     assert bench.HostSummary.describe() == "Apple M1 Max, 8P+2E, 64 GiB, macOS 27.0"
 
 
 def test_host_summary_reads_the_linux_cpu_model(tmp_path):
-    from tools.qualification.adapters import HostProvenance
+    from tools.host_provenance import HostProvenance
 
     cpuinfo = tmp_path / "cpuinfo"
     cpuinfo.write_text("processor\t: 0\nvendor_id\t: AuthenticAMD\nmodel name\t: AMD EPYC 7763 64-Core Processor\n")

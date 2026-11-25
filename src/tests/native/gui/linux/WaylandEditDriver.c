@@ -1,4 +1,4 @@
-/* Drive the unchanged examples/gui/Native.btrc using compositor input and
+/* Drive the unchanged src/tests/fixtures/gui/Native.btrc using compositor input and
  * confirm that its Apply title callback reaches the window manager. */
 #define _POSIX_C_SOURCE 200809L
 #include "../conformance/probes/shim/RealInput.h"

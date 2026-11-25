@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.dependencies import DependencyAudit
 from src.tests.gui_provider_root import GUIProviderRoot
 from src.tests.python.linux_provider_fixtures import require_linux_reader, transpile_provider_program
 from src.tests.python.test_dbus_runtime import private_bus
 from tools.native_plan import NativePlanBuilder, NativePlanReader
-from tools.qualification.dependencies import DependencyAudit
 
 ROOT = Path(__file__).resolve().parents[3]
 NATIVE = ROOT / "src/tests/native/gui/linux"
@@ -126,7 +126,7 @@ def test_gui_routes_parented_directory_picker_to_portal(frontend, tmp_path, requ
     assert not DependencyAudit().binary_problems(program, f"linux-{platform.machine()}")
     subprocess.run(
         [
-            ROOT / "tools/ui/headless-session.sh",
+            ROOT / ".github/ci/headless-session.sh",
             "--wayland",
             "--",
             sys.executable,

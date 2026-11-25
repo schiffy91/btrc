@@ -23,7 +23,7 @@ from src.tests.python.test_first_party_wayland_window import (
     wayland_session_env,
 )
 
-SAMPLE = ROOT / "examples/gui/Wayland.btrc"
+SAMPLE = ROOT / "src/tests/fixtures/gui/Wayland.btrc"
 SDK_PACKAGES = {"gtk4", "gtk4-wayland", "gtk4-x11", "wayland-client", "x11", "webkitgtk-6.0"}
 RUNTIME_FORBIDDEN = ("libgtk", "libgdk", "libX11", "libwayland", "libfontconfig", "libfreetype", "libpango")
 
@@ -94,7 +94,7 @@ def build_app(frontend, source, tmp_path, request, *, timeout=600):
         [
             sys.executable,
             "-m",
-            "tools.qualification.dependencies",
+            "src.tests.dependencies",
             "binary",
             "--target",
             f"linux-{platform.machine()}",

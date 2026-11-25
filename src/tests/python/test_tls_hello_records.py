@@ -10,10 +10,10 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.dependencies import DependencyAudit
 from src.tests.native_build import NativeCorpusBuild
 from src.tests.python.test_network_runtime import _transpile
 from src.tests.python.test_tls_handshake import RETRY_RANDOM, hello_extensions, read_exact, read_record
-from tools.qualification.dependencies import DependencyAudit
 
 ROOT = Path(__file__).resolve().parents[3]
 

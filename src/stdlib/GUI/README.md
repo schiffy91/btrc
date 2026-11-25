@@ -60,7 +60,7 @@ overflowing the bezel; borderless buttons accept up to
 fits. `setBordered(false)` hides only the bezel; `setTransparent(true)` hides
 all button drawing and is for hit targets, not labels.
 
-[Native.btrc](../../../examples/gui/Native.btrc) is a portable application example:
+[Native.btrc](../../tests/fixtures/gui/Native.btrc) is a portable application fixture:
 edit a native text field, apply the window title through a queued button action,
 then quit through the same application lifecycle. Its nested row/column layout
 uses native intrinsic sizes, not manually assigned control frames.
@@ -332,12 +332,12 @@ compositor's socket with no GTK4, X11, Pango, Cairo, or link-time
 - To build a standalone Linux GUI example directly:
 
 ```sh
-python -m tools.ui.build_wayland_preview examples/gui/Wayland.btrc -o /tmp/btrc-wayland
+python -m tools.ui.build_wayland_preview src/tests/fixtures/gui/Wayland.btrc -o /tmp/btrc-wayland
 /tmp/btrc-wayland
 ```
 
 Pass `--compiler /path/to/btrcc` to use the self-hosted compiler. Both
-`examples/gui/Wayland.btrc` and `examples/gui/Native.btrc` run inside a Wayland
+`src/tests/fixtures/gui/Wayland.btrc` and `src/tests/fixtures/gui/Native.btrc` run inside a Wayland
 session.
 
 On Windows the same provider runs over `Windows/Win32*.c`:
@@ -450,7 +450,7 @@ On iOS and iPadOS the same provider runs over `IOS/UIKit*.m`:
 The shared conformance suite (`src/tests/native/gui/conformance`) is the
 regression: each case runs through both compilers on X11 and on Wayland with
 real input (XTEST; a wlroots compositor's virtual pointer and keyboard) in a
-private session from `tools/ui/headless-session.sh`. `LinuxGUIShutdown.btrc`
+private session from `.github/ci/headless-session.sh`. `LinuxGUIShutdown.btrc`
 proves a subtree that never finishes closing fails `run()` after the drain
 deadline, `LinuxEventBoundary.btrc` that a burst of input is delivered
 losslessly in bounded turns, and `ShimPlacement.btrc` that controls are
@@ -600,13 +600,6 @@ vertical stems are not grid-fitted. `FontSnapshotConformance.btrc`,
 
 `Surface.resize(w, h)` changes the owned pixel buffer dimensions; callers
 redraw at the new size.
-
-## Build
-
-```
-make -C examples/gui        # build the portable Native.btrc example
-make -C examples/gui run    # build it and open its window
-```
 
 ## Caveats
 

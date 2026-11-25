@@ -78,7 +78,7 @@ OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024
 
 @dataclass(frozen=True)
 class ExecutionRequest:
-    """The runner's request (protocol 1); `spike.py` builds these without importing the runner."""
+    """The runner's request (protocol 1), kept independent of the runner module."""
 
     program_id: str
     argv: tuple[str, ...] = ()

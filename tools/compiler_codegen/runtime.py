@@ -235,7 +235,6 @@ class RuntimeManifest:
     _CATALOGS = ("python", "btrc")
     _ASSETS = (
         "core.c",
-        "collections.c",
         "cycles.c",
         "mutex.c",
         "process.c",

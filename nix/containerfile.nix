@@ -39,7 +39,7 @@ in
     COPY --chown=${uid}:${uid} LICENSE /tmp/flake/LICENSE
     COPY --chown=${uid}:${uid} src/devex/__init__.py /tmp/flake/src/devex/__init__.py
     COPY --chown=${uid}:${uid} src/devex/formatter/ /tmp/flake/src/devex/formatter/
-    COPY --chown=${uid}:${uid} examples/native-package/ /tmp/flake/examples/native-package/
+    COPY --chown=${uid}:${uid} src/tests/fixtures/native-package/ /tmp/flake/src/tests/fixtures/native-package/
     USER ${uid}:${uid}
     ENV HOME="${home}" DEVCONTAINER=true LANG=C.UTF-8 BASH_ENV="${home}/.nix-devshell.sh" PATH="${home}/.local/bin:/nix/var/nix/profiles/default/bin:$PATH"
     # The bind-mounted checkout keeps the host UID. Trust only this configured

@@ -878,17 +878,3 @@ static inline char* __btrc_charToString(char c) {
     return buf;
 }
 /* btrc-runtime-helper:end __btrc_charToString */
-/* btrc-runtime-helper:begin __btrc_fromInt */
-static inline char* __btrc_fromInt(int n) {
-    char* r = __btrc_string_alloc(20);
-    snprintf(r, 21, "%d", n);
-    return r;
-}
-/* btrc-runtime-helper:end __btrc_fromInt */
-/* btrc-runtime-helper:begin __btrc_fromFloat */
-static inline char* __btrc_fromFloat(float f) {
-    char* r = __btrc_string_alloc(31);
-    snprintf(r, 32, "%g", (double)f);
-    return r;
-}
-/* btrc-runtime-helper:end __btrc_fromFloat */

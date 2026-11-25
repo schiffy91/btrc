@@ -9,16 +9,10 @@ from __future__ import annotations
 
 import ast
 import fnmatch
-import json
-import os
 import re
-import subprocess
-import sys
 from pathlib import Path, PurePosixPath
 
 import pytest
-
-from src.tests.process_limits import TOOL_TIMEOUT
 
 REPO = Path(__file__).resolve().parents[3]
 FIXTURE_ROOTS = ("src/tests/native/gui", "src/tests/native/tray")
@@ -172,95 +166,3 @@ def test_generic_anchors_do_not_claim_fixture_coverage(source: str) -> None:
 def test_unknown_make_syntax_fails_loudly() -> None:
     with pytest.raises(AssertionError, match="Unrecognized"):
         _selected_modules("NATIVE_GUI_TESTS := $(shell discover-tests)\n", set())
-
-
-@pytest.fixture
-def setup_environment(tmp_path: Path) -> dict[str, str]:
-    """Exercise setup policy without downloading a toolchain in every unit run."""
-    tools = tmp_path / "tools"
-    tools.mkdir()
-    fake_nix = tools / "nix"
-    fake_nix.write_text(
-        f"#!{sys.executable}\n"
-        "import json, os, sys\n"
-        "args = sys.argv[1:]\n"
-        "with open(os.environ['SETUP_CALLS'], 'a') as stream:\n"
-        " stream.write(json.dumps(args) + '\\n')\n"
-        "if 'gh' in args:\n"
-        " assert 'GH_TOKEN' not in os.environ and 'GITHUB_TOKEN' not in os.environ\n"
-        " if 'status' in args: sys.exit(int(os.environ.get('STORED_AUTH_FAILURE', '0')))\n"
-        " if 'login' in args:\n"
-        "  assert sys.stdin.read() == 'synthetic-setup-secret'\n"
-        "sys.exit(int(os.environ.get('NIX_FAILURE', '0')))\n"
-    )
-    fake_nix.chmod(0o755)
-    # Spaces and shell metacharacters remain path characters, never shell code.
-    rc = tmp_path / "profile $(false); space.rc"
-    rc.write_text("# existing user settings\n")
-    environment = {
-        **os.environ,
-        "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
-        "BTRC_CODEX_GCROOTS": str(tmp_path / "roots with spaces"),
-        "BTRC_CODEX_RC_FILE": str(rc),
-        "SETUP_CALLS": str(tmp_path / "calls.jsonl"),
-    }
-    environment.pop("GH_TOKEN", None)
-    environment.pop("GITHUB_TOKEN", None)
-    return environment
-
-
-def _setup(environment: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["bash", str(REPO / "tools/ui/codex-setup.sh"), *arguments],
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=TOOL_TIMEOUT,
-    )
-
-
-def _setup_calls(environment: dict[str, str]) -> list[list[str]]:
-    path = Path(environment["SETUP_CALLS"])
-    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
-
-
-def test_setup_is_repeatable_and_platforms_are_opt_in(setup_environment: dict[str, str]) -> None:
-    rc = Path(setup_environment["BTRC_CODEX_RC_FILE"])
-    for _ in range(2):
-        result = _setup(setup_environment)
-        assert result.returncode == 0, result.stderr
-    assert rc.read_text() == "# existing user settings\n\nexport BTRC_TEST_RUNNER=linux-devcontainer\n"
-    calls = _setup_calls(setup_environment)
-    assert len(calls) == 8
-    assert not any(".#platforms" in call or "gh" in call for call in calls)
-    assert calls[:4] == calls[4:]
-    result = _setup(setup_environment, "--platforms")
-    assert result.returncode == 0, result.stderr
-    assert sum(".#platforms" in call for call in _setup_calls(setup_environment)) == 1
-
-
-@pytest.mark.parametrize("stored_failure", ["0", "1"])
-def test_setup_persists_supplied_secret_only_when_needed(
-    setup_environment: dict[str, str], stored_failure: str
-) -> None:
-    setup_environment.update(GH_TOKEN="synthetic-setup-secret", STORED_AUTH_FAILURE=stored_failure)
-    result = _setup(setup_environment)
-    assert result.returncode == 0, result.stderr
-    assert "synthetic-setup-secret" not in result.stdout + result.stderr
-    calls = _setup_calls(setup_environment)
-    assert sum("login" in call for call in calls) == int(stored_failure)
-    assert not any("setup-git" in call for call in calls)
-
-
-def test_setup_failure_does_not_claim_ready_or_edit_rc(setup_environment: dict[str, str]) -> None:
-    setup_environment["NIX_FAILURE"] = "23"
-    result = _setup(setup_environment)
-    assert result.returncode == 23
-    assert "ready" not in result.stdout
-    assert Path(setup_environment["BTRC_CODEX_RC_FILE"]).read_text() == "# existing user settings\n"
-
-
-def test_setup_rejects_unknown_options_before_mutation(setup_environment: dict[str, str]) -> None:
-    result = _setup(setup_environment, "--platfroms")
-    assert result.returncode == 2
-    assert _setup_calls(setup_environment) == []

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.qualification.dependencies import (
+from src.tests.dependencies import (
     POLICY,
     REPORT,
     RUNTIME,
@@ -35,9 +35,7 @@ def test_the_tree_has_no_unlisted_third_party_requirement() -> None:
 
 
 def test_the_audit_document_is_current() -> None:
-    assert REPORT.read_text() == DependencyAudit().report(), (
-        "run `python -m tools.qualification.dependencies report --write`"
-    )
+    assert REPORT.read_text() == DependencyAudit().report(), "run `python -m src.tests.dependencies report --write`"
 
 
 def test_wgpu_native_is_the_only_exception() -> None:
@@ -268,7 +266,7 @@ def test_windows_and_macos_import_tables_are_read(
 
 def test_the_command_reports_and_fails(tmp_path: Path) -> None:
     ran = subprocess.run(
-        [sys.executable, "-m", "tools.qualification.dependencies", "check"],
+        [sys.executable, "-m", "src.tests.dependencies", "check"],
         cwd=ROOT,
         capture_output=True,
         text=True,

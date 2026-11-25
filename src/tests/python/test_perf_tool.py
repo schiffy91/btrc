@@ -218,7 +218,9 @@ def test_reference_compiler_measurement(tmp_path):
 @pytest.mark.parametrize("frontend", ["btrcpy", "btrcc"])
 def test_complete_build_measurement_includes_every_unit_and_mode(tmp_path, request, frontend, capsys):
     project = tmp_path / "project"
-    shutil.copytree(ROOT / "examples/native-package", project, ignore=shutil.ignore_patterns("build", ".btrc-cache"))
+    shutil.copytree(
+        ROOT / "src/tests/fixtures/native-package", project, ignore=shutil.ignore_patterns("build", ".btrc-cache")
+    )
     path = tmp_path / "report.json"
     options = [
         str(project / "src/Main.btrc"),
@@ -349,7 +351,9 @@ def test_failed_link_retains_native_measurement_and_logs(tmp_path):
 
 def test_measurement_rejects_inputs_changed_during_build(tmp_path, monkeypatch):
     project = tmp_path / "project"
-    shutil.copytree(ROOT / "examples/native-package", project, ignore=shutil.ignore_patterns("build", ".btrc-cache"))
+    shutil.copytree(
+        ROOT / "src/tests/fixtures/native-package", project, ignore=shutil.ignore_patterns("build", ".btrc-cache")
+    )
     original = perf.Perf.run_native
 
     def build_then_edit(self, run, directory, scenario, started):
@@ -767,42 +771,3 @@ def test_cprofile_failed_compile_keeps_its_log(tmp_path):
     work = Path(report["provenance"]["work_directory"])
     assert (work / "logs/cold-1-plain.stderr").stat().st_size > 0
     assert (workspace / budget_bench.ENTRY).read_text() == "int main( {\n"
-
-
-# -- the stage6-reference runbook preset -----------------------------------------------------
-
-
-def test_stage6_reference_preset_expands_to_valid_perf_commands(tmp_path, monkeypatch):
-    from tools.runbook.engine import Host, Preset, RunbookEngine, RunOptions
-
-    monkeypatch.setenv("BTRC_LOCK_DIR", str(tmp_path / "locks"))
-    preset = Preset.load("stage6-reference")
-    assert preset.packet == "MAC-R-03" and preset.kind == "measurement"
-    for stand_in, extra in ((False, []), (True, ["--rehearsal", "--stand-in", "--dry-run"])):
-        options = RunOptions.parse(["stage6-reference", "--home", str(tmp_path / "home"), *extra])
-        engine = RunbookEngine(preset, options, host=Host("Darwin" if not stand_in else "Linux"))
-        engine.frozen = {"shas": {"btrc": "0" * 40, "btrsmith": {"post-stage4": "1" * 40}}}
-        state = engine.new_state()
-        cells = {cell.id: cell for cell in engine.cells}
-        assert set(cells) == {"reference-cold-dev", "reference-cold-release", "reference-edits"}
-        for cell in cells.values():
-            assert cell.lock == "bench" and cell.quiet and cell.shell == "btrsmith"
-            command = engine.expand_command(cell.command, engine.context(cell, state))
-            assert command[:5] == ["python3", "-m", "tools.perf", "--cprofile", "--frontend"]
-            assert ("--stand-in" in command) == stand_in and ("--workspace" in command) != stand_in
-            assert ("--dry-run" in command) == stand_in
-            assert command[command.index("--min-attributed") + 1] == "0.90"
-            workspace = command.index("--workspace") + 1 if not stand_in else None
-            if workspace is not None:
-                (tmp_path / "pin/src").mkdir(parents=True, exist_ok=True)
-                (tmp_path / "pin" / budget_bench.ENTRY).write_text("int main() { return 0; }\n")
-                command[workspace] = str(tmp_path / "pin")
-            arguments = perf.ReferenceAttribution.parse_arguments(command[3:])
-            assert arguments.min_attributed == 0.9
-            assert Path(arguments.json) == state.cell_out(cell.id) / "attribution.json"
-            if cell.id == "reference-edits":
-                assert arguments.cold_samples == 0 and len(arguments.fixtures) == len(budget_bench.EDIT_FIXTURES)
-                assert arguments.edit_samples == (1 if stand_in else 5)
-            else:
-                assert arguments.fixtures == () and arguments.cold_samples == (1 if stand_in else 3)
-                assert arguments.mode == cell.variables["mode"]

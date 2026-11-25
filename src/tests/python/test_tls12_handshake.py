@@ -12,11 +12,11 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.dependencies import BinaryImports, DependencyAudit
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.test_network_runtime import _transpile
 from src.tests.python.test_tls12_records import SUITES, records
 from tools.native_plan import NativePlanBuilder
-from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
 ROOT = Path(__file__).resolve().parents[3]
 

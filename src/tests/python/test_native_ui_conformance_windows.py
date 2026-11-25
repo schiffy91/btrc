@@ -23,10 +23,10 @@ from pathlib import Path
 
 import pytest
 
+from src.tests.dependencies import BinaryImports, DependencyAudit
 from src.tests.native_bindings import NativeBindingPackage
 from src.tests.python import test_native_ui_shell_windows as shell
 from src.tests.python.native_ui_shell_fixtures import transpile
-from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
 REPO = Path(__file__).resolve().parents[3]
 SUITE = REPO / "src/tests/native/gui/conformance"

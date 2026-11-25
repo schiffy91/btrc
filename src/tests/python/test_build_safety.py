@@ -263,7 +263,7 @@ def test_the_gate_runs_its_independent_stages_side_by_side_and_the_bursts_alone(
     assert all(
         index < burst_run for index, line in enumerate(lines) if "boundary-check" in line or "test_bootstrap" in line
     )
-    assert lines[burst_run].startswith("env BTRC_E40_BURST_REPETITIONS=25 tools/virtual-display.sh ")
+    assert lines[burst_run].startswith("env BTRC_E40_BURST_REPETITIONS=25 .github/ci/virtual-display.sh ")
     # The gate met the stages' prerequisites once; a stage's make does not check generated sources again.
     for invocation in (stages, bursts):
         skipped = [invocation[index + 1] for index, flag in enumerate(invocation) if flag == "-o"]
@@ -281,10 +281,10 @@ def test_the_gate_runs_its_independent_stages_side_by_side_and_the_bursts_alone(
 
     # Alone, the bursts repeat the qualification count, and so does the nightly set.
     alone = _make_dry_run("test-e40", "NIX=")
-    assert "env BTRC_E40_BURST_REPETITIONS=100 tools/virtual-display.sh " in alone
+    assert "env BTRC_E40_BURST_REPETITIONS=100 .github/ci/virtual-display.sh " in alone
     nightly = _make_dry_run("test-nightly", "NIX=")
     assert "test-e40 E40_BURST_REPETITIONS=100" in nightly
-    assert "env BTRC_E40_BURST_REPETITIONS=100 tools/virtual-display.sh " in nightly
+    assert "env BTRC_E40_BURST_REPETITIONS=100 .github/ci/virtual-display.sh " in nightly
     fairness = (REPO_ROOT / "src/tests/python/test_native_ui2_fairness_linux.py").read_text()
     assert 'BURST_REPETITIONS = int(os.environ.get("BTRC_E40_BURST_REPETITIONS", "100"))' in fairness
     assert "str(BURST_REPETITIONS)]" in fairness and '"100"]' not in fairness
@@ -333,7 +333,7 @@ def test_sustained_loads_run_in_the_nightly_set_and_nothing_is_dropped():
     lines = output.splitlines()
     (run,) = [line for line in lines if "python3 -m pytest" in line and "e40_qualification and nightly" in line]
     command = shlex.split(run)
-    assert command[0] == "tools/virtual-display.sh"
+    assert command[0] == ".github/ci/virtual-display.sh"
     arguments = command[command.index("pytest") + 1 :]
     assert "src/tests/" in arguments
     assert arguments[arguments.index("-m") + 1] == "e40_qualification and nightly"
@@ -675,11 +675,10 @@ def test_clean_covers_generated_and_runtime_build_directories():
         assert path in output
     assert "-name '*.dSYM'" in output
     assert "-name '*.o'" in output
-    assert "make -C tray clean" in output
     assert "find . -type" not in output
-    assert "find src examples tools -type" in output
-    # A find root that does not exist exits nonzero and stops make before the
-    # examples clean; every root must name a tracked directory.
+    assert "find src tools -type" in output
+    # A find root that does not exist exits nonzero and stops make; every root
+    # must name a tracked directory.
     for line in output.splitlines():
         if line.startswith("find "):
             roots = line.split(" -type", 1)[0].split()[1:]
@@ -689,7 +688,7 @@ def test_clean_covers_generated_and_runtime_build_directories():
 
 
 def test_linux_ci_script_defaults_to_the_makefile_targets_as_separate_words():
-    script = (REPO_ROOT / "tools" / "linux-ci.sh").read_text()
+    script = (REPO_ROOT / ".github" / "ci" / "linux-ci.sh").read_text()
     default = next(line for line in MAKEFILE.read_text().splitlines() if line.startswith("LINUX_CI_TARGETS ?="))
     targets = default.split("?=", 1)[1].split()
 
@@ -703,7 +702,7 @@ def test_linux_ci_script_defaults_to_the_makefile_targets_as_separate_words():
 
 def test_linux_ci_script_keeps_the_containers_bin_off_the_host_checkout():
     """A Linux bin/btrcc built in the container never replaces the host's (a Mach-O on the Mac)."""
-    script = (REPO_ROOT / "tools" / "linux-ci.sh").read_text()
+    script = (REPO_ROOT / ".github" / "ci" / "linux-ci.sh").read_text()
     code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
 
     assert 'mkdir -p "$private/bin"' in code

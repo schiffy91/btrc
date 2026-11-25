@@ -30,7 +30,7 @@ static struct { unsigned int window; double x, y; } content;
 static unsigned int active;
 
 /* Real input moves the session's one pointer, so the session has to be one
- * made for tests: tools/ui/headless-session.sh says so with this variable,
+ * made for tests: .github/ci/headless-session.sh says so with this variable,
  * and a dedicated test host sets it by hand. */
 static const RealInput *realInput(void) {
     static bool tried;

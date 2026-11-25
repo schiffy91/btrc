@@ -1,6 +1,0 @@
-/* Legacy X11 dbus-launch activation applies to Linux only. */
-class DBusX11LaunchProvider {
-	class void install() {}
-
-	class bool available() { return false; }
-}

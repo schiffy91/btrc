@@ -1,1 +1,0 @@
-{"manifest-hash":"57d18f4c1c431d5f3ebe734e951ec5ee174428f0a1f47561451813d112eb71f5","packages":[{"dependencies":{},"manifest-hash":"735c8f675ee489b931519ac94224ceff7120dc19c0221b48f39d54077f14b3de","name":"alsa_plugins","source":{"path":"."}}],"root":"alsa_plugins","schema":3}

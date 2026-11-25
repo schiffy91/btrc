@@ -1,6 +1,6 @@
 """GUI and GPU programs on the iOS and iPadOS simulators, beyond the conformance suite.
 
-The triangle example (examples/triangle) draws through wgpu-native's Metal
+The triangle fixture (src/tests/fixtures/gpu/Triangle.btrc) draws through wgpu-native's Metal
 backend into a UIKit window and reads its own pixels back. The screen-order
 fixture (src/tests/native/gui/ios/ScreenOrder.btrc) holds one control over a
 window's drawn content while the driver looks at the simulator's screen: a
@@ -20,7 +20,7 @@ import pytest
 from src.tests.python.ios_simulator_fixtures import FRONTENDS, simulators  # noqa: F401
 
 REPO = Path(__file__).resolve().parents[3]
-TRIANGLE = REPO / "examples/triangle/Triangle.btrc"
+TRIANGLE = REPO / "src/tests/fixtures/gpu/Triangle.btrc"
 SCREEN_ORDER = REPO / "src/tests/native/gui/ios/ScreenOrder.btrc"
 # The fixture's panel, in the window's points.
 PANEL = (120, 80)

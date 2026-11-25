@@ -6,22 +6,26 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from tools.qualification.cli import main
-from tools.qualification.local import (
+REPO = Path(__file__).resolve().parents[3]
+if str(REPO / ".github" / "ci") not in sys.path:
+    sys.path.insert(0, str(REPO / ".github" / "ci"))
+
+from local import (
     CONTEXT_PREFIX,
     REFERENCE_TIER,
     LocalJobs,
     LocalPasses,
     MatrixExpression,
     WorkflowJob,
+    main,
 )
-from tools.qualification.tiers import TierManifest, TierManifestError
+from tiers import TierManifest, TierManifestError
 
-REPO = Path(__file__).resolve().parents[3]
 TIERS = TierManifest.load()
 LOCAL = LocalJobs(TIERS)
 OWNER = "schiffy91"
@@ -72,7 +76,7 @@ def test_the_filter_command_reads_the_listing_and_prints_the_contexts(monkeypatc
     import io
 
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps([[status(UNIT), status("other")]])))
-    assert main(["local-passes", "--owner", OWNER]) == 0
+    assert main(["passes", "--owner", OWNER]) == 0
     assert json.loads(capsys.readouterr().out) == [UNIT]
 
 
@@ -234,7 +238,7 @@ def test_local_jobs_are_named_as_github_shows_them_and_run_through_the_clone():
     assert by_name["macOS / macos-e40 (macos-reference-plain)"].platform == "macos-arm64"
     for entry in entries:
         arguments = shlex.split(entry.run)
-        assert arguments[0] == "tools/ci-local-job.sh" and arguments.count("--") == 1
+        assert arguments[0] == ".github/ci/ci-local-job.sh" and arguments.count("--") == 1
         separator = arguments.index("--")
         assert arguments[1:separator] == [f"{name}={value}" for name, value in entry.environment]
         assert tuple(arguments[separator + 1 :]) == entry.steps and entry.steps
@@ -248,23 +252,23 @@ def test_local_jobs_are_named_as_github_shows_them_and_run_through_the_clone():
 
 
 def test_the_committed_table_is_the_generators_output(capsys):
-    assert (REPO / "ci" / "local.json").read_text(encoding="utf-8") == LOCAL.table()
-    assert main(["local-jobs", "--check"]) == 0
-    assert main(["local-jobs"]) == 0
+    assert (REPO / ".github" / "ci" / "local.json").read_text(encoding="utf-8") == LOCAL.table()
+    assert main(["jobs", "--check"]) == 0
+    assert main(["jobs"]) == 0
     assert capsys.readouterr().out == LOCAL.table()
 
 
 def test_a_stale_table_fails_the_check_and_write_repairs_it(tmp_path, capsys):
-    (tmp_path / "ci").mkdir()
-    (tmp_path / ".github").symlink_to(REPO / ".github")
-    manifest = tmp_path / "ci" / "tiers.toml"
-    manifest.write_text((REPO / "ci" / "tiers.toml").read_text(encoding="utf-8"), encoding="utf-8")
-    assert main(["local-jobs", "--manifest", str(manifest), "--check"]) == 1
+    (tmp_path / ".github" / "ci").mkdir(parents=True)
+    ((tmp_path / ".github") / "workflows").symlink_to(REPO / ".github" / "workflows")
+    manifest = tmp_path / ".github" / "ci" / "tiers.toml"
+    manifest.write_text((REPO / ".github" / "ci" / "tiers.toml").read_text(encoding="utf-8"), encoding="utf-8")
+    assert main(["jobs", "--manifest", str(manifest), "--check"]) == 1
     assert "stale" in capsys.readouterr().err
-    assert main(["local-jobs", "--manifest", str(manifest), "--write"]) == 0
-    assert (tmp_path / "ci" / "local.json").read_text(encoding="utf-8") == LOCAL.table()
-    (tmp_path / "ci" / "local.json").write_text("{}\n")
-    assert main(["local-jobs", "--manifest", str(manifest), "--check"]) == 1
+    assert main(["jobs", "--manifest", str(manifest), "--write"]) == 0
+    assert (tmp_path / ".github" / "ci" / "local.json").read_text(encoding="utf-8") == LOCAL.table()
+    (tmp_path / ".github" / "ci" / "local.json").write_text("{}\n")
+    assert main(["jobs", "--manifest", str(manifest), "--check"]) == 1
 
 
 def plan_text(plan):
@@ -369,18 +373,20 @@ def test_every_passed_row_of_a_job_removes_the_job():
 
 
 def test_the_plan_command_takes_the_passed_list(tmp_path, capsys):
+    from tiers import main as tiers_main
+
     passed = tmp_path / "local-passes.json"
     passed.write_text("[]")
-    assert main(["tiers", "--workflow", "ci.yml", "--tier", "main", "--local-passes", str(passed)]) == 0
+    assert tiers_main(["--workflow", "ci.yml", "--tier", "main", "--local-passes", str(passed)]) == 0
     assert capsys.readouterr().out.strip() == plan_text(TIERS.plan("ci.yml", "main"))
     passed.write_text(json.dumps([UNIT]))
-    assert main(["tiers", "--workflow", "ci.yml", "--tier", "main", "--local-passes", str(passed)]) == 0
+    assert tiers_main(["--workflow", "ci.yml", "--tier", "main", "--local-passes", str(passed)]) == 0
     assert json.loads(capsys.readouterr().out)["local"] == [UNIT]
     for text in ('{"passed": []}', "[1]"):
         passed.write_text(text)
-        assert main(["tiers", "--workflow", "ci.yml", "--tier", "main", "--local-passes", str(passed)]) == 2
+        assert tiers_main(["--workflow", "ci.yml", "--tier", "main", "--local-passes", str(passed)]) == 2
         assert "JSON list of contexts" in capsys.readouterr().err
-    assert main(["tiers", "--local-passes", str(passed)]) == 2
+    assert tiers_main(["--local-passes", str(passed)]) == 2
 
 
 def git(directory, *arguments):
@@ -417,7 +423,7 @@ def run_job(checkout, tmp_path, *arguments):
     environment = {**os.environ, "BTRC_CI_LOCAL_DIR": str(tmp_path / "clones"), "GIT_CONFIG_GLOBAL": os.devnull}
     environment.pop("CI", None)
     return subprocess.run(
-        ["bash", str(REPO / "tools" / "ci-local-job.sh"), *arguments],
+        ["bash", str(REPO / ".github" / "ci" / "ci-local-job.sh"), *arguments],
         cwd=checkout,
         env=environment,
         capture_output=True,

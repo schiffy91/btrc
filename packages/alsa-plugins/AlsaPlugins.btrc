@@ -1,8 +1,0 @@
-import Library.Audio;
-import Library.Audio.AudioDevice;
-
-class AlsaPlugins {
-	class bool available() { return AlsaPluginsProvider.available(); }
-
-	class AudioDeviceProviderOpenOutcome createDevice() { return AlsaPluginsProvider.createDevice(); }
-}

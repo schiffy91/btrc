@@ -42,7 +42,7 @@ def test_unicode_edit_transactions(tmp_path):
 @pytest.fixture(scope="module", params=["python", "selfhost"])
 def edit_app(request, tmp_path_factory):
     work = tmp_path_factory.mktemp("public-field")
-    return build_app(request.param, ROOT / "examples/gui/Native.btrc", work, request)
+    return build_app(request.param, ROOT / "src/tests/fixtures/gui/Native.btrc", work, request)
 
 
 @pytest.fixture(scope="module")

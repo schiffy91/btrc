@@ -42,11 +42,6 @@ symbols = [
 ]
 os = ["linux"]
 
-[[native.include-directories]]
-path = "PcmPlugin"
-modules = ["Linux.LinuxAudioDevice"]
-os = ["linux"]
-
 [[native.bindings]]
 module = "Linux.ConfiguredRoutes"
 header = "Linux/ConfiguredPcm.h"
@@ -59,14 +54,12 @@ os = ["linux"]
 [[native.bindings]]
 module = "Linux.LinuxAudioDevice"
 header = "Linux/AudioWorker.h"
-read-only-borrows = ["btrcLegacyOpen.name", "btrcConfiguredOpen.path"]
+read-only-borrows = ["btrcConfiguredOpen.path"]
 language = "c"
 standard = "c11"
 symbols = [
 	"btrcConfiguredOpen", "btrcConfiguredTransfer", "btrcConfiguredClose",
-    "btrcAlsaHostNanoseconds", "btrcAlsaRealtimePriority", "btrcLegacyHints", "btrcLegacyHintCount", "btrcLegacyHint", "btrcLegacyHintsClose", "btrcLegacyOpen",
-	"btrcLegacyClose", "btrcLegacyProbe", "btrcLegacyConfigure", "btrcLegacyWait", "btrcLegacyPrepare",
-	"btrcLegacyStart", "btrcLegacyDrop", "btrcLegacyRecover", "btrcLegacyStartIfPrepared", "btrcLegacyNeedsDrop", "btrcLegacyTransfer"
+	"btrcAlsaHostNanoseconds", "btrcAlsaRealtimePriority"
 ]
 os = ["linux"]
 

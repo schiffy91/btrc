@@ -1,6 +1,6 @@
 """Record a headless GUI session's accessibility tree while a command runs in it.
 
-    tools/ui/headless-session.sh --wayland -- \\
+    .github/ci/headless-session.sh --wayland -- \\
         python3 tools/ui/session_evidence.py --output build/linux-gui/wayland -- python3 -m pytest ...
 
 The command runs as a child. While it runs, the AT-SPI desktop is sampled every

@@ -1,4 +1,4 @@
-"""tools/ui/headless-session.sh: a private X11 or Wayland display inside its own
+"""`.github/ci/headless-session.sh`: a private X11 or Wayland display inside its own
 session bus, with the AT-SPI accessibility bus, torn down with the command.
 
 Each case starts a real session and asks the capability gates in
@@ -18,8 +18,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-SESSION = ROOT / "tools/ui/headless-session.sh"
-VIRTUAL_DISPLAY = ROOT / "tools/virtual-display.sh"
+SESSION = ROOT / ".github/ci/headless-session.sh"
+VIRTUAL_DISPLAY = ROOT / ".github/ci/virtual-display.sh"
 EVIDENCE = ROOT / "tools/ui/session_evidence.py"
 WATCHER = ROOT / "tools/ui/status_notifier_watcher.py"
 TIMEOUT = 120

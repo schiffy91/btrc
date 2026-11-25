@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from src.tests.c_toolchains import configured_c_compiler
 from src.tests.native_bindings import NativeBindingPackage
 from src.tests.process_limits import C_COMPILE_TIMEOUT, TOOL_TIMEOUT
 from src.tests.runner_capabilities import linux_display_error
@@ -26,31 +25,6 @@ TARGET = "linux-x86_64" if platform.machine() in ("x86_64", "AMD64") else "linux
 def require_linux_reader():
     if sys.platform != "linux" or not os.environ.get("BTRC_NATIVE_HEADER_READER"):
         pytest.skip("requires Linux and the explicitly built native header reader")
-
-
-def build_alsa_plugin_adapter(work: Path) -> Path:
-    library = work / "libbtrc-alsa-plugins.so.1"
-    subprocess.run(
-        [
-            *configured_c_compiler(),
-            "-std=c11",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-pedantic-errors",
-            "-O2",
-            "-fPIC",
-            "-shared",
-            "-I",
-            ROOT / "src/stdlib/Audio/PcmPlugin",
-            ROOT / "packages/alsa-plugins/Linux/Backend.c",
-            "-Wl,-soname,libbtrc-alsa-plugins.so.1",
-            "-o",
-            library,
-        ],
-        check=True,
-    )
-    return library
 
 
 def transpile_provider_program(

@@ -155,17 +155,6 @@ class DBusTransportProvider {
 		return "";
 	}
 
-	/* Optional legacy X11 session-bus activation is supplied only when the
-	 * application links packages/dbus-x11-launch or preloads its adapter. */
-	class string launchSession(string machine) {
-		char buffer[16384];
-		size_t length = btrcDBusLaunchSession(machine, buffer, sizeof(buffer));
-		if (length == (size_t)0 || length >= sizeof(buffer)) { return ""; }
-		Bytes bytes = Bytes();
-		bytes.appendRaw(buffer, (int)length);
-		return bytes.toString();
-	}
-
 	class Bytes readNonce(string path) {
 		Bytes result = Bytes();
 		int fd = open(path, (int)O_RDONLY | (int)O_CLOEXEC | (int)O_NONBLOCK);

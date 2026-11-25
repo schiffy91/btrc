@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.python.linux_provider_fixtures import build_observed_provider_program, provider_environment
-from tools.qualification.skips import RunnerIdentity
+from src.tests.skips import RunnerIdentity
 
 ROOT = Path(__file__).resolve().parents[3]
 pytestmark = pytest.mark.linux_gui

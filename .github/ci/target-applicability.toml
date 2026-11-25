@@ -1,0 +1,210 @@
+# Which corpus programs each compilation target builds and runs.
+#
+# src/tests/target_runner.py reads this manifest. A program the target cannot
+# build or run is reported, never dropped:
+#   restricted  deliberately excluded on that target (an OS restriction or an
+#               adaptation contract says so)
+#   missing     not implemented there yet
+# scope = "build" keeps a program out of the bundle; scope = "run" builds it
+# (compile-only lanes still prove it compiles) and never executes it there.
+#
+# Each [[programs]] entry lists corpus paths (globs allowed), the targets.toml
+# rows and, optionally, the frontends it decides; no two entries may decide
+# one program, row and frontend. Every entry states its reason and cites a
+# corpus topic/slice (`corpus.<topic>@<slice>`) or a contract (`<repository
+# path>#<anchor>`); test_target_runner.py resolves each citation and fails on
+# an entry that matches no corpus program. A program an entry does not name
+# is applicable: its build or run failure is a failure, never an exclusion.
+
+schema = "btrc.target-applicability/1"
+
+# BTRC_TEST_REQUIRES host capabilities, and the executors that grant them. An
+# executor that reports granted_capabilities() after prepare (the local
+# executor probes the host) answers for itself; for the others this list does.
+[[capabilities]]
+name = "loopback-listener"
+executors = []
+reason = "no target executor without its own probe has proven an IPv4 loopback listener inside its sandbox yet (the local and windows-native executors probe their host)"
+cites = "src/tests/runner_capabilities.py#loopback_listener_error"
+
+# The @gpu compute runtime: emitted C that includes btrc_gpu_compute_internal.h
+# links libbtrc_gpu over wgpu-native. The host links build/stdlib/GPU when
+# `make gpu` built it. The iOS simulator row links the one
+# tools/target_hosts/ios/compute.py builds over wgpu-native's pinned static
+# library (Metal), when a run is given its flags in
+# BTRC_TARGET_COMPUTE_CFLAGS and BTRC_TARGET_COMPUTE_LDFLAGS; without them,
+# and on every other cross row until Stage 28 (tooling-cross-gpu-deps),
+# dispatching programs are missing.
+[[facilities]]
+name = "compute-runtime"
+header = "btrc_gpu_compute_internal.h"
+targets = ["ios-aarch64-simulator"]
+status = "missing"
+reason = "dispatching @gpu programs need libbtrc_gpu over wgpu-native, which is not built for this row (Stage 28, tooling-cross-gpu-deps)"
+cites = "src/tests/target_runner.py#ComputeRuntime"
+
+# The iOS simulator row. Established by the hosted ios-simulator corpus run
+# (CX-P1-08, Host iOS run 39260417889: Xcode 27A266a, iOS 27.0 24A434): with
+# --frontend both, every program below failed to compile through both
+# frontends because it reaches the POSIX Process provider, whose
+# posix_spawn_file_actions_addchdir_np the iOS SDK marks unavailable. An iOS
+# app cannot start a child process; the explicit mobile refusal is CX-P2-06.
+[[programs]]
+paths = [
+    "stdlib/BackgroundProcessDrop.btrc",
+    "stdlib/ChildProcess*.btrc",
+    "stdlib/Daemon.btrc",
+    "stdlib/DaemonPosix.btrc",
+    "stdlib/HttpClientLocal.btrc",
+    "stdlib/HttpFramingSafety.btrc",
+    "stdlib/Process.btrc",
+    "stdlib/ProcessStatusPipe.btrc",
+    "stdlib/ShellCwdEnv.btrc",
+    "stdlib/Shellwords.btrc",
+]
+targets = ["ios-aarch64-simulator"]
+status = "restricted"
+scope = "build"
+reason = "reaches the POSIX Process provider, whose posix_spawn_file_actions_addchdir_np the iOS SDK marks unavailable: an iOS app cannot start a child process (explicit mobile process refusals, CX-P2-06)"
+cites = "corpus.stdlib@ios-simulator"
+
+# Windows gnu rows. Established by `--target windows-x86_64 --frontend both
+# --compile-only` with zig 0.16.0 on 2026-10-17 (980 of 1,021 programs built
+# through each frontend). Every program below fails to compile for MinGW
+# because it reaches a POSIX provider the inventory records as lacking its
+# Win32 backend. The LP64 programs that also fail there (long is 4 bytes on
+# Windows) are not excluded: they are failures for the CL-P1-18 triage. The
+# exact-filesystem programs left this list on 2026-10-19: they build on the
+# Win32 FileSystemHandles provider, and windows.yml's win32-native job runs
+# them on x64 and ARM64.
+
+# Library.Process has its Windows provider (CL-P2-02's launch seam under
+# CX-P2-06's ProcessHostProvider): ChildProcess, Process, ProcessStatusPipe
+# and Shellwords build and run on both Windows rows. What stays out is POSIX
+# by contract, or waits on another provider.
+
+[[programs]]
+paths = [
+    "stdlib/ChildProcessClosedFds.btrc",
+    "stdlib/ChildProcessDescriptor.btrc",
+    "stdlib/ChildProcessDescriptorMapping.btrc",
+]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "POSIX descriptor contracts (descriptor-limit closing after fork, fcntl leases, fexecve); Windows refuses descriptor-backed launches with the platform-adaptations row 1 diagnostic and passes the child only its three stdio handles through STARTUPINFOEX's handle list, both checked natively by test_windows_process.py and test_windows_launch_seam.py"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/BackgroundProcessDrop.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "run"
+reason = "drives POSIX children by pid (sleep, true, and `kill -0` through sh) to show that a dropped handle kills and reaps its child; the handle's kill-on-drop is a POSIX signal and wait, with no Windows form in BackgroundProcess"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/ShellCwdEnv.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "run"
+reason = "the program exercises UnixShell's cwd and environment through /bin/sh; Windows refuses UnixShell.run (platform adaptations, Windows row 1b), which Process, Shellwords and ChildProcess check there"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/ImagePpm.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "the program provokes a short write by lowering RLIMIT_FSIZE with setrlimit, which Windows has no counterpart for"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/DaemonPosix.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "POSIX shell rendering, Unix permission bits, signal suspension and process-group termination; portable Daemon lifecycle, restart, protected records and companion image checks run in stdlib/Daemon.btrc"
+cites = "docs/design/windows-os-services.md#daemon-supervisor--row-4"
+
+# Library.HTTP's HTTPSocket has its Winsock provider (CX-P2-10 step 1), so
+# HTTPServer and the codecs build and run on both Windows rows. What stays out
+# is a POSIX test fixture; each one's checks run natively in windows.yml's
+# win32-native job instead.
+
+[[programs]]
+paths = ["stdlib/HttpBytesResponse.btrc", "stdlib/HttpSocketIo.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "POSIX fixtures: their peers are socketpair(AF_UNIX) ends, forked writers and a SIGPIPE handler, none of which Windows has; their split-read, deadline, backpressure, short-write, response-framing and binary-body checks run against real Winsock loopback peers in src/tests/native/http_windows/WindowsHttpCases.btrc (test_windows_http.py, windows.yml win32-native) on x64 and ARM64"
+cites = "docs/design/http-transport.md#winsock-server-and-socket-ownership"
+
+[[programs]]
+paths = ["stdlib/HttpClientExchange.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "a POSIX fixture: its peer is a forked child answering on a loopback listener with exact bytes, and Windows has no fork; the first-party http:// exchange it checks is the BSD-socket transport, which no Windows row selects"
+cites = "docs/design/http-transport.md#winsock-server-and-socket-ownership"
+
+[[programs]]
+paths = ["stdlib/HttpClientLocal.btrc"]
+targets = ["windows-x86_64", "windows-aarch64"]
+status = "restricted"
+scope = "run"
+reason = "it checks the interim curl transport of the rows that still select one, through a /bin/sh stand-in found on PATH; on Windows HTTPClient is WinHTTP and starts no process, which WindowsHttpCases.btrc's client case checks against a loopback HTTPServer (test_windows_http.py, windows.yml win32-native)"
+cites = "docs/design/windows-os-services.md#process-and-shell--rows-1-and-1b"
+
+[[programs]]
+paths = ["stdlib/TerminalPty.btrc"]
+targets = ["windows-x86_64"]
+status = "restricted"
+scope = "build"
+reason = "the program drives a POSIX pseudo-terminal (openpty, termios, fork, SIGTERM); Windows has none, and test_windows_terminal.py drives the console provider through a pseudoconsole instead"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/TerminalPty.btrc"]
+targets = ["windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "the program drives a POSIX pseudo-terminal (openpty, termios, fork, SIGTERM); Windows has none, and test_windows_terminal.py drives the console provider through a pseudoconsole instead"
+cites = "corpus.stdlib@windows-arm64"
+
+[[programs]]
+paths = ["stdlib/SleepEintr.btrc"]
+targets = ["windows-x86_64"]
+status = "restricted"
+scope = "build"
+reason = "the program interrupts a sleep with SIGALRM and expects EINTR; Windows has neither SIGALRM nor signal-interrupted sleeps"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/SleepEintr.btrc"]
+targets = ["windows-aarch64"]
+status = "restricted"
+scope = "build"
+reason = "the program interrupts a sleep with SIGALRM and expects EINTR; Windows has neither SIGALRM nor signal-interrupted sleeps"
+cites = "corpus.stdlib@windows-arm64"
+
+# PlatformEuid asserts the POSIX identity contract (isRoot() is exactly
+# euid() == 0) and Unix platform facts (isUnix, a '/' separator). Windows has
+# no POSIX root: its compatibility euid is a 0 sentinel and Platform.isRoot()
+# is false there by design (Platform.btrc), so the program cannot pass on a
+# Windows row. It still builds there.
+[[programs]]
+paths = ["stdlib/PlatformEuid.btrc"]
+targets = ["windows-x86_64"]
+status = "restricted"
+scope = "run"
+reason = "asserts the POSIX euid/root identity and Unix platform facts; Windows has no POSIX root, so Platform.isRoot() is false there by design"
+cites = "corpus.stdlib@windows-x64"
+
+[[programs]]
+paths = ["stdlib/PlatformEuid.btrc"]
+targets = ["windows-aarch64"]
+status = "restricted"
+scope = "run"
+reason = "asserts the POSIX euid/root identity and Unix platform facts; Windows has no POSIX root, so Platform.isRoot() is false there by design"
+cites = "corpus.stdlib@windows-arm64"

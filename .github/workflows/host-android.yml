@@ -18,7 +18,7 @@ name: Host Android
 # (src/tests/python/test_native_ui_conformance_android.py).
 #
 # The whole language and stdlib corpus runs here too, through both compilers
-# (CX-P1-09): the scope job plans those jobs from ci/tiers.toml, and they run
+# (CX-P1-09): the scope job plans those jobs from .github/ci/tiers.toml, and they run
 # when a change touches the Android host, the target runner or its
 # applicability data, on a push to main that does, and on a dispatch. The
 # fixture and JNI jobs above stay on this workflow's paths alone.
@@ -45,8 +45,7 @@ on:
       - nix/wgpu-native-prebuilt.nix
       - "**/Android/**"
       - src/tests/target_runner.py
-      - src/tests/fixtures/target-applicability.toml
-      - docs/design/platform-inventory.toml
+      - .github/ci/target-applicability.toml
   pull_request:
     branches: [main]
     paths:
@@ -69,14 +68,13 @@ on:
       - nix/wgpu-native-prebuilt.nix
       - "**/Android/**"
       - src/tests/target_runner.py
-      - src/tests/fixtures/target-applicability.toml
-      - docs/design/platform-inventory.toml
+      - .github/ci/target-applicability.toml
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# The scope job plans this file's corpus jobs from ci/tiers.toml under this name.
+# The scope job plans this file's corpus jobs from .github/ci/tiers.toml under this name.
 env:
   CI_WORKFLOW: host-android.yml
 
@@ -218,7 +216,7 @@ jobs:
         run: |
           python3 -m pytest -q -rA -p no:cacheprovider --compilers python \
             src/tests/python/test_native_jni_android.py --skip-report=build/skip-report-android-jni-python.json
-          python3 -m tools.qualification skip-gate build/skip-report-android-jni-python.json
+          python3 -m src.tests.skips skip-gate build/skip-report-android-jni-python.json
       - name: Build the self-hosted compiler
         if: ${{ !cancelled() && steps.sdk.outcome == 'success' }}
         run: nix build .#btrcc --out-link build/btrcc
@@ -227,14 +225,14 @@ jobs:
         run: |
           BTRC_TEST_BTRCC="$PWD/build/btrcc/bin/btrcc" python3 -m pytest -q -rA -p no:cacheprovider --compilers btrc \
             src/tests/python/test_native_jni_android.py --skip-report=build/skip-report-android-jni-btrc.json
-          python3 -m tools.qualification skip-gate build/skip-report-android-jni-btrc.json
+          python3 -m src.tests.skips skip-gate build/skip-report-android-jni-btrc.json
       - name: Run the GUI conformance suite on API ${{ matrix.api }} through both compilers
         if: ${{ !cancelled() && steps.sdk.outcome == 'success' }}
         run: |
           BTRC_TEST_BTRCC="$PWD/build/btrcc/bin/btrcc" BTRC_ANDROID_UI_EVIDENCE="$PWD/build/android-ui-api${{ matrix.api }}" \
             python3 -m pytest -q -rA -p no:cacheprovider src/tests/python/test_native_ui_conformance_android.py \
             --skip-report=build/skip-report-android-ui.json
-          python3 -m tools.qualification skip-gate build/skip-report-android-ui.json
+          python3 -m src.tests.skips skip-gate build/skip-report-android-ui.json
       - name: Retain the GUI conformance run
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -261,7 +259,7 @@ jobs:
 
   # The corpus lane (CX-P1-09) is planned like ci.yml, macos.yml and
   # windows.yml: this copy of their scope job classifies the event into one
-  # tier and reads ci/tiers.toml, which lists only the corpus jobs of this
+  # tier and reads .github/ci/tiers.toml, which lists only the corpus jobs of this
   # workflow. tooling and emulator above are not tiered.
   scope:
     needs: local
@@ -287,8 +285,8 @@ jobs:
           FOCUS: ${{ inputs.focus }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
-          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
-          TEST_READ_MARKDOWN: '^(PLAN|AGENTS|CLAUDE)\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|btrsmith-rename-table-w2|plan-reference|platform-toolchain-matrix|platform-adaptations|stdlib-dependencies)\.md$'
+          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|\.github/ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
+          TEST_READ_MARKDOWN: '^AGENTS\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|platform-toolchain-matrix|platform-adaptations|stdlib-dependencies)\.md$'
         run: |
           set -euo pipefail
           shopt -s inherit_errexit
@@ -340,7 +338,7 @@ jobs:
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
           echo "Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
       # What the owner's machines already passed for this exact commit
-      # (`ci-local`, ci/local.json): a status `local/<platform>/<job>` that the
+      # (`ci-local`, .github/ci/local.json): a status `local/<platform>/<job>` that the
       # repository's owner posted, and has not since replaced with a failure,
       # stands in for the same job here, and the plan below leaves it out.
       # The `local` job reads them, for this run's commit alone, so a pull
@@ -366,7 +364,7 @@ jobs:
           TIER: ${{ steps.classify.outputs.tier }}
         run: |
           set -euo pipefail
-          plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
+          plan=$(python3 .github/ci/tiers.py --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
           echo "plan=$plan" >> "$GITHUB_OUTPUT"
           jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)"), ((.local // [])[] | "Passed locally, not run here: `\(.)`")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
 
@@ -518,7 +516,7 @@ jobs:
     name: target-corpus (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
-    # A report-only row (ci/tiers.toml) shows its failures without failing the run.
+    # A report-only row (.github/ci/tiers.toml) shows its failures without failing the run.
     continue-on-error: ${{ matrix.report_only == 'true' }}
     env:
       BTRC_TEST_RUN_TIMEOUT: "60"

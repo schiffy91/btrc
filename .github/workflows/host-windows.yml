@@ -46,7 +46,7 @@ jobs:
       - name: Portable host tests
         run: |
           nix develop --command python3 -m pytest -p src.tests.conftest tools/target_hosts/windows/test_executor.py -q -rs --skip-report=build/skip-report-host-windows.json
-          nix develop --command python3 -m tools.qualification skip-gate build/skip-report-host-windows.json
+          nix develop --command python3 -m src.tests.skips skip-gate build/skip-report-host-windows.json
       - name: Build btrcc and record its provenance
         # The receipt binds the binary just built to this checkout, so record it
         # before anything else can touch bin/.

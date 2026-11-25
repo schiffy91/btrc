@@ -18,7 +18,7 @@ from src.tests.process_limits import RUN_TIMEOUT, TRANSPILE_TIMEOUT
 from tools.native_plan import NativePlanBuilder
 
 REPO = Path(__file__).resolve().parents[3]
-EXAMPLE = REPO / "examples" / "native-package"
+EXAMPLE = REPO / "src/tests/fixtures/native-package"
 
 
 def _environment() -> dict[str, str]:

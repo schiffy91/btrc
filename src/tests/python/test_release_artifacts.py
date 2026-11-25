@@ -88,8 +88,8 @@ def test_production_test_targets_require_gpu_and_cover_both_compilers() -> None:
         "BTRC_TEST_TRANSPILE_TIMEOUT=600",
         "BTRC_TEST_RUN_TIMEOUT=60",
     } <= set(test_command.split())
-    # ci/tiers.toml lists the shards the tests job runs; the main tier runs these.
-    tiers = (REPO / "ci/tiers.toml").read_text(encoding="utf-8")
+    # .github/ci/tiers.toml lists the shards the tests job runs; the main tier runs these.
+    tiers = (REPO / ".github/ci/tiers.toml").read_text(encoding="utf-8")
     for shard in ("test-shard-corpus-btrc", "test-shard-bootstrap", "test-c11-one C11_CC=clang C11_OPT=O3"):
         assert f'target = "{shard}"' in tiers
     assert ".#checks.x86_64-linux.gpu-runtime-package" in ci

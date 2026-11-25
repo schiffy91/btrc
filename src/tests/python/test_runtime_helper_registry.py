@@ -122,7 +122,6 @@ def test_runtime_assets_are_cohesive_domains_with_no_behavior_outside_markers() 
     manifest = RuntimeManifest.load(MANIFEST_PATH)
     assert {helper.asset for helper in manifest.helpers} == {
         "core.c",
-        "collections.c",
         "cycles.c",
         "gpu.c",
         "mutex.c",
@@ -208,11 +207,11 @@ def test_manifest_dependencies_are_known_and_catalog_complete() -> None:
     python_names = {helper.name for helper in manifest.helpers_for("python")}
     btrc_names = {helper.name for helper in manifest.helpers_for("btrc")}
     assert btrc_names <= python_names
-    # btrcc lowers collections and WebGPU dispatch itself; the @gpu CPU
+    # btrcc lowers WebGPU dispatch itself; the @gpu CPU
     # fallback's bounds check is the one gpu helper both compilers call.
-    assert python_names - btrc_names == {
-        helper.name for helper in manifest.helpers if helper.category in {"collections", "gpu"}
-    } - {"__btrc_gpu_index_check"}
+    assert python_names - btrc_names == {helper.name for helper in manifest.helpers if helper.category == "gpu"} - {
+        "__btrc_gpu_index_check"
+    }
 
 
 def test_manifest_rejects_an_undeclared_helper_source_reference(tmp_path: Path) -> None:
@@ -390,21 +389,6 @@ def test_generic_intrinsics_are_not_runtime_macro_helpers() -> None:
     assert hash_helpers == {"__btrc_hash_real", "__btrc_hash_str"}
     for obsolete in ("__btrc_eq", "__btrc_lt", "__btrc_gt", "__btrc_hash"):
         assert obsolete not in hash_helpers
-
-
-def test_collection_templates_guard_null_containers_and_callbacks() -> None:
-    callbacks = {
-        row.name: row.c_source
-        for row in RUNTIME_HELPER_ROWS
-        if row.category == "collections" and "(*fn)" in row.c_source
-    }
-
-    assert callbacks
-    for name, source in callbacks.items():
-        assert "!fn" in source, name
-        assert any(f"if (!{container} || !fn)" in source for container in "lms"), name
-    rows = {row.name: row for row in RUNTIME_HELPER_ROWS}
-    assert "if (!m) return false;" in rows["Map_containsValue"].c_source
 
 
 def test_selfhost_runtime_behavior_has_one_catalog_and_one_reference_owner() -> None:

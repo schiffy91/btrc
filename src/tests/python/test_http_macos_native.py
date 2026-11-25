@@ -18,9 +18,9 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.dependencies import DependencyAudit
 from src.tests.native.http.socks_peer import SocksPeer
 from src.tests.native_build import NativeCorpusBuild
-from tools.qualification.dependencies import DependencyAudit
 
 ROOT = Path(__file__).resolve().parents[3]
 

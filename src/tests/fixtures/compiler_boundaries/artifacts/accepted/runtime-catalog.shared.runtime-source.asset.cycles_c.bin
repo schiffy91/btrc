@@ -1,6 +1,6 @@
 /* btrc-runtime-helper:begin __btrc_arc_callback_types */
 /* Type-erased ARC metadata shared by ownership paths. */
-typedef int __btrc_arc_count;
+typedef _Atomic int __btrc_arc_count;
 typedef struct __btrc_arc_type __btrc_arc_type;
 typedef struct __btrc_arc_incoming __btrc_arc_incoming;
 typedef enum {
@@ -12,12 +12,15 @@ typedef struct __btrc_arc_header {
     __btrc_arc_count rc;
     __btrc_arc_count edge_rc;
     /* One current incoming-edge owner, or self as a full-snapshot sentinel. */
-    void* live_witness;
+    _Atomic(void*) live_witness;
     const __btrc_arc_type* type;
     __btrc_arc_incoming* incoming;
     void* deferred_next;
     unsigned char suppress_hook;
-    __btrc_arc_state state;
+    _Atomic unsigned char in_suspects;
+    /* Bit 15: per-object edge spinlock; bits 0..14: active witness-walk pins. */
+    _Atomic unsigned short pin_lock;
+    _Atomic int state;
 } __btrc_arc_header;
 struct __btrc_arc_incoming {
     void* owner;
@@ -104,16 +107,46 @@ static inline void __btrc_arc_validate(void* object) {
 #endif
     if (!object) return;
     __btrc_arc_header* header = __btrc_arc_header_of(object);
-    int live = header->state == __BTRC_ARC_LIVE
-        && header->rc > 0 && header->edge_rc >= 0
-        && header->edge_rc <= header->rc
+    int state = atomic_load_explicit(&header->state, memory_order_acquire);
+    int erc = atomic_load_explicit(&header->edge_rc, memory_order_acquire);
+    int rc = atomic_load_explicit(&header->rc, memory_order_acquire);
+    void* witness = atomic_load_explicit(&header->live_witness, memory_order_relaxed);
+    int live = state == __BTRC_ARC_LIVE
+        && rc > 0 && erc >= 0
+        && erc <= rc
         && header->deferred_next == NULL && !header->suppress_hook;
-    int queued = header->state == __BTRC_ARC_QUEUED
-        && header->rc == 0 && header->edge_rc == 0
-        && header->live_witness == NULL && header->incoming == NULL;
-    int destroying = header->state == __BTRC_ARC_DESTROYING
-        && header->rc == 0 && header->edge_rc == 0
-        && header->live_witness == NULL && header->incoming == NULL
+    int queued = state == __BTRC_ARC_QUEUED
+        && rc == 0 && erc == 0
+        && witness == NULL && header->incoming == NULL;
+    int destroying = state == __BTRC_ARC_DESTROYING
+        && rc == 0 && erc == 0
+        && witness == NULL && header->incoming == NULL
+        && header->deferred_next == NULL && !header->suppress_hook;
+    if ((!live && !queued && !destroying) || !header->type
+            || !header->type->destroy
+            || (header->type->hook
+                && (!header->type->guard || !header->type->raise))) {
+        fprintf(stderr, "btrc: invalid ARC header\n");
+        exit(1);
+    }
+}
+
+static inline void __btrc_arc_validate_unlocked(void* object) {
+#if !defined(__BTRC_ARC_CHECKS)
+    (void)object;
+    return;
+#endif
+    if (!object) return;
+    __btrc_arc_header* header = __btrc_arc_header_of(object);
+    int state = atomic_load_explicit(&header->state, memory_order_acquire);
+    int rc = atomic_load_explicit(&header->rc, memory_order_acquire);
+    int erc = atomic_load_explicit(&header->edge_rc, memory_order_acquire);
+    int live = state == __BTRC_ARC_LIVE
+        && rc > 0 && erc >= 0
+        && header->deferred_next == NULL && !header->suppress_hook;
+    int queued = state == __BTRC_ARC_QUEUED && rc == 0 && erc == 0;
+    int destroying = state == __BTRC_ARC_DESTROYING
+        && rc == 0 && erc == 0
         && header->deferred_next == NULL && !header->suppress_hook;
     if ((!live && !queued && !destroying) || !header->type
             || !header->type->destroy
@@ -130,25 +163,28 @@ static inline void __btrc_arc_validate(void* object) {
 /* btrc-runtime-helper:end __btrc_destroyed_tracking */
 /* btrc-runtime-helper:begin __btrc_destroyed_tracking_scope */
 static void __btrc_destroyed_tracking_begin(void) {
-    __btrc_arc_lock_mutation();
+    if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
+        fprintf(stderr, "btrc: ARC operation after shutdown\n");
+        exit(1);
+    }
     int active = __btrc_tls.tracking;
     if (active == 0) {
         __btrc_tls.destroyed_count = 0;
-        if (__btrc_arc_active_unwinds == INT_MAX) {
-            fprintf(stderr, "btrc: active unwind count overflow\n");
-            exit(1);
-        }
-        __btrc_arc_active_unwinds++;
+        size_t stripe = __btrc_arc_my_stripe();
+        atomic_fetch_add_explicit(
+            &__btrc_arc_shared.stripes[stripe].unwinds, 1, memory_order_relaxed);
     }
     if (active == INT_MAX) {
         fprintf(stderr, "btrc: destroyed tracking depth overflow\n");
         exit(1);
     }
     __btrc_tls.tracking = active + 1;
-    __btrc_arc_unlock_mutation();
 }
 static void __btrc_destroyed_tracking_end(void) {
-    __btrc_arc_lock_mutation();
+    if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
+        fprintf(stderr, "btrc: ARC operation after shutdown\n");
+        exit(1);
+    }
     int active = __btrc_tls.tracking;
     if (active <= 0) {
         fprintf(stderr, "btrc: unbalanced destroyed tracking scope\n");
@@ -158,25 +194,26 @@ static void __btrc_destroyed_tracking_end(void) {
     __btrc_tls.tracking = active;
     if (active == 0) {
         __btrc_tls.destroyed_count = 0;
-        if (__btrc_arc_active_unwinds <= 0) {
+        size_t stripe = __btrc_arc_my_stripe();
+        if (atomic_fetch_sub_explicit(
+                &__btrc_arc_shared.stripes[stripe].unwinds, 1, memory_order_relaxed) <= 0) {
             fprintf(stderr, "btrc: invalid active unwind count\n");
             exit(1);
         }
-        __btrc_arc_active_unwinds--;
     }
-    __btrc_arc_unlock_mutation();
 }
 /* btrc-runtime-helper:end __btrc_destroyed_tracking_scope */
 /* btrc-runtime-helper:begin __btrc_is_destroyed */
 static int __btrc_is_destroyed(void* ptr) {
     if (!ptr) return 0;
-    __btrc_arc_lock_mutation();
+    if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
+        fprintf(stderr, "btrc: ARC operation after shutdown\n");
+        exit(1);
+    }
     for (int i = 0; i < __btrc_tls.destroyed_count; i++) {
         if (__btrc_tls.destroyed[i] != ptr) continue;
-        __btrc_arc_unlock_mutation();
         return 1;
     }
-    __btrc_arc_unlock_mutation();
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_is_destroyed */
@@ -186,11 +223,11 @@ static int __btrc_is_destroyed(void* ptr) {
 /* btrc-runtime-helper:begin __btrc_mark_destroyed */
 static void __btrc_mark_destroyed(void* ptr) {
     if (!ptr) return;
-    __btrc_arc_lock_mutation();
-    if (!__btrc_tls.tracking) {
-        __btrc_arc_unlock_mutation();
-        return;
+    if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
+        fprintf(stderr, "btrc: ARC operation after shutdown\n");
+        exit(1);
     }
+    if (!__btrc_tls.tracking) return;
     if (__btrc_tls.destroyed_count < 0 || __btrc_tls.destroyed_cap < 0
             || __btrc_tls.destroyed_count > __btrc_tls.destroyed_cap) {
         fprintf(stderr, "btrc: invalid destroyed tracking capacity\n");
@@ -198,7 +235,6 @@ static void __btrc_mark_destroyed(void* ptr) {
     }
     for (int i = 0; i < __btrc_tls.destroyed_count; i++) {
         if (__btrc_tls.destroyed[i] != ptr) continue;
-        __btrc_arc_unlock_mutation();
         return;
     }
     if (__btrc_tls.destroyed_count >= __btrc_tls.destroyed_cap) {
@@ -211,13 +247,13 @@ static void __btrc_mark_destroyed(void* ptr) {
         __btrc_tls.destroyed_cap = new_cap;
     }
     __btrc_tls.destroyed[__btrc_tls.destroyed_count++] = ptr;
-    __btrc_arc_unlock_mutation();
 }
 /* btrc-runtime-helper:end __btrc_mark_destroyed */
 /* btrc-runtime-helper:begin __btrc_suspect_state */
 /* ARC cycle detection: suspect buffer */
 static void** __btrc_suspects = NULL;
 static int __btrc_suspect_count = 0;
+static _Atomic int __btrc_suspect_count_atomic = 0;
 static __btrc_visit_fn* __btrc_visit_table = NULL;
 static __btrc_destroy_fn* __btrc_destroy_table = NULL;
 static void** __btrc_suspect_keys = NULL;
@@ -281,7 +317,9 @@ static inline void __btrc_suspect_locked(void* obj, __btrc_visit_fn visit,
     if (!obj) return;
     __btrc_arc_validate(obj);
     __btrc_arc_header* header = __btrc_arc_header_of(obj);
-    if (header->rc > header->edge_rc) return;
+    if (atomic_load_explicit(&header->rc, memory_order_acquire)
+            > atomic_load_explicit(&header->edge_rc, memory_order_acquire))
+        return;
     __btrc_arc_type fallback = {
         .visit = visit, .destroy = destroy,
         .hook = NULL, .guard = NULL, .raise = NULL};
@@ -327,29 +365,61 @@ static inline void __btrc_suspect_locked(void* obj, __btrc_visit_fn visit,
     __btrc_suspect_keys[key] = obj;
     __btrc_suspect_slots[key] = __btrc_suspect_count;
     __btrc_suspect_count++;
+    atomic_store_explicit(&header->in_suspects, 1, memory_order_release);
+    atomic_store_explicit(
+        &__btrc_suspect_count_atomic, __btrc_suspect_count, memory_order_release);
 }
 /* btrc-runtime-helper:end __btrc_suspect_locked */
 /* btrc-runtime-helper:begin __btrc_suspect */
 static inline void __btrc_suspect(
         void* obj, __btrc_visit_fn visit, __btrc_destroy_fn destroy) {
-    __btrc_arc_lock_mutation();
+    if (!obj) return;
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    __btrc_arc_obj_lock(obj);
+    __btrc_arc_suspect_lock();
     __btrc_suspect_locked(obj, visit, destroy);
-    __btrc_arc_unlock_mutation();
+    __btrc_arc_suspect_unlock();
+    __btrc_arc_obj_unlock(obj);
+    __btrc_arc_mutator_leave(stripe);
 }
 /* btrc-runtime-helper:end __btrc_suspect */
 /* btrc-runtime-helper:begin __btrc_arc_lock_state */
-/* One process-wide lock domain for ARC topology.
+/* Striped reader-writer snapshot gate + per-object inline header locks.
  *
- * stdatomic.h is what src/runtime/c/manifest.toml records this helper needs,
- * and the manifest is the only place a runtime dependency may be declared. A
- * platform lock would need a header the manifest cannot express, because the
- * dependency would hold on one target and not on another, and --freestanding
- * output is allowed to include nothing but btrc_rt.h. */
-static _Atomic int __btrc_arc_lock_word = 0;
+ * Pure C11 stdatomic.h so --freestanding builds need no platform lock headers.
+ * Lock order (strictly ascending):
+ *   Level 0: Snapshot Gate (mutator stripe shared vs lock_raw + snapshotting exclusive)
+ *   Level 1: Slot lock (__btrc_arc_shared.slot_locks[0..511], at most one)
+ *   Level 2: Per-object header locks (header->pin_lock bit 15, ascending address order)
+ *   Level 3: Suspect table lock (__btrc_arc_shared.suspect_lock) */
+#define __BTRC_ARC_STRIPE_COUNT 64
+#define __BTRC_ARC_SLOT_LOCK_STRIPES 512
+#define __BTRC_ARC_OBJ_LOCK_BIT ((unsigned short)0x8000u)
+#define __BTRC_ARC_PIN_MASK ((unsigned short)0x7FFFu)
 
-/* A waiter polls the word with plain loads and a pause hint, so contending
- * threads do not bounce the cache line on every spin and the owner keeps the
- * cycles it needs to release. The hint is a compiler builtin: no header. */
+typedef struct __btrc_arc_stripe {
+    _Alignas(128) _Atomic int active;
+    _Atomic int topo_entering;
+    _Atomic int topology;
+    _Atomic int drains;
+    _Atomic int unwinds;
+} __btrc_arc_stripe;
+
+typedef struct __btrc_arc_pad_lock {
+    _Alignas(128) _Atomic int word;
+} __btrc_arc_pad_lock;
+
+typedef struct __btrc_arc_shared_locks {
+    __btrc_arc_stripe stripes[__BTRC_ARC_STRIPE_COUNT];
+    __btrc_arc_pad_lock slot_locks[__BTRC_ARC_SLOT_LOCK_STRIPES];
+    _Alignas(128) _Atomic int suspect_lock;
+    _Atomic unsigned int next_stripe;
+} __btrc_arc_shared_locks;
+
+static _Atomic int __btrc_arc_lock_word = 0;
+static __btrc_arc_shared_locks __btrc_arc_shared;
+
 static inline void __btrc_arc_lock_relax(void) {
 #if defined(__aarch64__) || defined(__arm__)
     __asm__ __volatile__("yield" ::: "memory");
@@ -357,57 +427,158 @@ static inline void __btrc_arc_lock_relax(void) {
     __asm__ __volatile__("pause" ::: "memory");
 #endif
 }
-static void __btrc_arc_lock_raw(void) {
+
+static inline void __btrc_arc_spin_lock(_Atomic int* word) {
     for (;;) {
-        if (!atomic_exchange_explicit(
-                &__btrc_arc_lock_word, 1, memory_order_acquire))
+        if (!atomic_exchange_explicit(word, 1, memory_order_acquire))
             return;
-        while (atomic_load_explicit(
-                &__btrc_arc_lock_word, memory_order_relaxed))
+        while (atomic_load_explicit(word, memory_order_relaxed))
             __btrc_arc_lock_relax();
     }
 }
-static void __btrc_arc_unlock_raw(void) {
-    atomic_store_explicit(
-        &__btrc_arc_lock_word, 0, memory_order_release);
+
+static inline void __btrc_arc_spin_unlock(_Atomic int* word) {
+    atomic_store_explicit(word, 0, memory_order_release);
 }
+
+static void __btrc_arc_lock_raw(void) {
+    __btrc_arc_spin_lock(&__btrc_arc_lock_word);
+}
+
+static void __btrc_arc_unlock_raw(void) {
+    __btrc_arc_spin_unlock(&__btrc_arc_lock_word);
+}
+
+static inline size_t __btrc_arc_my_stripe(void) {
+    int stripe = __btrc_tls.arc_stripe;
+    if (stripe > 0) return (size_t)(stripe - 1);
+    size_t assigned = (size_t)atomic_fetch_add_explicit(
+        &__btrc_arc_shared.next_stripe, 1u, memory_order_relaxed)
+        & (__BTRC_ARC_STRIPE_COUNT - 1);
+    __btrc_tls.arc_stripe = (int)(assigned + 1);
+    return assigned;
+}
+
+static inline void __btrc_arc_drain_all_mutators(void) {
+    for (size_t i = 0; i < __BTRC_ARC_STRIPE_COUNT; i++) {
+        while (atomic_load_explicit(
+                &__btrc_arc_shared.stripes[i].active, memory_order_seq_cst) != 0)
+            __btrc_arc_lock_relax();
+    }
+}
+
+static inline int __btrc_arc_any_topology_active(void) {
+    for (size_t i = 0; i < __BTRC_ARC_STRIPE_COUNT; i++) {
+        while (atomic_load_explicit(
+                &__btrc_arc_shared.stripes[i].topo_entering, memory_order_seq_cst) != 0)
+            __btrc_arc_lock_relax();
+        if (atomic_load_explicit(
+                &__btrc_arc_shared.stripes[i].topology, memory_order_seq_cst) != 0)
+            return 1;
+    }
+    return 0;
+}
+
+#define __btrc_arc_suspect_lock() \
+    __btrc_arc_spin_lock(&__btrc_arc_shared.suspect_lock)
+#define __btrc_arc_suspect_unlock() \
+    __btrc_arc_spin_unlock(&__btrc_arc_shared.suspect_lock)
+#define __btrc_arc_slot_stripe(ptr) \
+    ((size_t)((((uintptr_t)(ptr) >> 4) ^ ((uintptr_t)(ptr) >> 13) \
+        ^ ((uintptr_t)(ptr) >> 22)) & (__BTRC_ARC_SLOT_LOCK_STRIPES - 1)))
+#define __btrc_arc_slot_lock(stripe) \
+    __btrc_arc_spin_lock(&__btrc_arc_shared.slot_locks[(stripe)].word)
+#define __btrc_arc_slot_unlock(stripe) \
+    __btrc_arc_spin_unlock(&__btrc_arc_shared.slot_locks[(stripe)].word)
+#define __btrc_arc_obj_lock(object) do { \
+    _Atomic unsigned short* __btrc_pl = &__btrc_arc_header_of(object)->pin_lock; \
+    for (;;) { \
+        if (!(atomic_fetch_or_explicit( \
+                __btrc_pl, __BTRC_ARC_OBJ_LOCK_BIT, memory_order_acquire) \
+                & __BTRC_ARC_OBJ_LOCK_BIT)) \
+            break; \
+        while (atomic_load_explicit(__btrc_pl, memory_order_relaxed) \
+                & __BTRC_ARC_OBJ_LOCK_BIT) \
+            __btrc_arc_lock_relax(); \
+    } \
+} while (0)
+#define __btrc_arc_obj_unlock(object) \
+    ((void)atomic_fetch_and_explicit( \
+        &__btrc_arc_header_of(object)->pin_lock, \
+        __BTRC_ARC_PIN_MASK, memory_order_release))
+#define __btrc_arc_lock_objs(a, b, c, out, count_out) do { \
+    void* __btrc_raw[3]; \
+    int __btrc_n = 0; \
+    if ((a)) __btrc_raw[__btrc_n++] = (a); \
+    if ((b)) __btrc_raw[__btrc_n++] = (b); \
+    if ((c)) __btrc_raw[__btrc_n++] = (c); \
+    for (int __btrc_i = 1; __btrc_i < __btrc_n; __btrc_i++) { \
+        void* __btrc_key = __btrc_raw[__btrc_i]; \
+        int __btrc_j = __btrc_i - 1; \
+        while (__btrc_j >= 0 \
+                && (uintptr_t)__btrc_raw[__btrc_j] > (uintptr_t)__btrc_key) { \
+            __btrc_raw[__btrc_j + 1] = __btrc_raw[__btrc_j]; \
+            __btrc_j--; \
+        } \
+        __btrc_raw[__btrc_j + 1] = __btrc_key; \
+    } \
+    int __btrc_cnt = 0; \
+    for (int __btrc_i = 0; __btrc_i < __btrc_n; __btrc_i++) { \
+        if (__btrc_cnt == 0 || __btrc_raw[__btrc_i] != (out)[__btrc_cnt - 1]) { \
+            (out)[__btrc_cnt] = __btrc_raw[__btrc_i]; \
+            __btrc_arc_obj_lock((out)[__btrc_cnt]); \
+            __btrc_cnt++; \
+        } \
+    } \
+    (count_out) = __btrc_cnt; \
+} while (0)
+#define __btrc_arc_unlock_objs(objs, count) do { \
+    for (int __btrc_i = (count) - 1; __btrc_i >= 0; __btrc_i--) \
+        __btrc_arc_obj_unlock((objs)[__btrc_i]); \
+} while (0)
 /* btrc-runtime-helper:end __btrc_arc_lock_state */
 /* btrc-runtime-helper:begin __btrc_arc_shutdown_state */
-static int __btrc_arc_shutdown = 0;
+static _Atomic int __btrc_arc_shutdown = 0;
 /* btrc-runtime-helper:end __btrc_arc_shutdown_state */
 /* btrc-runtime-helper:begin __btrc_arc_active_drains_state */
-static int __btrc_arc_active_drains = 0;
+/* Per-stripe drain counts live in __btrc_arc_shared.stripes[i].drains. */
 /* btrc-runtime-helper:end __btrc_arc_active_drains_state */
 /* btrc-runtime-helper:begin __btrc_arc_active_unwinds_state */
-static int __btrc_arc_active_unwinds = 0;
+/* Per-stripe unwind counts live in __btrc_arc_shared.stripes[i].unwinds. */
 /* btrc-runtime-helper:end __btrc_arc_active_unwinds_state */
 /* btrc-runtime-helper:begin __btrc_arc_snapshot_state */
 static _Atomic int __btrc_arc_snapshotting = 0;
 /* btrc-runtime-helper:end __btrc_arc_snapshot_state */
 /* btrc-runtime-helper:begin __btrc_arc_mutation_lock */
-static void __btrc_arc_lock_mutation(void) {
+static inline void __btrc_arc_mutator_enter(size_t stripe) {
+    if (__btrc_tls.arc_topology_depth > 0) return;
     for (;;) {
-        __btrc_arc_lock_raw();
-        if (__btrc_arc_shutdown) {
-            __btrc_arc_unlock_raw();
+        if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_relaxed)) {
             fprintf(stderr, "btrc: ARC operation after shutdown\n");
             exit(1);
         }
+        atomic_fetch_add_explicit(
+            &__btrc_arc_shared.stripes[stripe].active, 1, memory_order_seq_cst);
         if (!atomic_load_explicit(
-                &__btrc_arc_snapshotting, memory_order_acquire))
+                &__btrc_arc_snapshotting, memory_order_seq_cst))
             return;
-        __btrc_arc_unlock_raw();
+        atomic_fetch_sub_explicit(
+            &__btrc_arc_shared.stripes[stripe].active, 1, memory_order_release);
         while (atomic_load_explicit(
-                &__btrc_arc_snapshotting, memory_order_acquire)) {}
+                &__btrc_arc_snapshotting, memory_order_acquire))
+            __btrc_arc_lock_relax();
     }
 }
-static void __btrc_arc_unlock_mutation(void) {
-    __btrc_arc_unlock_raw();
+
+static inline void __btrc_arc_mutator_leave(size_t stripe) {
+    if (__btrc_tls.arc_topology_depth > 0) return;
+    atomic_fetch_sub_explicit(
+        &__btrc_arc_shared.stripes[stripe].active, 1, memory_order_release);
 }
 /* btrc-runtime-helper:end __btrc_arc_mutation_lock */
 /* btrc-runtime-helper:begin __btrc_arc_topology_state */
-static int __btrc_arc_topology_active = 0;
-static int __btrc_arc_topology_flush_pending = 0;
+static _Atomic int __btrc_arc_topology_active = 0;
+static _Atomic int __btrc_arc_topology_flush_pending = 0;
 /* btrc-runtime-helper:end __btrc_arc_topology_state */
 /* btrc-runtime-helper:begin __btrc_arc_topology_depth_state */
 /* __btrc_tls.arc_topology_depth and __btrc_tls.arc_draining live in the thread-local record __btrc_tls. */
@@ -422,33 +593,43 @@ static void* __btrc_arc_topology_begin(void) {
         __btrc_tls.arc_topology_depth++;
         return (void*)&__btrc_arc_topology_active;
     }
+    size_t stripe = __btrc_arc_my_stripe();
     for (;;) {
-        __btrc_arc_lock_raw();
-        if (__btrc_arc_shutdown) {
-            __btrc_arc_unlock_raw();
+        if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
             fprintf(stderr, "btrc: ARC operation after shutdown\n");
             exit(1);
         }
-        if (!atomic_load_explicit(
-                &__btrc_arc_snapshotting, memory_order_acquire)
-                && !atomic_load_explicit(
-                    &__btrc_arc_snapshot_pending, memory_order_acquire)
-                && (!__btrc_arc_topology_flush_pending
-                    || __btrc_tls.arc_draining)) {
-            if (__btrc_arc_topology_active == INT_MAX) {
-                fprintf(stderr, "btrc: ARC topology scope overflow\n");
-                exit(1);
-            }
-            __btrc_arc_topology_active++;
-            __btrc_tls.arc_topology_depth = 1;
-            __btrc_arc_unlock_raw();
-            return (void*)&__btrc_arc_topology_active;
-        }
-        __btrc_arc_unlock_raw();
         while (atomic_load_explicit(
                     &__btrc_arc_snapshot_pending, memory_order_acquire)
                 || atomic_load_explicit(
-                    &__btrc_arc_snapshotting, memory_order_acquire)) {}
+                    &__btrc_arc_snapshotting, memory_order_acquire)
+                || (atomic_load_explicit(
+                    &__btrc_arc_topology_flush_pending, memory_order_acquire)
+                    && !__btrc_tls.arc_draining)) {
+            if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
+                fprintf(stderr, "btrc: ARC operation after shutdown\n");
+                exit(1);
+            }
+            __btrc_arc_lock_relax();
+        }
+        atomic_fetch_add_explicit(
+            &__btrc_arc_shared.stripes[stripe].topo_entering, 1, memory_order_seq_cst);
+        if (!atomic_load_explicit(
+                &__btrc_arc_snapshotting, memory_order_seq_cst)
+                && !atomic_load_explicit(
+                    &__btrc_arc_snapshot_pending, memory_order_seq_cst)
+                && (!atomic_load_explicit(
+                    &__btrc_arc_topology_flush_pending, memory_order_seq_cst)
+                    || __btrc_tls.arc_draining)) {
+            atomic_fetch_add_explicit(
+                &__btrc_arc_shared.stripes[stripe].topology, 1, memory_order_seq_cst);
+            atomic_fetch_sub_explicit(
+                &__btrc_arc_shared.stripes[stripe].topo_entering, 1, memory_order_release);
+            __btrc_tls.arc_topology_depth = 1;
+            return (void*)&__btrc_arc_topology_active;
+        }
+        atomic_fetch_sub_explicit(
+            &__btrc_arc_shared.stripes[stripe].topo_entering, 1, memory_order_release);
     }
 }
 /* btrc-runtime-helper:end __btrc_arc_topology_begin */
@@ -462,21 +643,20 @@ static int __btrc_arc_topology_leave(void* token) {
     }
     __btrc_tls.arc_topology_depth--;
     if (__btrc_tls.arc_topology_depth > 0) return 0;
-    __btrc_arc_lock_raw();
-    if (__btrc_arc_shutdown) {
-        __btrc_arc_unlock_raw();
+    if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
         fprintf(stderr, "btrc: ARC operation after shutdown\n");
         exit(1);
     }
-    if (__btrc_arc_topology_active <= 0) {
+    size_t stripe = __btrc_arc_my_stripe();
+    if (atomic_fetch_sub_explicit(
+            &__btrc_arc_shared.stripes[stripe].topology, 1, memory_order_seq_cst) <= 0) {
         fprintf(stderr, "btrc: invalid ARC topology scope\n");
         exit(1);
     }
-    __btrc_arc_topology_active--;
-    int should_flush = __btrc_arc_topology_active == 0
-        && __btrc_arc_topology_flush_pending;
-    __btrc_arc_unlock_raw();
-    return should_flush;
+    if (!atomic_load_explicit(
+            &__btrc_arc_topology_flush_pending, memory_order_seq_cst))
+        return 0;
+    return !__btrc_arc_any_topology_active();
 }
 /* btrc-runtime-helper:end __btrc_arc_topology_leave */
 /* btrc-runtime-helper:begin __btrc_arc_topology_cleanup */
@@ -514,14 +694,15 @@ static _Noreturn void __btrc_arc_raise_unlocked(
 
 static void __btrc_arc_enqueue_locked(void* object) {
     __btrc_arc_header* header = __btrc_arc_header_of(object);
-    if (header->state != __BTRC_ARC_LIVE
-            || header->rc != 0 || header->edge_rc != 0
+    if (atomic_load_explicit(&header->state, memory_order_acquire) != __BTRC_ARC_LIVE
+            || atomic_load_explicit(&header->rc, memory_order_acquire) != 0
+            || atomic_load_explicit(&header->edge_rc, memory_order_acquire) != 0
             || header->incoming != NULL || header->deferred_next != NULL) {
         fprintf(stderr, "btrc: invalid ARC enqueue\n");
         exit(1);
     }
-    header->live_witness = NULL;
-    header->state = __BTRC_ARC_QUEUED;
+    atomic_store_explicit(&header->live_witness, NULL, memory_order_relaxed);
+    atomic_store_explicit(&header->state, __BTRC_ARC_QUEUED, memory_order_release);
     if (__btrc_tls.arc_deferred_tail) {
         __btrc_arc_header_of(__btrc_tls.arc_deferred_tail)->deferred_next = object;
     } else {
@@ -538,12 +719,13 @@ static _Atomic int __btrc_arc_snapshot_pending = 0;
 static void __btrc_arc_exclusive_snapshot_begin(void) {
     for (;;) {
         __btrc_arc_lock_raw();
-        if (__btrc_arc_shutdown) {
+        if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
             __btrc_arc_unlock_raw();
             fprintf(stderr, "btrc: ARC operation after shutdown\n");
             exit(1);
         }
         if (__btrc_tls.arc_topology_depth != 0) {
+            __btrc_arc_unlock_raw();
             fprintf(stderr, "btrc: ARC snapshot inside topology mutation\n");
             exit(1);
         }
@@ -552,7 +734,7 @@ static void __btrc_arc_exclusive_snapshot_begin(void) {
                 && !atomic_load_explicit(
                     &__btrc_arc_snapshotting, memory_order_acquire)) {
             atomic_store_explicit(
-                &__btrc_arc_snapshot_pending, 1, memory_order_release);
+                &__btrc_arc_snapshot_pending, 1, memory_order_seq_cst);
             __btrc_arc_unlock_raw();
             break;
         }
@@ -560,24 +742,33 @@ static void __btrc_arc_exclusive_snapshot_begin(void) {
         while (atomic_load_explicit(
                     &__btrc_arc_snapshot_pending, memory_order_acquire)
                 || atomic_load_explicit(
-                    &__btrc_arc_snapshotting, memory_order_acquire)) {}
+                    &__btrc_arc_snapshotting, memory_order_acquire))
+            __btrc_arc_lock_relax();
     }
     for (;;) {
-        __btrc_arc_lock_raw();
-        if (__btrc_arc_shutdown) {
-            __btrc_arc_unlock_raw();
+        if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
             fprintf(stderr, "btrc: ARC operation after shutdown\n");
             exit(1);
         }
-        if (__btrc_arc_topology_active == 0) {
-            atomic_store_explicit(
-                &__btrc_arc_snapshotting, 1, memory_order_release);
-            atomic_store_explicit(
-                &__btrc_arc_snapshot_pending, 0, memory_order_release);
+        if (!__btrc_arc_any_topology_active()) {
+            __btrc_arc_lock_raw();
+            if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
+                __btrc_arc_unlock_raw();
+                fprintf(stderr, "btrc: ARC operation after shutdown\n");
+                exit(1);
+            }
+            if (!__btrc_arc_any_topology_active()) {
+                atomic_store_explicit(
+                    &__btrc_arc_snapshotting, 1, memory_order_seq_cst);
+                atomic_store_explicit(
+                    &__btrc_arc_snapshot_pending, 0, memory_order_release);
+                __btrc_arc_unlock_raw();
+                __btrc_arc_drain_all_mutators();
+                return;
+            }
             __btrc_arc_unlock_raw();
-            return;
         }
-        __btrc_arc_unlock_raw();
+        __btrc_arc_lock_relax();
     }
 }
 
@@ -585,6 +776,7 @@ static void __btrc_arc_exclusive_snapshot_end(void) {
     __btrc_arc_lock_raw();
     if (!atomic_load_explicit(
             &__btrc_arc_snapshotting, memory_order_acquire)) {
+        __btrc_arc_unlock_raw();
         fprintf(stderr, "btrc: invalid ARC snapshot completion\n");
         exit(1);
     }
@@ -600,7 +792,7 @@ static int __btrc_reverse_queue_cap = 0;
 static void** __btrc_reverse_keys = NULL;
 static unsigned int* __btrc_reverse_marks = NULL;
 static int __btrc_reverse_key_cap = 0;
-static int __btrc_reverse_count = 0;
+static _Atomic int __btrc_reverse_count = 0;
 static unsigned int __btrc_reverse_epoch = 0;
 /* btrc-runtime-helper:end __btrc_arc_reverse_state */
 /* btrc-runtime-helper:begin __btrc_arc_register_incoming */
@@ -610,12 +802,16 @@ static void __btrc_arc_register_incoming(
         fprintf(stderr, "btrc: managed edge requires an owner\n");
         exit(1);
     }
+    __btrc_arc_header* header = __btrc_arc_header_of(object);
+    if (!header->type || !header->type->visit) return;
     __btrc_arc_incoming* incoming = (__btrc_arc_incoming*)
         __btrc_safe_realloc(NULL, sizeof(__btrc_arc_incoming));
     incoming->owner = owner;
-    incoming->next = __btrc_arc_header_of(object)->incoming;
-    __btrc_arc_header_of(object)->incoming = incoming;
-    if (owner != object) __btrc_arc_header_of(object)->live_witness = owner;
+    incoming->next = header->incoming;
+    header->incoming = incoming;
+    if (owner != object)
+        atomic_store_explicit(
+            &header->live_witness, owner, memory_order_release);
 }
 /* btrc-runtime-helper:end __btrc_arc_register_incoming */
 /* btrc-runtime-helper:begin __btrc_arc_unregister_incoming */
@@ -623,9 +819,10 @@ static void __btrc_arc_unregister_incoming(
         void* object, void* owner) {
     __btrc_arc_header* header = __btrc_arc_header_of(object);
     if (!owner) {
-        header->live_witness = NULL;
+        atomic_store_explicit(&header->live_witness, NULL, memory_order_release);
         return;
     }
+    if (!header->type || !header->type->visit) return;
     __btrc_arc_incoming** link = &header->incoming;
     while (*link && (*link)->owner != owner) link = &(*link)->next;
     if (!*link) {
@@ -635,15 +832,17 @@ static void __btrc_arc_unregister_incoming(
     __btrc_arc_incoming* removed = *link;
     *link = removed->next;
     free(removed);
-    if (header->live_witness == object || header->live_witness == owner) {
-        header->live_witness = NULL;
+    void* witness = atomic_load_explicit(&header->live_witness, memory_order_relaxed);
+    if (witness == object || witness == owner) {
+        void* replacement = NULL;
         for (__btrc_arc_incoming* edge = header->incoming;
                 edge; edge = edge->next) {
             if (edge->owner != object) {
-                header->live_witness = edge->owner;
+                replacement = edge->owner;
                 break;
             }
         }
+        atomic_store_explicit(&header->live_witness, replacement, memory_order_release);
     }
 }
 /* btrc-runtime-helper:end __btrc_arc_unregister_incoming */
@@ -656,8 +855,10 @@ static int __btrc_arc_incoming_teardown_pending(
             edge; edge = edge->next) {
         void* owner = edge->owner;
         if (!owner || owner == object) return 0;
-        __btrc_arc_validate(owner);
-        if (__btrc_arc_header_of(owner)->state != __BTRC_ARC_DESTROYING)
+        __btrc_arc_validate_unlocked(owner);
+        if (atomic_load_explicit(
+                &__btrc_arc_header_of(owner)->state, memory_order_acquire)
+                != __BTRC_ARC_DESTROYING)
             return 0;
     }
     return 1;
@@ -697,7 +898,7 @@ static void __btrc_reverse_reserve_queue(int needed) {
         __btrc_reverse_queue, bytes);
     __btrc_reverse_queue_cap = cap;
 }
-static void __btrc_reverse_grow_keys(void) {
+static void __btrc_reverse_grow_keys(int count) {
     int cap = __btrc_reverse_next_capacity(
         __btrc_reverse_key_cap, "reverse ARC hash overflow");
     size_t key_bytes = __btrc_reverse_capacity_bytes(
@@ -706,7 +907,7 @@ static void __btrc_reverse_grow_keys(void) {
         cap, sizeof(unsigned int), "reverse ARC hash size overflow");
     void** keys = (void**)__btrc_safe_calloc(1, key_bytes);
     unsigned int* marks = (unsigned int*)__btrc_safe_calloc(1, mark_bytes);
-    for (int i = 0; i < __btrc_reverse_count; i++) {
+    for (int i = 0; i < count; i++) {
         void* object = __btrc_reverse_queue[i];
         size_t slot = __btrc_ptr_hash(object) & ((size_t)cap - 1);
         while (marks[slot] == __btrc_reverse_epoch)
@@ -720,29 +921,33 @@ static void __btrc_reverse_grow_keys(void) {
     __btrc_reverse_marks = marks;
     __btrc_reverse_key_cap = cap;
 }
-static int __btrc_reverse_add(void* object) {
+static int __btrc_reverse_add(void* object, int* count_ref) {
     if (!object) return 0;
-    if (__btrc_reverse_count < 0 || __btrc_reverse_count == INT_MAX) {
+    int count = *count_ref;
+    if (count < 0 || count == INT_MAX) {
         fprintf(stderr, "btrc: reverse ARC count overflow\n");
         exit(1);
     }
     if (__btrc_reverse_key_cap == 0
-            || __btrc_reverse_count >= __btrc_reverse_key_cap / 2)
-        __btrc_reverse_grow_keys();
+            || count >= __btrc_reverse_key_cap / 2)
+        __btrc_reverse_grow_keys(count);
     size_t slot = __btrc_ptr_hash(object)
         & ((size_t)__btrc_reverse_key_cap - 1);
     while (__btrc_reverse_marks[slot] == __btrc_reverse_epoch) {
         if (__btrc_reverse_keys[slot] == object) return 0;
         slot = (slot + 1) & ((size_t)__btrc_reverse_key_cap - 1);
     }
-    __btrc_reverse_reserve_queue(__btrc_reverse_count + 1);
+    __btrc_reverse_reserve_queue(count + 1);
     __btrc_reverse_marks[slot] = __btrc_reverse_epoch;
     __btrc_reverse_keys[slot] = object;
-    __btrc_reverse_queue[__btrc_reverse_count++] = object;
+    __btrc_reverse_queue[count++] = object;
+    *count_ref = count;
+    atomic_store_explicit(&__btrc_reverse_count, count, memory_order_relaxed);
     return 1;
 }
 static int __btrc_arc_reverse_proves_live(void* object) {
-    __btrc_reverse_count = 0;
+    int count = 0;
+    atomic_store_explicit(&__btrc_reverse_count, 0, memory_order_relaxed);
     __btrc_reverse_epoch++;
     if (__btrc_reverse_epoch == 0) {
         if (__btrc_reverse_marks) {
@@ -753,29 +958,27 @@ static int __btrc_arc_reverse_proves_live(void* object) {
         }
         __btrc_reverse_epoch = 1;
     }
-    /* Prefer the current concrete incoming-owner chain before expanding fan-in.
-     * Repeated temporary releases of a shared child otherwise enqueue every
-     * owner, even when its newest owner leads directly to an external root.
-     * The mutation lock keeps these owner edges valid. A witness is only a
-     * route: never treat a snapshot sentinel or a previously live owner as
-     * proof. Recheck each reference count and fall back to the exact worklist
-     * when the preferred chain ends or cycles. */
     void* preferred = object;
-    while (preferred && __btrc_reverse_add(preferred)) {
+    while (preferred && __btrc_reverse_add(preferred, &count)) {
         __btrc_arc_validate(preferred);
         __btrc_arc_header* header = __btrc_arc_header_of(preferred);
-        if (header->rc > header->edge_rc) return 1;
-        if (header->live_witness == preferred) break;
-        preferred = header->live_witness;
+        if (atomic_load_explicit(&header->rc, memory_order_acquire)
+                > atomic_load_explicit(&header->edge_rc, memory_order_acquire))
+            return 1;
+        void* witness = atomic_load_explicit(&header->live_witness, memory_order_acquire);
+        if (witness == preferred) break;
+        preferred = witness;
     }
-    for (int head = 0; head < __btrc_reverse_count; head++) {
+    for (int head = 0; head < count; head++) {
         void* current = __btrc_reverse_queue[head];
         __btrc_arc_validate(current);
         __btrc_arc_header* header = __btrc_arc_header_of(current);
-        if (header->rc > header->edge_rc) return 1;
+        if (atomic_load_explicit(&header->rc, memory_order_acquire)
+                > atomic_load_explicit(&header->edge_rc, memory_order_acquire))
+            return 1;
         for (__btrc_arc_incoming* edge = header->incoming;
                 edge; edge = edge->next)
-            __btrc_reverse_add(edge->owner);
+            __btrc_reverse_add(edge->owner, &count);
     }
     return 0;
 }
@@ -783,20 +986,26 @@ static int __btrc_arc_reverse_proves_live(void* object) {
 /* btrc-runtime-helper:begin __btrc_arc_retain */
 static inline int __btrc_arc_retain(void* object) {
     if (!object) return 0;
-    __btrc_arc_lock_mutation();
-    __btrc_arc_validate(object);
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    __btrc_arc_validate_unlocked(object);
     __btrc_arc_header* header = __btrc_arc_header_of(object);
     const __btrc_arc_type* type = header->type;
-    if (header->state != __BTRC_ARC_LIVE) {
-        __btrc_arc_unlock_mutation();
+    if (atomic_load_explicit(&header->state, memory_order_acquire) != __BTRC_ARC_LIVE) {
+        __btrc_arc_mutator_leave(stripe);
         __btrc_arc_raise_unlocked(
             type, "cannot retain destroying managed object");
     }
-    if (header->rc == INT_MAX) { fprintf(stderr, "btrc: reference count overflow\n"); exit(1); }
-    if (header->live_witness == object) header->live_witness = NULL;
-    header->rc++;
-    __btrc_arc_validate(object);
-    __btrc_arc_unlock_mutation();
+    int prev = atomic_fetch_add_explicit(&header->rc, 1, memory_order_relaxed);
+    if (prev == INT_MAX) { fprintf(stderr, "btrc: reference count overflow\n"); exit(1); }
+    void* witness = atomic_load_explicit(&header->live_witness, memory_order_relaxed);
+    if (witness == object) {
+        atomic_compare_exchange_strong_explicit(
+            &header->live_witness, &witness, NULL,
+            memory_order_relaxed, memory_order_relaxed);
+    }
+    __btrc_arc_validate_unlocked(object);
+    __btrc_arc_mutator_leave(stripe);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_retain */
@@ -804,27 +1013,57 @@ static inline int __btrc_arc_retain(void* object) {
 static inline int __btrc_arc_retain_edge(
         void* object, void* owner) {
     if (!object) return 0;
-    __btrc_arc_lock_mutation();
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    __btrc_arc_header* header = __btrc_arc_header_of(object);
+    if (header->type && !header->type->visit) {
+        __btrc_arc_validate_unlocked(object);
+        if (owner) __btrc_arc_validate_unlocked(owner);
+        const __btrc_arc_type* error_type = header->type;
+        int obj_state = atomic_load_explicit(&header->state, memory_order_acquire);
+        int owner_bad = owner && atomic_load_explicit(
+            &__btrc_arc_header_of(owner)->state, memory_order_acquire) != __BTRC_ARC_LIVE;
+        if (obj_state != __BTRC_ARC_LIVE || owner_bad) {
+            if (owner_bad) error_type = __btrc_arc_header_of(owner)->type;
+            __btrc_arc_mutator_leave(stripe);
+            __btrc_arc_raise_unlocked(
+                error_type, "cannot retain destroying managed object");
+        }
+        if (!owner) {
+            fprintf(stderr, "btrc: managed edge requires an owner\n");
+            exit(1);
+        }
+        int prev_rc = atomic_fetch_add_explicit(&header->rc, 1, memory_order_relaxed);
+        if (prev_rc == INT_MAX) { fprintf(stderr, "btrc: reference count overflow\n"); exit(1); }
+        int prev_erc = atomic_fetch_add_explicit(&header->edge_rc, 1, memory_order_release);
+        if (prev_erc == INT_MAX) { fprintf(stderr, "btrc: reference count overflow\n"); exit(1); }
+        __btrc_arc_mutator_leave(stripe);
+        return 0;
+    }
+    void* locks[3];
+    int lock_count = 0;
+    __btrc_arc_lock_objs(object, owner, NULL, locks, lock_count);
     __btrc_arc_validate(object);
     if (owner) __btrc_arc_validate(owner);
-    __btrc_arc_header* header = __btrc_arc_header_of(object);
     const __btrc_arc_type* error_type = header->type;
-    if (header->state != __BTRC_ARC_LIVE
-            || (owner && __btrc_arc_header_of(owner)->state
-                != __BTRC_ARC_LIVE)) {
-        if (owner && __btrc_arc_header_of(owner)->state
-                != __BTRC_ARC_LIVE)
-            error_type = __btrc_arc_header_of(owner)->type;
-        __btrc_arc_unlock_mutation();
+    int obj_state = atomic_load_explicit(&header->state, memory_order_acquire);
+    int owner_bad = owner && atomic_load_explicit(
+        &__btrc_arc_header_of(owner)->state, memory_order_acquire) != __BTRC_ARC_LIVE;
+    if (obj_state != __BTRC_ARC_LIVE || owner_bad) {
+        if (owner_bad) error_type = __btrc_arc_header_of(owner)->type;
+        __btrc_arc_unlock_objs(locks, lock_count);
+        __btrc_arc_mutator_leave(stripe);
         __btrc_arc_raise_unlocked(
             error_type, "cannot retain destroying managed object");
     }
-    if (header->rc == INT_MAX || header->edge_rc == INT_MAX) { fprintf(stderr, "btrc: reference count overflow\n"); exit(1); }
+    int prev_rc = atomic_fetch_add_explicit(&header->rc, 1, memory_order_relaxed);
+    if (prev_rc == INT_MAX) { fprintf(stderr, "btrc: reference count overflow\n"); exit(1); }
+    int prev_erc = atomic_fetch_add_explicit(&header->edge_rc, 1, memory_order_release);
+    if (prev_erc == INT_MAX) { fprintf(stderr, "btrc: reference count overflow\n"); exit(1); }
     __btrc_arc_register_incoming(object, owner);
-    header->rc++;
-    header->edge_rc++;
     __btrc_arc_validate(object);
-    __btrc_arc_unlock_mutation();
+    __btrc_arc_unlock_objs(locks, lock_count);
+    __btrc_arc_mutator_leave(stripe);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_retain_edge */
@@ -832,26 +1071,36 @@ static inline int __btrc_arc_retain_edge(
 static inline int __btrc_arc_adopt_edge(
         void* object, void* owner) {
     if (!object) return 0;
-    __btrc_arc_lock_mutation();
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    void* locks[3];
+    int lock_count = 0;
+    __btrc_arc_lock_objs(object, owner, NULL, locks, lock_count);
     __btrc_arc_validate(object);
     if (owner) __btrc_arc_validate(owner);
     __btrc_arc_header* header = __btrc_arc_header_of(object);
     const __btrc_arc_type* error_type = header->type;
-    if (header->state != __BTRC_ARC_LIVE
-            || (owner && __btrc_arc_header_of(owner)->state
-                != __BTRC_ARC_LIVE)) {
-        if (owner && __btrc_arc_header_of(owner)->state
-                != __BTRC_ARC_LIVE)
-            error_type = __btrc_arc_header_of(owner)->type;
-        __btrc_arc_unlock_mutation();
+    int obj_state = atomic_load_explicit(&header->state, memory_order_acquire);
+    int owner_bad = owner && atomic_load_explicit(
+        &__btrc_arc_header_of(owner)->state, memory_order_acquire) != __BTRC_ARC_LIVE;
+    if (obj_state != __BTRC_ARC_LIVE || owner_bad) {
+        if (owner_bad) error_type = __btrc_arc_header_of(owner)->type;
+        __btrc_arc_unlock_objs(locks, lock_count);
+        __btrc_arc_mutator_leave(stripe);
         __btrc_arc_raise_unlocked(
             error_type, "cannot retain destroying managed object");
     }
-    if (header->edge_rc == INT_MAX || header->edge_rc >= header->rc) { fprintf(stderr, "btrc: invalid owned-edge adoption\n"); exit(1); }
+    int cur_erc = atomic_load_explicit(&header->edge_rc, memory_order_relaxed);
+    int cur_rc = atomic_load_explicit(&header->rc, memory_order_acquire);
+    if (cur_erc == INT_MAX || cur_erc >= cur_rc) {
+        fprintf(stderr, "btrc: invalid owned-edge adoption\n");
+        exit(1);
+    }
     __btrc_arc_register_incoming(object, owner);
-    header->edge_rc++;
+    atomic_store_explicit(&header->edge_rc, cur_erc + 1, memory_order_release);
     __btrc_arc_validate(object);
-    __btrc_arc_unlock_mutation();
+    __btrc_arc_unlock_objs(locks, lock_count);
+    __btrc_arc_mutator_leave(stripe);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_adopt_edge */
@@ -859,27 +1108,33 @@ static inline int __btrc_arc_adopt_edge(
 static inline int __btrc_arc_unlink_edge(
         void* object, void* owner) {
     if (!object) return 0;
-    __btrc_arc_lock_mutation();
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    void* locks[3];
+    int lock_count = 0;
+    __btrc_arc_lock_objs(object, owner, NULL, locks, lock_count);
     __btrc_arc_validate(object);
     if (owner) __btrc_arc_validate(owner);
     __btrc_arc_header* header = __btrc_arc_header_of(object);
-    if (header->state != __BTRC_ARC_LIVE
-            || (owner && __btrc_arc_header_of(owner)->state
-                != __BTRC_ARC_LIVE
-                && __btrc_arc_header_of(owner)->state
-                != __BTRC_ARC_DESTROYING)) {
+    int obj_state = atomic_load_explicit(&header->state, memory_order_acquire);
+    int owner_state = owner
+        ? atomic_load_explicit(&__btrc_arc_header_of(owner)->state, memory_order_acquire)
+        : __BTRC_ARC_LIVE;
+    if (obj_state != __BTRC_ARC_LIVE
+            || (owner && owner_state != __BTRC_ARC_LIVE
+                && owner_state != __BTRC_ARC_DESTROYING)) {
         const __btrc_arc_type* type = header->type;
-        if (owner && __btrc_arc_header_of(owner)->state
-                != __BTRC_ARC_LIVE
-                && __btrc_arc_header_of(owner)->state
-                != __BTRC_ARC_DESTROYING)
+        if (owner && owner_state != __BTRC_ARC_LIVE
+                && owner_state != __BTRC_ARC_DESTROYING)
             type = __btrc_arc_header_of(owner)->type;
-        __btrc_arc_unlock_mutation();
+        __btrc_arc_unlock_objs(locks, lock_count);
+        __btrc_arc_mutator_leave(stripe);
         __btrc_arc_raise_unlocked(
             type, "cannot retain destroying managed object");
     }
     __btrc_arc_unregister_incoming(object, owner);
-    __btrc_arc_unlock_mutation();
+    __btrc_arc_unlock_objs(locks, lock_count);
+    __btrc_arc_mutator_leave(stripe);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_unlink_edge */
@@ -906,15 +1161,16 @@ static void __btrc_forget_suspect(void* obj) {
         __btrc_suspect_slots[target] = displaced_index;
         scan = (scan + 1) & mask;
     }
-    /* The hash slot names the buffer position, so removal is a swap with the
-     * last suspect rather than a scan of every live suspect: with hundreds of
-     * thousands of suspects dying in one drain, that scan was quadratic. */
     if (index < 0 || index >= __btrc_suspect_count
             || __btrc_suspects[index] != obj) {
         fprintf(stderr, "btrc: cycle suspect buffer out of sync\n");
         exit(1);
     }
     int last = --__btrc_suspect_count;
+    atomic_store_explicit(
+        &__btrc_arc_header_of(obj)->in_suspects, 0, memory_order_release);
+    atomic_store_explicit(
+        &__btrc_suspect_count_atomic, __btrc_suspect_count, memory_order_release);
     if (index == last) return;
     void* moved = __btrc_suspects[last];
     __btrc_suspects[index] = moved;
@@ -932,39 +1188,178 @@ static void __btrc_forget_suspect(void* obj) {
 }
 /* btrc-runtime-helper:end __btrc_forget_suspect */
 /* btrc-runtime-helper:begin __btrc_arc_release_impl */
-static inline int __btrc_arc_release_impl(
+static inline int __btrc_arc_lock_raw_trylock(void) {
+    if (atomic_load_explicit(&__btrc_arc_lock_word, memory_order_relaxed))
+        return 0;
+    return !atomic_exchange_explicit(
+        &__btrc_arc_lock_word, 1, memory_order_acquire);
+}
+
+static inline int __btrc_arc_obj_trylock(void* object) {
+    _Atomic unsigned short* pl = &__btrc_arc_header_of(object)->pin_lock;
+    if (atomic_load_explicit(pl, memory_order_relaxed) & __BTRC_ARC_OBJ_LOCK_BIT)
+        return 0;
+    return !(atomic_fetch_or_explicit(pl, __BTRC_ARC_OBJ_LOCK_BIT, memory_order_acquire)
+        & __BTRC_ARC_OBJ_LOCK_BIT);
+}
+
+static void __btrc_arc_maybe_suspect_pinned(
+        void* object, const __btrc_arc_type* type, size_t stripe) {
+    __btrc_arc_header* root_hdr = __btrc_arc_header_of(object);
+    int proved_live = 0;
+    int contended = 0;
+    int hops = 1;
+    void* tortoise = object;
+    int power = 1;
+    int lam = 0;
+    __btrc_arc_obj_lock(object);
+    int root_state = atomic_load_explicit(&root_hdr->state, memory_order_acquire);
+    int root_rc = atomic_load_explicit(&root_hdr->rc, memory_order_acquire);
+    int root_erc = atomic_load_explicit(&root_hdr->edge_rc, memory_order_acquire);
+    if (root_state != __BTRC_ARC_LIVE || root_rc == 0 || root_rc > root_erc
+            || __btrc_arc_incoming_teardown_pending(object)) {
+        atomic_fetch_sub_explicit(&root_hdr->pin_lock, 1u, memory_order_release);
+        __btrc_arc_obj_unlock(object);
+        return;
+    }
+    void* cur = object;
+    while (hops < 2048) {
+        void* next = atomic_load_explicit(
+            &__btrc_arc_header_of(cur)->live_witness, memory_order_acquire);
+        if (!next || next == cur || next == tortoise || next == object) break;
+        int locked = __btrc_arc_obj_trylock(next);
+        if (!locked) {
+            for (int retry = 0; retry < 8 && !locked; retry++) {
+                __btrc_arc_lock_relax();
+                locked = __btrc_arc_obj_trylock(next);
+            }
+        }
+        if (!locked) {
+            contended = 1;
+            break;
+        }
+        __btrc_arc_obj_unlock(cur);
+        cur = next;
+        hops++;
+        __btrc_arc_header* next_hdr = __btrc_arc_header_of(next);
+        if (atomic_load_explicit(&next_hdr->rc, memory_order_acquire)
+                > atomic_load_explicit(&next_hdr->edge_rc, memory_order_acquire)) {
+            proved_live = 1;
+            break;
+        }
+        lam++;
+        if (lam == power) {
+            tortoise = next;
+            power <<= 1;
+            lam = 0;
+        }
+    }
+    __btrc_arc_obj_unlock(cur);
+    if (proved_live) {
+        if (atomic_load_explicit(&__btrc_arc_shared.next_stripe, memory_order_relaxed) <= 1u)
+            atomic_store_explicit(&__btrc_reverse_count, hops, memory_order_relaxed);
+        atomic_fetch_sub_explicit(&root_hdr->pin_lock, 1u, memory_order_release);
+        return;
+    }
+    if (!contended && __btrc_tls.arc_topology_depth == 0) {
+        __btrc_arc_mutator_leave(stripe);
+        int froze = 0;
+        if (__btrc_arc_lock_raw_trylock()) {
+            if (!atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)
+                    && !atomic_load_explicit(&__btrc_arc_snapshotting, memory_order_acquire)
+                    && !atomic_load_explicit(&__btrc_arc_snapshot_pending, memory_order_acquire)) {
+                atomic_store_explicit(&__btrc_arc_snapshotting, 1, memory_order_seq_cst);
+                if (!__btrc_arc_any_topology_active()) {
+                    __btrc_arc_unlock_raw();
+                    __btrc_arc_drain_all_mutators();
+                    froze = 1;
+                } else {
+                    atomic_store_explicit(&__btrc_arc_snapshotting, 0, memory_order_release);
+                    __btrc_arc_unlock_raw();
+                }
+            } else {
+                __btrc_arc_unlock_raw();
+            }
+        }
+        if (froze) {
+            int st = atomic_load_explicit(&root_hdr->state, memory_order_acquire);
+            int r = atomic_load_explicit(&root_hdr->rc, memory_order_acquire);
+            int e = atomic_load_explicit(&root_hdr->edge_rc, memory_order_acquire);
+            if (st == __BTRC_ARC_LIVE && r > 0 && r == e
+                    && !__btrc_arc_incoming_teardown_pending(object)
+                    && !__btrc_arc_reverse_proves_live(object)) {
+                __btrc_suspect_locked(object, type->visit, type->destroy);
+            }
+            atomic_fetch_sub_explicit(&root_hdr->pin_lock, 1u, memory_order_release);
+            __btrc_arc_lock_raw();
+            atomic_store_explicit(&__btrc_arc_snapshotting, 0, memory_order_release);
+            __btrc_arc_unlock_raw();
+            __btrc_arc_mutator_enter(stripe);
+            return;
+        }
+        __btrc_arc_mutator_enter(stripe);
+    }
+    __btrc_arc_obj_lock(object);
+    int st = atomic_load_explicit(&root_hdr->state, memory_order_acquire);
+    int r = atomic_load_explicit(&root_hdr->rc, memory_order_acquire);
+    int e = atomic_load_explicit(&root_hdr->edge_rc, memory_order_acquire);
+    if (st == __BTRC_ARC_LIVE && r > 0 && r == e
+            && !__btrc_arc_incoming_teardown_pending(object)) {
+        __btrc_arc_suspect_lock();
+        __btrc_suspect_locked(object, type->visit, type->destroy);
+        __btrc_arc_suspect_unlock();
+        if (__btrc_tls.arc_topology_depth > 0
+                && atomic_load_explicit(
+                    &__btrc_suspect_count_atomic, memory_order_acquire) > 0) {
+            atomic_store_explicit(
+                &__btrc_arc_topology_flush_pending, 1, memory_order_release);
+        }
+    }
+    atomic_fetch_sub_explicit(&root_hdr->pin_lock, 1u, memory_order_release);
+    __btrc_arc_obj_unlock(object);
+}
+
+static inline int __btrc_arc_release_locked_obj(
         void* object, const __btrc_arc_type* fallback,
-        int edge, void* replacement) {
+        int edge, const __btrc_arc_type** out_suspect_type) {
+    *out_suspect_type = NULL;
     if (!object) return 0;
     __btrc_arc_validate(object);
     __btrc_arc_header* header = __btrc_arc_header_of(object);
     const __btrc_arc_type* type = __btrc_arc_type_of(object, fallback);
     if (!type || !type->destroy) { fprintf(stderr, "btrc: untyped managed release\n"); exit(1); }
-    if (header->state != __BTRC_ARC_LIVE) {
+    if (atomic_load_explicit(&header->state, memory_order_acquire) != __BTRC_ARC_LIVE) {
         fprintf(stderr, "btrc: release of non-live managed object\n");
         exit(1);
     }
-    if (header->rc <= 0 || (edge && header->edge_rc <= 0)) { fprintf(stderr, "btrc: reference count underflow\n"); exit(1); }
+    int cur_erc = atomic_load_explicit(&header->edge_rc, memory_order_relaxed);
     if (edge) {
-        /* The slot-specific unlink atom invalidated only the removed owner. */
-        (void)replacement;
-        header->edge_rc--;
+        if (cur_erc <= 0) { fprintf(stderr, "btrc: reference count underflow\n"); exit(1); }
+        cur_erc--;
+        atomic_store_explicit(&header->edge_rc, cur_erc, memory_order_release);
     }
-    header->rc--;
-    if (header->rc == 0) {
-        if (header->edge_rc != 0 || header->incoming != NULL) {
+    int prev_rc = atomic_fetch_sub_explicit(&header->rc, 1, memory_order_acq_rel);
+    if (prev_rc <= 0) { fprintf(stderr, "btrc: reference count underflow\n"); exit(1); }
+    int new_rc = prev_rc - 1;
+    if (new_rc == 0) {
+        if (cur_erc != 0 || header->incoming != NULL) {
             fprintf(stderr, "btrc: terminal object retained an incoming edge\n");
             exit(1);
         }
-        __btrc_forget_suspect(object);
+        if (atomic_load_explicit(&header->in_suspects, memory_order_acquire)) {
+            __btrc_arc_suspect_lock();
+            __btrc_forget_suspect(object);
+            __btrc_arc_suspect_unlock();
+        }
         __btrc_arc_enqueue_locked(object);
         return 0;
     }
     __btrc_arc_validate(object);
-    if (type->visit && header->rc == header->edge_rc
-            && !__btrc_arc_incoming_teardown_pending(object)
-            && !__btrc_arc_reverse_proves_live(object))
-        __btrc_suspect_locked(object, type->visit, type->destroy);
+    if (type->visit && new_rc == cur_erc
+            && !__btrc_arc_incoming_teardown_pending(object)) {
+        atomic_fetch_add_explicit(&header->pin_lock, 1u, memory_order_acq_rel);
+        *out_suspect_type = type;
+    }
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_release_impl */
@@ -977,43 +1372,64 @@ static inline int __btrc_arc_replace_edge(
         fprintf(stderr, "btrc: managed edge replacement requires a slot and owner\n");
         exit(1);
     }
-    __btrc_arc_lock_mutation();
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    size_t slot_s = __btrc_arc_slot_stripe((const void*)slot_storage);
+    __btrc_arc_slot_lock(slot_s);
     void* object = access(slot_storage, NULL, NULL, 0);
+    void* locks[3];
+    int lock_count = 0;
+    __btrc_arc_lock_objs(owner, object, replacement, locks, lock_count);
     __btrc_arc_validate(owner);
     __btrc_arc_header* owner_header = __btrc_arc_header_of(owner);
     const __btrc_arc_type* error_type = owner_header->type;
-    int invalid_publication = replacement
-        && owner_header->state != __BTRC_ARC_LIVE;
+    int owner_state = atomic_load_explicit(&owner_header->state, memory_order_acquire);
+    int invalid_publication = replacement && owner_state != __BTRC_ARC_LIVE;
     if (replacement) {
         __btrc_arc_validate(replacement);
-        if (__btrc_arc_header_of(replacement)->state
+        if (atomic_load_explicit(
+                &__btrc_arc_header_of(replacement)->state, memory_order_acquire)
                 != __BTRC_ARC_LIVE) {
             invalid_publication = 1;
             error_type = __btrc_arc_header_of(replacement)->type;
         }
     }
     if (invalid_publication) {
-        __btrc_arc_unlock_mutation();
+        __btrc_arc_unlock_objs(locks, lock_count);
+        __btrc_arc_slot_unlock(slot_s);
+        __btrc_arc_mutator_leave(stripe);
         __btrc_arc_raise_unlocked(
             error_type, "cannot retain destroying managed object");
         return -1;
     }
-    if (!replacement && owner_header->state != __BTRC_ARC_LIVE
-            && owner_header->state != __BTRC_ARC_DESTROYING) {
-        __btrc_arc_unlock_mutation();
+    if (!replacement && owner_state != __BTRC_ARC_LIVE
+            && owner_state != __BTRC_ARC_DESTROYING) {
+        __btrc_arc_unlock_objs(locks, lock_count);
+        __btrc_arc_slot_unlock(slot_s);
+        __btrc_arc_mutator_leave(stripe);
         __btrc_arc_raise_unlocked(
             error_type, "cannot retain destroying managed object");
         return -1;
     }
+    const __btrc_arc_type* suspect_type = NULL;
+    void* suspect_obj = NULL;
     if (object == replacement) {
-        if (replacement && adopt)
-            __btrc_arc_release_impl(replacement, fallback, 0, NULL);
-        __btrc_arc_unlock_mutation();
-        __btrc_arc_drain_deferred(0);
+        if (replacement && adopt) {
+            __btrc_arc_release_locked_obj(replacement, fallback, 0, &suspect_type);
+            if (suspect_type) suspect_obj = replacement;
+        }
+        __btrc_arc_unlock_objs(locks, lock_count);
+        __btrc_arc_slot_unlock(slot_s);
+        if (suspect_obj)
+            __btrc_arc_maybe_suspect_pinned(suspect_obj, suspect_type, stripe);
+        __btrc_arc_mutator_leave(stripe);
+        if (__btrc_tls.arc_deferred_head) __btrc_arc_drain_deferred(0);
         return 0;
     }
     if (access(slot_storage, object, replacement, 1) != object) {
-        __btrc_arc_unlock_mutation();
+        __btrc_arc_unlock_objs(locks, lock_count);
+        __btrc_arc_slot_unlock(slot_s);
+        __btrc_arc_mutator_leave(stripe);
         fprintf(stderr, "btrc: managed edge changed during transaction\n");
         exit(1);
     }
@@ -1024,27 +1440,33 @@ static inline int __btrc_arc_replace_edge(
     if (replacement) {
         __btrc_arc_header* next = __btrc_arc_header_of(replacement);
         if (adopt) {
-            if (next->edge_rc == INT_MAX || next->edge_rc >= next->rc) {
+            int cur_erc = atomic_load_explicit(&next->edge_rc, memory_order_relaxed);
+            int cur_rc = atomic_load_explicit(&next->rc, memory_order_acquire);
+            if (cur_erc == INT_MAX || cur_erc >= cur_rc) {
                 fprintf(stderr, "btrc: invalid owned-edge adoption\n");
                 exit(1);
             }
             __btrc_arc_register_incoming(replacement, owner);
-            next->edge_rc++;
+            atomic_store_explicit(&next->edge_rc, cur_erc + 1, memory_order_release);
         } else {
-            if (next->rc == INT_MAX || next->edge_rc == INT_MAX) {
-                fprintf(stderr, "btrc: reference count overflow\n");
-                exit(1);
-            }
+            int prev_rc = atomic_fetch_add_explicit(&next->rc, 1, memory_order_relaxed);
+            if (prev_rc == INT_MAX) { fprintf(stderr, "btrc: reference count overflow\n"); exit(1); }
+            int prev_erc = atomic_fetch_add_explicit(&next->edge_rc, 1, memory_order_release);
+            if (prev_erc == INT_MAX) { fprintf(stderr, "btrc: reference count overflow\n"); exit(1); }
             __btrc_arc_register_incoming(replacement, owner);
-            next->rc++;
-            next->edge_rc++;
         }
         __btrc_arc_validate(replacement);
     }
-    if (object)
-        __btrc_arc_release_impl(object, fallback, 1, replacement);
-    __btrc_arc_unlock_mutation();
-    __btrc_arc_drain_deferred(0);
+    if (object) {
+        __btrc_arc_release_locked_obj(object, fallback, 1, &suspect_type);
+        if (suspect_type) suspect_obj = object;
+    }
+    __btrc_arc_unlock_objs(locks, lock_count);
+    __btrc_arc_slot_unlock(slot_s);
+    if (suspect_obj)
+        __btrc_arc_maybe_suspect_pinned(suspect_obj, suspect_type, stripe);
+    __btrc_arc_mutator_leave(stripe);
+    if (__btrc_tls.arc_deferred_head) __btrc_arc_drain_deferred(0);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_replace_edge */
@@ -1052,21 +1474,65 @@ static inline int __btrc_arc_replace_edge(
 static inline int __btrc_arc_release(
         void* object, const __btrc_arc_type* type) {
     if (!object) return 0;
-    __btrc_arc_lock_mutation();
-    __btrc_arc_release_impl(object, type, 0, NULL);
-    __btrc_arc_unlock_mutation();
-    __btrc_arc_drain_deferred(0);
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    __btrc_arc_header* header = __btrc_arc_header_of(object);
+    const __btrc_arc_type* runtime_type = __btrc_arc_type_of(object, type);
+    if (!runtime_type || !runtime_type->destroy) {
+        fprintf(stderr, "btrc: untyped managed release\n");
+        exit(1);
+    }
+    if (!runtime_type->visit) {
+        __btrc_arc_validate_unlocked(object);
+        if (atomic_load_explicit(&header->state, memory_order_acquire) != __BTRC_ARC_LIVE) {
+            fprintf(stderr, "btrc: release of non-live managed object\n");
+            exit(1);
+        }
+        int prev_rc = atomic_fetch_sub_explicit(&header->rc, 1, memory_order_acq_rel);
+        if (prev_rc <= 0) { fprintf(stderr, "btrc: reference count underflow\n"); exit(1); }
+        if (prev_rc == 1) {
+            if (atomic_load_explicit(&header->edge_rc, memory_order_acquire) != 0
+                    || header->incoming != NULL) {
+                fprintf(stderr, "btrc: terminal object retained an incoming edge\n");
+                exit(1);
+            }
+            if (atomic_load_explicit(&header->in_suspects, memory_order_acquire)) {
+                __btrc_arc_suspect_lock();
+                __btrc_forget_suspect(object);
+                __btrc_arc_suspect_unlock();
+            }
+            __btrc_arc_enqueue_locked(object);
+        }
+        __btrc_arc_mutator_leave(stripe);
+        if (__btrc_tls.arc_deferred_head) __btrc_arc_drain_deferred(0);
+        return 0;
+    }
+    __btrc_arc_obj_lock(object);
+    const __btrc_arc_type* suspect_type = NULL;
+    __btrc_arc_release_locked_obj(object, type, 0, &suspect_type);
+    __btrc_arc_obj_unlock(object);
+    if (suspect_type)
+        __btrc_arc_maybe_suspect_pinned(object, suspect_type, stripe);
+    __btrc_arc_mutator_leave(stripe);
+    if (__btrc_tls.arc_deferred_head) __btrc_arc_drain_deferred(0);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_release */
 /* btrc-runtime-helper:begin __btrc_arc_release_edge */
 static inline int __btrc_arc_release_edge(
         void* object, const __btrc_arc_type* type, void* replacement) {
+    (void)replacement;
     if (!object) return 0;
-    __btrc_arc_lock_mutation();
-    __btrc_arc_release_impl(object, type, 1, replacement);
-    __btrc_arc_unlock_mutation();
-    __btrc_arc_drain_deferred(0);
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    __btrc_arc_obj_lock(object);
+    const __btrc_arc_type* suspect_type = NULL;
+    __btrc_arc_release_locked_obj(object, type, 1, &suspect_type);
+    __btrc_arc_obj_unlock(object);
+    if (suspect_type)
+        __btrc_arc_maybe_suspect_pinned(object, suspect_type, stripe);
+    __btrc_arc_mutator_leave(stripe);
+    if (__btrc_tls.arc_deferred_head) __btrc_arc_drain_deferred(0);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_release_edge */
@@ -1074,32 +1540,40 @@ static inline int __btrc_arc_release_edge(
 static inline int __btrc_arc_release_acyclic(
         void* object, const __btrc_arc_type* type) {
     if (!object) return 0;
-    __btrc_arc_lock_mutation();
-    __btrc_arc_validate(object);
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    __btrc_arc_validate_unlocked(object);
     __btrc_arc_header* header = __btrc_arc_header_of(object);
     const __btrc_arc_type* runtime_type = __btrc_arc_type_of(object, type);
     if (!runtime_type || !runtime_type->destroy) { fprintf(stderr, "btrc: untyped managed release\n"); exit(1); }
-    if (header->state != __BTRC_ARC_LIVE || header->rc <= 0) { fprintf(stderr, "btrc: reference count underflow\n"); exit(1); }
-    header->rc--;
-    if (header->rc == 0) {
-        if (header->edge_rc != 0 || header->incoming != NULL) {
+    if (atomic_load_explicit(&header->state, memory_order_acquire) != __BTRC_ARC_LIVE) {
+        fprintf(stderr, "btrc: reference count underflow\n");
+        exit(1);
+    }
+    int prev_rc = atomic_fetch_sub_explicit(&header->rc, 1, memory_order_acq_rel);
+    if (prev_rc <= 0) { fprintf(stderr, "btrc: reference count underflow\n"); exit(1); }
+    if (prev_rc == 1) {
+        if (atomic_load_explicit(&header->edge_rc, memory_order_acquire) != 0
+                || header->incoming != NULL) {
             fprintf(stderr, "btrc: terminal object retained an incoming edge\n");
             exit(1);
         }
         __btrc_arc_enqueue_locked(object);
-    } else {
-        __btrc_arc_validate(object);
     }
-    __btrc_arc_unlock_mutation();
-    __btrc_arc_drain_deferred(0);
+    __btrc_arc_mutator_leave(stripe);
+    if (__btrc_tls.arc_deferred_head) __btrc_arc_drain_deferred(0);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_release_acyclic */
 /* btrc-runtime-helper:begin __btrc_arc_invalidate */
 static inline int __btrc_arc_invalidate(void* object) {
-    __btrc_arc_lock_mutation();
+    if (!object) return 0;
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    __btrc_arc_obj_lock(object);
     __btrc_arc_validate(object);
-    __btrc_arc_unlock_mutation();
+    __btrc_arc_obj_unlock(object);
+    __btrc_arc_mutator_leave(stripe);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_arc_invalidate */
@@ -1108,32 +1582,49 @@ static inline int __btrc_arc_destroy_slot(
         volatile void* slot_storage, __btrc_arc_slot_access_fn access,
         const __btrc_arc_type* fallback) {
     if (!slot_storage || !access) return 0;
-    __btrc_arc_lock_mutation();
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    size_t slot_s = __btrc_arc_slot_stripe((const void*)slot_storage);
+    __btrc_arc_slot_lock(slot_s);
     void* object = access(slot_storage, NULL, NULL, 0);
     if (!object) {
-        __btrc_arc_unlock_mutation();
+        __btrc_arc_slot_unlock(slot_s);
+        __btrc_arc_mutator_leave(stripe);
         return 0;
     }
+    __btrc_arc_obj_lock(object);
     __btrc_arc_validate(object);
     const __btrc_arc_type* type = __btrc_arc_type_of(object, fallback);
     if (!type || !type->destroy) { fprintf(stderr, "btrc: untyped managed destroy\n"); exit(1); }
     __btrc_arc_header* header = __btrc_arc_header_of(object);
-    if (header->state != __BTRC_ARC_LIVE || header->rc != 1
-            || header->edge_rc != 0 || header->incoming != NULL) {
-        __btrc_arc_unlock_mutation();
+    if (atomic_load_explicit(&header->state, memory_order_acquire) != __BTRC_ARC_LIVE
+            || atomic_load_explicit(&header->rc, memory_order_acquire) != 1
+            || atomic_load_explicit(&header->edge_rc, memory_order_acquire) != 0
+            || header->incoming != NULL) {
+        __btrc_arc_obj_unlock(object);
+        __btrc_arc_slot_unlock(slot_s);
+        __btrc_arc_mutator_leave(stripe);
         __btrc_arc_raise_unlocked(
             type, "cannot delete shared managed object");
     }
     if (access(slot_storage, object, NULL, 1) != object) {
-        __btrc_arc_unlock_mutation();
+        __btrc_arc_obj_unlock(object);
+        __btrc_arc_slot_unlock(slot_s);
+        __btrc_arc_mutator_leave(stripe);
         fprintf(stderr, "btrc: managed delete slot changed during transaction\n");
         exit(1);
     }
-    header->rc = 0;
-    header->live_witness = NULL;
-    __btrc_forget_suspect(object);
+    atomic_store_explicit(&header->rc, 0, memory_order_release);
+    atomic_store_explicit(&header->live_witness, NULL, memory_order_relaxed);
+    if (atomic_load_explicit(&header->in_suspects, memory_order_acquire)) {
+        __btrc_arc_suspect_lock();
+        __btrc_forget_suspect(object);
+        __btrc_arc_suspect_unlock();
+    }
     __btrc_arc_enqueue_locked(object);
-    __btrc_arc_unlock_mutation();
+    __btrc_arc_obj_unlock(object);
+    __btrc_arc_slot_unlock(slot_s);
+    __btrc_arc_mutator_leave(stripe);
     __btrc_arc_drain_deferred(0);
     return 0;
 }
@@ -1143,40 +1634,62 @@ static inline int __btrc_arc_destroy_edge(
         volatile void* slot_storage, __btrc_arc_slot_access_fn access, void* owner,
         const __btrc_arc_type* fallback) {
     if (!slot_storage || !access || !owner) return 0;
-    __btrc_arc_lock_mutation();
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    size_t slot_s = __btrc_arc_slot_stripe((const void*)slot_storage);
+    __btrc_arc_slot_lock(slot_s);
     void* object = access(slot_storage, NULL, NULL, 0);
     if (!object) {
-        __btrc_arc_unlock_mutation();
+        __btrc_arc_slot_unlock(slot_s);
+        __btrc_arc_mutator_leave(stripe);
         return 0;
     }
+    void* locks[3];
+    int lock_count = 0;
+    __btrc_arc_lock_objs(owner, object, NULL, locks, lock_count);
     __btrc_arc_validate(owner);
     __btrc_arc_validate(object);
     const __btrc_arc_type* type = __btrc_arc_type_of(object, fallback);
     __btrc_arc_header* owner_header = __btrc_arc_header_of(owner);
     __btrc_arc_header* header = __btrc_arc_header_of(object);
-    int owner_valid = owner_header->state == __BTRC_ARC_LIVE
-        || owner_header->state == __BTRC_ARC_DESTROYING;
-    int unique = header->state == __BTRC_ARC_LIVE
-        && header->rc == 1 && header->edge_rc == 1
-        && header->incoming && header->incoming->owner == owner
-        && header->incoming->next == NULL;
+    int owner_state = atomic_load_explicit(&owner_header->state, memory_order_acquire);
+    int owner_valid = owner_state == __BTRC_ARC_LIVE
+        || owner_state == __BTRC_ARC_DESTROYING;
+    int incoming_unique = (header->type && header->type->visit)
+        ? (header->incoming && header->incoming->owner == owner
+            && header->incoming->next == NULL)
+        : (header->incoming == NULL);
+    int unique = atomic_load_explicit(&header->state, memory_order_acquire) == __BTRC_ARC_LIVE
+        && atomic_load_explicit(&header->rc, memory_order_acquire) == 1
+        && atomic_load_explicit(&header->edge_rc, memory_order_acquire) == 1
+        && incoming_unique;
     if (!owner_valid || !unique) {
-        __btrc_arc_unlock_mutation();
+        __btrc_arc_unlock_objs(locks, lock_count);
+        __btrc_arc_slot_unlock(slot_s);
+        __btrc_arc_mutator_leave(stripe);
         __btrc_arc_raise_unlocked(
             type, "cannot delete shared managed object");
     }
     if (access(slot_storage, object, NULL, 1) != object) {
-        __btrc_arc_unlock_mutation();
+        __btrc_arc_unlock_objs(locks, lock_count);
+        __btrc_arc_slot_unlock(slot_s);
+        __btrc_arc_mutator_leave(stripe);
         fprintf(stderr, "btrc: managed delete slot changed during transaction\n");
         exit(1);
     }
     __btrc_arc_unregister_incoming(object, owner);
-    header->rc = 0;
-    header->edge_rc = 0;
-    header->live_witness = NULL;
-    __btrc_forget_suspect(object);
+    atomic_store_explicit(&header->edge_rc, 0, memory_order_release);
+    atomic_store_explicit(&header->rc, 0, memory_order_release);
+    atomic_store_explicit(&header->live_witness, NULL, memory_order_relaxed);
+    if (atomic_load_explicit(&header->in_suspects, memory_order_acquire)) {
+        __btrc_arc_suspect_lock();
+        __btrc_forget_suspect(object);
+        __btrc_arc_suspect_unlock();
+    }
     __btrc_arc_enqueue_locked(object);
-    __btrc_arc_unlock_mutation();
+    __btrc_arc_unlock_objs(locks, lock_count);
+    __btrc_arc_slot_unlock(slot_s);
+    __btrc_arc_mutator_leave(stripe);
     __btrc_arc_drain_deferred(0);
     return 0;
 }
@@ -1523,14 +2036,20 @@ static void __btrc_abandon_mark_live(
         if (root_hold && vertex->internal == INT_MAX)
             __btrc_cycle_fail("partial-construction root count overflow");
         int owned = vertex->internal + root_hold;
-        if (header->state != __BTRC_ARC_LIVE
-                || incoming != header->edge_rc
-                || header->rc < owned
-                || header->edge_rc < vertex->internal)
+        int hdr_state = atomic_load_explicit(&header->state, memory_order_acquire);
+        int hdr_rc = atomic_load_explicit(&header->rc, memory_order_acquire);
+        int hdr_erc = atomic_load_explicit(&header->edge_rc, memory_order_acquire);
+        int incoming_ok = (header->type && header->type->visit)
+            ? (incoming == hdr_erc)
+            : (incoming == 0);
+        if (hdr_state != __BTRC_ARC_LIVE
+                || !incoming_ok
+                || hdr_rc < owned
+                || hdr_erc < vertex->internal)
             __btrc_cycle_fail("invalid escaping partial construction");
-        if (vertex->root && header->edge_rc != vertex->internal)
+        if (vertex->root && hdr_erc != vertex->internal)
             __btrc_cycle_fail("invalid escaping partial construction");
-        if (header->rc > owned) {
+        if (hdr_rc > owned) {
             vertex->live = 1;
             context->queue[tail++] = i;
         }
@@ -1563,19 +2082,22 @@ static void __btrc_abandon_reclaim(__btrc_cycle_context* context) {
             __btrc_cycle_fail("managed graph changed during construction abandon");
         __btrc_arc_unregister_incoming(target, source);
         __btrc_arc_header* header = __btrc_arc_header_of(target);
-        if (header->rc <= 0 || header->edge_rc <= 0)
+        int cur_rc = atomic_load_explicit(&header->rc, memory_order_acquire);
+        int cur_erc = atomic_load_explicit(&header->edge_rc, memory_order_acquire);
+        if (cur_rc <= 0 || cur_erc <= 0)
             __btrc_cycle_fail("partial-construction edge underflow");
-        header->rc--;
-        header->edge_rc--;
+        atomic_store_explicit(&header->edge_rc, cur_erc - 1, memory_order_release);
+        atomic_store_explicit(&header->rc, cur_rc - 1, memory_order_release);
     }
     for (int i = 0; i < context->vertex_count; i++) {
         __btrc_cycle_vertex* vertex = &context->vertices[i];
         if (!vertex->root) continue;
         __btrc_arc_header* root =
             __btrc_arc_header_of(vertex->object);
-        if (root->rc <= 0)
+        int cur_rc = atomic_load_explicit(&root->rc, memory_order_acquire);
+        if (cur_rc <= 0)
             __btrc_cycle_fail("partial-construction root underflow");
-        root->rc--;
+        atomic_store_explicit(&root->rc, cur_rc - 1, memory_order_release);
     }
     for (int i = 0; i < context->vertex_count; i++) {
         __btrc_cycle_vertex* vertex = &context->vertices[i];
@@ -1585,7 +2107,8 @@ static void __btrc_abandon_reclaim(__btrc_cycle_context* context) {
             __btrc_arc_validate(vertex->object);
             continue;
         }
-        if (header->rc != 0 || header->edge_rc != 0
+        if (atomic_load_explicit(&header->rc, memory_order_acquire) != 0
+                || atomic_load_explicit(&header->edge_rc, memory_order_acquire) != 0
                 || header->incoming != NULL)
             __btrc_cycle_fail("partial construction retained a reference");
         __btrc_forget_suspect(vertex->object);
@@ -1639,14 +2162,16 @@ static void __btrc_arc_drain_pending_abandons(void) {
 static void __btrc_arc_drain_abandon_queue(void) {
     if (__btrc_tls.arc_topology_depth != 0) return;
     for (;;) {
-        __btrc_arc_lock_mutation();
+        if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
+            fprintf(stderr, "btrc: ARC operation after shutdown\n");
+            exit(1);
+        }
         void** batch = __btrc_tls.abandon_queue;
         int count = __btrc_tls.abandon_count;
         __btrc_tls.abandon_queue = NULL;
         __btrc_tls.abandon_count = 0;
         __btrc_tls.abandon_cap = 0;
         __btrc_tls.abandon_drain_callback = NULL;
-        __btrc_arc_unlock_mutation();
         if (count == 0) {
             free(batch);
             break;
@@ -1661,36 +2186,43 @@ static void __btrc_arc_abandon(void* object) {
         __btrc_arc_abandon_now(object);
         return;
     }
-    __btrc_arc_lock_mutation();
-    __btrc_arc_validate(object);
+    size_t stripe = __btrc_arc_my_stripe();
+    __btrc_arc_mutator_enter(stripe);
+    __btrc_arc_validate_unlocked(object);
     __btrc_arc_header* header = __btrc_arc_header_of(object);
-    if (header->state != __BTRC_ARC_LIVE) {
+    if (atomic_load_explicit(&header->state, memory_order_acquire) != __BTRC_ARC_LIVE) {
+        __btrc_arc_mutator_leave(stripe);
         fprintf(stderr, "btrc: invalid deferred construction abandon\n");
         exit(1);
     }
     if (__btrc_tls.abandon_count < 0 || __btrc_tls.abandon_cap < 0
             || __btrc_tls.abandon_count > __btrc_tls.abandon_cap) {
+        __btrc_arc_mutator_leave(stripe);
         fprintf(stderr, "btrc: invalid construction abandon capacity\n");
         exit(1);
     }
     for (int i = 0; i < __btrc_tls.abandon_count; i++) {
         if (__btrc_tls.abandon_queue[i] == object) {
+            __btrc_arc_mutator_leave(stripe);
             fprintf(stderr, "btrc: duplicate deferred construction abandon\n");
             exit(1);
         }
     }
     if (__btrc_tls.abandon_count == INT_MAX) {
+        __btrc_arc_mutator_leave(stripe);
         fprintf(stderr, "btrc: construction abandon queue overflow\n");
         exit(1);
     }
     if (__btrc_tls.abandon_count >= __btrc_tls.abandon_cap) {
         if (__btrc_tls.abandon_cap > INT_MAX / 2) {
+            __btrc_arc_mutator_leave(stripe);
             fprintf(stderr, "btrc: construction abandon capacity overflow\n");
             exit(1);
         }
         int cap = __btrc_tls.abandon_cap
             ? __btrc_tls.abandon_cap * 2 : 16;
         if ((size_t)cap > SIZE_MAX / sizeof(void*)) {
+            __btrc_arc_mutator_leave(stripe);
             fprintf(stderr, "btrc: construction abandon size overflow\n");
             exit(1);
         }
@@ -1702,8 +2234,8 @@ static void __btrc_arc_abandon(void* object) {
     __btrc_tls.abandon_queue[__btrc_tls.abandon_count++] = object;
     __btrc_tls.abandon_drain_callback =
         __btrc_arc_drain_abandon_queue;
-    __btrc_arc_topology_flush_pending = 1;
-    __btrc_arc_unlock_mutation();
+    atomic_store_explicit(&__btrc_arc_topology_flush_pending, 1, memory_order_release);
+    __btrc_arc_mutator_leave(stripe);
 }
 /* btrc-runtime-helper:end __btrc_arc_abandon */
 /* btrc-runtime-helper:begin __btrc_collect_cycles_once */
@@ -1726,7 +2258,8 @@ static void __btrc_cycle_snapshot_edge(
     if (target_vertex->state == 0) {
         __btrc_arc_header* header =
             __btrc_arc_header_of(target_vertex->object);
-        if (header->rc > header->edge_rc) {
+        if (atomic_load_explicit(&header->rc, memory_order_acquire)
+                > atomic_load_explicit(&header->edge_rc, memory_order_acquire)) {
             target_vertex->state = 2;
             target_vertex->live = 1;
         } else {
@@ -1755,9 +2288,12 @@ static void __btrc_cycle_snapshot(__btrc_cycle_context* context) {
     for (int i = 0; i < seeds; i++) {
         void* object = __btrc_suspects[i];
         if (!object) continue;
-        __btrc_arc_validate(object);
         __btrc_arc_header* header = __btrc_arc_header_of(object);
-        if (header->rc > header->edge_rc) continue;
+        atomic_store_explicit(&header->in_suspects, 0, memory_order_release);
+        __btrc_arc_validate(object);
+        if (atomic_load_explicit(&header->rc, memory_order_acquire)
+                > atomic_load_explicit(&header->edge_rc, memory_order_acquire))
+            continue;
         __btrc_arc_type fallback = {
             .visit = __btrc_visit_table[i],
             .destroy = __btrc_destroy_table[i],
@@ -1769,6 +2305,7 @@ static void __btrc_cycle_snapshot(__btrc_cycle_context* context) {
         }
     }
     __btrc_suspect_count = 0;
+    atomic_store_explicit(&__btrc_suspect_count_atomic, 0, memory_order_release);
     if (__btrc_suspect_keys) {
         size_t bytes = __btrc_cycle_capacity_bytes(
             __btrc_suspect_key_cap, sizeof(void*),
@@ -1782,7 +2319,8 @@ static void __btrc_cycle_snapshot(__btrc_cycle_context* context) {
         if (vertex->state != 3) continue;
         __btrc_arc_validate(vertex->object);
         __btrc_arc_header* header = __btrc_arc_header_of(vertex->object);
-        if (header->rc > header->edge_rc) {
+        if (atomic_load_explicit(&header->rc, memory_order_acquire)
+                > atomic_load_explicit(&header->edge_rc, memory_order_acquire)) {
             vertex->state = 2;
             vertex->live = 1;
             continue;
@@ -1801,7 +2339,8 @@ static void __btrc_cycle_mark_live(__btrc_cycle_context* context) {
     for (int i = 0; i < context->vertex_count; i++) {
         __btrc_cycle_vertex* vertex = &context->vertices[i];
         __btrc_arc_validate(vertex->object);
-        int rc = __btrc_arc_header_of(vertex->object)->rc;
+        int rc = atomic_load_explicit(
+            &__btrc_arc_header_of(vertex->object)->rc, memory_order_acquire);
         if (rc < vertex->internal)
             __btrc_cycle_fail("reference count below internal edge count");
         if (vertex->live || rc > vertex->internal) {
@@ -1825,11 +2364,11 @@ static void __btrc_cycle_mark_live(__btrc_cycle_context* context) {
         __btrc_arc_header* header =
             __btrc_arc_header_of(vertex->object);
         if (!vertex->live) {
-            header->live_witness = NULL;
-        } else if (header->rc == header->edge_rc
-                && !header->live_witness) {
-            /* Preserve a concrete owner; self is only the fallback proof. */
-            header->live_witness = vertex->object;
+            atomic_store_explicit(&header->live_witness, NULL, memory_order_release);
+        } else if (atomic_load_explicit(&header->rc, memory_order_acquire)
+                == atomic_load_explicit(&header->edge_rc, memory_order_acquire)
+                && !atomic_load_explicit(&header->live_witness, memory_order_acquire)) {
+            atomic_store_explicit(&header->live_witness, vertex->object, memory_order_release);
         }
     }
 }
@@ -1846,18 +2385,21 @@ static void __btrc_cycle_reclaim(__btrc_cycle_context* context) {
             context->vertices[edge->source].object);
         __btrc_arc_header* target = __btrc_arc_header_of(
             context->vertices[edge->target].object);
-        if (target->rc <= 0 || target->edge_rc <= 0)
+        int cur_rc = atomic_load_explicit(&target->rc, memory_order_acquire);
+        int cur_erc = atomic_load_explicit(&target->edge_rc, memory_order_acquire);
+        if (cur_rc <= 0 || cur_erc <= 0)
             __btrc_cycle_fail("managed edge count underflow");
-        target->rc--;
-        target->edge_rc--;
-        if (target->rc > 0)
+        atomic_store_explicit(&target->edge_rc, cur_erc - 1, memory_order_release);
+        atomic_store_explicit(&target->rc, cur_rc - 1, memory_order_release);
+        if (cur_rc - 1 > 0)
             __btrc_arc_validate(context->vertices[edge->target].object);
     }
     for (int i = 0; i < context->vertex_count; i++) {
         __btrc_cycle_vertex* vertex = &context->vertices[i];
         if (vertex->live) continue;
         __btrc_arc_header* header = __btrc_arc_header_of(vertex->object);
-        if (header->rc != 0 || header->edge_rc != 0)
+        if (atomic_load_explicit(&header->rc, memory_order_acquire) != 0
+                || atomic_load_explicit(&header->edge_rc, memory_order_acquire) != 0)
             __btrc_cycle_fail("dead cycle retained an owned reference");
         if (header->incoming != NULL)
             __btrc_cycle_fail("dead cycle retained an incoming owner");
@@ -1866,41 +2408,65 @@ static void __btrc_cycle_reclaim(__btrc_cycle_context* context) {
     }
 }
 static int __btrc_collect_cycles_once(void) {
-    __btrc_arc_lock_raw();
-    if (__btrc_arc_shutdown) {
+    for (;;) {
+        __btrc_arc_lock_raw();
+        if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
+            __btrc_arc_unlock_raw();
+            fprintf(stderr, "btrc: ARC operation after shutdown\n");
+            exit(1);
+        }
+        if (__btrc_collecting
+                || atomic_load_explicit(
+                    &__btrc_arc_snapshot_pending, memory_order_acquire)
+                || atomic_load_explicit(
+                    &__btrc_arc_snapshotting, memory_order_acquire)) {
+            __btrc_arc_unlock_raw();
+            __btrc_arc_lock_relax();
+            continue;
+        }
+        if (atomic_load_explicit(&__btrc_suspect_count_atomic, memory_order_acquire) == 0) {
+            if (atomic_load_explicit(
+                    &__btrc_arc_topology_flush_pending, memory_order_relaxed) != 0) {
+                atomic_store_explicit(
+                    &__btrc_arc_snapshotting, 1, memory_order_seq_cst);
+                if (!__btrc_arc_any_topology_active()) {
+                    atomic_store_explicit(
+                        &__btrc_arc_topology_flush_pending, 0, memory_order_release);
+                }
+                atomic_store_explicit(
+                    &__btrc_arc_snapshotting, 0, memory_order_release);
+            }
+            __btrc_arc_unlock_raw();
+            return 0;
+        }
+        atomic_store_explicit(
+            &__btrc_arc_snapshotting, 1, memory_order_seq_cst);
+        if (__btrc_arc_any_topology_active()) {
+            atomic_store_explicit(
+                &__btrc_arc_topology_flush_pending, 1, memory_order_seq_cst);
+            if (__btrc_arc_any_topology_active()) {
+                atomic_store_explicit(
+                    &__btrc_arc_snapshotting, 0, memory_order_release);
+                __btrc_arc_unlock_raw();
+                return 2;
+            }
+        }
+        __btrc_collecting = 1;
+        atomic_store_explicit(
+            &__btrc_arc_topology_flush_pending, 0, memory_order_release);
         __btrc_arc_unlock_raw();
-        fprintf(stderr, "btrc: ARC operation after shutdown\n");
-        exit(1);
+        break;
     }
-    /* The snapshot owner resets the suspect buffer outside the raw lock.
-     * Gate that ownership before inspecting any suspect-buffer state. */
-    if (__btrc_collecting) {
-        __btrc_arc_topology_flush_pending = 1;
-        __btrc_arc_unlock_raw();
-        return 2;
-    }
-    if (atomic_load_explicit(
-                &__btrc_arc_snapshot_pending, memory_order_acquire)
-            || atomic_load_explicit(
-                &__btrc_arc_snapshotting, memory_order_acquire)) {
-        __btrc_arc_topology_flush_pending = 1;
-        __btrc_arc_unlock_raw();
-        return 2;
-    }
+    __btrc_arc_drain_all_mutators();
+
     if (__btrc_suspect_count == 0) {
+        __btrc_arc_lock_raw();
+        __btrc_collecting = 0;
+        atomic_store_explicit(
+            &__btrc_arc_snapshotting, 0, memory_order_release);
         __btrc_arc_unlock_raw();
         return 0;
     }
-    if (__btrc_arc_topology_active > 0) {
-        __btrc_arc_topology_flush_pending = 1;
-        __btrc_arc_unlock_raw();
-        return 2;
-    }
-    __btrc_collecting = 1;
-    __btrc_arc_topology_flush_pending = 0;
-    atomic_store_explicit(
-        &__btrc_arc_snapshotting, 1, memory_order_release);
-    __btrc_arc_unlock_raw();
 
     __btrc_cycle_context* context = &__btrc_cycle_scratch;
     __btrc_cycle_reset_context(context);
@@ -1920,33 +2486,24 @@ static int __btrc_collect_cycles_once(void) {
 /* btrc-runtime-helper:begin __btrc_arc_drain */
 static void __btrc_arc_drain_deferred(int force_cycles) {
     if (__btrc_tls.arc_draining) return;
-    /* The deferred FIFO is this thread's own: only its releases enqueue into
-     * it, under the mutation lock, and only this drain dequeues. So an empty
-     * head read here without the lock is exact, and the common release --
-     * one that leaves the object alive -- returns without touching the lock. */
     if (!force_cycles && __btrc_tls.arc_topology_depth == 0
             && __btrc_tls.arc_deferred_head == NULL)
         return;
-    if (__btrc_tls.arc_topology_depth > 0) {
-        __btrc_arc_lock_mutation();
-        if (force_cycles || __btrc_tls.arc_deferred_head
-                || __btrc_suspect_count > 0)
-            __btrc_arc_topology_flush_pending = 1;
-        __btrc_arc_unlock_mutation();
-        return;
-    }
-    __btrc_arc_lock_mutation();
-    int has_terminal = __btrc_tls.arc_deferred_head != NULL;
-    if (!has_terminal && !force_cycles) {
-        __btrc_arc_unlock_mutation();
-        return;
-    }
-    if (__btrc_arc_active_drains == INT_MAX) {
-        fprintf(stderr, "btrc: ARC drain count overflow\n");
+    if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
+        fprintf(stderr, "btrc: ARC operation after shutdown\n");
         exit(1);
     }
-    __btrc_arc_active_drains++;
-    __btrc_arc_unlock_mutation();
+    if (__btrc_tls.arc_topology_depth > 0) {
+        if (force_cycles || __btrc_tls.arc_deferred_head
+                || atomic_load_explicit(&__btrc_suspect_count_atomic, memory_order_acquire) > 0)
+            atomic_store_explicit(&__btrc_arc_topology_flush_pending, 1, memory_order_release);
+        return;
+    }
+    int has_terminal = __btrc_tls.arc_deferred_head != NULL;
+    if (!has_terminal && !force_cycles) return;
+    size_t stripe = __btrc_arc_my_stripe();
+    atomic_fetch_add_explicit(
+        &__btrc_arc_shared.stripes[stripe].drains, 1, memory_order_relaxed);
 
     __btrc_tls.arc_draining = 1;
     int cascade = 0;
@@ -1955,11 +2512,10 @@ static void __btrc_arc_drain_deferred(int force_cycles) {
     __btrc_raise_fn first_raise = NULL;
     int has_error = 0;
     for (;;) {
-        __btrc_arc_lock_mutation();
         void* object = __btrc_tls.arc_deferred_head;
         if (object) {
             __btrc_arc_header* header = __btrc_arc_header_of(object);
-            if (header->state != __BTRC_ARC_QUEUED) {
+            if (atomic_load_explicit(&header->state, memory_order_acquire) != __BTRC_ARC_QUEUED) {
                 fprintf(stderr, "btrc: invalid deferred ARC state\n");
                 exit(1);
             }
@@ -1969,9 +2525,11 @@ static void __btrc_arc_drain_deferred(int force_cycles) {
             header->deferred_next = NULL;
             int suppress_hook = header->suppress_hook;
             header->suppress_hook = 0;
-            header->state = __BTRC_ARC_DESTROYING;
+            atomic_store_explicit(&header->state, __BTRC_ARC_DESTROYING, memory_order_release);
             const __btrc_arc_type* type = header->type;
-            __btrc_arc_unlock_mutation();
+            while ((atomic_load_explicit(&header->pin_lock, memory_order_acquire)
+                    & __BTRC_ARC_PIN_MASK) != 0u)
+                __btrc_arc_lock_relax();
 
             if (type->visit || type->hook) cascade = 1;
             if (type->hook && !suppress_hook) {
@@ -1987,28 +2545,25 @@ static void __btrc_arc_drain_deferred(int force_cycles) {
             type->destroy(object);
             continue;
         }
-        int pending = __btrc_suspect_count > 0;
-        if (!pending && __btrc_arc_topology_active == 0)
-            __btrc_arc_topology_flush_pending = 0;
-        __btrc_arc_unlock_mutation();
-        if (!(pending && (force_cycles || cascade))) break;
+        int pending = atomic_load_explicit(
+            &__btrc_suspect_count_atomic, memory_order_relaxed) > 0;
+        int flush_req = atomic_load_explicit(
+            &__btrc_arc_topology_flush_pending, memory_order_acquire) != 0;
+        if (!pending && flush_req
+                && !__btrc_arc_any_topology_active()
+                && atomic_load_explicit(&__btrc_arc_topology_active, memory_order_relaxed) == 0)
+            atomic_store_explicit(&__btrc_arc_topology_flush_pending, 0, memory_order_release);
+        if (!(pending && (force_cycles || cascade || flush_req))) break;
         int collected = __btrc_collect_cycles_once();
         if (collected == 1) continue;
-        /* Another collector owns the snapshot, or another thread owns a
-         * topology scope.  In either case collect-once has published the
-         * global flush request.  Never wait here: the topology owner may be
-         * waiting for this thread, while an active collector will finish the
-         * handoff from its own drain loop. */
         break;
     }
     __btrc_tls.arc_draining = 0;
-    __btrc_arc_lock_mutation();
-    if (__btrc_arc_active_drains <= 0) {
+    if (atomic_fetch_sub_explicit(
+            &__btrc_arc_shared.stripes[stripe].drains, 1, memory_order_release) <= 0) {
         fprintf(stderr, "btrc: invalid ARC drain count\n");
         exit(1);
     }
-    __btrc_arc_active_drains--;
-    __btrc_arc_unlock_mutation();
     if (has_error) {
         __btrc_arc_type transport = {
             .visit = NULL, .destroy = NULL, .hook = NULL,
@@ -2024,10 +2579,12 @@ static void __btrc_collect_cycles(void) {
 /* btrc-runtime-helper:end __btrc_collect_cycles */
 /* btrc-runtime-helper:begin __btrc_poll_cycles */
 static inline int __btrc_poll_cycles(void) {
-    __btrc_arc_lock_mutation();
-    int pending = __btrc_suspect_count >= 256;
-    __btrc_arc_unlock_mutation();
-    if (pending) __btrc_arc_drain_deferred(1);
+    if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_relaxed)) {
+        fprintf(stderr, "btrc: ARC operation after shutdown\n");
+        exit(1);
+    }
+    if (atomic_load_explicit(&__btrc_suspect_count_atomic, memory_order_relaxed) >= 256)
+        __btrc_arc_drain_deferred(1);
     return 0;
 }
 /* btrc-runtime-helper:end __btrc_poll_cycles */
@@ -2039,7 +2596,10 @@ static int __btrc_flush_cycles(void) {
 /* btrc-runtime-helper:end __btrc_flush_cycles */
 /* btrc-runtime-helper:begin __btrc_arc_thread_state_cleanup */
 static void __btrc_arc_thread_state_finalize(void) {
-    __btrc_arc_lock_mutation();
+    if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
+        fprintf(stderr, "btrc: ARC operation after shutdown\n");
+        exit(1);
+    }
     if (__btrc_tls.tracking != 0
             || __btrc_tls.arc_topology_depth != 0
             || __btrc_tls.arc_draining
@@ -2060,7 +2620,6 @@ static void __btrc_arc_thread_state_finalize(void) {
     __btrc_tls.abandon_count = 0;
     __btrc_tls.abandon_cap = 0;
     __btrc_tls.abandon_drain_callback = NULL;
-    __btrc_arc_unlock_mutation();
 }
 static void __btrc_arc_thread_state_cleanup(void) {
     __btrc_arc_drain_pending_abandons();
@@ -2073,14 +2632,24 @@ static inline void __btrc_cycle_state_cleanup(void) {
     __btrc_arc_thread_state_cleanup();
     __btrc_flush_cycles();
     __btrc_arc_lock_raw();
-    if (__btrc_arc_shutdown) {
+    if (atomic_load_explicit(&__btrc_arc_shutdown, memory_order_acquire)) {
         __btrc_arc_unlock_raw();
         fprintf(stderr, "btrc: repeated ARC shutdown\n");
         exit(1);
     }
-    __btrc_arc_shutdown = 1;
-    if (__btrc_arc_active_drains != 0
-            || __btrc_arc_active_unwinds != 0
+    atomic_store_explicit(&__btrc_arc_shutdown, 1, memory_order_seq_cst);
+    __btrc_arc_drain_all_mutators();
+    int active_work = 0;
+    for (size_t i = 0; i < __BTRC_ARC_STRIPE_COUNT; i++) {
+        if (atomic_load_explicit(
+                    &__btrc_arc_shared.stripes[i].drains, memory_order_acquire) != 0
+                || atomic_load_explicit(
+                    &__btrc_arc_shared.stripes[i].unwinds, memory_order_acquire) != 0) {
+            active_work = 1;
+            break;
+        }
+    }
+    if (active_work
             || atomic_load_explicit(
                 &__btrc_arc_snapshotting, memory_order_acquire) != 0
             || atomic_load_explicit(
@@ -2089,7 +2658,8 @@ static inline void __btrc_cycle_state_cleanup(void) {
         fprintf(stderr, "btrc: ARC cleanup during active work\n");
         exit(1);
     }
-    if (__btrc_arc_topology_active != 0) {
+    if (__btrc_arc_any_topology_active()
+            || atomic_load_explicit(&__btrc_arc_topology_active, memory_order_acquire) != 0) {
         fprintf(stderr, "btrc: ARC cleanup during topology mutation\n");
         exit(1);
     }
@@ -2120,16 +2690,17 @@ static inline void __btrc_cycle_state_cleanup(void) {
     __btrc_reverse_keys = NULL;
     __btrc_reverse_marks = NULL;
     __btrc_suspect_count = __btrc_suspect_cap = 0;
+    atomic_store_explicit(&__btrc_suspect_count_atomic, 0, memory_order_release);
     __btrc_suspect_key_cap = 0;
     __btrc_reverse_queue_cap = __btrc_reverse_key_cap = 0;
-    __btrc_reverse_count = 0;
+    atomic_store_explicit(&__btrc_reverse_count, 0, memory_order_release);
     __btrc_reverse_epoch = 0;
     if (__btrc_tls.arc_deferred_head || __btrc_tls.arc_deferred_tail
             || __btrc_tls.arc_draining) {
         fprintf(stderr, "btrc: ARC cleanup during active drain\n");
         exit(1);
     }
-    __btrc_arc_topology_flush_pending = 0;
+    atomic_store_explicit(&__btrc_arc_topology_flush_pending, 0, memory_order_release);
     __btrc_collecting = 0;
     __btrc_arc_unlock_raw();
 }

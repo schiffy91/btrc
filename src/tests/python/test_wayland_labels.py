@@ -9,6 +9,7 @@ from xml.sax.saxutils import escape
 
 import pytest
 
+from src.tests.dependencies import DependencyAudit
 from src.tests.python.linux_provider_fixtures import require_linux_reader, transpile_provider_program
 from src.tests.python.test_first_party_wayland_window import (
     NATIVE,
@@ -21,7 +22,6 @@ from src.tests.python.test_first_party_wayland_window import (
 )
 from src.tests.python.test_wayland_button_titles import compare
 from tools.native_plan import NativePlanBuilder
-from tools.qualification.dependencies import DependencyAudit
 
 
 @pytest.mark.parametrize("frontend", ["python", "selfhost"])

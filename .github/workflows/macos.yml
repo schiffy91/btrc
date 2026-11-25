@@ -29,7 +29,7 @@ on:
   workflow_call:
     inputs:
       tier:
-        description: The ci/tiers.toml tier to run
+        description: The .github/ci/tiers.toml tier to run
         type: string
         required: true
 
@@ -48,7 +48,7 @@ permissions:
 # keeps the variable.
 env:
   BTRC_TEST_RUNNER: macos-hosted
-  # The scope job plans this file's jobs from ci/tiers.toml under this name.
+  # The scope job plans this file's jobs from .github/ci/tiers.toml under this name.
   CI_WORKFLOW: macos.yml
 
 # A newer push to a pull request cancels the run it supersedes. Runs on main
@@ -62,9 +62,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Classifies the event into one tier, then reads ci/tiers.toml for the jobs
+  # Classifies the event into one tier, then reads .github/ci/tiers.toml for the jobs
   # and matrix rows that tier runs in this workflow (CI_WORKFLOW). ci.yml,
-  # macos.yml and windows.yml carry identical copies; ci/tiers.toml describes
+  # macos.yml and windows.yml carry identical copies; .github/ci/tiers.toml describes
   # each tier and lists every job.
   #   release, extended  release.yml's call (its tier input), or a dispatch
   #         with focus=extended.
@@ -104,8 +104,8 @@ jobs:
           FOCUS: ${{ inputs.focus }}
           PULL_REQUEST: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.head_ref }}
-          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
-          TEST_READ_MARKDOWN: '^(PLAN|AGENTS|CLAUDE)\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|btrsmith-rename-table-w2|plan-reference|platform-toolchain-matrix|platform-adaptations|stdlib-dependencies)\.md$'
+          FULL_PATHS: '^(src/(compiler|language|runtime)/|tools/compiler_codegen/|src/stdlib/[A-Za-z0-9]+\.btrc$|src/stdlib/(BackgroundJobs|Digest|FileSystem)/|\.github/workflows/(ci|macos|windows|release)\.yml$|\.github/ci/tiers\.toml$|Makefile$|flake\.(nix|lock)$|nix/|src/tests/(conftest|runner_capabilities)\.py$|tools/(native_plan|budget_bench)\.py$)'
+          TEST_READ_MARKDOWN: '^AGENTS\.md$|(^|/)README\.md$|^docs/design/(native-ui-parity|platform-parity|native-ui-api-inventory|compiler-structure|platform-toolchain-matrix|platform-adaptations|stdlib-dependencies)\.md$'
         run: |
           set -euo pipefail
           shopt -s inherit_errexit
@@ -157,7 +157,7 @@ jobs:
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
           echo "Tier: \`$tier\`" >> "$GITHUB_STEP_SUMMARY"
       # What the owner's machines already passed for this exact commit
-      # (`ci-local`, ci/local.json): a status `local/<platform>/<job>` that the
+      # (`ci-local`, .github/ci/local.json): a status `local/<platform>/<job>` that the
       # repository's owner posted, and has not since replaced with a failure,
       # stands in for the same job here, and the plan below leaves it out.
       # The `local` job reads them, for this run's commit alone, so a pull
@@ -183,7 +183,7 @@ jobs:
           TIER: ${{ steps.classify.outputs.tier }}
         run: |
           set -euo pipefail
-          plan=$(python3 -m tools.qualification tiers --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
+          plan=$(python3 .github/ci/tiers.py --workflow "$CI_WORKFLOW" --tier "$TIER" --changed build/changed-files.txt --local-passes build/local-passes.json)
           echo "plan=$plan" >> "$GITHUB_OUTPUT"
           jq -r '"Jobs: " + (.jobs | join(", ")), (.matrix | to_entries[] | "\(.key): \(.value.include | length) row(s)"), ((.local // [])[] | "Passed locally, not run here: `\(.)`")' <<<"$plan" >> "$GITHUB_STEP_SUMMARY"
 
@@ -202,7 +202,7 @@ jobs:
     if: contains(fromJSON(needs.scope.outputs.plan).jobs, 'native-bundle')
     strategy:
       fail-fast: false
-      # ci/tiers.toml's rows make the bundle architecture an explicit CI
+      # .github/ci/tiers.toml's rows make the bundle architecture an explicit CI
       # contract; the lane and pr tiers build only the arm64 bundle. Each
       # row's machine and Rosetta flag derive from its target below.
       matrix: ${{ fromJSON(needs.scope.outputs.plan).matrix['native-bundle'] }}
@@ -279,7 +279,7 @@ jobs:
 
   # The suite on native macOS, sharded like Linux CI's `tests` job through the
   # same Makefile targets, with two of its eight strict-C11 configurations (all
-  # four clang ones in the extended tier; ci/tiers.toml lists the rows).
+  # four clang ones in the extended tier; .github/ci/tiers.toml lists the rows).
   # Linux skips about 3,000 cases that only macOS can run (native imports, the
   # Objective-C emitter, CoreAudio, ImageIO, debug artifacts, link reuse);
   # these shards run them. They compile with clang: default_c_compiler()
@@ -324,7 +324,7 @@ jobs:
       - name: Record native reader prerequisites
         timeout-minutes: 2
         run: |
-          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
+          /usr/bin/python3 -B .github/ci/toolchain.py --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
 
       - name: Require clang from default_c_compiler()
         run: |
@@ -350,7 +350,7 @@ jobs:
           nix develop --command bash -euc '
             if pkg-config --exists btrc-jni; then echo "default shell selected JavaHost"; exit 1; fi
             python3 -m pytest -q src/tests/python/test_native_jni_host.py -k "without_jdk and reference" --skip-report=build/default-shell-jvm.json
-            python3 -m tools.qualification skip-gate build/default-shell-jvm.json
+            python3 -m src.tests.skips skip-gate build/default-shell-jvm.json
           '
       - run: |
           shell=.
@@ -364,7 +364,7 @@ jobs:
         if: always()
         timeout-minutes: 2
         run: |
-          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
+          /usr/bin/python3 -B .github/ci/toolchain.py --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
 
       - name: Retain native reader evidence
         if: always()
@@ -488,7 +488,7 @@ jobs:
       - name: Record native reader prerequisites
         timeout-minutes: 2
         run: |
-          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
+          /usr/bin/python3 -B .github/ci/toolchain.py --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
 
       - run: nix develop --command make NIX= PYTEST_WORKERS=3 BTRC_TEST_TRANSPILE_TIMEOUT=600 BTRC_TEST_RUN_TIMEOUT=60 GUI_PARTITION=${{ matrix.index }} GUI_PARTITIONS=${{ matrix.count }} test-shard-gui-macos
         env:
@@ -499,7 +499,7 @@ jobs:
         if: always()
         timeout-minutes: 2
         run: |
-          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
+          /usr/bin/python3 -B .github/ci/toolchain.py --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
 
       - name: Retain native reader evidence
         if: always()
@@ -620,7 +620,7 @@ jobs:
       - name: Record native reader prerequisites
         timeout-minutes: 2
         run: |
-          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
+          /usr/bin/python3 -B .github/ci/toolchain.py --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
 
       - run: nix develop --command make NIX= BTRC_TEST_TRANSPILE_TIMEOUT=600 E40_FRONTEND=${{ matrix.frontend }} E40_VARIANT=${{ matrix.variant }} test-e40-macos
         env:
@@ -631,7 +631,7 @@ jobs:
         if: always()
         timeout-minutes: 2
         run: |
-          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
+          /usr/bin/python3 -B .github/ci/toolchain.py --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
 
       - name: Retain native reader evidence
         if: always()
@@ -734,7 +734,7 @@ jobs:
       - name: Record native reader prerequisites
         timeout-minutes: 2
         run: |
-          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
+          /usr/bin/python3 -B .github/ci/toolchain.py --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase pre
 
       - name: Observe exactly two existing native tracking cases
         env:
@@ -797,14 +797,14 @@ jobs:
                      "nodes": expected, "failures": sum(case.find("failure") is not None or case.find("error") is not None for case in cases)}
           (root / "diagnostic-summary.json").write_text(json.dumps(receipt, indent=2))
           PYCODE
-          nix develop --command python3 -m tools.qualification skip-gate build/skip-report-e40-diagnostic.json
+          nix develop --command python3 -m src.tests.skips skip-gate build/skip-report-e40-diagnostic.json
           exit "$native_status"
 
       - name: Recheck native reader prerequisites
         if: always()
         timeout-minutes: 2
         run: |
-          /usr/bin/python3 -B -m tools.qualification.toolchain --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
+          /usr/bin/python3 -B .github/ci/toolchain.py --reader-root "$RUNNER_TEMP/btrc-native-header-root" --evidence build/native-reader --phase post
 
       - name: Retain diagnostic observations and generated symbols
         if: always()

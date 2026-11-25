@@ -1,22 +1,20 @@
-"""The CI tier manifest, the plans it gives each workflow, and the release ledger bundle."""
+"""The CI tier manifest and the plans it gives each workflow."""
 
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
-import tomllib
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from tools.qualification.bundle import BUNDLE_SCHEMA, LedgerBundle, ToolsBenchAdapter
-from tools.qualification.cli import QualificationCommand
-from tools.qualification.schema import EvidenceStatus, LedgerDocument, Platform, SubjectKind
-from tools.qualification.tiers import MANIFEST, GitHubPaths, TierManifest, TierManifestError
-
 REPO = Path(__file__).resolve().parents[3]
+if str(REPO / ".github" / "ci") not in sys.path:
+    sys.path.insert(0, str(REPO / ".github" / "ci"))
+
+from tiers import MANIFEST, GitHubPaths, TierManifest, TierManifestError
+from tiers import main as tiers_main
 
 
 def _manifest() -> TierManifest:
@@ -258,7 +256,7 @@ def test_a_docs_change_runs_only_the_static_gates() -> None:
 
 def test_a_pull_request_runs_the_unit_shard_and_the_corpus_its_paths_select() -> None:
     manifest = _manifest()
-    tools_only = manifest.plan("ci.yml", "pr", ["tools/qualification/report.py"])
+    tools_only = manifest.plan("ci.yml", "pr", ["tools/host_provenance.py"])
     assert tools_only["jobs"] == ["static", "tests"]
     assert list(_rows(tools_only, "tests")) == ["unit"]
 
@@ -297,7 +295,7 @@ def test_a_pull_request_runs_the_unit_shard_and_the_corpus_its_paths_select() ->
 
 def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() -> None:
     manifest = _manifest()
-    plain = ["tools/qualification/report.py"]
+    plain = ["tools/host_provenance.py"]
     assert manifest.plan("macos.yml", "pr", plain)["jobs"] == []
     assert manifest.plan("windows.yml", "pr", plain)["jobs"] == []
 
@@ -326,7 +324,7 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
         assert manifest.plan("windows.yml", "pr", [http])["jobs"] == ["win32-native-build", "win32-native"]
     # The executor and the applicability manifest feed win32-native's Process,
     # FileSystem and HTTP bundles (CX-P2-06, CX-P2-04, CX-P2-10) as well as the corpus.
-    for runner in ("tools/target_hosts/windows/executor.py", "src/tests/fixtures/target-applicability.toml"):
+    for runner in ("tools/target_hosts/windows/executor.py", ".github/ci/target-applicability.toml"):
         assert manifest.plan("windows.yml", "pr", [runner])["jobs"] == [
             "win32-native-build",
             "win32-native",
@@ -344,9 +342,9 @@ def test_macos_and_windows_run_on_a_pull_request_only_when_their_paths_change() 
     assert manifest.plan("windows.yml", "pr", ["src/tests/native/gui/shell/probes/macos/ShellProbe.m"])["jobs"] == []
     assert manifest.plan("windows.yml", "lane", ["src/devex/vscode/package.json"])["jobs"] == ["windows"]
     # A platform's expected-skip manifest is read only by that platform's skip gate.
-    skips = ["src/tests/fixtures/expected-skips/macos-hosted.json"]
+    skips = [".github/ci/expected-skips/macos-hosted.json"]
     assert list(_rows(manifest.plan("macos.yml", "pr", skips), "tests")) == ["unit"]
-    skips = ["src/tests/fixtures/expected-skips/windows.json"]
+    skips = [".github/ci/expected-skips/windows.json"]
     assert manifest.plan("windows.yml", "pr", skips)["jobs"] == ["windows"]
     # A push or dispatch has no change list: changed-path entries stay out.
     assert manifest.plan("windows.yml", "lane")["jobs"] == []
@@ -362,7 +360,7 @@ def test_the_android_corpus_runs_in_every_full_tier_and_on_its_own_paths() -> No
     for changed in (
         ["tools/target_hosts/android/executor.py"],
         ["src/tests/target_runner.py"],
-        ["src/tests/fixtures/target-applicability.toml"],
+        [".github/ci/target-applicability.toml"],
         ["src/stdlib/FileSystem/Android/Provider.btrc"],
     ):
         assert manifest.plan("host-android.yml", "pr", changed)["jobs"] == corpus, changed
@@ -412,25 +410,9 @@ LANE_WINDOWS = {
 @pytest.mark.parametrize(
     ("changed", "linux", "macos"),
     [
-        # UI catalog data, its loader and its tests: the static gates and the unit shard only.
-        (
-            [
-                "docs/design/native-ui-catalog/families.toml",
-                "docs/design/native-ui-catalog/operations/IWindow.toml",
-                "tools/qualification/ui_catalog.py",
-                "src/tests/python/test_ui0_catalog.py",
-                "src/tests/python/test_ui0_surface.py",
-            ],
-            LANE_LIGHT,
-            [],
-        ),
-        (["src/tests/python/test_ccompat_checkpoint_script.py"], LANE_LIGHT, []),
         (["tools/target_hosts/android/emulator.sh"], LANE_LIGHT, []),
-        (["docs/design/native-ui-catalog.toml", "docs/design/ui0-source-amendments.toml"], LANE_LIGHT, []),
-        # tools/ui is the macOS GUI harness: macOS, not the Linux heavy shards.
-        (["tools/ui/codex-setup.sh"], LANE_LIGHT, LANE_MACOS),
         # ... except the headless session every Linux test shard runs inside.
-        (["tools/ui/headless-session.sh"], LANE_LINUX_GUI, LANE_MACOS),
+        ([".github/ci/headless-session.sh"], LANE_LINUX_GUI, LANE_MACOS),
         # A btrc-shard contract imports this unit test module.
         (["src/tests/python/test_exception_codegen_contracts.py"], LANE_LINUX, []),
         (["src/tests/python/test_native_gui_target.py"], LANE_LIGHT_GUI, LANE_MACOS),
@@ -440,12 +422,9 @@ LANE_WINDOWS = {
         (["src/stdlib/HTTP/Client.btrc"], LANE_LINUX, []),
         (["src/tests/python/native_ui_shell_fixtures.py"], LANE_LINUX_GUI, []),
         (["src/tests/strings/Escapes.btrc"], LANE_LINUX, []),
-        (["examples/todo/Todo.btrc"], LANE_LINUX, []),
-        (["tools/bench/scripts/ccompat_checkpoint.sh"], LANE_LINUX, []),
-        (["tools/qualification/report.py"], LANE_LINUX, []),
         (["tools/NativeHeaderReader.cpp"], LANE_LINUX_GUI, LANE_MACOS),
         # One heavy path among light ones selects the heavy jobs.
-        (["tools/ui/codex-setup.sh", "src/tests/stdlib/Json.btrc"], LANE_LINUX, LANE_MACOS),
+        (["docs/design/probe.m", "src/tests/stdlib/Json.btrc"], LANE_LINUX, LANE_MACOS),
         # No change list, or an empty one, fails safe to the whole lane selection.
         (None, LANE_LINUX_GUI, LANE_MACOS),
         ([], LANE_LINUX_GUI, LANE_MACOS),
@@ -454,10 +433,9 @@ LANE_WINDOWS = {
         (["src/stdlib/Audio/MacOS/CoreAudio.btrc"], LANE_LINUX, LANE_MACOS),
         (["src/tests/python/linux_provider_fixtures.py"], LANE_LINUX_GUI, []),
         (["src/tests/python/pulse_audio_peer.py"], LANE_LINUX_GUI, []),
-        (["src/tests/fixtures/expected-skips/linux-devcontainer.json"], LANE_LINUX_GUI, []),
+        ([".github/ci/expected-skips/linux-devcontainer.json"], LANE_LINUX_GUI, []),
         # Root files that configure pytest, the container or line endings reach every shard.
         (["pyproject.toml"], LANE_LINUX, []),
-        (["uv.lock"], LANE_LINUX, []),
         ([".gitattributes"], LANE_LINUX, []),
         ([".dockerignore"], LANE_LINUX, []),
         # Each macOS pattern on its own, with a path no other pattern matches.
@@ -469,7 +447,7 @@ LANE_WINDOWS = {
         (["src/stdlib/Audio/Mixer.btrc"], LANE_LINUX_GUI, LANE_MACOS),
         (["src/stdlib/GPU/Device.btrc"], LANE_LINUX_GUI, LANE_MACOS),
         (["src/tests/native/gui/Shell.c"], LANE_LINUX_GUI, LANE_MACOS),
-        (["src/tests/fixtures/expected-skips/macos-hosted.json"], LANE_LINUX, LANE_MACOS),
+        ([".github/ci/expected-skips/macos-hosted.json"], LANE_LINUX, LANE_MACOS),
         (["src/stdlib/Image/EncodedImage.btrc"], LANE_LINUX_GUI, []),
     ],
 )
@@ -499,8 +477,7 @@ def test_path_selection_leaves_unconditional_full_tiers_alone() -> None:
     selected = {tier for entry in (*manifest.jobs, *manifest.shards) for tier in entry.condition.selected_tiers()}
     assert selected == {"lane", "pr"}
     samples = [
-        ["docs/design/native-ui-catalog/families.toml"],
-        ["tools/ui/codex-setup.sh"],
+        ["tools/target_hosts/android/emulator.sh"],
         ["src/stdlib/GUI/MacOS/Window.btrc"],
         ["src/tests/python/test_native_gui_target.py"],
     ]
@@ -547,235 +524,14 @@ def test_expected_reports_name_every_artifact_a_tier_leaves() -> None:
 def test_the_tiers_command_prints_one_line_of_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     changed = tmp_path / "changed.txt"
     changed.write_text("src/tests/strings/Foo.btrc\n\n", encoding="utf-8")
-    code = QualificationCommand().run(["tiers", "--workflow", "ci.yml", "--tier", "pr", "--changed", str(changed)])
+    code = tiers_main(["--workflow", "ci.yml", "--tier", "pr", "--changed", str(changed)])
     out = capsys.readouterr().out
     assert code == 0 and out.count("\n") == 1
     assert json.loads(out) == _manifest().plan("ci.yml", "pr", ["src/tests/strings/Foo.btrc"])
-    assert QualificationCommand().run(["tiers"]) == 0
+    assert tiers_main([]) == 0
     assert "ci.yml main: 8 job(s), 16 matrix row(s)" in capsys.readouterr().out
-    assert QualificationCommand().run(["tiers", "--workflow", "ci.yml"]) == 2
-    assert QualificationCommand().run(["tiers", "--workflow", "ci.yml", "--tier", "nightly"]) == 2
-
-
-# ------------------------------------------------------------------- bundle
-
-SKIP_REPORT = {
-    "schema": "btrc.skip-report/1",
-    "runner": "linux-devcontainer",
-    "revision": "abc1234",
-    "finished_at": "2026-10-03T08:00:00+00:00",
-    "tests": {"src/tests/a.py::t1": "passed", "src/tests/a.py::t2": "skipped"},
-    "skips": [{"nodeid": "src/tests/a.py::t2", "reason": "needs CoreAudio", "expected": True, "covered_by": ["macos"]}],
-    "counts": {"passed": 1, "skipped": 1},
-}
-JUNIT = """<?xml version="1.0" encoding="utf-8"?>
-<testsuites><testsuite name="pytest" tests="2">
-<testcase classname="src.tests.python.test_qualification_bundle" name="test_a" />
-<testcase classname="src.tests.python.test_qualification_bundle" name="test_b"><failure message="no" /></testcase>
-</testsuite></testsuites>
-"""
-BOUNDARY = {
-    "schema": "btrc.boundary-check/1",
-    "created_at": "2026-10-03T08:00:00+00:00",
-    "total_records": 2,
-    "checked_records": 1,
-    "records": [
-        {"id": "arith.python.c.bytes", "fixture": "arith", "capability": "python.c", "checked": True},
-        {"id": "arith.observed.gcc.bytes", "fixture": "arith", "capability": "observed.gcc", "checked": False},
-    ],
-}
-BENCH = {
-    "meta": {
-        "platform": "linux-x86_64",
-        "revision": "abc1234",
-        "cc": "gcc",
-        "recorded_at": "2026-10-03T08:00:00+00:00",
-    },
-    "metrics": {
-        "btrcc.compile.BenchHello_ms": 41.5,
-        "emit.BenchHello.c_bytes": 120345,
-        "btrcc.compile.BenchArc_peak": 9e6,
-    },
-}
-
-
-def _tiny_manifest() -> TierManifest:
-    return TierManifest.from_mapping(
-        {
-            "schema": "btrc.ci-tiers/1",
-            "tiers": {"release": "everything", "hardware": "devices"},
-            "jobs": [
-                {"workflow": "ci.yml", "job": "tests", "key": "shard", "reports": ["skip-report"]},
-                {"workflow": "ci.yml", "job": "bench", "tiers": ["release"], "reports": ["bench"]},
-                {"workflow": "macos.yml", "job": "native-gui", "tiers": ["release"], "reports": ["junit"]},
-            ],
-            "shards": [
-                {"job": "ci.yml/tests", "shard": "unit", "tiers": ["release"]},
-                {"job": "ci.yml/tests", "shard": "bootstrap", "tiers": ["release"], "reports": ["boundary-report"]},
-            ],
-            "hardware": [{"id": "macos-acceptance", "runner": "macos", "description": "the owner's Mac"}],
-        },
-        REPO,
-    )
-
-
-def _artifacts(tmp_path: Path, *, drop: str | None = None) -> Path:
-    root = tmp_path / "artifacts"
-    files = {
-        "skip-report-ci-tests-unit/skip-report-unit.json": json.dumps(SKIP_REPORT),
-        "skip-report-ci-tests-bootstrap/skip-report-bootstrap.json": json.dumps(
-            {**SKIP_REPORT, "tests": {"src/tests/b.py::t": "passed"}, "skips": []}
-        ),
-        "boundary-report-ci-tests-bootstrap/boundary-report.json": json.dumps(BOUNDARY),
-        "bench-results/results.json": json.dumps(BENCH),
-        "junit-macos-native-gui/native-gui.xml": JUNIT,
-        "btrcc-linux-x64/btrcc-linux-x64.tar.gz": "not evidence",
-    }
-    for name, text in files.items():
-        if drop is not None and name.startswith(drop):
-            continue
-        path = root / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
-    return root
-
-
-def test_a_bundle_holds_every_jobs_records_and_its_raw_inputs(tmp_path: Path) -> None:
-    output = tmp_path / "ledger-bundle-abc1234"
-    outcome = LedgerBundle(_artifacts(tmp_path), _tiny_manifest(), "release", "abc1234", "42").build(output)
-    assert outcome.passed, outcome.problems
-
-    records = LedgerDocument.load(output / "ledger.jsonl")
-    assert outcome.records == len(records) == 2 + 1 + 2 + 3 + 2
-    by_kind: dict[SubjectKind, list] = {}
-    for record in records:
-        by_kind.setdefault(record.subject.kind, []).append(record)
-    assert len(by_kind[SubjectKind.TEST]) == 5
-    assert len(by_kind[SubjectKind.BOUNDARY_RECORD]) == 2
-    assert len(by_kind[SubjectKind.SCENARIO]) == 3
-    junit = [record for record in records if record.provenance.source == "junit"]
-    assert {record.subject.platform for record in junit} == {Platform.MACOS}
-    assert {record.provenance.runner for record in junit} == {"macos-hosted"}
-    assert all(record.provenance.btrc_revision == "abc1234" for record in records)
-    for record in records:
-        assert (output / record.evidence.artifact).is_file(), record.evidence.artifact
-
-    document = json.loads((output / "bundle.json").read_text(encoding="utf-8"))
-    assert document["schema"] == BUNDLE_SCHEMA
-    assert (document["revision"], document["tier"], document["run"]) == ("abc1234", "release", "42")
-    assert document["missing"] == [] and document["problems"] == [] and document["extra"] == []
-    assert document["ignored"] == ["btrcc-linux-x64"]
-    assert document["counts"] == {
-        "records": len(records),
-        "inputs": 5,
-        "inputs_by_kind": {"bench": 1, "boundary-report": 1, "junit": 1, "skip-report": 2},
-    }
-    assert {item["artifact"]: item["job"] for item in document["inputs"]} == {
-        "bench-results": "ci.yml/bench",
-        "boundary-report-ci-tests-bootstrap": "ci.yml/tests",
-        "junit-macos-native-gui": "macos.yml/native-gui",
-        "skip-report-ci-tests-bootstrap": "ci.yml/tests",
-        "skip-report-ci-tests-unit": "ci.yml/tests",
-    }
-    assert document["awaiting"] == [
-        {
-            "id": "macos-acceptance",
-            "runner": "macos",
-            "description": "the owner's Mac",
-            "status": "awaiting",
-            "owed_skips": 1,
-        }
-    ]
-    with pytest.raises(Exception, match="not empty"):
-        LedgerBundle(_artifacts(tmp_path), _tiny_manifest(), "release", "abc1234").build(output)
-
-
-def test_a_missing_report_or_an_unreadable_input_fails_after_the_bundle_is_written(tmp_path: Path) -> None:
-    artifacts = _artifacts(tmp_path, drop="skip-report-ci-tests-bootstrap")
-    (artifacts / "junit-macos-native-gui" / "broken.xml").write_text("<testsuite", encoding="utf-8")
-    output = tmp_path / "bundle"
-    outcome = LedgerBundle(artifacts, _tiny_manifest(), "release", "abc1234").build(output)
-    assert not outcome.passed
-    assert outcome.problems[-1] == "missing skip-report-ci-tests-bootstrap (from ci.yml/tests)"
-    assert any("broken.xml" in problem for problem in outcome.problems)
-    document = json.loads((output / "bundle.json").read_text(encoding="utf-8"))
-    assert document["missing"] == ["skip-report-ci-tests-bootstrap"]
-    assert LedgerDocument.load(output / "ledger.jsonl"), "the records it could read are kept"
-
-
-def test_bench_metrics_are_kept_as_samples_but_never_pass_as_budget_evidence() -> None:
-    from tools.qualification.schema import Provenance
-
-    records = ToolsBenchAdapter(Provenance(btrc_revision="abc1234"), "linux-devcontainer").records(BENCH, "raw/r.json")
-    by_id = {record.subject.id: record for record in records}
-    assert by_id["btrcc.compile.BenchHello_ms"].measurement.unit == "ms"
-    assert by_id["btrcc.compile.BenchArc_peak"].measurement.unit == "bytes"
-    assert by_id["emit.BenchHello.c_bytes"].measurement.samples == (120345.0,)
-    for record in records:
-        assert record.subject.platform is Platform.LINUX
-        assert record.evidence.status is EvidenceStatus.IMPLEMENTED_UNVERIFIED
-        assert record.evidence.reason.startswith("a hosted bench-check regression guard")
-        assert (record.provenance.source, record.provenance.c_compiler) == ("tools.bench", "gcc")
-
-
-def test_the_bundle_command_writes_the_bundle_and_reports_problems(tmp_path: Path) -> None:
-    manifest = tmp_path / "tiers.toml"
-    manifest.write_text(
-        "\n".join(
-            [
-                'schema = "btrc.ci-tiers/1"',
-                "[tiers]",
-                'release = "everything"',
-                'hardware = "devices"',
-                "[[jobs]]",
-                'workflow = "ci.yml"',
-                'job = "bench"',
-                'tiers = ["release"]',
-                'reports = ["bench"]',
-            ]
-        ),
-        encoding="utf-8",
-    )
-    assert tomllib.loads(manifest.read_text(encoding="utf-8"))["schema"] == "btrc.ci-tiers/1"
-    artifacts = _artifacts(tmp_path)
-    arguments = ["bundle", "--artifacts", str(artifacts), "--tier", "release", "--revision", "abc1234"]
-    arguments += ["--manifest", str(manifest)]
-    # Every input the tiny manifest does not expect is extra, not missing.
-    assert QualificationCommand().run([*arguments, "--output", str(tmp_path / "one")]) == 0
-    extra = json.loads((tmp_path / "one" / "bundle.json").read_text(encoding="utf-8"))["extra"]
-    assert "bench-results" not in extra and "skip-report-ci-tests-unit" in extra
-    (artifacts / "bench-results" / "results.json").unlink()
-    assert QualificationCommand().run([*arguments, "--output", str(tmp_path / "two")]) == 1
-    assert QualificationCommand().run([*arguments, "--output", str(tmp_path / "two")]) == 2
-
-
-def test_the_qualification_module_runs_the_bundle_in_a_fresh_interpreter(tmp_path: Path) -> None:
-    output = tmp_path / "bundle"
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "tools.qualification",
-            "bundle",
-            "--artifacts",
-            str(_artifacts(tmp_path, drop="junit-")),
-            "--output",
-            str(output),
-            "--tier",
-            "release",
-            "--revision",
-            "abc1234",
-        ],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    # The tracked release tier expects far more than these few reports.
-    assert completed.returncode == 1, completed.stderr
-    assert "missing skip-report-macos-tests-unit (from macos.yml/tests)" in completed.stderr
-    assert (output / "bundle.json").is_file() and (output / "ledger.jsonl").is_file()
+    assert tiers_main(["--workflow", "ci.yml"]) == 2
+    assert tiers_main(["--workflow", "ci.yml", "--tier", "nightly"]) == 2
 
 
 @pytest.mark.parametrize(
@@ -789,7 +545,7 @@ def test_the_qualification_module_runs_the_bundle_in_a_fresh_interpreter(tmp_pat
         ("ci.yml", "pr", ["src/compiler/python/main.py"], "0"),
         ("ci.yml", "pr", ["src/stdlib/GUI/MacOS/Window.btrc"], "0"),
         ("ci.yml", "pr", None, "0"),
-        ("ci.yml", "lane", ["tools/qualification/tiers.py"], "0"),
+        ("ci.yml", "lane", [".github/ci/tiers.py"], "0"),
         ("macos.yml", "main", None, "1"),
         ("macos.yml", "release", None, "1"),
     ],

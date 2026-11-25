@@ -21,10 +21,10 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from src.compiler.python.frontend.packages import PackageTarget
+from src.tests.dependencies import DependencyAudit
 from src.tests.native.http.socks_peer import SocksPeer, check_android_tunnels
 from src.tests.native_build import NativeCorpusBuild
 from src.tests.python.jni_adoption_fixtures import SharedLibraryRunner
-from tools.qualification.dependencies import DependencyAudit
 
 FIXTURES = Path(__file__).resolve().parent
 ROOT = FIXTURES.parents[3]

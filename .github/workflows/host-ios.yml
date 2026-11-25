@@ -31,14 +31,14 @@ on:
       - .github/workflows/host-ios.yml
       - tools/target_hosts/ios/**
       - src/tests/target_runner.py
-      - src/tests/fixtures/target-applicability.toml
+      - .github/ci/target-applicability.toml
   pull_request:
     branches: [main]
     paths:
       - .github/workflows/host-ios.yml
       - tools/target_hosts/ios/**
       - src/tests/target_runner.py
-      - src/tests/fixtures/target-applicability.toml
+      - .github/ci/target-applicability.toml
   workflow_dispatch:
 
 permissions:
@@ -62,7 +62,7 @@ jobs:
           persist-credentials: false
       - id: check
         run: |
-          if [ -f tools/target_hosts/ios/spike.py ]; then
+          if [ -f tools/target_hosts/ios/executor.py ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
@@ -103,17 +103,6 @@ jobs:
           xcrun --find simctl > build/ios-results/simctl-path.txt
           xcrun --sdk iphonesimulator --show-sdk-version > build/ios-results/sdk-version.txt
           xcrun simctl list -j > build/ios-results/simctl-list.json
-      - name: Build the fixtures
-        id: build
-        run: python3 -m tools.target_hosts.ios.spike build build/ios-testhost 2>&1 | tee build/ios-results/build.log
-      # Each device class runs even when the other failed, so a single run
-      # records every result; each stops at its own first failure.
-      - name: iPhone
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class iphone 2>&1 | tee build/ios-results/iphone.log
-      - name: iPad
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: python3 -m tools.target_hosts.ios.spike run build/ios-testhost build/ios-results --device-class ipad 2>&1 | tee build/ios-results/ipad.log
 
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
         if: ${{ !cancelled() }}
@@ -235,7 +224,7 @@ jobs:
       - name: Portable host tests
         run: |
           nix develop --command python3 -m pytest -p src.tests.conftest tools/target_hosts/ios/test_executor.py -q -rs --skip-report=build/skip-report-host-ios-portable.json
-          nix develop --command python3 -m tools.qualification skip-gate build/skip-report-host-ios-portable.json
+          nix develop --command python3 -m src.tests.skips skip-gate build/skip-report-host-ios-portable.json
       - name: Retain the skip report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -91,8 +91,6 @@ class DBusConnection {
 				if (machine.isEmpty()) { continue; }
 				DBusConnection? known = DBusConnection.openNamed(DBusTransportProvider.savedSession(machine));
 				if (known != null) { return known; }
-				DBusConnection? activated = DBusConnection.openNamed(DBusTransportProvider.launchSession(machine));
-				if (activated != null) { return activated; }
 			} else {
 				DBusConnection? connected = DBusConnection.connectAddress(address);
 				if (connected != null) { return connected; }

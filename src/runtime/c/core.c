@@ -120,26 +120,6 @@ static inline int __btrc_mod_g_real(long double a, long double b) {
     float: __btrc_mod_g_real, double: __btrc_mod_g_real, \
     long double: __btrc_mod_g_real)((a), (b)))
 /* btrc-runtime-helper:end __btrc_mod */
-/* btrc-runtime-helper:begin __btrc_div_int */
-static inline int __btrc_div_int(int a, int b) {
-    if (b == 0) { fprintf(stderr, "Division by zero\n"); exit(1); }
-    if (a == INT_MIN && b == -1) { fprintf(stderr, "Integer division overflow\n"); exit(1); }
-    return a / b;
-}
-/* btrc-runtime-helper:end __btrc_div_int */
-/* btrc-runtime-helper:begin __btrc_div_double */
-static inline double __btrc_div_double(double a, double b) {
-    if (b == 0.0) { fprintf(stderr, "Division by zero\n"); exit(1); }
-    return a / b;
-}
-/* btrc-runtime-helper:end __btrc_div_double */
-/* btrc-runtime-helper:begin __btrc_mod_int */
-static inline int __btrc_mod_int(int a, int b) {
-    if (b == 0) { fprintf(stderr, "Modulo by zero\n"); exit(1); }
-    if (a == INT_MIN && b == -1) return 0;
-    return a % b;
-}
-/* btrc-runtime-helper:end __btrc_mod_int */
 /* btrc-runtime-helper:begin __btrc_hash_real */
 static inline unsigned int __btrc_hash_real(long double value) {
     if (value == 0.0L) return 0U;

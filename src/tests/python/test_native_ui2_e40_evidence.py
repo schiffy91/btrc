@@ -985,7 +985,7 @@ def test_presentation_trials_skip_only_on_a_hosted_runner_that_presents_nothing(
     import sys
 
     from src.tests.python import test_native_ui2_macos_e40 as driver
-    from tools.qualification.skips import MANIFEST_ROOT, ExpectedSkipManifest
+    from src.tests.skips import MANIFEST_ROOT, ExpectedSkipManifest
 
     monkeypatch.setenv("BTRC_TEST_RUNNER", runner)
     monkeypatch.delenv("BTRC_UI2_E40_TRACE", raising=False)

@@ -9,13 +9,17 @@ one name, and the VM check is a job a machine of the owner's reproduces.
 from __future__ import annotations
 
 import re
+import sys
 import tomllib
 from pathlib import Path
 
-from tools.qualification.local import LocalJobs
-from tools.qualification.tiers import TierManifest
-
 REPO = Path(__file__).resolve().parents[3]
+if str(REPO / ".github" / "ci") not in sys.path:
+    sys.path.insert(0, str(REPO / ".github" / "ci"))
+
+from local import LocalJobs
+from tiers import TierManifest
+
 LIBRARY = REPO / "nix" / "lib"
 TESTKIT = LIBRARY / "testkit"
 FLAKE = (REPO / "flake.nix").read_text(encoding="utf-8")

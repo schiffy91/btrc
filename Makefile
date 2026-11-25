@@ -1,9 +1,9 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-release-c-linux btrcc-release-c-macos btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required \
         test test-suite test-fast test-nightly btrcc-test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
-        skip-gate qualification-report coverage \
+        skip-gate coverage \
         generated-check compiler-codegen-generate compiler-codegen-check lint stdlib-dependencies format format-check format-btrc format-btrc-check \
-        examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
+        bench \
         extension extension-install \
         devcontainer linux-ci clean \
 	test-e40 test-e40-linux test-e40-macos test-shard-unit test-native-gui test-shard-gui test-shard-gui-macos test-shard-btrc test-shard-corpus-python test-shard-corpus-btrc test-shard-bootstrap test-c11-one test-c11-compiler bench-check bench-baseline bench-peak perf-budget perf-btrsmith perf-self \
@@ -40,17 +40,16 @@ PYTEST_WORKERS ?= 8
 PYTEST_DURATIONS ?= --durations=25 --durations-min=1.0
 PYTEST_ARGS ?= -q -rs $(PYTEST_DURATIONS) -n $(PYTEST_WORKERS)
 PYTEST_SERIAL_ARGS ?= -q -rs $(PYTEST_DURATIONS)
-BTRC_FORMAT_PATHS := src examples
+BTRC_FORMAT_PATHS := src
 # Every tracked Python source: the compilers, tests and editor support under
-# src/, the generators, gates and measurement tools under tools/, and the
-# examples' helper scripts.
-PYTHON_PATHS := src/ tools/ examples/
+# src/, and the generators, gates and measurement tools under tools/.
+PYTHON_PATHS := src/ tools/ .github/ci/
 # Every gate's pytest session writes a skip report (src/tests/skip_ledger.py)
 # naming each skip, its gating environment and the runners that cover it, and
 # the skip gate fails on any skip the runner's manifest under
-# src/tests/fixtures/expected-skips/ does not expect. CI uploads
+# .github/ci/expected-skips/ does not expect. CI uploads
 # build/skip-report*.json.
-SKIP_GATE := python3 -m tools.qualification skip-gate
+SKIP_GATE := python3 -m src.tests.skips skip-gate
 SKIP_REPORTS ?= build/skip-report.json
 # What `make linux-ci` runs inside the container. Override to reproduce a
 # single CI step, e.g. LINUX_CI_TARGETS="lint format-check".
@@ -59,7 +58,7 @@ LINUX_CI_TARGETS ?= gpu-required test
 # Keep exclusions exact: btrc-format rejects missing or undiscovered paths.
 BTRC_FORMAT_EXCLUDES := --exclude src/tests/formatter/fixtures/ImportGroups.btrc
 
-all: generated-check build gpu test lint examples extension ## Build and verify everything
+all: generated-check build gpu test lint extension ## Build and verify everything
 
 build: generated-check ## Create bin/btrcpy wrapper script
 	@mkdir -p bin
@@ -375,7 +374,7 @@ test-unit: generated-check ## Run Python reference-compiler unit tests (lexer, p
 E40_BURST_REPETITIONS ?= 100
 E40_GATE_BURST_REPETITIONS ?= 25
 test-e40: generated-check gpu-required ## Run platform-admitted E40 qualification serially (bursts; the 600-second loads are nightly)
-	$(NIX) env BTRC_E40_BURST_REPETITIONS=$(E40_BURST_REPETITIONS) tools/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and not nightly" \
+	$(NIX) env BTRC_E40_BURST_REPETITIONS=$(E40_BURST_REPETITIONS) .github/ci/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and not nightly" \
 		--skip-report=build/skip-report-e40.json $(PYTEST_SERIAL_ARGS) -n 0
 	$(NIX) $(SKIP_GATE) build/skip-report-e40.json
 
@@ -409,10 +408,10 @@ coverage: generated-check gpu-required ## Line coverage of the stdlib and both c
 #     test` repeats each a quarter as often;
 #   - the strict-C11 cells at -O1 and -O3 with gcc and clang, which `make
 #     test-c11` used to run beside -O0 and -O2.
-# CI's nightly is the `extended` tier (ci/tiers.toml), which adds the same C11
+# CI's nightly is the `extended` tier (.github/ci/tiers.toml), which adds the same C11
 # cells to what every push runs.
 test-nightly: generated-check gpu-required ## Nightly set: the 600-second E40 loads, the bursts at 100 repetitions, strict C11 at -O1 and -O3
-	$(NIX) tools/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and nightly" \
+	$(NIX) .github/ci/virtual-display.sh $(PYTEST) src/tests/ -m "e40_qualification and nightly" \
 		--skip-report=build/skip-report-nightly-e40.json $(PYTEST_SERIAL_ARGS) -n 0
 	$(NIX) $(SKIP_GATE) build/skip-report-nightly-e40.json
 	$(MAKE) --no-print-directory test-e40 E40_BURST_REPETITIONS=100
@@ -426,7 +425,7 @@ E40_BTRCC = $(if $(filter selfhost,$(E40_FRONTEND)),BTRC_TEST_BTRCC="$(abspath $
 E40_BTRCC_BUILD = $(if $(filter selfhost,$(E40_FRONTEND)),$(TEST_BTRCC_BUILD))
 
 test-e40-linux: generated-check gpu-required $(E40_BTRCC_BUILD) ## Qualify one serial Linux E40 cell with exact collection and evidence checks
-	$(NIX) env $(E40_BTRCC) BTRC_VIRTUAL_DISPLAY=$(E40_SESSION) tools/virtual-display.sh \
+	$(NIX) env $(E40_BTRCC) BTRC_VIRTUAL_DISPLAY=$(E40_SESSION) .github/ci/virtual-display.sh \
 		python3 -m tools.ui.e40 --frontend $(E40_FRONTEND) --variant $(E40_VARIANT) --session $(E40_SESSION)
 	$(NIX) $(SKIP_GATE) build/skip-report-e40-$(E40_CELL).json
 
@@ -515,10 +514,10 @@ test-shard-unit: generated-check gpu-required $(TEST_BTRCC_BUILD) ## CI shard: e
 		--ignore=src/tests/btrc --ignore=src/tests/runner.py --skip-report=build/skip-report-unit.json $(UNIT_GUI_ARGS) $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-unit.json
 
-# The focused native-GUI gate (PLAN Stage 30, ui-0-focused-gate): the GUI,
-# tray and provider suites alone, for Codex lanes and CI's focus=native-gui
+# The focused native-GUI gate (ui-0-focused-gate): the GUI,
+# tray and provider suites alone, for CI's focus=native-gui
 # dispatch. UI and UI2 suites join through the filename globs below, so new
-# fixtures do not need individual entries. On Linux it runs under tools/virtual-display.sh, which
+# fixtures do not need individual entries. On Linux it runs under .github/ci/virtual-display.sh, which
 # keeps an existing display.
 NATIVE_GUI_TESTS := $(addprefix src/tests/python/,test_native_gui_runtime.py test_native_gui_appkit.py \
 	test_native_pointer_runtime.py test_native_control_sizing_runtime.py test_native_font_runtime.py \
@@ -531,7 +530,7 @@ UNIT_GUI_DELEGATED ?= 0
 UNIT_GUI_ARGS = $(if $(filter 1,$(UNIT_GUI_DELEGATED)),$(addprefix --ignore=,$(NATIVE_GUI_TESTS)))
 
 test-native-gui: generated-check $(TEST_BTRCC_BUILD) ## Focused gate: the native GUI, tray and provider suites only
-	$(NIX) $(SHARD_BTRCC) tools/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS) -m "not e40_qualification"
+	$(NIX) $(SHARD_BTRCC) .github/ci/virtual-display.sh $(PYTEST) $(NATIVE_GUI_TESTS) --skip-report=build/skip-report-native-gui.json $(PYTEST_ARGS) -m "not e40_qualification"
 	$(NIX) $(SKIP_GATE) build/skip-report-native-gui.json
 
 # Hosted macOS splits the same complete selection across isolated runners.
@@ -563,7 +562,7 @@ GUI_SHARD_DIR := build/linux-gui/$(GUI_CELL)
 GUI_SHARD_TESTS := $(NATIVE_GUI_TESTS)
 
 test-shard-gui: generated-check gpu-required $(TEST_BTRCC_BUILD) ## CI shard: native GUI and Linux audio under one headless session (GUI_SESSION=x11|wayland)
-	$(NIX) $(SHARD_BTRCC) BTRC_TEST_RUNNER=linux-devcontainer tools/ui/headless-session.sh --$(GUI_SESSION) -- \
+	$(NIX) $(SHARD_BTRCC) BTRC_TEST_RUNNER=linux-devcontainer .github/ci/headless-session.sh --$(GUI_SESSION) -- \
 		python3 tools/ui/status_notifier_watcher.py -- python3 tools/ui/session_evidence.py --output $(GUI_SHARD_DIR) -- \
 		python3 -m tools.ui.gui_shards run --session $(GUI_SESSION) --index $(GUI_PARTITION) --count $(GUI_PARTITIONS) \
 		--output $(GUI_SHARD_DIR) --skip-report build/skip-report-gui-$(GUI_CELL).json \
@@ -600,12 +599,6 @@ test-c11-one: generated-check gpu-required $(TEST_BTRCC_BUILD) ## One strict-C11
 skip-gate: ## Fail on a skip the runner's expected-skip manifest does not explain (SKIP_REPORTS=...)
 	$(NIX) $(SKIP_GATE) --list $(SKIP_REPORTS)
 
-qualification-report: ## Render the support/coverage report from this tree's gate outputs -> build/qualification-report.md
-	$(NIX) python3 -m tools.qualification report --this-host \
-		$(addprefix --skip-report ,$(wildcard build/skip-report*.json)) \
-		$(addprefix --boundary-report ,$(wildcard build/boundary-report.json)) \
-		--output build/qualification-report.md
-
 test-generate-goldens: generated-check ## Regenerate golden .stdout files
 	$(NIX) python3 src/tests/generate_expected.py
 
@@ -621,8 +614,8 @@ lint: generated-check stdlib-dependencies ## Run generated-policy checks, the st
 	$(NIX) ruff check $(PYTHON_PATHS)
 
 stdlib-dependencies: ## Fail on any third-party stdlib requirement but wgpu-native, naming module, target and dependency
-	$(NIX) python3 -m tools.qualification.dependencies check
-	$(NIX) python3 -m tools.qualification.dependencies report --check
+	$(NIX) python3 -m src.tests.dependencies check
+	$(NIX) python3 -m src.tests.dependencies report --check
 
 format: format-btrc ## Format Python and BTRC sources
 	$(NIX) ruff format $(PYTHON_PATHS)
@@ -635,30 +628,6 @@ format-btrc: ## Format canonical BTRC source while preserving intentional fixtur
 
 format-btrc-check: ## Check canonical BTRC source while preserving intentional fixtures
 	$(NIX) btrc-format check $(BTRC_FORMAT_EXCLUDES) $(BTRC_FORMAT_PATHS)
-
-# ─── Examples ────────────────────────────────────────────────────────────────
-
-examples: generated-check gpu-required ## Build and run all examples
-	$(NIX) $(MAKE) -C examples all
-
-examples-todo: generated-check ## Build the todo example
-	$(NIX) $(MAKE) -C examples todo
-
-examples-game: generated-check ## Build the 3D engine game
-	$(NIX) $(MAKE) -C examples game
-
-examples-triangle: generated-check ## Build the GPU triangle example
-	$(NIX) $(MAKE) -C examples triangle
-
-examples-sgd: generated-check gpu-required ## Build the GPU SGD example
-	$(NIX) $(MAKE) -C examples sgd
-
-examples-gui: generated-check ## Build the portable native GUI example
-	$(NIX) $(MAKE) -C examples gui
-
-examples-native-package: generated-check ## Build recursive native package from its canonical plan (set TARGET)
-	@test -n "$(TARGET)" || { echo "TARGET is required (for example TARGET=linux-x64)" >&2; exit 2; }
-	$(NIX) $(MAKE) -C examples native-package TARGET="$(TARGET)"
 
 BENCH_ARGS ?=
 BENCH := python3 -m tools.bench
@@ -721,7 +690,7 @@ extension-install: extension ## Install VSCode extension (dev)
 # ─── Infrastructure ─────────────────────────────────────────────────────────
 
 linux-ci: ## Run LINUX_CI_TARGETS in the devcontainer, the way Linux CI does
-	@tools/linux-ci.sh $(LINUX_CI_TARGETS)
+	@.github/ci/linux-ci.sh $(LINUX_CI_TARGETS)
 
 # CI (GitHub sets CI=true) builds the image without Claude Code.
 DEVCONTAINER_OUTPUT ?= $(if $(CI),devcontainer-ci,devcontainer)
@@ -742,16 +711,15 @@ clean: ## Remove all build artifacts
 	rm -rf .pytest_cache/ .ruff_cache/ htmlcov/ .coverage .coverage.* coverage.json coverage.xml
 	rm -rf build/generated/ build/devex/vscode/ build/stdlib/ build/out/ build/lib/ build/bdist.*/ build/btrcc/ build/test-btrcc/ build/btrcc-test build/corpus-c/ build/temp.*/
 	rm -rf btrc.egg-info/ src/btrc.egg-info/
-	find src examples tools -type d \( -name __pycache__ -o -name .pytest_cache \) -prune -exec rm -rf {} +
-	find src examples tools -type d -name '*.dSYM' -prune -exec rm -rf {} +
-	find src examples tools -type f \( -name '*.pyc' -o -name '*.o' \) -delete
-	$(MAKE) -C examples clean 2>/dev/null || true
+	find src tools -type d \( -name __pycache__ -o -name .pytest_cache \) -prune -exec rm -rf {} +
+	find src tools -type d -name '*.dSYM' -prune -exec rm -rf {} +
+	find src tools -type f \( -name '*.pyc' -o -name '*.o' \) -delete
 
-cache: ## Build this host's ci/targets.nix attrs, sign them, and add them to the shared cache
-	sh tools/cache/publish.sh
+cache: ## Build this host's .github/ci/targets.nix attrs, sign them, and add them to the shared cache
+	sh .github/ci/cache-publish.sh
 
-cache-all: ## The same for every attribute in ci/targets.nix `local`
-	sh tools/cache/publish.sh --all
+cache-all: ## The same for every attribute in .github/ci/targets.nix `local`
+	sh .github/ci/cache-publish.sh --all
 
 cache-serve: ## Serve the shared cache over HTTP for the other machines (PORT=8080)
 	@printf 'serving %s on port %s; substituter: http://%s.local:%s\n' "$(CACHE_DIR)" "$(PORT)" "$$(hostname)" "$(PORT)"

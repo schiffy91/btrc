@@ -30,7 +30,7 @@ platform implements it once, in C, beside the suite:
 
 The probe is the input itself: it moves the session's one pointer and types
 on its one keyboard, so it runs only where `BTRC_UI_PRIVATE_SESSION=1` says
-the session was made for tests (`tools/ui/headless-session.sh` sets it; on a
+the session was made for tests (`.github/ci/headless-session.sh` sets it; on a
 dedicated test host it is set by hand). Two things the display server will not tell an
 input tool it asks the provider's shim, through hooks that deliver nothing:
 where the pointer is in a window's content, which is how it finds that
@@ -42,9 +42,9 @@ content on the screen, and whether what it sent has arrived.
 both compilers, plain and sanitized, and runs each case in its own process:
 
 ```sh
-tools/ui/headless-session.sh --x11 -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
-tools/ui/headless-session.sh --wlroots -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
-tools/ui/headless-session.sh --wayland -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
+.github/ci/headless-session.sh --x11 -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
+.github/ci/headless-session.sh --wlroots -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
+.github/ci/headless-session.sh --wayland -- python3 -m pytest -q src/tests/python/test_native_ui_conformance.py
 ```
 
 On Android the suite is an app.
@@ -80,12 +80,8 @@ once their platform has run the case.
 
 ## Coverage
 
-The driver holds `cases.toml` to the operation catalog
-(`docs/design/native-ui-catalog/operations`): every operation is exercised by
-exactly one case, or named in the file's `[uncovered]` table with what stands
-in the way. That table is empty. `python3 -m tools.qualification.ui_conformance
-record` writes what the cases prove into the catalog: each operation's case is
-its regression on Linux, Windows and Android.
+`cases.toml` lists the GUI conformance cases and the public GUI operations
+each one exercises. The `[uncovered]` table is empty.
 
 An alert and the folder chooser run a loop of their own, so the program that
 opened one cannot press its keys. `probes/shim/ModalProbe.h` starts a helper

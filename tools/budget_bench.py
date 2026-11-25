@@ -33,14 +33,10 @@ with the same compiler, flags and native builder, because acceptance is
 measured from the build command. --target defaults to the host as Config.mk
 spells it. Cold scenarios take --cold-samples (5) and incremental ones
 --incremental-samples (20); every sample is reported with the median, the
-nearest-rank p95 and the maximum, as PLAN's "Numeric acceptance budgets"
-requires; tools.qualification.statistics computes them. --dry-run takes one
-sample of each and marks the report. ``python3 -m tools.qualification ingest
---budget-bench <out>/report.json`` records a run in the qualification ledger
-against REPORTED_SCENARIOS. The report's provenance.host_manifest embeds the
-committed tools/qualification/hosts manifest that provenance.host_summary
-selects (HostManifest), with any fact this run observed that disagrees with
-it, and is null on a host no manifest describes.
+nearest-rank p95 and the maximum; ``tools.host_provenance`` computes them.
+--dry-run takes one sample of each and marks the report.
+The report's provenance.host_manifest is null when no host manifest is
+present.
 
 Scenarios (--scenarios, comma-separated, or `all`):
 
@@ -111,8 +107,7 @@ from pathlib import Path, PurePosixPath
 from typing import ClassVar, TypeVar
 
 from src.compiler.python.frontend.packages import PackageTarget
-from tools.qualification.adapters import HostProvenance
-from tools.qualification.statistics import SampleStatistics
+from tools.host_provenance import HostProvenance, SampleStatistics
 
 REPO = Path(__file__).resolve().parents[1]
 ENTRY = "src/BTRSmith.btrc"
@@ -136,11 +131,7 @@ T = TypeVar("T")
 
 
 class Distribution:
-    """The order statistics PLAN's acceptance tables report.
-
-    tools.qualification.statistics computes them, so a report and the ledger
-    that ingests it cannot disagree about a median or a percentile.
-    """
+    """Order statistics reported in benchmark tables via tools.host_provenance.SampleStatistics."""
 
     @staticmethod
     def median(values: Sequence[float]) -> float | None:
@@ -772,23 +763,12 @@ class HostSummary:
 
 @dataclass(frozen=True)
 class HostManifest:
-    """A committed description of a host whose measurements qualification accepts.
-
-    Each ``tools/qualification/hosts/<id>.toml`` records one host: its CPU
-    model, logical and physical cores, memory, OS, toolchain and the
-    instruction counter `TimeReport` uses there. A ``recorded`` manifest is
-    selected by `HostSummary.describe()`: its ``summary`` equals that string, or
-    its ``summary_pattern`` fully matches it. An ``awaiting-probe`` manifest (a
-    host not yet reachable) names its read-only ``probe`` and ``requirements``
-    instead of hardware facts, and matches nothing. `select` is what
-    budget_bench embeds in report.json, with the facts this run observed that
-    disagree with the manifest.
-    """
+    """Optional host manifest record (null when HostManifest.DIRECTORY is None)."""
 
     path: Path
     table: dict[str, object]
 
-    DIRECTORY: ClassVar[Path] = REPO / "tools/qualification/hosts"
+    DIRECTORY: ClassVar[Path | None] = None
     SCHEMA: ClassVar[int] = 1
     ROLES: ClassVar[frozenset[str]] = frozenset({"acceptance", "x86_64-acceptance"})
     ARCHITECTURES: ClassVar[frozenset[str]] = frozenset({"arm64", "x86_64"})
@@ -917,7 +897,10 @@ class HostManifest:
 
     @classmethod
     def committed(cls, directory: Path | None = None) -> list[HostManifest]:
-        return [cls.load(path) for path in sorted((directory or cls.DIRECTORY).glob("*.toml"))]
+        target_dir = directory or cls.DIRECTORY
+        if target_dir is None or not target_dir.is_dir():
+            return []
+        return [cls.load(path) for path in sorted(target_dir.glob("*.toml"))]
 
     def matches(self, summary: str) -> bool:
         if not self.recorded:

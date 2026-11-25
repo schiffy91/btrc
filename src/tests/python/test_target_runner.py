@@ -40,7 +40,6 @@ from src.tests.target_runner import (
     ExecutorProtocolError,
     ExecutorRegistry,
     GoldenExpectation,
-    InventoryCells,
     LocalExecutor,
     SourceRevision,
     TargetBundle,
@@ -49,16 +48,6 @@ from src.tests.target_runner import (
     TargetRunnerCommand,
 )
 from tools.native_plan import TargetToolchain
-from tools.qualification.adapters import TargetRunAdapter
-from tools.qualification.schema import (
-    TARGET_SLICES,
-    EvidenceStatus,
-    LedgerDocument,
-    LedgerSchemaError,
-    Parity,
-    Platform,
-    Provenance,
-)
 
 REPO = Path(__file__).resolve().parents[3]
 HOST = TargetRepository.host()
@@ -522,32 +511,31 @@ def test_golden_comparison_matches_the_corpus_runner():
 
 def test_the_applicability_manifest_loads_and_its_citations_hold():
     manifest = ApplicabilityManifest.load()
-    inventory = manifest.inventory
+    row_slices = {
+        "windows-x86_64": "windows-x64",
+        "windows-aarch64": "windows-arm64",
+        "ios-aarch64": "ios-device",
+        "ios-aarch64-simulator": "ios-simulator",
+        "android-aarch64": "android-arm64",
+        "android-x86_64": "android-x86_64",
+    }
     for entry in manifest.programs:
         match = ApplicabilityManifest.INVENTORY_CITE.fullmatch(entry["cites"])
         if match is None:
             continue
-        cell = inventory.cell(match["row"], match["slice"])
-        # A program is missing only where the inventory itself says the topic is incomplete.
-        if entry["status"] == "missing":
-            assert cell.get("implementation") != "implemented", entry
         # An entry cites the cell of its own target slice, and of no other.
-        mapped = {label for label, name in TargetRunAdapter.ROW_SLICES.items() if name == match["slice"]}
+        mapped = {label for label, name in row_slices.items() if name == match["slice"]}
         assert entry["targets"] <= mapped | {"windows-aarch64-msvc"}, f"{entry['paths']} cites another slice"
         topics = {path.split("/", 1)[0] for path in entry["paths"]}
-        assert {f"corpus.{topic}" for topic in topics} == {match["row"]}, f"{entry['paths']} cites another topic"
+        assert set(topics) == {match["topic"]}, f"{entry['paths']} cites another topic"
     assert manifest.facility(ComputeRuntime.FACILITY) is not None
     assert "loopback-listener" in manifest.capabilities
 
 
-def _manifest(tmp_path: Path, programs=(), inventory: str | None = None, **extra) -> ApplicabilityManifest:
+def _manifest(tmp_path: Path, programs=(), **extra) -> ApplicabilityManifest:
+    del tmp_path
     document = {"schema": "btrc.target-applicability/1", "programs": list(programs), **extra}
-    cells = InventoryCells()
-    if inventory is not None:
-        path = tmp_path / "inventory.toml"
-        path.write_text(inventory, encoding="utf-8")
-        cells = InventoryCells(path)
-    return ApplicabilityManifest(document, cells, [program.source for program in CorpusProgram.select()])
+    return ApplicabilityManifest(document, [program.source for program in CorpusProgram.select()])
 
 
 ENTRY = {
@@ -570,9 +558,9 @@ ENTRY = {
         ({"targets": ["windows-x64"]}, "targets.toml labels"),
         ({"status": "skipped"}, "status"),
         ({"scope": "always"}, "scope"),
-        ({"cites": "corpus.strings@windows"}, "no platform-inventory cell"),
+        ({"cites": "corpus.strings@windows"}, "names no corpus topic or target slice"),
         ({"cites": "docs/no-such-contract#anchor"}, "does not exist"),
-        ({"cites": "because"}, "cite an inventory cell"),
+        ({"cites": "because"}, "cite a topic/slice"),
         ({"frontends": ["python"]}, "frontends"),
         ({"unexpected": 1}, "unknown"),
     ],
@@ -590,12 +578,7 @@ def test_the_manifest_refuses_two_entries_deciding_one_program(tmp_path):
     assert len(_manifest(tmp_path, [ENTRY, other_target]).programs) == 2
 
 
-def test_verdicts_come_from_the_manifest_then_the_inventory(tmp_path):
-    inventory = (
-        "[[rows]]\nkind = 'operation'\nid = 'corpus.strings'\n"
-        "windows-x64 = { parity = 'os-restricted', implementation = 'implemented', reason = 'no console' }\n"
-        "android-arm64 = { parity = 'equivalent', implementation = 'missing', reason = 'not ported' }\n"
-    )
+def test_verdicts_come_from_the_manifest(tmp_path):
     entry = {
         **ENTRY,
         "paths": ["strings/FstringBasic.btrc"],
@@ -603,16 +586,10 @@ def test_verdicts_come_from_the_manifest_then_the_inventory(tmp_path):
         "cites": "corpus.strings@android-arm64",
     }
     entry["targets"] = ["android-aarch64"]
-    manifest = _manifest(tmp_path, [entry], inventory)
+    manifest = _manifest(tmp_path, [entry])
     regex, escapes = CorpusProgram("strings/Regex.btrc"), CorpusProgram("strings/FstringBasic.btrc")
-    restricted = manifest.program_verdict(regex, "windows-x86_64", "reference")
-    assert (restricted.status, restricted.scope, restricted.cites) == (
-        "restricted",
-        "build",
-        "corpus.strings@windows-x64",
-    )
     assert manifest.program_verdict(escapes, "android-aarch64", "selfhost").reason == ENTRY["reason"]
-    assert manifest.program_verdict(escapes, "android-aarch64", "reference").status == "missing", "the topic cell"
+    assert manifest.program_verdict(escapes, "android-aarch64", "reference") is None
     assert manifest.program_verdict(regex, "linux-x86_64", "reference") is None
 
 
@@ -784,15 +761,6 @@ def test_the_runner_reports_every_outcome_and_writes_its_ledger(tmp_path):
     assert summary["schema"] == REPORT_SCHEMA and summary["executor"] == "android-emulator"
     cases = ElementTree.parse(run / "junit.xml").getroot().findall("testcase")
     assert len(cases) == len(SCRIPTED) and sum(case.find("failure") is not None for case in cases) == 3
-    records = {record.subject.id: record for record in LedgerDocument.load(run / "ledger.jsonl")}
-    passed = records["src/tests/target_runner.py::run[basics/AddrDeref.btrc]"]
-    assert (passed.subject.platform, passed.subject.variant) == (Platform.ANDROID, "x86_64")
-    assert passed.evidence.status is EvidenceStatus.PASSED and passed.provenance.runner == "android-emulator"
-    assert passed.provenance.cpu is None, "a device run never records the ingesting host's hardware"
-    assert records["src/tests/target_runner.py::run[basics/AssignChainAndValue.btrc]"].evidence.observed == "error"
-    socket = records["src/tests/target_runner.py::run[stdlib/HttpSocketIo.btrc]"]
-    assert socket.classification.parity is Parity.OS_RESTRICTED
-    assert socket.evidence.status is EvidenceStatus.UNAVAILABLE
 
 
 @pytest.mark.parametrize(
@@ -892,8 +860,6 @@ def test_the_runner_builds_runs_and_excludes_through_the_reference_frontend(tmp_
         "reference-basics-ArrayOfPointers": "missing",
     }
     assert bundle.document["toolchain"]["cflags"] == list(STRICT_CFLAGS)
-    records = LedgerDocument.load(tmp_path / "run" / "ledger.jsonl")
-    assert {record.evidence.observed for record in records} == {"passed", "restricted", "missing"}
 
 
 @needs_host
@@ -907,9 +873,6 @@ def test_both_frontends_build_a_bundle_the_local_executor_runs(tmp_path, immutab
     assert compiled.counts() == {
         frontend: {"passed": 1, "failed": 0, "restricted": 0, "missing": 0} for frontend in ("reference", "selfhost")
     }
-    ledger = LedgerDocument.load(tmp_path / "built" / "ledger.jsonl")
-    assert {record.subject.id for record in ledger} == {"src/tests/target_runner.py::build[basics/AddrDeref.btrc]"}
-    assert {record.evidence.observed for record in ledger} == {"built"}
     executed = TargetCorpusRunner(HOST.label, ("reference", "selfhost"), output=tmp_path / "ran").run(
         execute_bundle=tmp_path / "built" / "bundle"
     )
@@ -966,135 +929,6 @@ def test_a_windows_bundle_is_admitted_by_the_windows_host_spike(tmp_path):
         executor.close()
     with pytest.raises(ValueError, match="emulated"):
         WindowsNativeExecutor(machine=lambda: 0xAA64).prepare(bundle, "windows-x86_64")
-    records = LedgerDocument.load(tmp_path / "run" / "ledger.jsonl")
-    assert [(record.subject.platform, record.subject.variant) for record in records] == [(Platform.WINDOWS, "x86_64")]
-
-
-# The ledger adapter -----------------------------------------------------------------
-
-
-def test_every_target_row_maps_to_one_ledger_slot():
-    labels = {row.label for row in TARGET_ROWS}
-    assert set(TargetRunAdapter.ROW_SLICES) | set(TargetRunAdapter.OTHER_ROWS) == labels
-    assert not set(TargetRunAdapter.ROW_SLICES) & set(TargetRunAdapter.OTHER_ROWS)
-    assert sorted(TargetRunAdapter.ROW_SLICES.values()) == sorted(TARGET_SLICES)
-    for label, slice_name in TargetRunAdapter.ROW_SLICES.items():
-        assert TargetRunAdapter.slot(label) == TARGET_SLICES[slice_name]
-    slots = {TargetRunAdapter.slot(label) for label in labels}
-    assert len(slots) == len(labels), "two rows would overwrite each other's results"
-
-
-def _report(**overrides) -> dict:
-    report = {
-        "schema": REPORT_SCHEMA,
-        "target": {"label": "ios-aarch64-simulator", "triple": "arm64-apple-ios17.0.0-simulator"},
-        "mode": "execute",
-        "executor": "ios-simulator",
-        "executor_provenance": {"executor": "ios-simulator", "device": "iPhone", "os_build": "iOS 26.4"},
-        "frontends": ["reference", "selfhost"],
-        "source_revision": "a" * 40,
-        "finished_at": "2026-10-17T00:00:00+00:00",
-        "compilers": {"selfhost": {"btrcc_sha256": "b" * 64}},
-        "counts": {
-            "reference": {"passed": 1, "failed": 0, "restricted": 0, "missing": 1},
-            "selfhost": {"passed": 0, "failed": 1, "restricted": 1, "missing": 0},
-        },
-        "results": [
-            {
-                "program": "basics/A.btrc",
-                "frontend": "reference",
-                "status": "passed",
-                "observed": "passed",
-                "artifact": "reference/basics/A.json",
-            },
-            {
-                "program": "basics/B.btrc",
-                "frontend": "reference",
-                "status": "missing",
-                "observed": "missing",
-                "reason": "no regex.h",
-                "cites": "corpus.strings@ios-simulator",
-            },
-            {
-                "program": "basics/A.btrc",
-                "frontend": "selfhost",
-                "status": "failed",
-                "observed": "error",
-                "phase": "execute",
-                "reason": "simctl lost",
-            },
-            {
-                "program": "basics/B.btrc",
-                "frontend": "selfhost",
-                "status": "restricted",
-                "observed": "restricted",
-                "reason": "fork",
-                "cites": "corpus.stdlib@ios-simulator",
-            },
-        ],
-    }
-    report.update(overrides)
-    return report
-
-
-def test_the_target_run_adapter_records_every_program():
-    records = TargetRunAdapter(Provenance(btrc_revision="ignored")).records(
-        _report(), artifact="build/target-runs/x/target-run.json"
-    )
-    assert len(records) == 4
-    by = {(record.subject.id, record.subject.frontend.value): record for record in records}
-    passed = by[("src/tests/target_runner.py::run[basics/A.btrc]", "reference")]
-    assert (passed.subject.platform, passed.subject.variant) == (Platform.IOS, "arm64-simulator")
-    assert passed.evidence.artifact == "build/target-runs/x/reference/basics/A.json"
-    assert passed.provenance.btrc_revision == "a" * 40 and passed.provenance.os_build == "iOS 26.4"
-    assert passed.provenance.compiler_digest is None
-    failed = by[("src/tests/target_runner.py::run[basics/A.btrc]", "selfhost")]
-    assert failed.evidence.observed == "error" and failed.provenance.compiler_digest == "sha256:" + "b" * 64
-    missing = by[("src/tests/target_runner.py::run[basics/B.btrc]", "reference")]
-    assert (
-        missing.classification.parity is Parity.MISSING
-        and missing.classification.decision == "corpus.strings@ios-simulator"
-    )
-    compile_only = TargetRunAdapter(Provenance()).records(
-        _report(mode="compile-only", executor=None, executor_provenance=None)
-    )
-    assert (
-        compile_only[0].subject.id.startswith("src/tests/target_runner.py::build[")
-        and compile_only[0].evidence.observed == "built"
-    )
-    assert compile_only[0].provenance.runner == "compile-only"
-
-
-@pytest.mark.parametrize(
-    "change, message",
-    [
-        ({"schema": "other"}, "not a btrc.target-run/1"),
-        ({"surprise": 1}, "unknown field"),
-        ({"mode": "dry"}, "mode"),
-        ({"target": {"label": "plan9-mips"}}, "no platform slice"),
-        ({"counts": {"reference": {"passed": 2}, "selfhost": {}}}, "disagrees"),
-        ({"frontends": ["python"]}, "frontends"),
-    ],
-)
-def test_the_target_run_adapter_refuses_inconsistent_reports(change, message):
-    with pytest.raises(LedgerSchemaError, match=message):
-        TargetRunAdapter(Provenance()).records(_report(**change))
-
-
-def test_the_target_run_adapter_refuses_duplicate_or_unreasoned_results():
-    report = _report()
-    report["results"].append(dict(report["results"][0]))
-    with pytest.raises(LedgerSchemaError, match="twice"):
-        TargetRunAdapter(Provenance()).records(report)
-    report = _report()
-    report["results"][1] = {**report["results"][1], "cites": None}
-    with pytest.raises(LedgerSchemaError, match="reason and what it cites"):
-        TargetRunAdapter(Provenance()).records(report)
-    report = _report()
-    report["results"].pop()
-    report["counts"]["selfhost"]["restricted"] = 0
-    with pytest.raises(LedgerSchemaError, match="same programs"):
-        TargetRunAdapter(Provenance()).records(report)
 
 
 # The command line -------------------------------------------------------------------
@@ -1137,7 +971,7 @@ def test_the_module_docstring_freezes_protocol_version_one():
         "close()",
     ):
         assert name in text, name
-    manifest = tomllib.loads((REPO / "src/tests/fixtures/target-applicability.toml").read_text(encoding="utf-8"))
+    manifest = tomllib.loads((REPO / ".github/ci/target-applicability.toml").read_text(encoding="utf-8"))
     assert manifest["schema"] == ApplicabilityManifest.SCHEMA
 
 

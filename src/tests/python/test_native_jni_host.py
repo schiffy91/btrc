@@ -13,13 +13,13 @@ import sys
 
 import pytest
 
+from src.tests.dependencies import BinaryImports, DependencyAudit
 from src.tests.process_limits import TOOL_TIMEOUT
 from src.tests.python.jni_host_fixtures import desktop_compiler, desktop_dependency, require_desktop_jdk
 from src.tests.python.jni_host_fixtures import desktop_jni_source as desktop_jni_source
 from src.tests.python.native_import_fixtures import apple_environment
 from src.tests.python.native_import_fixtures import native_compile as native_compile
 from tools.native_plan import NativePlanBuilder
-from tools.qualification.dependencies import BinaryImports, DependencyAudit
 
 LIFECYCLE = """import JavaHost.JavaVirtualMachine;
 import Library.Vector;

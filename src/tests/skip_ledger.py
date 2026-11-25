@@ -7,7 +7,7 @@ private paths; configuration words such as BTRC_CC keep their values), and
 every capability gate a test evaluated through
 `src.tests.runner_capabilities`. It is classified against the runner's
 expected-skip manifest before it is written, and ``python3 -m
-tools.qualification skip-gate`` fails the gate on any skip that manifest does
+src.tests.skips skip-gate`` fails the gate on any skip that manifest does
 not expect. ``--skip-report`` names the file; the default is
 ``build/skip-report.json``, and the Makefile gives each gate its own. Pass it
 as one token (``--skip-report=PATH``): pytest takes a separate existing path
@@ -41,7 +41,7 @@ from typing import Any
 import pytest
 
 from src.tests.runner_capabilities import CapabilityGateLog
-from tools.qualification.skips import (
+from src.tests.skips import (
     SKIP_REPORT_SCHEMA,
     ExpectedSkipManifest,
     RunnerIdentity,

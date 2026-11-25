@@ -14,7 +14,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from tools.budget_bench import TimeReport
-from tools.qualification.adapters import HostProvenance
+from tools.host_provenance import HostProvenance
 
 REPO = Path(__file__).resolve().parents[2]
 FIXTURE = Path("src/tests/benchmarks/fixtures/ManagedCollections.btrc")

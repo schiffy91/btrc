@@ -1,7 +1,7 @@
 """The provider matrix of platform-target-contract.md section 5.3.
 
-Every stdlib group manifest, every ``examples/`` package with a ``btrc.toml``
-and the native test packages are resolved for each of the 11 rows of
+Every stdlib group manifest, the ``src/tests/fixtures/native-package``
+fixture and the native test packages are resolved for each of the 11 rows of
 ``targets.toml``, with every export imported, exactly as a compile resolves
 them before it reads a native header: the package graph, the conditioned
 import graph with its provider selections, then the native link plan
@@ -52,16 +52,12 @@ from src.tests.process_limits import TRANSPILE_TIMEOUT
 REPO = Path(__file__).resolve().parents[3]
 STDLIB = REPO / "src" / "stdlib"
 GRAMMAR = REPO / "src" / "language" / "grammar.ebnf"
-INVENTORY = REPO / "docs" / "design" / "platform-inventory.toml"
-# The package trees resolved besides the stdlib: every examples/ package and
-# every native test package, each by its top package directory.
-PACKAGE_TREES = ("examples", "src/tests/native")
-# UI0 inventories these groups' exports through its own denominators
-# (test_platform_inventory.py), so the P0 inventory has no cell for them.
-UI0_GROUPS = frozenset({"App", "GUI", "Tray", "UI"})
+# The package trees resolved besides the stdlib: the optional embedded-web
+# package, the native-package fixture and every native test package, each by
+# its top package directory.
+PACKAGE_TREES = ("packages/embedded-web", "src/tests/fixtures/native-package", "src/tests/native")
 OPERATING_SYSTEMS = frozenset(row.operating_system for row in TARGET_ROWS)
 ROWS = {row.label: row for row in TARGET_ROWS}
-# The P0 inventory's six slices and the rows each covers (test_target_contract.py).
 SLICE_ROWS = {
     "windows-x64": ("windows-x86_64",),
     "windows-arm64": ("windows-aarch64", "windows-aarch64-msvc"),
@@ -70,8 +66,6 @@ SLICE_ROWS = {
     "android-arm64": ("android-aarch64",),
     "android-x86_64": ("android-x86_64",),
 }
-# An inventory cell in one of these implementation states is unavailable on its slice.
-UNAVAILABLE_IMPLEMENTATIONS = frozenset({"missing", "source-only"})
 # Package modules that no ordinary compile resolves, by program key, with why.
 EXPECTED_REFUSALS = {
     "package:src/tests/native/gui/webgpu_child/Main.btrc": (
@@ -85,7 +79,7 @@ EXPECTED_REFUSALS = {
 }
 NO_PROVIDER = re.compile(r"module '(?P<module>.+)' has no provider for target (?P<target>\S+)$")
 QUOTED_PATH = re.compile(r"'(/[^']*)'")
-PACKAGE_FAILURE = "error: package resolution failed: "
+PACKAGE_FAILURE_PREFIXES = ("error: package resolution failed: ", "package resolution failed: ")
 OBJECTIVE_C = frozenset({"objective-c", "objective-c++"})
 PATH_KINDS = frozenset({"source", "header", "include-directory"})
 
@@ -158,7 +152,12 @@ class PathSpelling:
     def message(self, text: str) -> str:
         """A failure message with its quoted absolute paths spelled."""
 
-        return QUOTED_PATH.sub(lambda match: f"'{self.spell(match[1])}'", text.removeprefix(PACKAGE_FAILURE).strip())
+        cleaned = text.strip()
+        for prefix in PACKAGE_FAILURE_PREFIXES:
+            if cleaned.startswith(prefix):
+                cleaned = cleaned.removeprefix(prefix)
+                break
+        return QUOTED_PATH.sub(lambda match: f"'{self.spell(match[1])}'", cleaned)
 
     def failure(self, text: str, label: str) -> Resolution:
         message = self.message(text)
@@ -556,22 +555,6 @@ class MatrixClassifier:
                 else:
                     classified.foreign.append(f"{key}: {reason}")
         return classified
-
-
-class InventoryCells:
-    """The P0 inventory's stdlib cells (docs/design/platform-inventory.toml)."""
-
-    @staticmethod
-    def implementations() -> dict[tuple[str, str], str]:
-        """Each stdlib cell's implementation state, by (operation id, slice)."""
-
-        document = tomllib.loads(INVENTORY.read_text(encoding="utf-8"))
-        return {
-            (row["id"], name): row[name]["implementation"]
-            for row in document["rows"]
-            if row["id"].startswith("Library.")
-            for name in SLICE_ROWS
-        }
 
 
 PROBE_MANIFEST = """manifest-version = 1
