@@ -277,15 +277,16 @@ static void btrcGtkWebDeliver(BtrcGtkWeb* web, const char* json) {
 
 static void btrcGtkOnWebLoad(WebKitWebView* view, WebKitLoadEvent event, gpointer data) {
 	BtrcGtkWeb* web = data;
-	(void)view;
 	if (web->destroyed) { return; }
 	if (event == WEBKIT_LOAD_STARTED) { web->loaded = false; }
+	if (event == WEBKIT_LOAD_COMMITTED) { gtk_widget_queue_draw(GTK_WIDGET(view)); return; }
 	if (event != WEBKIT_LOAD_FINISHED) { return; }
 	web->loaded = true;
 	for (guint index = 0; index < web->waiting->len; index++) {
 		btrcGtkWebDeliver(web, g_ptr_array_index(web->waiting, index));
 	}
 	g_ptr_array_set_size(web->waiting, 0);
+	gtk_widget_queue_draw(GTK_WIDGET(view));
 	btrcGtkWebRequestSnapshot(web);
 }
 
@@ -323,6 +324,7 @@ static void btrcGtkWebHostPlace(void* state, int x, int y, int width, int height
 	(void)y;
 	(void)scale;
 	if (web == NULL || web->destroyed) { return; }
+	bool becameVisible = visible && !web->visible;
 	web->visible = visible;
 	if (!visible || width <= 0 || height <= 0) { return; }
 	if (width != web->placedWidth || height != web->placedHeight) {
@@ -332,6 +334,7 @@ static void btrcGtkWebHostPlace(void* state, int x, int y, int width, int height
 		gtk_window_set_default_size(GTK_WINDOW(web->window), width, height);
 		btrcGtkWebClearInputRegion(web->window);
 	}
+	if (becameVisible && web->view != NULL) { gtk_widget_queue_draw(web->view); }
 	if (web->loaded) { btrcGtkWebRequestSnapshot(web); }
 }
 
@@ -547,14 +550,17 @@ static BtrcShimControl* btrcEmbeddedWebCreate(unsigned int id) {
 	web->manager = manager;
 	g_object_unref(session);
 	g_object_unref(context);
-	/* Host the WebKitWebView in a transparent, click-through backing GtkWindow
-	 * so its frame clock and backing store stay active while the native Wayland
-	 * window owns visible stacking, focus, and pointer z-order. */
+	/* Host the WebKitWebView in a click-through backing GtkWindow at minimal
+	 * non-zero opacity (user_alpha = 1/255) so GTK4 does not short-circuit
+	 * gtk_widget_create_render_node() and skip WebKitWebView::snapshot(),
+	 * keeping WebKit's frame clock and requestAnimationFrame ticks active
+	 * while the native Wayland window owns visible stacking, focus, and
+	 * pointer z-order. */
 	GtkWidget* host = gtk_window_new();
 	gtk_window_set_decorated(GTK_WINDOW(host), FALSE);
 	gtk_window_set_resizable(GTK_WINDOW(host), TRUE);
 	gtk_window_set_default_size(GTK_WINDOW(host), 320, 240);
-	gtk_widget_set_opacity(host, 0.0);
+	gtk_widget_set_opacity(host, 0.005);
 	gtk_widget_set_can_target(host, FALSE);
 	gtk_widget_set_focusable(host, FALSE);
 	gtk_window_set_child(GTK_WINDOW(host), view);
