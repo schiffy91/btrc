@@ -160,10 +160,10 @@ class GPUCommandBatch {
 		self.submit();
 		var pump = GPUCompletionPump(self._device.nativeInstance());
 		var completion = GPUQueueWorkDoneCompletion();
-		var cb = WGPUQueueWorkDoneCallbackInfoInput();
+		var cb = BtrcWGPUQueueWorkDoneCallbackInfoInput();
 		cb.mode = WGPUCallbackMode_AllowProcessEvents;
 		cb.callback = completion;
-		wgpuQueueOnSubmittedWorkDone(self._device.nativeQueue(), cb, pump.scope());
+		btrcWgpuQueueOnSubmittedWorkDone(self._device.nativeQueue(), cb, pump.scope());
 		try {
 			for (int spin = 0; spin < 2000000; spin++) {
 				pump.pump();

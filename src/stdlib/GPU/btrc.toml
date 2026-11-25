@@ -61,6 +61,13 @@ name = "Foundation"
 modules = ["WebGPU"]
 os = ["ios"]
 
+[[native.sources]]
+path = "WebGPUCompat.c"
+language = "c"
+standard = "c11"
+modules = ["WebGPU"]
+os = ["macos", "linux", "windows", "android", "ios"]
+
 [[native.bindings]]
 module = "WebGPU"
 header = "WebGPUImports.h"
@@ -74,8 +81,8 @@ symbols = [
 	"WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPUStringView",
 	"wgpuAdapterRequestDevice", "wgpuAdapterRelease", "wgpuDeviceRelease", "wgpuDeviceGetQueue", "wgpuQueueRelease",
 	"WGPURequestAdapterStatus_Success", "WGPURequestDeviceStatus_Success",
-	"WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo", "WGPUQueueWorkDoneCallbackInfo",
-	"WGPUQueueWorkDoneStatus_Success", "wgpuQueueOnSubmittedWorkDone",
+	"WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo", "BtrcWGPUQueueWorkDoneCallbackInfo",
+	"WGPUQueueWorkDoneStatus_Success", "btrcWgpuQueueOnSubmittedWorkDone",
 	"wgpuDeviceGetLimits", "WGPULimits", "wgpuSurfaceGetCapabilities", "wgpuSurfaceCapabilitiesFreeMembers", "WGPUStatus_Success",
 	"WGPUTextureFormat_BGRA8Unorm", "WGPUTextureFormat_RGBA8Unorm", "WGPUTextureFormat_R8Unorm",
 	"WGPUTextureFormat_R16Uint", "WGPUTextureFormat_RGBA16Float", "WGPUTextureFormat_RGBA32Float", "WGPUTextureFormat_RGB10A2Unorm",
@@ -114,13 +121,13 @@ owned-results = ["wgpuCreateInstance", "wgpuDeviceGetQueue"]
 borrowed-parameters = [
 	"wgpuInstanceRequestAdapter.instance", "wgpuInstanceProcessEvents.instance", "wgpuAdapterRequestDevice.adapter", "wgpuDeviceGetQueue.device",
 	"wgpuDeviceGetLimits.device", "wgpuSurfaceGetCapabilities.surface", "wgpuSurfaceGetCapabilities.adapter", "wgpuSurfaceConfigure.surface", "wgpuSurfaceUnconfigure.surface",
-	"wgpuSurfaceGetCurrentTexture.surface", "wgpuSurfacePresent.surface", "wgpuDeviceCreateCommandEncoder.device", "wgpuQueueSubmit.queue", "wgpuQueueOnSubmittedWorkDone.queue",
+	"wgpuSurfaceGetCurrentTexture.surface", "wgpuSurfacePresent.surface", "wgpuDeviceCreateCommandEncoder.device", "wgpuQueueSubmit.queue", "btrcWgpuQueueOnSubmittedWorkDone.queue",
 	"wgpuDeviceCreateBuffer.device", "wgpuQueueWriteBuffer.queue", "wgpuDeviceCreateTexture.device", "wgpuDeviceCreateSampler.device", "wgpuQueueWriteTexture.queue",
 	"wgpuDevicePushErrorScope.device", "wgpuDevicePopErrorScope.device", "wgpuDeviceCreateShaderModule.device", "wgpuDeviceCreateBindGroupLayout.device",
 	"wgpuDeviceCreatePipelineLayout.device", "wgpuDeviceCreateRenderPipeline.device", "wgpuDeviceCreateComputePipeline.device", "wgpuDeviceCreateBindGroup.device"
 ]
-owned-records = ["WGPURequestAdapterOptions", "WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPUSurfaceConfiguration", "WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo", "WGPUQueueWorkDoneCallbackInfo"]
-record-inputs = ["wgpuInstanceRequestAdapter.options", "wgpuInstanceRequestAdapter.callbackInfo", "wgpuAdapterRequestDevice.callbackInfo", "wgpuSurfaceConfigure.config", "wgpuDevicePopErrorScope.callbackInfo", "wgpuBufferMapAsync.callbackInfo", "wgpuQueueOnSubmittedWorkDone.callbackInfo"]
+owned-records = ["WGPURequestAdapterOptions", "WGPURequestAdapterCallbackInfo", "WGPURequestDeviceCallbackInfo", "WGPUSurfaceConfiguration", "WGPUPopErrorScopeCallbackInfo", "WGPUBufferMapCallbackInfo", "BtrcWGPUQueueWorkDoneCallbackInfo"]
+record-inputs = ["wgpuInstanceRequestAdapter.options", "wgpuInstanceRequestAdapter.callbackInfo", "wgpuAdapterRequestDevice.callbackInfo", "wgpuSurfaceConfigure.config", "wgpuDevicePopErrorScope.callbackInfo", "wgpuBufferMapAsync.callbackInfo", "btrcWgpuQueueOnSubmittedWorkDone.callbackInfo"]
 os = ["macos", "linux", "windows", "android", "ios"]
 [native.bindings.resources.WGPUInstance]
 ownership = "reference-counted"
@@ -188,7 +195,7 @@ executor = "caller"
 failure = "abort"
 activation-failure = "abort"
 cancellation = "abandon"
-[native.bindings.callbacks."wgpuQueueOnSubmittedWorkDone.callbackInfo"]
+[native.bindings.callbacks."btrcWgpuQueueOnSubmittedWorkDone.callbackInfo"]
 field = "callback"
 context = ["userdata1", "userdata2"]
 context-index = [1, 2]
