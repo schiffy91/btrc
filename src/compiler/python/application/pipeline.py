@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from dataclasses import replace
+from pathlib import Path
 from types import MappingProxyType
 from typing import Protocol
 
@@ -20,7 +22,14 @@ from ..analyzer.analyzer import SemanticAnalyzer
 from ..backend.c_emitter import CEmitter
 from ..frontend.imports import FrontendVisibilityError
 from ..frontend.native_imports import NativeHeaderSource
-from ..frontend.packages import IncludeResolutionError, NativeGeneratedUnit, NativeLinkPlan, PackageTarget
+from ..frontend.packages import (
+    IncludeResolutionError,
+    NativeGeneratedUnit,
+    NativeLinkPlan,
+    PackageManifestReader,
+    PackageManifestValidator,
+    PackageTarget,
+)
 from ..frontend.sources import (
     CompilerStdlibSource,
     ConditionalEnvironment,
@@ -267,14 +276,26 @@ class StdlibArchiveAdapter:
                 declarations[helper.name] = self.inline_toplevel_functions(helper.c_source)
         return shared, declarations
 
-    def partition(self, module, manifest: dict, header_include: str | None = None):
+    def partition(
+        self,
+        module,
+        manifest: dict,
+        header_include: str | None = None,
+        *,
+        include_index: int | None = None,
+    ) -> int:
         types = set(manifest["types"])
         functions = set(manifest["functions"])
         drop_named = types | functions
         function_declarations = set(manifest["function_declarations"])
         archive_macros = {self._macro_record_key(record) for record in manifest["macros"]}
         helpers = set(manifest.get("helpers", [])) | set(manifest["shared_helpers"])
-        module.enum_defs = [entry for entry in module.enum_defs if entry.name not in types]
+        module.enum_defs = [
+            entry
+            for entry in module.enum_defs
+            if (entry.name not in types)
+            and not (entry.name is None and entry.values and all(value.name in types for value in entry.values))
+        ]
         module.typedef_defs = [entry for entry in module.typedef_defs if entry.name not in types]
         module.tagged_union_defs = [entry for entry in module.tagged_union_defs if entry.name not in types]
         module.struct_defs = [entry for entry in module.struct_defs if entry.name not in types]
@@ -300,21 +321,25 @@ class StdlibArchiveAdapter:
             header=header_include or self.repository.header_name,
             is_system=False,
         )
-        first_include = next(
-            (
-                index
-                for index, declaration in enumerate(module.preprocessor_decls)
-                if isinstance(declaration, IRInclude)
-            ),
-            len(module.preprocessor_decls),
-        )
-        module.preprocessor_decls.insert(first_include, archive_include)
-        return module
+        if include_index is None:
+            insert_at = next(
+                (
+                    index
+                    for index, declaration in enumerate(module.preprocessor_decls)
+                    if isinstance(declaration, IRInclude)
+                ),
+                len(module.preprocessor_decls),
+            )
+        else:
+            insert_at = min(include_index, len(module.preprocessor_decls))
+        module.preprocessor_decls.insert(insert_at, archive_include)
+        return insert_at + 1
 
     def metadata(self, module, shared_helpers: list[str]) -> dict:
         return {
             "types": sorted(
                 {entry.name for entry in module.enum_defs if entry.name is not None}
+                | {value.name for entry in module.enum_defs if entry.name is None for value in entry.values}
                 | {entry.name for entry in module.struct_forwards}
                 | {entry.name for entry in module.function_pointer_typedefs}
                 | {entry.name for entry in module.struct_defs}
@@ -457,6 +482,222 @@ class StdlibArchiveAdapter:
         return record["name"], None if record["params"] is None else tuple(record["params"]), record["replacement"]
 
 
+class PackageArchivePort(Protocol):
+    """Persistence boundary required by the precompiled package archive workflow."""
+
+    available: bool
+
+    def publish(
+        self,
+        out_dir: str,
+        package_name: str,
+        package_root: str,
+        source_entries: dict[str, str],
+        header: str,
+        implementation: str,
+        link_plan_json: str,
+        metadata: dict,
+        target: str,
+    ) -> dict: ...
+
+    def load(self, archive_dir: str, target: str) -> dict: ...
+
+
+class DisabledPackageArchive:
+    """Explicit non-persistent package archive port used by an unconfigured library compiler."""
+
+    available = False
+
+    @staticmethod
+    def publish(
+        out_dir: str,
+        package_name: str,
+        package_root: str,
+        source_entries: dict[str, str],
+        header: str,
+        implementation: str,
+        link_plan_json: str,
+        metadata: dict,
+        target: str,
+    ) -> dict:
+        del out_dir, package_name, package_root, source_entries, header, implementation, link_plan_json, metadata
+        del target
+        raise StdlibArchiveError("package archive persistence is not configured")
+
+    @staticmethod
+    def load(archive_dir: str, target: str) -> dict:
+        del archive_dir, target
+        raise StdlibArchiveError("package archive persistence is not configured")
+
+
+class PackageArchiveAdapter:
+    """Adapt compiler IR to and from persisted user-package archive payloads."""
+
+    def __init__(
+        self,
+        repository: PackageArchivePort,
+        stdlib_adapter: StdlibArchiveAdapter,
+        freestanding_runtime: FreestandingRuntime,
+        emitter: CEmitter,
+    ) -> None:
+        self.repository = repository
+        self.stdlib_adapter = stdlib_adapter
+        self.freestanding_runtime = freestanding_runtime
+        self.emitter = emitter
+
+    def publish(
+        self,
+        out_dir: str,
+        package_name: str,
+        package_root: str,
+        exports: list[str],
+        source_entries: dict[str, str],
+        module,
+        native_plan: NativeLinkPlan,
+        target: str,
+    ) -> dict:
+        """Transform, emit, and publish one precompiled user-package archive."""
+        shared, declarations = self.transform_module(module)
+        header_name = f"{package_name}.h"
+        guard_name = f"BTRC_PKG_{package_name.upper()}_H"
+        header = self.emitter.emit_header(
+            module,
+            declarations,
+            guard_name=guard_name,
+            export_all_globals=True,
+            include_def_prototypes=True,
+        )
+        implementation = self.emitter.emit_impl(
+            module,
+            header_name,
+            set(shared),
+            export_kernels=True,
+        )
+        plan_dict = native_plan.as_dict()
+        metadata = {
+            **self.stdlib_adapter.metadata(module, shared),
+            "exports": sorted(exports),
+            "gpu_kernels": sorted(kernel.name for kernel in module.gpu_kernels),
+            "native_units": sorted({os.path.realpath(unit["path"]) for unit in plan_dict["units"]}),
+            "generated_units": sorted(unit.name for unit in native_plan.generated_units),
+        }
+        try:
+            return self.repository.publish(
+                out_dir,
+                package_name,
+                package_root,
+                source_entries,
+                header,
+                implementation,
+                native_plan.canonical_json(),
+                metadata,
+                target,
+            )
+        except StdlibArchiveError:
+            raise
+        except (OSError, ValueError) as error:
+            raise StdlibArchiveError(str(error)) from error
+
+    def consume(
+        self,
+        module,
+        program,
+        archive_dir: str,
+        target: str,
+        *,
+        include_index: int | None = None,
+    ) -> int:
+        """Partition ``module`` against one verified precompiled package archive."""
+        try:
+            manifest = self.repository.load(archive_dir, target)
+        except StdlibArchiveError:
+            raise
+        except (OSError, ValueError) as error:
+            raise StdlibArchiveError(str(error)) from error
+        self.reject_user_overrides(program, manifest)
+        next_index = self.stdlib_adapter.partition(
+            module,
+            manifest,
+            header_include=manifest["header_name"],
+            include_index=include_index,
+        )
+        gpu_kernels = set(manifest["gpu_kernels"])
+        if gpu_kernels:
+            module.gpu_kernels = [kernel for kernel in module.gpu_kernels if kernel.name not in gpu_kernels]
+        return next_index
+
+    def reject_user_overrides(self, program, manifest: dict) -> None:
+        provided = set(manifest["types"]) | set(manifest["functions"]) | set(manifest["global_decl_names"])
+        package_root = os.path.realpath(manifest["package_root"])
+        archive_sources = {os.path.normcase(os.path.realpath(path)) for path in manifest["source_files"]}
+        conflicts = set()
+        for declaration in program.declarations:
+            name = getattr(declaration, "name", None)
+            if not name or name not in provided:
+                continue
+            source_file = getattr(declaration, "source_file", None)
+            if CompilerStdlibSource.authenticated(source_file) or isinstance(source_file, NativeHeaderSource):
+                continue
+            if isinstance(source_file, str):
+                canonical = os.path.realpath(source_file)
+                if os.path.normcase(canonical) in archive_sources:
+                    continue
+                try:
+                    if os.path.commonpath((package_root, canonical)) == package_root:
+                        continue
+                except ValueError:
+                    pass
+            conflicts.add(name)
+        if conflicts:
+            names = ", ".join(sorted(conflicts))
+            package_name = manifest["package"]
+            raise StdlibArchiveError(
+                f"program overrides archive-provided '{package_name}' declarations ({names}); "
+                "compile without --package-archive or rename the conflicting symbols"
+            )
+
+    def transform_module(self, module) -> tuple[list[str], dict[str, str]]:
+        if any(function.name == "main" for function in module.function_defs):
+            raise StdlibArchiveError(
+                "package archive cannot define 'main'; exclude executable entrypoints from package.exports"
+            )
+        module.helper_decls, archive_helpers = self.stdlib_adapter.complete_helpers(module.helper_decls)
+        IROptimizer.materialize_runtime_dependencies(module, self.freestanding_runtime)
+        exports = {
+            function.name
+            for function in module.function_defs
+            if function.archive_export or not IROptimizer.is_unit_local_adapter(function.name)
+        }
+        for function in module.function_defs:
+            if function.is_static and function.name in exports:
+                function.is_static = False
+        for declaration in module.function_decls:
+            if declaration.is_static and declaration.name in exports:
+                declaration.is_static = False
+        for declaration in module.global_decls:
+            if declaration.is_static and not declaration.is_extern:
+                declaration.is_static = False
+
+        shared = []
+        declarations = {}
+        for helper in module.helper_decls:
+            if helper.name in archive_helpers:
+                if helper.name in self.stdlib_adapter.ARCHIVE_API_NAMES:
+                    declarations[helper.name] = self.stdlib_adapter.derive_archive_api_declarations(
+                        helper.c_source, helper.name
+                    )
+                    helper.c_source = self.stdlib_adapter.derive_archive_api_implementation(
+                        helper.c_source, helper.name
+                    )
+                else:
+                    declarations[helper.name] = self.stdlib_adapter.derive_shared_declarations(helper.c_source)
+                    helper.c_source = self.stdlib_adapter.derive_shared_implementation(helper.c_source)
+                shared.append(helper.name)
+            else:
+                declarations[helper.name] = self.stdlib_adapter.inline_toplevel_functions(helper.c_source)
+        return shared, declarations
+
+
 class CompilationPipeline:
     """Compose and orchestrate source, syntax, semantic, IR, and C stages."""
 
@@ -466,6 +707,7 @@ class CompilationPipeline:
         frontend: FrontendStage | None = None,
         resolver: SourceResolver | None = None,
         archive_repository: StdlibArchivePort | None = None,
+        package_archive_repository: PackageArchivePort | None = None,
         numeric_literals: NumericLiteralSemantics | None = None,
         type_identity: TypeIdentity | None = None,
         runtime_catalog: RuntimeHelperCatalog | None = None,
@@ -493,6 +735,15 @@ class CompilationPipeline:
         self.stdlib_archive = StdlibArchiveAdapter(
             repository,
             self.runtime_catalog,
+            CEmitter(),
+        )
+        pkg_repository = (
+            package_archive_repository if package_archive_repository is not None else DisabledPackageArchive()
+        )
+        self.package_archive = PackageArchiveAdapter(
+            pkg_repository,
+            self.stdlib_archive,
+            self.freestanding_runtime,
             CEmitter(),
         )
 
@@ -665,7 +916,7 @@ class CompilationPipeline:
                 if analyzed.realtime_safe_callables
                 else frozenset()
             ),
-            prune_stdlib=options.dce and options.stdlib_archive is None,
+            prune_stdlib=options.dce and options.stdlib_archive is None and not options.package_archives,
             groups=groups,
             owned_group=owned_group,
             program_facts=program_facts,
@@ -693,7 +944,7 @@ class CompilationPipeline:
     ):
         """Stage five; with ``target``, the surviving code must use only names its row declares."""
         start = time.perf_counter()
-        run_dce = options.dce and options.stdlib_archive is None
+        run_dce = options.dce and options.stdlib_archive is None and not options.package_archives
         IRVerifier(module).validate_schema()
         optimizer = IROptimizer(
             module,
@@ -722,21 +973,22 @@ class CompilationPipeline:
         return c_source
 
     @staticmethod
-    def _result(
+    def _enriched_native_plan(
         source: ResolvedSource,
+        module,
         options: CompilerOptions,
-        profile: dict[str, float] | None,
-        **values,
-    ) -> CompilerResult:
+        *,
+        c_units: tuple[str, ...] = (),
+        c_unit_names=None,
+    ) -> NativeLinkPlan:
         native_plan = source.native_plan
-        module = values.get("ir_module")
         if module is not None and any(item.auxiliary is not None for item in native_plan.declarations):
             native_plan = replace(
                 native_plan, retained_runtime_helpers=tuple(helper.name for helper in module.helper_decls)
             )
-        if values.get("c_units"):
+        if c_units:
             native_plan = native_plan.with_emitted_units(
-                options.units_prefix, values.get("c_unit_names") or len(values["c_units"]), values["c_units"]
+                options.units_prefix, c_unit_names or len(c_units), c_units
             )
         if module is not None and module.native_units:
             native_plan = replace(
@@ -752,6 +1004,23 @@ class CompilationPipeline:
                     for name, unit in sorted(module.native_units.items())
                 ),
             )
+        return native_plan
+
+    @classmethod
+    def _result(
+        cls,
+        source: ResolvedSource,
+        options: CompilerOptions,
+        profile: dict[str, float] | None,
+        **values,
+    ) -> CompilerResult:
+        native_plan = cls._enriched_native_plan(
+            source,
+            values.get("ir_module"),
+            options,
+            c_units=values.get("c_units", ()),
+            c_unit_names=values.get("c_unit_names"),
+        )
         return CompilerResult(
             options=options,
             source_bundle=source,
@@ -805,6 +1074,7 @@ class CompilationPipeline:
         if options.output is CompilerOutput.AST:
             return self._result(source, options, profile, tokens=parsed.tokens, program=program)
 
+        uses_archive = options.stdlib_archive is not None or bool(options.package_archives)
         interface_digest = None
         interfaces = ProgramInterface()
         try:
@@ -812,7 +1082,7 @@ class CompilationPipeline:
                 options.module_units
                 and options.units_prefix is not None
                 and options.output is CompilerOutput.C
-                and options.stdlib_archive is None
+                and not uses_archive
                 and source.strict_imports
             ):
                 interface_digest = interfaces.capture(
@@ -827,7 +1097,7 @@ class CompilationPipeline:
                 program,
                 profile,
                 source.native_plan.target,
-                prune_stdlib=options.dce and not options.stdlib_strict and options.stdlib_archive is None,
+                prune_stdlib=options.dce and not options.stdlib_strict and not uses_archive,
             )
         except RecursionError as error:
             return self._result(
@@ -851,7 +1121,7 @@ class CompilationPipeline:
             options.module_units
             and options.units_prefix is not None
             and options.output is CompilerOutput.C
-            and options.stdlib_archive is None
+            and not uses_archive
         ):
             if not source.strict_imports:
                 failure = CompilerFailure(CompilerFailureKind.INPUT, "module units require strict imports")
@@ -902,24 +1172,52 @@ class CompilationPipeline:
             )
             if options.output is CompilerOutput.IR:
                 return self._result(source, options, profile, ir_module=module, **common)
-            # An archive build keeps every stdlib function until the archive
+            # An archive build keeps every archive-owned function until the archive
             # takes its own, so its program is checked after the partition.
             label = source.native_plan.target.label
-            module = self.optimize(module, options, profile, None if options.stdlib_archive is not None else label)
+            module = self.optimize(module, options, profile, None if uses_archive else label)
             if options.output is CompilerOutput.OPTIMIZED_IR:
                 return self._result(source, options, profile, ir_module=module, **common)
-            if options.stdlib_archive is not None:
+            if uses_archive:
                 start = time.perf_counter()
-                self.stdlib_archive.consume(
-                    module,
-                    program,
-                    options.stdlib_archive,
-                    self.frontend.stdlib.source("", ConditionalEnvironment(source.native_plan.target)),
-                    label,
-                )
+                include_index: int | None = None
+                if options.stdlib_archive is not None:
+                    self.stdlib_archive.consume(
+                        module,
+                        program,
+                        options.stdlib_archive,
+                        self.frontend.stdlib.source("", ConditionalEnvironment(source.native_plan.target)),
+                        label,
+                    )
+                    include_index = next(
+                        (
+                            index + 1
+                            for index, declaration in enumerate(module.preprocessor_decls)
+                            if isinstance(declaration, IRInclude)
+                            and declaration.header == self.stdlib_archive.repository.header_name
+                        ),
+                        None,
+                    )
+                for archive_dir in options.package_archives:
+                    include_index = self.package_archive.consume(
+                        module,
+                        program,
+                        archive_dir,
+                        label,
+                        include_index=include_index,
+                    )
+                if options.package_archives:
+                    has_entry = any(fn.name in {"main", "btrc_main"} for fn in module.function_defs)
+                    IROptimizer(
+                        module,
+                        dce=True,
+                        runtime_catalog=self.runtime_catalog,
+                        freestanding_runtime=self.freestanding_runtime,
+                        module_unit=not (options.dce and has_entry),
+                    ).prune_post_archive()
                 self._finalize_optimized_ir(module)
                 IROptimizer(module, dce=False).refuse_unavailable_hosted(label)
-                self._timed(profile, "stdlib_archive", start)
+                self._timed(profile, "archive", start)
             if options.debug and options.generated_c_path:
                 module.debug_cfile = os.path.abspath(options.generated_c_path)
             c_units: tuple[str, ...] = ()
@@ -1033,3 +1331,156 @@ class CompilationPipeline:
             failure = self.failure_for(error)
             return CompilerActionResult(failure=failure)
         return CompilerActionResult.completed(f"Built stdlib archive → {out_dir}", directory=out_dir)
+
+    @staticmethod
+    def _discover_package_modules(package_root: str, excluded: set[str]) -> tuple[str, ...]:
+        src_dir = os.path.join(package_root, "src")
+        scan_root = src_dir if os.path.isdir(src_dir) else package_root
+        discovered: list[str] = []
+        for current, dirs, files in os.walk(scan_root):
+            dirs[:] = sorted(
+                name
+                for name in dirs
+                if not name.startswith(".")
+                and not os.path.isfile(os.path.join(current, name, "btrc.toml"))
+            )
+            for filename in sorted(files):
+                if not filename.endswith(".btrc") or filename.startswith("."):
+                    continue
+                canonical = os.path.realpath(os.path.join(current, filename))
+                if canonical not in excluded:
+                    discovered.append(canonical)
+        return tuple(sorted(discovered))
+
+    @staticmethod
+    def _module_name_for_path(package_root: str, file_path: str) -> str:
+        rel = os.path.relpath(file_path, package_root).replace(os.sep, "/")
+        if rel.startswith("src/"):
+            rel = rel[len("src/") :]
+        return rel.removesuffix(".btrc").replace("/", ".")
+
+    def build_package_archive(
+        self,
+        package_dir: str,
+        out_dir: str,
+        target: str | None = None,
+    ) -> CompilerActionResult:
+        """Compile and publish one BTRC package into a linkable archive."""
+
+        try:
+            target_obj = PackageTarget.coerce(target)
+        except ValueError as error:
+            return CompilerActionResult(failure=CompilerFailure(CompilerFailureKind.INPUT, str(error)))
+
+        package_root = os.path.realpath(package_dir)
+        manifest_path = os.path.join(package_root, "btrc.toml")
+        if not os.path.isfile(manifest_path):
+            return CompilerActionResult(
+                failure=CompilerFailure(
+                    CompilerFailureKind.PACKAGE,
+                    f"package directory '{package_dir}' does not contain btrc.toml",
+                )
+            )
+        try:
+            manifest = PackageManifestReader().read(manifest_path)
+            validator = PackageManifestValidator()
+            package_name = validator.validate_identity(manifest, manifest_path)
+            export_paths = validator.exported_modules(manifest, manifest_path)
+            auxiliary = {
+                os.path.realpath(item.value) for item in validator.auxiliary_entries(manifest, manifest_path)
+            }
+        except (OSError, ValueError) as error:
+            return CompilerActionResult(failure=CompilerFailure(CompilerFailureKind.PACKAGE, str(error)))
+
+        if export_paths is None:
+            export_paths = self._discover_package_modules(package_root, auxiliary)
+        if not export_paths:
+            return CompilerActionResult(
+                failure=CompilerFailure(
+                    CompilerFailureKind.PACKAGE,
+                    f"package '{package_name}' exports no modules",
+                )
+            )
+
+        exports = [self._module_name_for_path(package_root, path) for path in export_paths]
+        entry_lines = [
+            f'import "./{os.path.relpath(path, package_root).replace(os.sep, "/")}";'
+            for path in export_paths
+        ]
+        entry_source = "\n".join(entry_lines) + "\n"
+        entry_path = os.path.join(package_root, ".btrc_package_entry.btrc")
+        options = CompilerOptions(
+            include_stdlib=False,
+            strict_imports=True,
+            use_ast_cache=False,
+            use_cache=False,
+            dce=False,
+            target=target_obj.label,
+        )
+        try:
+            resolved = self.resolve(entry_source, entry_path, options)
+            parsed = self.parse(resolved, os.path.basename(entry_path), options)
+        except (
+            IncludeResolutionError,
+            LexerError,
+            ParseError,
+            FrontendVisibilityError,
+            PreprocessorConditionalError,
+            RecursionError,
+        ) as error:
+            return CompilerActionResult(failure=self.failure_for(error))
+
+        program = parsed.program
+        if program is None:
+            raise AssertionError("front-end parse result unexpectedly omitted program")
+        try:
+            analyzed = self.analyze(program, target=resolved.native_plan.target)
+        except RecursionError as error:
+            return CompilerActionResult(failure=self.failure_for(error))
+        diagnostics = self._analyzer_diagnostics(analyzed)
+        if analyzed.errors or any(diagnostic.severity == "error" for diagnostic in diagnostics):
+            return CompilerActionResult(
+                failure=CompilerFailure(
+                    CompilerFailureKind.ANALYSIS,
+                    f"package '{package_name}' semantic analysis failed",
+                    diagnostics,
+                )
+            )
+        try:
+            module = self.lower(
+                analyzed,
+                resolved,
+                os.path.basename(entry_path),
+                options,
+                split_source_spaces=False,
+            )
+            module = self.optimize(module, options, target=target_obj.label)
+            native_plan = self._enriched_native_plan(resolved, module, options)
+            source_paths = sorted(
+                {
+                    os.path.realpath(path)
+                    for path in (manifest_path, *resolved.provenance)
+                    if path and os.path.isfile(path)
+                }
+            )
+            source_entries = {
+                path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
+                for path in source_paths
+            }
+            self.package_archive.publish(
+                out_dir,
+                package_name,
+                package_root,
+                exports,
+                source_entries,
+                module,
+                native_plan,
+                target_obj.label,
+            )
+        except (CodegenError, IncludeResolutionError, StdlibArchiveError, HostedAvailabilityError, OSError) as error:
+            return CompilerActionResult(failure=self.failure_for(error))
+        return CompilerActionResult.completed(
+            f"Built package archive '{package_name}' → {out_dir}",
+            package=package_name,
+            directory=out_dir,
+        )

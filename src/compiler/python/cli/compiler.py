@@ -54,6 +54,18 @@ class CompilerCommand:
             metavar="DIR",
             help="Reference a prebuilt stdlib archive in DIR and emit program-only C",
         )
+        parser.add_argument(
+            "--build-package",
+            metavar="PKG_DIR",
+            help="Compile the package in PKG_DIR into a linkable archive in -o DIR and exit",
+        )
+        parser.add_argument(
+            "--package-archive",
+            action="append",
+            default=[],
+            metavar="DIR",
+            help="Reference a prebuilt package archive in DIR and emit consumer-only C (repeatable)",
+        )
         parser.add_argument("-o", "--output", help="Output .c file (default: <input>.c)")
         parser.add_argument(
             "--emit-link-plan",
@@ -238,6 +250,14 @@ class CompilerCommand:
             target = self._selected_target(args.target)
             self._complete_action(self.compiler.build_stdlib_archive(args.build_stdlib, target))
             return 0
+        if args.build_package is not None:
+            if not self.compiler.package_archive_available:
+                parser.error("--build-package requires a configured package archive repository")
+            if not args.output:
+                parser.error("--build-package requires -o/--output DIR")
+            target = self._selected_target(args.target)
+            self._complete_action(self.compiler.build_package_archive(args.build_package, args.output, target))
+            return 0
         if not args.input:
             parser.error("the following arguments are required: input")
         if args.module_units and args.emit_units is None:
@@ -265,6 +285,7 @@ class CompilerCommand:
             profile=args.profile,
             refresh_packages=args.fetch,
             stdlib_archive=args.stdlib,
+            package_archives=tuple(args.package_archive or ()),
             generated_c_path=out_path,
             units_prefix=args.emit_units,
             module_units=args.module_units,

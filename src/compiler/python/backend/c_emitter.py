@@ -338,6 +338,10 @@ class CEmitter:
         self,
         module: IRModule,
         shared_decls: dict | None = None,
+        *,
+        guard_name: str = "BTRC_STDLIB_H",
+        export_all_globals: bool = False,
+        include_def_prototypes: bool = False,
     ) -> str:
         """Emit the public header for a precompiled archive."""
 
@@ -348,8 +352,8 @@ class CEmitter:
         self._reset_lines()
         self._indent = 0
 
-        self._line("#ifndef BTRC_STDLIB_H")
-        self._line("#define BTRC_STDLIB_H")
+        self._line(f"#ifndef {guard_name}")
+        self._line(f"#define {guard_name}")
         self._line("")
         self._emit_preprocessor_declarations(module)
 
@@ -365,16 +369,39 @@ class CEmitter:
         for declaration in module.ordered_type_declarations:
             self._emit_type_declaration(declaration)
 
+        declared_functions: set[str] = set()
+        emitted_any_func = False
         for declaration in module.function_decls:
             if declaration.is_static:
                 continue
             self._emit_function_decl(declaration)
-        if any(not declaration.is_static for declaration in module.function_decls):
+            declared_functions.add(declaration.name)
+            emitted_any_func = True
+        if include_def_prototypes:
+            for func in module.function_defs:
+                if func.is_static or func.name in declared_functions:
+                    continue
+                self._line(f"{self._function_signature(func)};")
+                declared_functions.add(func.name)
+                emitted_any_func = True
+        if emitted_any_func:
             self._line("")
 
-        for declaration in module.global_decls:
-            if declaration.is_extern:
-                self._emit_global_decl(declaration)
+        prev_decls_only = self._declarations_only
+        try:
+            for declaration in module.global_decls:
+                if declaration.is_extern:
+                    self._declarations_only = False
+                    self._emit_global_decl(declaration)
+                elif export_all_globals and not declaration.is_static:
+                    self._declarations_only = True
+                    self._emit_global_decl(declaration)
+            if export_all_globals and module.gpu_kernels:
+                self._declarations_only = True
+                for kernel in module.gpu_kernels:
+                    self._emit_gpu_kernel(kernel)
+        finally:
+            self._declarations_only = prev_decls_only
 
         self._line("#endif")
         return "\n".join(self._lines) + "\n"
@@ -384,6 +411,8 @@ class CEmitter:
         module: IRModule,
         header_include: str,
         shared_names: set | None = None,
+        *,
+        export_kernels: bool = False,
     ) -> str:
         """Emit the definition-only implementation for a precompiled archive."""
 
@@ -413,8 +442,14 @@ class CEmitter:
         if module.global_decls:
             self._line("")
 
-        for kernel in module.gpu_kernels:
-            self._emit_gpu_kernel(kernel)
+        prev_shared = self._shared_linkage
+        if export_kernels:
+            self._shared_linkage = True
+        try:
+            for kernel in module.gpu_kernels:
+                self._emit_gpu_kernel(kernel)
+        finally:
+            self._shared_linkage = prev_shared
 
         for function in module.function_defs:
             self._emit_function(function)

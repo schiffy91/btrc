@@ -159,6 +159,30 @@ class IROptimizer:
             self._refresh_hosted_runtime_headers()
         return self._module
 
+    _UNIT_LOCAL_PREFIXES = (
+        *_ADAPTER_FAMILIES,
+        "__btrc_lambda_",
+        "__btrc_spawn_wrapper_",
+    )
+
+    @classmethod
+    def is_unit_local_adapter(cls, name: str) -> bool:
+        """Whether ``name`` is a TU-numbered private helper that must keep internal linkage."""
+        for prefix in cls._UNIT_LOCAL_PREFIXES:
+            if name.startswith(prefix):
+                suffix = name[len(prefix) :]
+                if suffix.isdigit() or suffix.split("_", 1)[0].isdigit():
+                    return True
+        return False
+
+    def prune_post_archive(self) -> None:
+        """Drop unreachable definitions left behind after archive partitioning."""
+        self._prune_program_reachability()
+        self._prune_runtime_support()
+        self._prune_declarations()
+        self._prune_runtime_support()
+        self._renumber_adapters()
+
     def refuse_unavailable_hosted(self, target: str) -> None:
         """Refuse surviving code that names a hosted name ``target``'s row does not declare.
 

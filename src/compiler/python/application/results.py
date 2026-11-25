@@ -97,6 +97,7 @@ class CompilerOptions:
     profile: bool = False
     refresh_packages: bool = False
     stdlib_archive: str | None = None
+    package_archives: tuple[str, ...] = ()
     generated_c_path: str | None = None
     target: str | None = None
     # Split the emitted C into units written as <prefix>.unit-<k>.c; None means one unit.
@@ -115,7 +116,11 @@ class CompilerOptions:
     @property
     def cacheable(self) -> bool:
         return (
-            self.use_cache and self.output is CompilerOutput.C and self.stdlib_archive is None and not self.freestanding
+            self.use_cache
+            and self.output is CompilerOutput.C
+            and self.stdlib_archive is None
+            and not self.package_archives
+            and not self.freestanding
         )
 
 

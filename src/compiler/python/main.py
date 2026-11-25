@@ -6,6 +6,7 @@ import sys
 from .application.compiler import Compiler
 from .application.pipeline import CompilationPipeline
 from .artifacts.cache import CompilerCache, CompilerOutputPublication, ToolchainFingerprint
+from .artifacts.package_archive import PackageArtifactRepository
 from .artifacts.selfhost import SelfhostBundleBuilder
 from .artifacts.stdlib import StdlibArtifactRepository
 from .cli.bundle import BundleCommand
@@ -23,6 +24,7 @@ def main() -> int:
     pipeline = CompilationPipeline(
         frontend=FrontendStage(imports=ImportResolver(directive_scanner=SourceDirectiveScanner(cache))),
         archive_repository=StdlibArtifactRepository(fingerprint=fingerprint),
+        package_archive_repository=PackageArtifactRepository(fingerprint=fingerprint),
     )
     compiler = Compiler(
         pipeline=pipeline,

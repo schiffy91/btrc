@@ -220,6 +220,12 @@ class Compiler:
 
         return self.pipeline.stdlib_archive.repository.available
 
+    @property
+    def package_archive_available(self) -> bool:
+        """Whether this compiler has a configured persistent package archive owner."""
+
+        return self.pipeline.package_archive.repository.available
+
     @staticmethod
     def _cache_inputs(source: ResolvedSource, options: CompilerOptions) -> tuple[str, str]:
         """Adapt a frontend result to the artifact cache's value-only contract."""
@@ -394,6 +400,16 @@ class Compiler:
         """Build the canonical stdlib through the configured application pipeline."""
 
         return self.pipeline.build_stdlib_archive(output_directory, target)
+
+    def build_package_archive(
+        self,
+        package_directory: str,
+        output_directory: str,
+        target: str | None = None,
+    ) -> CompilerActionResult:
+        """Build one user package into a linkable archive through the configured pipeline."""
+
+        return self.pipeline.build_package_archive(package_directory, output_directory, target)
 
     def build_selfhost_bundle(
         self,

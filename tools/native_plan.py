@@ -31,6 +31,7 @@ from typing import ClassVar
 
 from src.compiler.python.abi.generated import TARGET_ROWS, GeneratedTargetRow
 from src.compiler.python.abi.hosted import TargetRepository
+from src.compiler.python.artifacts.package_archive import PackageArchiveError, PackageArtifactRepository
 from src.compiler.python.artifacts.publication import (
     ArtifactPublisher,
     ArtifactStorage,
@@ -1572,6 +1573,7 @@ class NativePlanBuilder:
         signing: DarwinSigning | None = None,
         compile_flags: Sequence[str] = (),
         link_flags: Sequence[str] = (),
+        package_archives: Sequence[tuple[Path, Path]] = (),
         frontend: Sequence[str] | None = None,
         finalize_image: Callable[[Path], None] | None = None,
     ) -> NativeBuildReport:
@@ -1595,6 +1597,7 @@ class NativePlanBuilder:
             signing=signing,
             compile_flags=compile_flags,
             link_flags=link_flags,
+            package_archives=package_archives,
         )
         if frontend is None:
             if finalize_image is not None:
@@ -1610,6 +1613,129 @@ class NativePlanBuilder:
             if isinstance(error, NativePlanError):
                 raise
             raise NativePlanError(str(error)) from error
+
+    def build_library(
+        self,
+        *,
+        plan_path: Path,
+        generated_c: Path,
+        output: Path,
+        shared: bool = False,
+        install_name: str | None = None,
+        ar: str = "ar",
+        cc: str | Sequence[str] = "cc",
+        cxx: str | Sequence[str] = "c++",
+        pkg_config: str = "pkg-config",
+        optimization: int = 2,
+        jobs: int | None = None,
+        debug_info: bool = False,
+        object_cache: Path | None = None,
+        report_path: Path | None = None,
+        signing: DarwinSigning | None = None,
+        compile_flags: Sequence[str] = (),
+        link_flags: Sequence[str] = (),
+        package_archives: Sequence[tuple[Path, Path]] = (),
+    ) -> NativeBuildReport:
+        """Compile a package archive into a static (.a) or shared (.dylib/.so) library."""
+        if not shared and signing is not None:
+            raise NativePlanError("codesign applies to shared libraries or executables, not static archives")
+        if install_name is not None:
+            PlanJson.text(install_name, "shared library install name")
+        PlanJson.text(ar, "archiver executable")
+        return self._build_single(
+            plan_path=plan_path,
+            generated_c=generated_c,
+            output=output,
+            cc=cc,
+            cxx=cxx,
+            pkg_config=pkg_config,
+            optimization=optimization,
+            jobs=jobs,
+            debug_info=debug_info,
+            object_cache=object_cache,
+            report_path=report_path,
+            signing=signing,
+            compile_flags=compile_flags,
+            link_flags=link_flags,
+            package_archives=package_archives,
+            output_kind="shared" if shared else "static",
+            install_name=install_name,
+            ar=ar,
+        )
+
+    def _resolve_package_archives(
+        self,
+        package_archives: Sequence[tuple[Path, Path]],
+        target_label: str,
+    ) -> tuple[
+        list[Path],
+        list[Path],
+        list[tuple[str, str]],
+        list[str],
+        list[str],
+        list[str],
+        set[Path],
+        set[str],
+        set[str],
+        list[RuntimeObject],
+    ]:
+        repository = PackageArtifactRepository()
+        include_dirs: list[Path] = []
+        libraries: list[Path] = []
+        archive_defines: list[tuple[str, str]] = []
+        archive_pkg_config: list[str] = []
+        archive_frameworks: list[str] = []
+        archive_sys_libs: list[str] = []
+        excluded_native_units: set[Path] = set()
+        excluded_generated_units: set[str] = set()
+        excluded_runtime_sources: set[str] = set()
+        archive_runtime_objects: list[RuntimeObject] = []
+        for archive_dir, library_binary in package_archives:
+            resolved_dir = PlanPaths.real_directory(str(archive_dir.absolute()), "package archive directory")
+            resolved_lib = PlanPaths.regular_file(str(library_binary.absolute()), "package archive library")
+            try:
+                manifest = repository.load(str(resolved_dir), target_label)
+            except (PackageArchiveError, OSError, ValueError) as error:
+                raise NativePlanError(str(error)) from error
+            archive_plan = self._reader.read(resolved_dir / manifest["link_plan_name"])
+            include_dirs.append(resolved_dir.resolve())
+            for inc in archive_plan.include_directories:
+                if inc not in include_dirs:
+                    include_dirs.append(inc)
+            for define in archive_plan.defines:
+                if define not in archive_defines:
+                    archive_defines.append(define)
+            for pkg in archive_plan.pkg_config:
+                if pkg not in archive_pkg_config:
+                    archive_pkg_config.append(pkg)
+            if resolved_lib.suffix == ".a":
+                for fw in archive_plan.frameworks:
+                    if fw not in archive_frameworks:
+                        archive_frameworks.append(fw)
+                for lib_name in archive_plan.libraries:
+                    if lib_name not in archive_sys_libs:
+                        archive_sys_libs.append(lib_name)
+            libraries.append(resolved_lib.resolve())
+            excluded_native_units.update(Path(unit).resolve() for unit in manifest["native_units"])
+            excluded_generated_units.update(manifest["generated_units"])
+            impl_path = resolved_dir / manifest["impl_name"]
+            selected = RuntimeObjects.selected([impl_path.read_text(encoding="utf-8", errors="replace")])
+            for row in selected:
+                excluded_runtime_sources.add(row.source)
+                if row not in archive_runtime_objects:
+                    archive_runtime_objects.append(row)
+        return (
+            include_dirs,
+            libraries,
+            archive_defines,
+            archive_pkg_config,
+            archive_frameworks,
+            archive_sys_libs,
+            excluded_native_units,
+            excluded_generated_units,
+            excluded_runtime_sources,
+            archive_runtime_objects,
+        )
 
     @contextlib.contextmanager
     def _auxiliary_workspace(self, parent: Path, output: Path, *, retain: bool, required: bool) -> Iterator[Path]:
@@ -1824,6 +1950,10 @@ class NativePlanBuilder:
         signing: DarwinSigning | None = None,
         compile_flags: Sequence[str] = (),
         link_flags: Sequence[str] = (),
+        package_archives: Sequence[tuple[Path, Path]] = (),
+        output_kind: str = "executable",
+        install_name: str | None = None,
+        ar: str = "ar",
         _validated_plan: NativeBuildPlan | None = None,
     ) -> NativeBuildReport:
         # Caller flags retain corpus sanitizer and optimization settings. They
@@ -1854,14 +1984,32 @@ class NativePlanBuilder:
             if signing is not None and (sys.platform != "darwin" or plan.operating_system != "macos"):
                 raise NativePlanError("codesign requires a Darwin host and macOS target")
             signer = _DarwinSigner(signing, self._runner) if signing is not None else None
+            (
+                archive_include_dirs,
+                archive_libraries,
+                archive_defines,
+                archive_pkg_config,
+                archive_frameworks,
+                archive_sys_libs,
+                excluded_native_units,
+                excluded_generated_units,
+                excluded_runtime_sources,
+                archive_runtime_objects,
+            ) = self._resolve_package_archives(package_archives, plan.label)
+            active_native_units = tuple(
+                unit for unit in plan.units if unit.path.resolve() not in excluded_native_units
+            )
+            active_generated_units = tuple(
+                unit for unit in plan.generated_units if unit.name not in excluded_generated_units
+            )
             report = NativeBuildReport(
                 plan.label,
                 optimization,
                 debug_info,
                 jobs,
                 1 + plan.emitted_units,
-                len(plan.units),
-                len(plan.generated_units),
+                len(active_native_units),
+                len(active_generated_units),
             )
             generated = self._reader.generated_input(str(generated_c.absolute()), "generated C input")
             emitted = self._reader.emitted_sources(plan)
@@ -1874,13 +2022,18 @@ class NativePlanBuilder:
             runtime_objects = RuntimeObjects.selected(
                 [path.read_text(encoding="utf-8", errors="replace") for path in (generated, *emitted)]
             )
-            runtime_sources = RuntimeObjects.sources(runtime_objects)
+            compile_runtime_objects = tuple(
+                row for row in runtime_objects if row.source not in excluded_runtime_sources
+            )
+            runtime_sources = RuntimeObjects.sources(compile_runtime_objects)
+            all_runtime_objects = tuple(dict.fromkeys((*runtime_objects, *archive_runtime_objects)))
             inputs = {
                 plan_path.absolute(),
                 generated,
                 *emitted,
                 *(unit.path for unit in plan.units),
                 *runtime_sources,
+                *archive_libraries,
             }
             self._validate_destination(output, inputs, "native output")
             if report_path is not None:
@@ -1897,20 +2050,42 @@ class NativePlanBuilder:
                 report.warnings.append(warning)
             tools = toolchain.drivers
             apple = plan.operating_system in APPLE_OPERATING_SYSTEMS
+            pic_flags = (
+                ("-fPIC",) if output_kind == "shared" and plan.operating_system != "windows" else ()
+            )
             # The link receipt's toolchain queries do not depend on the objects:
             # answer them beside preprocessing. Injected runners keep their
             # exact call sequences. The thread stays off the builder, which
             # compile workers receive by pickling.
             prefetch = None
-            if object_cache is not None and sys.platform == "darwin" and apple and self._runner is subprocess.run:
+            if (
+                output_kind != "static"
+                and object_cache is not None
+                and sys.platform == "darwin"
+                and apple
+                and self._runner is subprocess.run
+            ):
                 driver = tools["cxx" if plan.linker_language == "c++" else "cc"][0]
                 prefetch = threading.Thread(
                     target=_DarwinLinkReceipt.prefetch, args=(self._runner, driver), daemon=True
                 )
                 prefetch.start()
             package_compile, package_link = self._pkg_config(plan, pkg_config)
-            includes = [f"-I{path}" for path in plan.include_directories]
-            defines = [f"-D{name}={value}" if value else f"-D{name}" for name, value in plan.defines]
+            extra_pkg_names = tuple(name for name in archive_pkg_config if name not in plan.pkg_config)
+            if extra_pkg_names:
+                extra_compile, extra_link = self._pkg_config(replace(plan, pkg_config=extra_pkg_names), pkg_config)
+                package_compile = [*package_compile, *extra_compile]
+                if any(lib.suffix == ".a" for lib in archive_libraries):
+                    package_link = [*package_link, *extra_link]
+            extra_includes = list(archive_include_dirs)
+            if output_kind in {"static", "shared"}:
+                generated_dir = generated.parent.resolve()
+                if generated_dir not in extra_includes:
+                    extra_includes.insert(0, generated_dir)
+            all_includes = list(dict.fromkeys((*extra_includes, *plan.include_directories)))
+            includes = [f"-I{path}" for path in all_includes]
+            all_defines = list(dict.fromkeys((*plan.defines, *archive_defines)))
+            defines = [f"-D{name}={value}" if value else f"-D{name}" for name, value in all_defines]
             strict = ["-pedantic-errors", "-Wall", "-Wextra", "-Werror"]
             if debug_info:
                 strict.append("-g")
@@ -1933,8 +2108,13 @@ class NativePlanBuilder:
                 with contextlib.suppress(OSError):
                     retain_adapters = cache is not None and cache.directory.is_dir()
                 generations = _RetainedGenerations(parent, output)
+                active_plan = (
+                    replace(plan, generated_units=active_generated_units)
+                    if len(active_generated_units) != len(plan.generated_units)
+                    else plan
+                )
                 adapter_sources, report.adapter_source_status = self._generated_sources(
-                    plan,
+                    active_plan,
                     temporary,
                     parent,
                     retain=retain_adapters or debug_info,
@@ -1958,6 +2138,7 @@ class NativePlanBuilder:
                                 "-std=c11",
                                 *toolchain.arguments,
                                 *toolchain.generated_arguments,
+                                *pic_flags,
                                 *strict,
                                 *includes,
                                 *defines,
@@ -1986,6 +2167,7 @@ class NativePlanBuilder:
                                 "c",
                                 "-std=c11",
                                 *toolchain.arguments,
+                                *pic_flags,
                                 *strict,
                                 f"-O{optimization}",
                                 *compile_flags,
@@ -1999,7 +2181,7 @@ class NativePlanBuilder:
                         )
                     )
                     objects.append(runtime_object)
-                for index, unit in enumerate((*plan.units, *plan.generated_units)):
+                for index, unit in enumerate((*active_native_units, *active_generated_units)):
                     object_path = temporary / f"native-{index}.o"
                     policy = []
                     if isinstance(unit, NativeGeneratedUnit):
@@ -2022,6 +2204,7 @@ class NativePlanBuilder:
                                 *SOURCE_LANGUAGE_ARGUMENTS[unit.language],
                                 f"-std={unit.standard}",
                                 *toolchain.arguments,
+                                *pic_flags,
                                 *strict,
                                 *policy,
                                 *includes,
@@ -2111,33 +2294,50 @@ class NativePlanBuilder:
                         if cache is not None
                         else None
                     )
-                    if debug_info and apple:
+                    if debug_info and apple and output_kind != "static":
                         objects, report.debug_object_status = self._retain_debug_objects(
                             objects, temporary, parent, cache.digests if cache is not None else {}, generations
                         )
                     staged = temporary / output.name
-                    runtime_libraries = toolchain.runtime_libraries()
-                    # Group packages may each declare the same framework; link it once.
-                    framework_flags = [part for name in dict.fromkeys(plan.frameworks) for part in ("-framework", name)]
-                    # So may system libraries (ole32 for Library.COM): each links once, after the objects.
-                    library_flags = [f"-l{name}" for name in dict.fromkeys(plan.libraries)]
-                    library_flags += [
-                        flag
-                        for flag in RuntimeObjects.library_flags(runtime_objects, plan.operating_system)
-                        if flag not in library_flags
-                    ]
-                    report.link_command = [
-                        *tools["cxx" if plan.linker_language == "c++" else "cc"],
-                        *toolchain.arguments,
-                        *(str(path) for path in objects),
-                        *package_link,
-                        *framework_flags,
-                        *library_flags,
-                        *runtime_libraries,
-                        *link_flags,
-                        "-o",
-                        str(staged),
-                    ]
+                    if output_kind == "static":
+                        report.link_command = [ar, "rcs", str(staged), *(str(path) for path in objects)]
+                    else:
+                        runtime_libraries = toolchain.runtime_libraries()
+                        # Group packages may each declare the same framework; link it once.
+                        framework_flags = [
+                            part
+                            for name in dict.fromkeys((*plan.frameworks, *archive_frameworks))
+                            for part in ("-framework", name)
+                        ]
+                        # So may system libraries (ole32 for Library.COM): each links once, after the objects.
+                        library_flags = [f"-l{name}" for name in dict.fromkeys((*plan.libraries, *archive_sys_libs))]
+                        library_flags += [
+                            flag
+                            for flag in RuntimeObjects.library_flags(all_runtime_objects, plan.operating_system)
+                            if flag not in library_flags
+                        ]
+                        shared_flags: list[str] = []
+                        if output_kind == "shared":
+                            if apple:
+                                shared_flags = ["-dynamiclib", "-install_name", install_name or f"@rpath/{output.name}"]
+                            elif plan.operating_system == "windows":
+                                shared_flags = ["-shared"]
+                            else:
+                                shared_flags = ["-shared", f"-Wl,-soname,{install_name or output.name}"]
+                        report.link_command = [
+                            *tools["cxx" if plan.linker_language == "c++" else "cc"],
+                            *toolchain.arguments,
+                            *shared_flags,
+                            *(str(path) for path in objects),
+                            *(str(lib) for lib in archive_libraries),
+                            *package_link,
+                            *framework_flags,
+                            *library_flags,
+                            *runtime_libraries,
+                            *link_flags,
+                            "-o",
+                            str(staged),
+                        ]
                     # The link receipt's driver expansion of this exact command
                     # also runs while the deferred units are validated.
                     if prefetch is not None:
@@ -2148,7 +2348,10 @@ class NativePlanBuilder:
                     unit.preprocessing_status.startswith("receipt-") for unit in report.units
                 )
                 report.preprocessing_hits = sum(unit.preprocessing_status == "receipt-hit" for unit in report.units)
-                self._link(report, objects, staged, output, cache, prefetch, signer, apple, plan.sysroot_identity)
+                if output_kind == "static":
+                    self._archive_static(report, staged, output)
+                else:
+                    self._link(report, objects, staged, output, cache, prefetch, signer, apple, plan.sysroot_identity)
             if cache is not None:
                 cache.prune()
             report.wall_s = time.perf_counter() - started
@@ -2156,6 +2359,16 @@ class NativePlanBuilder:
             if report_path is not None:
                 report.write(report_path)
             return report
+
+    def _archive_static(self, report: NativeBuildReport, staged: Path, output: Path) -> None:
+        publication = ArtifactPublisher()
+        with publication.lock(output.parent, "native-link"):
+            staged.unlink(missing_ok=True)
+            started = time.perf_counter()
+            self._run(report.link_command)
+            report.links += 1
+            report.link_s += time.perf_counter() - started
+            os.replace(staged, output)
 
     def _link(
         self,
@@ -3619,6 +3832,25 @@ def main(argv: Sequence[str] | None = None, *, process_workers: bool = False) ->
         default=2,
         help="native optimization level (default: 2; use 0 for unoptimized debugging)",
     )
+    parser.add_argument(
+        "--library",
+        choices=("static", "shared"),
+        default=None,
+        help="build a static (.a) or shared (.dylib/.so) library instead of an executable",
+    )
+    parser.add_argument(
+        "--install-name",
+        default=None,
+        help="shared library install_name (Darwin) or SONAME (ELF)",
+    )
+    parser.add_argument("--ar", default="ar", help="archiver executable for --library static")
+    parser.add_argument(
+        "--package-archive",
+        action="append",
+        default=[],
+        metavar="ARCHIVE_DIR=LIB_PATH",
+        help="link against a precompiled package archive directory and its compiled library binary (repeatable)",
+    )
     parser.add_argument("--codesign-identity", help="Darwin signing certificate name or SHA-1; '-' for ad-hoc")
     parser.add_argument("--codesign-keychain", type=Path, help="already-unlocked signing keychain")
     parser.add_argument(
@@ -3632,6 +3864,14 @@ def main(argv: Sequence[str] | None = None, *, process_workers: bool = False) ->
         or arguments.codesign_tool != "/usr/bin/codesign"
     ):
         parser.error("codesign options require --codesign-identity")
+    if arguments.install_name is not None and arguments.library != "shared":
+        parser.error("--install-name requires --library shared")
+    package_archives: list[tuple[Path, Path]] = []
+    for entry in arguments.package_archive:
+        archive_text, sep, lib_text = entry.partition("=")
+        if not sep or not archive_text or not lib_text:
+            parser.error("--package-archive must be formatted as ARCHIVE_DIR=LIB_PATH")
+        package_archives.append((Path(archive_text), Path(lib_text)))
     signing = (
         DarwinSigning(
             arguments.codesign_identity,
@@ -3643,21 +3883,43 @@ def main(argv: Sequence[str] | None = None, *, process_workers: bool = False) ->
         else None
     )
     try:
-        report = NativePlanBuilder(process_workers=process_workers).build(
-            plan_path=arguments.plan,
-            generated_c=arguments.generated_c,
-            output=arguments.output,
-            cc=arguments.cc,
-            cxx=arguments.cxx,
-            pkg_config=arguments.pkg_config,
-            optimization=arguments.optimization,
-            jobs=arguments.jobs,
-            debug_info=arguments.debug_info,
-            object_cache=arguments.object_cache,
-            report_path=arguments.report_json,
-            signing=signing,
-            frontend=shlex.split(arguments.frontend_command) if arguments.frontend_command is not None else None,
-        )
+        builder = NativePlanBuilder(process_workers=process_workers)
+        if arguments.library is not None:
+            report = builder.build_library(
+                plan_path=arguments.plan,
+                generated_c=arguments.generated_c,
+                output=arguments.output,
+                shared=arguments.library == "shared",
+                install_name=arguments.install_name,
+                ar=arguments.ar,
+                cc=arguments.cc,
+                cxx=arguments.cxx,
+                pkg_config=arguments.pkg_config,
+                optimization=arguments.optimization,
+                jobs=arguments.jobs,
+                debug_info=arguments.debug_info,
+                object_cache=arguments.object_cache,
+                report_path=arguments.report_json,
+                signing=signing,
+                package_archives=package_archives,
+            )
+        else:
+            report = builder.build(
+                plan_path=arguments.plan,
+                generated_c=arguments.generated_c,
+                output=arguments.output,
+                cc=arguments.cc,
+                cxx=arguments.cxx,
+                pkg_config=arguments.pkg_config,
+                optimization=arguments.optimization,
+                jobs=arguments.jobs,
+                debug_info=arguments.debug_info,
+                object_cache=arguments.object_cache,
+                report_path=arguments.report_json,
+                signing=signing,
+                package_archives=package_archives,
+                frontend=shlex.split(arguments.frontend_command) if arguments.frontend_command is not None else None,
+            )
     except (NativePlanError, OSError) as error:
         sys.stderr.write(f"btrc-native-plan: error: {error}\n")
         return 1
