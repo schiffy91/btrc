@@ -344,6 +344,8 @@
             "src/compiler/python/abi/hosted.py"
             "src/compiler/python/abi/native_generated.py"
             "src/compiler/python/artifacts/__init__.py"
+            "src/compiler/python/artifacts/cache.py"
+            "src/compiler/python/artifacts/package_archive.py"
             "src/compiler/python/artifacts/publication.py"
             "src/compiler/python/frontend/__init__.py"
             "src/compiler/python/frontend/native_imports.py"
